@@ -1,0 +1,329 @@
+Debug of inlined a*(b-c) in pm1.c:
+b util.c:100
+b Mlucas.c:1647
+b pm1.c:988
+b pm1.c:1382
+b radix16_wrapper_square.c:3558
+dis 5
+
+WITHOUT inlined (b-c), j1 = 128, j2 = 224:
+*r1 = {d0 = -63866295.949640095, d1 = -127678154.40677667, d2 = 173280771.47777081, d3 = 29324809.094284773, 	d4 = 7134761.1753629446, d5 = -43663017.746176943, d6 = 33013786.04346028, d7 = 67769880.521743983}
+(B-C) data:
+(gdb) p *((vec_dbl*)bdd0+ 0)	$3 = {d0 = -113022358.09914729, d1 = -47485680.358207077, d2 = 401063114.63617748, d3 = 58518352.16881229, d4 = -88822156.679530546, d5 = 178389269.42559135, d6 = -16882238.432793379, d7 = 165523441.8945961}
+(gdb) p *((vec_dbl*)bdd0+ 1)	$4 = {d0 = 83181351.806321487, d1 = 61521669.328270227, d2 = -31605164.654909939, d3 = -101838921.03751579, d4 = -18282611.134722255, d5 = 206160452.2033987, d6 = 105608726.39097998, d7 = 34471403.048937917}
+(gdb) p *((vec_dbl*)bdd0+ 2)	$5 = {d0 = -154080114.80779642, d1 = 10862558.24488559, d2 = 71860635.134060532, d3 = 44373211.692583993, d4 = 50732352.1084354, d5 = 78496893.623921201, d6 = -288056337.69350576, d7 = -55814434.156978473}
+(gdb) p *((vec_dbl*)bdd0+ 3)	$6 = {d0 = 104215171.52032247, d1 = 63976640.057532474, d2 = 129104607.21757671, d3 = -132623193.48123771, d4 = -17510843.51607734, d5 = -13261648.482237928, d6 = -157372106.84300148, d7 = -75191400.407927305}
+(gdb) p *((vec_dbl*)bdd1+ 0)	$7 = {d0 = -57919150.94525823, d1 = -47090281.772465169, d2 = -27977254.733077332, d3 = -139205233.16004187, d4 = -15914849.389878154, d5 = 40724368.659369633, d6 = 208454639.70386553, d7 = -450819985.239048}
+(gdb) p *((vec_dbl*)bdd1+ 1)	$8 = {d0 = 121759346.79657699, d1 = 387907291.09827709, d2 = 307408719.86807662, d3 = 283823065.68598878, d4 = -189602229.48523909, d5 = -58717923.245710269, d6 = 137236412.54781777, d7 = -155553499.73017633}
+(gdb) p *((vec_dbl*)bdd1+ 2)	$9 = {d0 = -222204885.85824966, d1 = -72739436.166232526, d2 = -286047725.94759476, d3 = 109669414.91592233, d4 = 125093391.60853228, d5 = -218301923.13555092, d6 = 156191055.0469403, d7 = -38313276.123116873}
+(gdb) p *((vec_dbl*)bdd1+ 3)	$10 = {d0 = 195633378.15530306, d1 = -430701041.72076273, d2 = -16398928.930226028, d3 = 125169825.16613045, d4 = 106073859.66120264, d5 = -57793310.288256407, d6 = -13207382.860235572, d7 = -137731632.52762875}
+(gdb) p *((vec_dbl*)bdd2+ 0)	$11 = {d0 = -99341061.246480286, d1 = -111015585.1655162, d2 = 21216426.942927934, d3 = -127197019.22942713, d4 = 162865513.64528579, d5 = 77584497.60487707, d6 = -247532005.68473154, d7 = 101925141.69095372}
+(gdb) p *((vec_dbl*)bdd2+ 1)	$12 = {d0 = -223764162.20443302, d1 = -274435766.87445241, d2 = -16074978.897701956, d3 = 75755440.377546847, d4 = -63803465.700774476, d5 = 23100165.560901627, d6 = 90169089.530980855, d7 = -90533979.292746037}
+(gdb) p *((vec_dbl*)bdd2+ 2)	$13 = {d0 = -191420147.76805615, d1 = 13792360.157822974, d2 = -322580247.42579687, d3 = -411468911.70267385, d4 = -11554824.699528575, d5 = 46076672.20413363, d6 = -56385528.421612293, d7 = 86281553.984356374}
+(gdb) p *((vec_dbl*)bdd2+ 3)	$14 = {d0 = -72954720.347811222, d1 = 209085144.89028761, d2 = 284747682.41939789, d3 = -29504041.462342471, d4 = -80364504.888341144, d5 = 113054237.02535403, d6 = 48164813.900392801, d7 = -173861037.32693413}
+(gdb) p *((vec_dbl*)bdd3+ 0)	$15 = {d0 = 275734822.68975627, d1 = -107757012.71945533, d2 = 89188292.481164977, d3 = -171369248.21043357, d4 = 64660576.15719597, d5 = 34912833.979096785, d6 = 9883589.4880370125, d7 = -143467017.15477723}
+(gdb) p *((vec_dbl*)bdd3+ 1)	$16 = {d0 = -23672206.865656711, d1 = 32741214.438280717, d2 = 187277445.30118358, d3 = 302210129.38871336, d4 = -41953456.53622061, d5 = -29115113.767498851, d6 = -54504775.044963039, d7 = 128792538.98992646}
+(gdb) p *((vec_dbl*)bdd3+ 2)	$17 = {d0 = -89177726.29718262, d1 = 130248229.24004066, d2 = -15757513.264896033, d3 = -113454269.68400347, d4 = -134754601.44611084, d5 = 58201483.667874411, d6 = 111355969.72125991, d7 = -261006843.0814212}
+(gdb) p *((vec_dbl*)bdd3+ 3)	$18 = {d0 = 84303627.592834353, d1 = 38237331.502279371, d2 = 103228067.07969289, d3 = 132875508.43154819, d4 = 91148660.148950517, d5 = -122209733.90225634, d6 = 193492397.23806337, d7 = -285875713.04734969}
+(gdb) p *((vec_dbl*)bdd4+ 0)	$19 = {d0 = -163967281.34692574, d1 = -315227269.70686102, d2 = 79032235.246270835, d3 = 62050744.362105116, d4 = -69668373.532650352, d5 = -64920209.162765801, d6 = 296120029.82409585, d7 = -28173847.880713776}
+(gdb) p *((vec_dbl*)bdd4+ 1)	$20 = {d0 = 110863859.80406648, d1 = -135383265.60798591, d2 = -58348555.178874776, d3 = -160460704.43638861, d4 = -5674444.6224958673, d5 = -23553931.068700895, d6 = 204263974.25654182, d7 = -211912033.71384138}
+(gdb) p *((vec_dbl*)bdd4+ 2)	$21 = {d0 = 7505743.1981005967, d1 = 4258209.1763548627, d2 = -260526031.62122545, d3 = -212480493.01577082, d4 = -7274019.2815656513, d5 = 27943624.508002922, d6 = 113937450.61583346, d7 = -109993012.26886652}
+(gdb) p *((vec_dbl*)bdd4+ 3)	$22 = {d0 = -82996134.405543774, d1 = 290694905.99829483, d2 = -72063517.944228932, d3 = -48335322.732569814, d4 = -224384784.96691185, d5 = 115940824.11888641, d6 = 325093525.77841103, d7 = -220795569.83837387}
+(gdb) p *((vec_dbl*)bdd5+ 0)	$23 = {d0 = -93295069.819347143, d1 = -25523794.303153176, d2 = -93834453.921404451, d3 = -147351483.10492545, d4 = 100316701.16577367, d5 = 84527970.311870396, d6 = 168222985.99071258, d7 = -250181231.35723698}
+(gdb) p *((vec_dbl*)bdd5+ 1)	$24 = {d0 = 13968798.750441492, d1 = 39831831.67592217, d2 = 21913402.698420316, d3 = -355017723.13201106, d4 = -165553057.24585876, d5 = 51526111.963498503, d6 = -312358538.84681666, d7 = -149707260.42773473}
+(gdb) p *((vec_dbl*)bdd5+ 2)	$25 = {d0 = -46517205.673800722, d1 = -79765457.006371796, d2 = 71249477.179872498, d3 = -214887868.09678268, d4 = 58045802.657649748, d5 = -128997943.38501433, d6 = -98435338.702280685, d7 = -173978538.50752032}
+(gdb) p *((vec_dbl*)bdd5+ 3)	$26 = {d0 = -102135706.45856264, d1 = 98854073.951987445, d2 = 74120317.133006856, d3 = 72423191.443793431, d4 = 135656369.29383218, d5 = 88207488.115391254, d6 = 192203145.87458682, d7 = 124602263.73739412}
+(gdb) p *((vec_dbl*)bdd6+ 0)	$27 = {d0 = -55272869.798430696, d1 = 64796440.730074577, d2 = -260902818.04885468, d3 = -154090358.78288162, d4 = 92745217.784009978, d5 = -180005552.43757576, d6 = 114341180.5081917, d7 = -280380109.80023503}
+(gdb) p *((vec_dbl*)bdd6+ 1)	$28 = {d0 = 75635874.149513304, d1 = -40444535.82880988, d2 = 29587386.158188738, d3 = 70367991.222669572, d4 = -124404034.32499406, d5 = -88367047.319948614, d6 = -180701774.67146081, d7 = 125821792.16060761}
+(gdb) p *((vec_dbl*)bdd6+ 2)	$29 = {d0 = 191527230.07147437, d1 = -138564134.37633294, d2 = -154866960.39002132, d3 = -45442976.803553373, d4 = 188252582.48831457, d5 = 106466679.31754491, d6 = -57014222.095907882, d7 = 79735641.75753659}
+(gdb) p *((vec_dbl*)bdd6+ 3)	$30 = {d0 = 84568610.763407111, d1 = 136621758.92320925, d2 = -278994698.88723958, d3 = 38419304.815053388, d4 = -192480496.20588481, d5 = 92074802.647461578, d6 = 123600.1864798516, d7 = 128055535.87829655}
+(gdb) p *((vec_dbl*)bdd7+ 0)	$31 = {d0 = 35911981.173020571, d1 = 12034549.224542364, d2 = 186056075.28060979, d3 = 87280877.371146247, d4 = 93709055.747448191, d5 = -5231078.7230784036, d6 = -274227508.91128123, d7 = -61006793.128707349}
+(gdb) p *((vec_dbl*)bdd7+ 1)	$32 = {d0 = -28307462.300373696, d1 = -237928038.02798957, d2 = 137265417.72520056, d3 = 40127998.942748576, d4 = -89927735.059960186, d5 = 70291227.936846584, d6 = -74519337.173856929, d7 = 14991021.919096045}
+(gdb) p *((vec_dbl*)bdd7+ 2)	$33 = {d0 = -88414652.405388743, d1 = -188513293.49542972, d2 = 44821374.910670578, d3 = 177169562.18084231, d4 = -77643784.301931649, d5 = -295545089.25573355, d6 = -53244287.692635223, d7 = 36656098.071562737}
+(gdb) p *((vec_dbl*)bdd7+ 3)	$34 = {d0 = 11512448.112284213, d1 = -28773167.112608805, d2 = -131660195.90371121, d3 = 260312466.57891786, d4 = 210093647.18765801, d5 = 123682976.15960687, d6 = 107657068.40043789, d7 = 62078271.216729239}
+
+p *((vec_dbl*)bdd0+ 0)
+p *((vec_dbl*)bdd0+ 1)
+p *((vec_dbl*)bdd0+ 2)
+p *((vec_dbl*)bdd0+ 3)
+p *((vec_dbl*)bdd1+ 0)
+p *((vec_dbl*)bdd1+ 1)
+p *((vec_dbl*)bdd1+ 2)
+p *((vec_dbl*)bdd1+ 3)
+p *((vec_dbl*)bdd2+ 0)
+p *((vec_dbl*)bdd2+ 1)
+p *((vec_dbl*)bdd2+ 2)
+p *((vec_dbl*)bdd2+ 3)
+p *((vec_dbl*)bdd3+ 0)
+p *((vec_dbl*)bdd3+ 1)
+p *((vec_dbl*)bdd3+ 2)
+p *((vec_dbl*)bdd3+ 3)
+p *((vec_dbl*)bdd4+ 0)
+p *((vec_dbl*)bdd4+ 1)
+p *((vec_dbl*)bdd4+ 2)
+p *((vec_dbl*)bdd4+ 3)
+p *((vec_dbl*)bdd5+ 0)
+p *((vec_dbl*)bdd5+ 1)
+p *((vec_dbl*)bdd5+ 2)
+p *((vec_dbl*)bdd5+ 3)
+p *((vec_dbl*)bdd6+ 0)
+p *((vec_dbl*)bdd6+ 1)
+p *((vec_dbl*)bdd6+ 2)
+p *((vec_dbl*)bdd6+ 3)
+p *((vec_dbl*)bdd7+ 0)
+p *((vec_dbl*)bdd7+ 1)
+p *((vec_dbl*)bdd7+ 2)
+p *((vec_dbl*)bdd7+ 3)
+
+================================
+
+shift_word breaks when make ii unsigned - here with it signed,
+p = 3375668707
+initial shift = 617966428
+n = 201326592
+
+iter   1: shift = 1235932856, shift_word result = 73711661, 12
+iter   2: shift = 2471865712, shift_word result = 129342395, 122
+iter   3: shift = 1568062717, shift_word result = 93520054, 15
+iter   4: shift = 3136125434, shift_word result = 131933609, 1
+iter   5: shift = 2896582161, shift_word result = 130999174, 18
+iter   6: shift = 2417495615, shift_word result = 129130303, 68
+iter   7: shift = 1459322523, shift_word result = 87034734, 10
+iter   8: shift = 2918645046, shift_word result = 131085239, 55
+iter   9: shift = 2461621385, shift_word result = 129302433, 143
+iter  10: shift = 1547574063, shift_word result = 92298101, 3
+iter  11: shift = 3095148126, shift_word result = 131773760, 102
+iter  12: shift = 2814627545, shift_word result = 130679476, 220
+iter  13: shift = 2253586383, shift_word result = 128490908, 216
+iter  14: shift = 1131504059, shift_word result = 67483475, 6
+iter  15: shift = 2263008118, shift_word result = 128527662, 121
+iter  16: shift = 1150347529, shift_word result = 68607309, 7
+iter  17: shift = 2300695058, shift_word result = 128674675, 30
+iter  18: shift = 1225721409, shift_word result = 73102645, 14
+iter  19: shift = 2451442818, shift_word result = 129262727, 143
+iter  20: shift = 1527216929, shift_word result = 91083991, 7
+iter  21: shift = 3054433858, shift_word result = 131614938, 68
+iter  22: shift = 2733199009, shift_word result = 130361831, 169
+iter  23: shift = 2090729311, shift_word result = 124692155, 6
+iter  24: shift =  805789915, shift_word result = 48057718, 13
+iter  25: shift = 1611579830, shift_word result = 96115437, 9
+iter  26: shift = 3223159660, shift_word result = 132273121, 110
+iter  27: shift = 3070650613, shift_word result = 131729466, 255
+iter  28: shift = 2765632519, shift_word result = 130488352, 9
+iter  29: shift = 2155596331, shift_word result = 128108659, 50
+iter  30: shift =  935523955, shift_word result = 55795122, 11
+iter  31: shift = 1871047910, shift_word result = 111590245, 5
+iter  32: shift =  366427113, shift_word result = 21853898, 11
+iter  33: shift =  732854226, shift_word result = 43707797, 5
+iter  34: shift = 1465708452, shift_word result = 87415594, 11
+iter  35: shift = 2931416904, shift_word result = 131135060, 85
+iter  36: shift = 2487165101, shift_word result = 129402076, 187
+iter  37: shift = 1598661495, shift_word result = 95344981, 9
+iter  38: shift = 3197322990, shift_word result = 132172334, 242
+iter  39: shift = 3018977273, shift_word result = 131476625, 5
+iter  40: shift = 2662285839, shift_word result = 130085206, 25
+iter  41: shift = 1948902971, shift_word result = 116233560, 10
+iter  42: shift =  522137235, shift_word result = 31140529, 4
+iter  43: shift = 1044274470, shift_word result = 62281058, 8
+iter  44: shift = 2088548940, shift_word result = 124562116, 16
+iter  45: shift =  801429173, shift_word result = 47797641, 15
+iter  46: shift = 1602858346, shift_word result = 95595283, 14
+iter  47: shift = 3205716692, shift_word result = 132205077, 218
+iter  48: shift = 3035764677, shift_word result = 131542110, 213
+iter  49: shift = 2695860647, shift_word result = 130216178, 169
+iter  50: shift = 2016052587, shift_word result = 120238397, 12
+iter  51: shift =  656436467, shift_word result = 39150203, 8
+iter  52: shift = 1312872934, shift_word result = 78300406, 16
+iter  53: shift = 2625745868, shift_word result = 129969227, 217
+iter  54: shift = 1875823029, shift_word result = 111875035, 14
+iter  55: shift =  375977351, shift_word result = 22423479, 11
+iter  56: shift =  751954702, shift_word result = 44846959, 6
+iter  57: shift = 1503909404, shift_word result = 89693918, 13
+iter  58: shift = 3007818808, shift_word result = 131433097, 62
+iter  59: shift = 2639968909, shift_word result = 129998149, 156
+iter  60: shift = 1904269111, shift_word result = 113571574, 9
+iter  61: shift =  432869515, shift_word result = 25816557, 3
+iter  62: shift =  865739030, shift_word result = 51633114, 6
+iter  63: shift = 1731478060, shift_word result = 103266228, 12
+iter  64: shift =   87287413, shift_word result = 5205865, 8
+iter  65: shift =  174574826, shift_word result = 10411731, 1
+iter  66: shift =  349149652, shift_word result = 20823462, 2
+iter  67: shift =  698299304, shift_word result = 41646924, 4
+iter  68: shift = 1396598608, shift_word result = 83293848, 9
+iter  69: shift = 2793197216, shift_word result = 130595878, 172
+iter  70: shift = 2210725725, shift_word result = 128323713, 104
+iter  71: shift = 1045782743, shift_word result = 62371012, 10
+iter  72: shift = 2091565486, shift_word result = 124742025, 4
+iter  73: shift =  807462265, shift_word result = 48157458, 9
+iter  74: shift = 1614924530, shift_word result = 96314917, 3
+iter  75: shift = 3229849060, shift_word result = 132299215, 234
+iter  76: shift = 3084029413, shift_word result = 131730386, 244
+iter  77: shift = 2792390119, shift_word result = 130592730, 232
+iter  78: shift = 2209111531, shift_word result = 128317416, 240
+iter  79: shift = 1042554355, shift_word result = 62178469, 15
+iter  80: shift = 2085108710, shift_word result = 124356939, 15
+iter  81: shift =  794548713, shift_word result = 47387287, 13
+iter  82: shift = 1589097426, shift_word result = 94774575, 10
+iter  83: shift = 3178194852, shift_word result = 132097717, 172
+iter  84: shift = 2980720997, shift_word result = 131327391, 105
+iter  85: shift = 2585773287, shift_word result = 129786737, 242
+iter  86: shift = 1795877867, shift_word result = 107107065, 14
+iter  87: shift =  216087027, shift_word result = 12887539, 12
+iter  88: shift =  432174054, shift_word result = 25775079, 9
+iter  89: shift =  864348108, shift_word result = 51550159, 1
+iter  90: shift = 1728696216, shift_word result = 103100318, 3
+iter  91: shift =   81723725, shift_word result = 4874044, 6
+iter  92: shift =  163447450, shift_word result = 9748088, 12
+iter  93: shift =  326894900, shift_word result = 19496177, 7
+iter  94: shift =  653789800, shift_word result = 38992354, 15
+iter  95: shift = 1307579600, shift_word result = 77984709, 14
+iter  96: shift = 2615159200, shift_word result = 129901369, 169
+iter  97: shift = 1854649693, shift_word result = 110612247, 6
+iter  98: shift =  333630679, shift_word result = 19897902, 12
+iter  99: shift =  667261358, shift_word result = 39795805, 7
+iter 100: shift = 1334522716, shift_word result = 79591610, 15
+100 iterations of M3375668707 with FFT length 201326592 = 196608 K, final residue shift count = 1334522716
+Res64: B6020B31E56F7084. AvgMaxErr = 0.276339286. MaxErr = 0.312500000. Program: E20.0
+Res mod 2^35 - 1 =           3093741491
+Res mod 2^36 - 1 =          38543047658
+Clocks = 00:02:56.111
+
+I suspect my run that generated this ref-residue set used just radix set 0 and the same shift,
+i.e. the -shift 0 data in b.txt are in fact the correct ones.
+
+================================
+
+Radix 240 works under AVX-512:
+
+  #ifdef USE_AVX512
+	// For nfold > 2,  RADIX/8 not divisible by 2^nfold, so use a more-general inner-loop scheme which can handle that:
+	int nfold = USE_SHORT_CY_CHAIN + 0;
+	const int nexec_long[] = {30}, nexec_med[] = {15,15}, nexec_short[] = {8,7,8,7}, nexec_hiacc[] = {4,4,4,3,4,4,4,3};
+  #elif defined(USE_AVX)
+	// For nfold > 4,  RADIX/4 not divisible by 2^nfold, so use a more-general inner-loop scheme which can handle that:
+	int nfold = USE_SHORT_CY_CHAIN + 0;
+	const int nexec_long[] = {60}, nexec_med[] = {30,30}, nexec_short[] = {15,15,15,15}, nexec_hiacc[] = {8,7,8,7,8,7,8,7};
+  #endif
+	// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+		if(USE_SHORT_CY_CHAIN == 0)
+			incr = incr_long;
+		else if(USE_SHORT_CY_CHAIN == 1)
+			incr = incr_med;
+		else if(USE_SHORT_CY_CHAIN == 2)
+			incr = incr_short;
+		else
+			incr = incr_hiacc;
+	} else {	// MODULUS_TYPE_FERMAT:
+	#ifdef USE_AVX
+		if(USE_SHORT_CY_CHAIN == 0)
+			inc_arr = nexec_long;
+		else if(USE_SHORT_CY_CHAIN == 1)
+			inc_arr = nexec_med;
+		else if(USE_SHORT_CY_CHAIN == 2)
+			inc_arr = nexec_short;
+		else
+			inc_arr = nexec_hiacc;
+	#endif
+	}
+====================================
+  #else	// HIACC = false:
+
+	// Oct 2014: Try getting most of the LOACC speedup with better accuracy by breaking the complex-roots-of-(-1)
+	// chaining into 2 or more equal-sized subchains, each starting with 'fresh' (unchained) complex roots:
+	tm0 = s1p00; tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
+	ic_idx = 0; jc_idx = 1; kc_idx = 2; lc_idx = 3;
+  #ifdef USE_AVX512
+	mc_idx = 4; nc_idx = 5; oc_idx = 6; pc_idx = 7;
+  #endif
+
+	uint32 naccum = 0;	// Stores sum of [0-ntmp]th elements of inc_arr[]
+	for(ntmp = 0; ntmp < (1 << nfold); ++ntmp)
+	{
+		// E.g.: nfold = 1 (==> 2^nfold = 2-subchains) means L takes its value
+		// from (j) at start of 1st inner-loop exec, and from (j + n/2) at start of 2nd:
+	//	l = (j + ntmp*(n>>nfold)) >> 1;	*** Only works if RADIX divisible by 2^(lg(RE_IM_STRIDE)+nfold)
+		l = (j + naccum*NDIVR*RE_IM_STRIDE) >> 1;	naccum += inc_arr[ntmp];
+
+	// Get the needed quartet (octet if AVX512) of Nth roots of -1: This is the same code as in the scalar
+	// fermat_carry_norm_errcheck() macro, with the single index j replaced by the quartet j,j+2,j+4,j+6:
+		for(i = 0; i < RE_IM_STRIDE; i++) {
+			k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+			l += 1;
+		}
+
+		// The above need some inits to prepare for the AVX version of the Fermat-mod carry macro:
+		SSE2_fermat_carry_init_loacc(base_negacyclic_root);
+
+		// The other ptrs need to carry over from pvs loop, but this one needs resetting due to above 'multipliers refresh'
+		tmp = base_negacyclic_root;	// tmp *not* incremented between macro calls in loacc version
+
+	#ifdef USE_AVX512
+
+		for(l = 0; l < inc_arr[ntmp]; l++) {
+			k1 = icycle[ic_idx];
+			k2 = icycle[jc_idx];	k9 = jcycle[ic_idx];
+			k3 = icycle[kc_idx];	ka = kcycle[ic_idx];
+			k4 = icycle[lc_idx];	kb = lcycle[ic_idx];
+			k5 = icycle[mc_idx];	kc = mcycle[ic_idx];
+			k6 = icycle[nc_idx];	kd = ncycle[ic_idx];
+			k7 = icycle[oc_idx];	ke = ocycle[ic_idx];
+			k8 = icycle[pc_idx];	kf = pcycle[ic_idx];
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+												/* (cy_i_cy_r) --vvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
+			SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x780, 0x3c0,0x780,0xb40, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
+			tm0 += 16; tm1++;
+			MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
+			MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
+			MOD_ADD32(kc_idx, 8, ODD_RADIX, kc_idx);
+			MOD_ADD32(lc_idx, 8, ODD_RADIX, lc_idx);
+			MOD_ADD32(mc_idx, 8, ODD_RADIX, mc_idx);
+			MOD_ADD32(nc_idx, 8, ODD_RADIX, nc_idx);
+			MOD_ADD32(oc_idx, 8, ODD_RADIX, oc_idx);
+			MOD_ADD32(pc_idx, 8, ODD_RADIX, pc_idx);
+		}
+
+	#else	// AVX / AVX2
+
+=============================================
+Mar 2022: Compare double-based v18 build to float-based hack:
+Under GDB:
+o set BP at last debug-print in radix32_main_carry_pass.h
+o run -fft 2M -m 9198199 -iters 100 -shift 0 -radset 6
+
+full_pass = 0, In: a[0,1] =      2.00000,     9.18271, cy0,1 =    0.00000,   0.00000
+              Out: a[0,1] =      2.00000,     9.18271, cy0,1 =    0.00000,   0.00000
+
+full_pass = 1, DITn outputs:
+poff0 a.{re,im}[0-3] =      4.00000,    36.73083,     -0.00000,     0.00000,      0.00000,     0.00000,      0.00000,     0.00000
+poff1 a.{re,im}[0-3] =      0.00000,    -0.00000,      0.00000,    -0.00000,      0.00000,     0.00000,      0.00000,     0.00000
+poff2 a.{re,im}[0-3] =      0.00000,    -0.00000,      0.00000,     0.00000,      0.00000,    -0.00000,      0.00000,     0.00000
+poff3 a.{re,im}[0-3] =      0.00000,    -0.00000,      0.00000,    -0.00000,      0.00000,     0.00000,     -0.00000,     0.00000
+poff4 a.{re,im}[0-3] =      0.00000,     0.00000,      0.00000,     0.00000,      0.00000,     0.00000,      0.00000,    -0.00000
+poff5 a.{re,im}[0-3] =      0.00000,    -0.00000,     -0.00000,     0.00000,      0.00000,    -0.00000,     -0.00000,     0.00000
+poff6 a.{re,im}[0-3] =      0.00000,    -0.00000,     -0.00000,     0.00000,      0.00000,     0.00000,     -0.00000,    -0.00000
+poff7 a.{re,im}[0-3] =      0.00000,    -0.00000,      0.00000,     0.00000,      0.00000,     0.00000,      0.00000,     0.00000
+
+full_pass = 1, In: a[0,1] =      2.00000,    36.73083, cy0,1 =    0.00000,   0.00000
+              Out: a[0,1] =      2.00000,   -12.24361, cy0,1 =    2.00000,   0.00000	<*** Check a[2,3] at this point ****
+
+Iter = 3, prp_mult =  1.0, maxerr =    0.00000
+a[0-9] =    2.00000, -12.24361,  11.71140,   3.58475,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
+								*****^^^^^^^^^^^^^^^******** differ from float-version!
+At above-marked point:
+(gdb) p cy_r[0]
+$2 = 2
+(gdb) p a[1]
+$3 = -12.24360861945636
+(gdb) p a[2]
+$4 = 2763066.5077510853
+(gdb) p a[3]
+$5 = 1.0086376178719547e-12
+(gdb) p a[4]
+$6 = -4.1940189243318834e-13
+a[0,1] match SP version, but as-yet-unnormalized a[2,3] are wildly different.

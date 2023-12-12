@@ -1,0 +1,2416 @@
+Aug 2022: Mfactor bugfixes and adding support for to make scipt:
+EWM:
+Been thinking about the best way to add Mfactor support to the current build script, here my thinking:
+
+1. Treat "build Mfactor" much as we currently do a specified architecture: 'bash makemake.sh mfac" would create an obj_mfac directory ex to /src and build Mfactor in it. It would also be nice to support an optional number-of-limbs flag, e.g. '2word', which would only be allowed fo Mfactor builds, not Mlucas ones.
+
+2. Build only the minimal fileset, which for Mfactor is (relative to obj_mfac):
+
+../src/factor.c.txt ../src/getRealTime.c ../src/get_fft_radices.c ../src/get_cpuid.c ../src/get_fp_rnd_const.c ../src/imul_macro.c ../src/mi64.c ../src/qfloat.c ../src/rng_isaac.c ../src/two*c ../src/types.c ../src/threadpool.c ../src/util.c
+
+All sources can be built using the same preprocessor flags, '-DUSE_THREADS -DFACTOR_STANDALONE -DP[n]WORD', where DFACTOR_STANDALONE is ignored by all input files other than factor.c. Here the link step for default "single-limb-plus factors" build mode, meaning up to 96 bits:
+
+gcc -o Mfactor *o -lm -lpthread -lrt
+
+For 2-limb it would be good to link to 'Mfactor_2word', and so forth.
+
+I've appended my current working copy of the build script - you'll note the added-arg support, that is to allow control over whether GMP and HWLOC are used in the build. The above Mfactor stuff needs to be worked in.
+
+Tdulcet:
+OK, I was able to integrate Mfactor support into your ./makemake.sh script and I believe I implemented all your requested features (see attached below). I also simplified the script a little and fixed a few issues. The arguments are now case insensitive, so ./makemake.sh mfac is the same as ./makemake.sh MFAC. However, Mfactor does not actually build for me with the latest Mlucas v20.1.1 code, so I was not able to fully test it (I presume you have fixed those bugs in Mlucas v21). I also of course do not have access to a Mac to test that functionality. I would highly encourage you to thoroughly test it, just to make sure I did not break anything or misunderstand your Mfactor build instructions. Note that there are a lot of possible combinations of options now (2 * 2 * 8 * 2 * 5 = 320 combos if I am counting correctly). You will also likely need to adjust some of the compiler augments for Mfactor, as I was unsure what you wanted as the default, as well as the possible values for the -DP[n]WORD flag.
+
+EWM: replies to above:
+
+To prevent the combinatorial explosion of possible combinations of options you mention, I've added a few "mutually exclusive" clauses to the arg-processing, specifically:
+
+o Since Mfactor at present does not benefit signicantly from use if SIMD instructions at any "number of words" setting (word = 64-bit limb), arch-specific falgs are of n use. Further, it makes sense to auto-build all the various #words build setting for factor.c hen building the TF binary. Thus I am treating 'mfac' and mutually exclusive with all other args. When said flag is invoked, the script starts by building the default "1-word" Mfactor, where I use the quotes because it's a bit of a mismomer: the default build supports TF depths to 96 bits.
+
+Again with sole arg 'mfac', the script then recompiles just factor.c with flags -DP[n]WORD and n = 2,3,4 (the only supported values for this flag) and also -DNWORD, which allows for arbitrary factor candidate lengths but uses simple quadratic-complexity multiword MULs, thus not recommended to use for > 10 words. We end up with the following executables, with their associated max bits listed in the right column:
+
+Name			max_bits
+Mfactor			 96
+Mfactor_2word	128
+Mfactor_3word	192
+Mfactor_4word	256
+Mfactor_nword	unlimted
+
+
+===============================
+PRP-PROOF: HOW TO COMPUTE THE "MIDDLES" M[I]:
+
+o The first middle, M (that we're going to call M0 now) was encountered during the normal progress of original the PRP test (thus, to obtain M0 we simply save that residue). OTOH M1 is not part of the original PRP iterations, nevertheless it can be efficiently computed from two residues (the ones at iterations topK/4 and 3*topK/4) of the original PRP test.
+***how?***
+We can choose how far to go with this sequence of "middles", M0, M1, ... . I'm going to call the number of middles that are part of the proof the "power" of the proof. When power = 1 (the smallest proof), we store in the proof in addition to B only M0, and the verification effort is topK/2 iterations. When power = 2, the size of the proof increases by one residue (adding M1), and the verification effort is halved to topK/4 iterations.
+
+For M0, we need to save the residue at iteration topK/2 (one residue).
+For M1, we need to save the residues at topK/4 and 3*topK/4 (two residues).
+And so on, for M[i] we need to save 2^i residues when going through the initial PRP test.
+
+So for a proof of power N we need to save in total 2^N residues. (for a 100M exponent, a residue is roughly 12MB in size, so for a proof of power = 9 we need about 6GB of disk space for residue storage during the progress of the PRP test).	<*** This is storage needed on the PROVER end ***
+
+Once the proof has been computed (and presumably verified to make sure it was computed correctly) this storage can be released. The size of the proof itself (of power N) is just N+1 residues, so for power = 9 the proof size is 120MB (much smaller than the transient space requirements of 6GB during the PRP test).	<*** Storage needed on the VERIFIER end ***
+===============================
+*** Ingie To-Do: ***
+o Pot for succulent
+o Snowden book!
+o Wipe hallway prints
+o Blender for strawberry margaritas?
+o BR poster!
+o
+===============================
+Calling OpenSSL sha3-256 from C code; cf. https://stackoverflow.com/questions/2262386/generate-sha256-with-openssl-and-c
+Need this in source:
+	#include "openssl/sha.h"
+And possibly one/both of these:
+	-I/opt/ssl/include/ -L/opt/ssl/lib/
+And this at link time:
+	-lcrypto
+
+Ex 1:
+void sha256_hash_string(unsigned char hash[SHA256_DIGEST_LENGTH], char outputBuffer[65])
+{
+	for(int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+		sprintf(outputBuffer + (i * 2), "%02x", hash[i]);
+	}
+	outputBuffer[64] = 0;
+}
+
+void sha256_string(char *string, char outputBuffer[65])
+{
+	unsigned char hash[SHA256_DIGEST_LENGTH];
+	SHA256_CTX sha256;
+	SHA256_Init(&sha256);
+	SHA256_Update(&sha256, string, strlen(string));
+	SHA256_Final(hash, &sha256);
+	for(int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+		sprintf(outputBuffer + (i * 2), "%02x", hash[i]);
+	}
+	outputBuffer[64] = 0;
+}
+
+int sha256_file(char *path, char outputBuffer[65])
+{
+	FILE *file = fopen(path, "rb");
+	if(!file) return -534;
+
+	unsigned char hash[SHA256_DIGEST_LENGTH];
+	SHA256_CTX sha256;
+	SHA256_Init(&sha256);
+	const int bufSize = 32768;
+	unsigned char *buffer = malloc(bufSize);
+	int bytesRead = 0;
+	if(!buffer) return ENOMEM;
+	while((bytesRead = fread(buffer, 1, bufSize, file)))
+	{
+		SHA256_Update(&sha256, buffer, bytesRead);
+	}
+	SHA256_Final(hash, &sha256);
+
+	sha256_hash_string(hash, outputBuffer);
+	fclose(file);
+	free(buffer);
+	return 0;
+}
+
+It's called like this:
+
+static unsigned char buffer[65];
+sha256("string", buffer);
+printf("%s\n", buffer);
+
+Ex 2:
+char *str2sha256( const char *str, int length ) {
+	int n;
+	SHA256_CTX c;
+	unsigned char digest[ SHA256_DIGEST_LENGTH ];
+	char *out = (char*) malloc( 33 );
+
+	SHA256_Init( &c );
+	while( length > 0 ) {
+		if( length > 512 ) SHA256_Update( &c, str, 512 );
+		else SHA256_Update( &c, str, length );
+		length -= 512;
+		str += 512;
+	}
+	SHA256_Final( digest, &c );
+
+	for( n = 0; n < SHA256_DIGEST_LENGTH; ++n )
+		snprintf( &( out[ n*2 ] ), 16*2, "%02x",(unsigned int) digest[ n ] );
+	return out;
+}
+===============================
+Using C-code in SHA3:
+#include <sys/stat.h>
+...
+#include "sha3.h"
+// Simple adaptation of Andrey Jivsov's sha3sum.c::main():
+uint64 sha3sum(const char *file_path, int sha3bits, const uint64_t *hash64) {
+	sha3_context c;
+	const uint8_t *hash;
+	int fd;
+	struct stat st;
+	void *p;
+	unsigned i,j;
+
+	if( access(file_path, R_OK) != 0 ) {
+		sprintf(cbuf,"Cannot read file '%s'", file_path);	ASSERT(HERE,0,cbuf);
+	}
+
+	fd = open(file_path, O_RDONLY);
+	if( fd == -1 ) {
+		sprintf(cbuf,"Cannot open file '%s' for reading", file_path);	ASSERT(HERE,0,cbuf);
+	}
+	i = fstat(fd, &st);
+	if( i ) {
+		close(fd);
+		sprintf(cbuf,"Cannot determine the size of file '%s'", file_path);	ASSERT(HERE,0,cbuf);
+	}
+
+	p = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);	close(fd);
+	if(!p) {
+		sprintf(cbuf,"Cannot memory-map file '%s'", file_path);	ASSERT(HERE,0,cbuf);
+	}
+
+	if(sha3bits == 256)
+		sha3_Init256(&c);
+	else if(sha3bits == 384)
+		sha3_Init384(&c);
+	else if(sha3bits == 512)
+		sha3_Init512(&c);
+	else
+		ASSERT(HERE,0,"Unsupported SHA-3 bitcount: please use one of 256,384,512.");
+
+	sha3_Update(&c, p, st.st_size);
+	hash = sha3_Finalize(&c);
+
+	munmap(p, st.st_size);
+
+	for(i = 0; i < sha3bits/8; i++) {
+		char s[3];
+		byte_to_hex(hash[i],s);
+		printf("%s", s);
+	}
+	printf("  %s\n", file_path);
+	printf("uint64 hex-print = ");
+	for(i = 0; i < sha3bits/64; i++) {
+		hash64[i] = 0;
+		for(j = 0; j < 8, j++) hash64[i] += ((uint64_t)(hash[i*8 + j])) << (j*8);
+		printf("%016llx",hash64[i]);
+	}
+
+...
+}
+===============================
+===============================
+
+// Simulate the middles-generating loop in ProofSet::computeProof():
+#include <stdio.h>
+int main(int power) {
+	int p,buf,s,i,k;
+	printf("Power = %d; Outer loop from p = 0 to (power-1):\n",power);
+	for(p = 0; p < power; ++p) {
+		buf = 0;	/* Replace C++ pointer wiTh buffer-index */
+		s = 1<<(power - p - 1);	/* s = 2^[(power-1),...,0] = stride */
+		printf("****** Stride s = %d; I-loop: i from 0 to 2^p = %d ******\n",s,1<<p);
+		for(i = 0; i < (1 << p); ++i) {	/* ihi = 2^[0,...,8] */
+			/* What is stored in points[]? Intermediate PRP-residues? */
+			printf("Load points[%d] into buf[%d]\n",s * (i * 2 + 1) - 1,buf++);
+			printf("i = %d: k = ",i);
+			buf++;	/* Actual code: Copy residues w into sequential bufVect[] entries */
+			for(k = 0; i & (1 << k); ++k) {
+				printf("%d.",k);
+				--buf;
+			/*	print "{buf[",buf-1,"]^h[",p - 1 - k,"]*buf[",buf,"]}.";	*/
+			}
+			printf("\n");
+		}
+		if(buf != 1) printf("Exit value of buf should be 1, instead get %d!\n",buf);
+	}
+	printf("Done.\n");
+	return 0;
+}
+/*
+p	s	ihi	points[] indices
+---	---	---	----------------
+0	256	1	256*[1]-1			[256]-1					255
+1	128	2	128*[1,3]-1			[128,384]-1				127,383
+2	64	4	64*[1,3,5,7]-1		[64,192,320,448]-1		63,191,311,447
+3	32	8	32*[1:15:2]-1		[32,96,...,416,480]-1	31,95,...,415,479
+4	16	16	16*[1:31:2]-1		[16,48,...,464,496]-1	15,47,...,463,495
+5	8	32	8*[1:63:2]-1		[8,24,...,488,504]-1	7,23,...,487,503
+6	4	64	4*[1:127:2]-1		[4,12,...,500,508]-1	3,11,...,499,507
+7	2	128	2*[1:255:2]-1		[2,6,...,506,510]-1		1,5,...,505,509
+8	1	256	1*[1:511:2]-1		[1,3,...,509,511]-1		0,2,4,...,508,510
+*/
+------------------
+p = 5
+for (i = 0; i < 2^p; ++i) {
+	print "i = ",i,": k = ";
+	for (k = 0; bitwise_and(i,2^k) != 0; ++k) {
+		print k,".";
+	}
+	print "\n";
+}
+------------------
+When I simulate this loop for p = 5, i runs from 0-31, and the loop body executes only for odd k:
+i = 0: k =
+i = 1: k = 0.
+i = 2: k =
+i = 3: k = 0.1.
+i = 4: k =
+i = 5: k = 0.
+i = 6: k =
+i = 7: k = 0.1.2.
+i = 8: k =
+i = 9: k = 0.
+i = 10: k =
+i = 11: k = 0.1.
+i = 12: k =
+i = 13: k = 0.
+i = 14: k =
+i = 15: k = 0.1.2.3.
+i = 16: k =
+i = 17: k = 0.
+i = 18: k =
+i = 19: k = 0.1.
+i = 20: k =
+i = 21: k = 0.
+i = 22: k =
+i = 23: k = 0.1.2.
+i = 24: k =
+i = 25: k = 0.
+i = 26: k =
+i = 27: k = 0.1.
+i = 28: k =
+i = 29: k = 0.
+i = 30: k =
+i = 31: k = 0.1.2.3.4.
+
+I see k is used to compute te index into the 64-bit hash vector, and once we have the 64-bit hash h we compute
+	res[j-1]^h * res[j] (mod n),
+where res[j] is the current saved interim residue, accessed via the dereferencing *bufIt.
+===============================
+
+Hmm - I wonder if your htop output might be reflecting the threadpool-based dispatch. There are 2 distinct such pools; assume your FFT uses radices r0,r1,...,r[n-1], where any non-power-of-2 component is contained in r0 and the rest are powers of 2:
+
+1. This one handles all the FFT/iFFT passes but the leading radix-r0 one. It divides the residue-array into (r0/2) disjoint contiguous-address chunks**, does the final (n-1) passes of the FFT, the dyadic-mul, and the first (n-1) passes of the iFFT. Each chunk is processed within a distinct pthread, but the user's -cpu argument controls how many such threads are getting crunched at any given time.
+
+2. This one does the final radix-r0 iFFT pass, the carry step and the initial radix-r0 FFT pass. It divides the residue-array into CY_THREADS CY_THREADS large-strided-address chunks - think of a set of wide-toothed "combs" stacked just slightly offset from each other so the teeth exactly cover the full residue array - each comb represents the data crunched by a single carry-step thread - where CY_THREADS is the largest power of 2 <= the user-specified thread count.
+
+
+** The /= 2 is due to Mersenne-mod needing a real-vector transform; my basic FFT is complex-data, so this needs a postprocessing step which uses (j,n-j) index-pair correlations, which pairing is reflected in each thread needing to crunch 2 data chunks and then combine that way prior to the dyadic-mul step between FF and iFFT
+
+============================
+
+*** Make sure initial assignment-splitting can handle "n/a"
+*** Diff current local v20.1.1 Mlucas.c vs release one ***
+
+*** P-1 to-do: ***
+o James Heinrich's a P-1 probability calculator: https://www.mersenne.ca/prob.php
+
+code Mihai wrote to calculate the P-1 probability:
+	https://github.com/preda/gpuowl/blob/master/pm1/pm1.cpp#L82-L115
+George ported to C for Prime95 here:
+	https://github.com/shafferjohn/Prime95/blob/12f97034a9fc6cb9c1db29936395da154fadb36a/pm1prob.c#L116-L160
+Per Teal, GW no longer uses Brent-Suyama in latest code:
+https://www.mersenneforum.org/showpost.php?p=590131&postcount=470
+https://www.mersenneforum.org/showpost.php?p=589447&postcount=21
+https://eprint.iacr.org/2021/1462.pdf
+
+=======================
+Of the 263 p-1 assignments Teal mentioned having done w/Mlucas, here are the p-1 factorizations for the 6 factors found:
+
+p = 115422491; q = 22197387555003121676323762343 = 1 + 2.p.13.701.2671.112327.35169161 (b2 = 36m, 35m would've missed this one!)
+p = 108425587; q = 2273397173519565609535707313 = 1 + 2.p.2^3.3.17921.889139.27413873 (another nice stage 2 factor)
+p = 107566219; q = 662862723654746103161297 = 1 + 2.p.2^3.13.41.149.397.12215851
+p = 106536383; q = 130584422728852709768537022953 = 1 + 2.p.2^2.7.12239.32969.70229.772391
+p = 105660251; q = 188971360622975631014921 = 1 + 2.p.2^2.5.139.25633.12549029
+p = 105310747; q = 165810904439222217899593 = 1 + 2.p.2^2.3^2.11.43.89417.517043
+
+===================
+You may recall then-senator Joe Biden's gross mishandling as chairman of the 1991 Senate confirmation hearing for Clarence Thomas - from a ? retrospective article in The Hill [https://thehill.com/homenews/campaign/441408-timeline-a-history-of-the-joe-biden-anita-hill-controversy/]:
+
+"Biden’s handling of the explosive hearing before a panel of white men has long been a subject of criticism. The then-Senate Judiciary Committee chairman allowed Thomas to testify before Hill — after initially saying Hill would get to testify first. He did not take testimony from three women who offered their own stories about Thomas."
+
+Biden has since made some no-apology passive-voiced "mistakes were made" apologies, all while continuing to blame those mean Repubicnas who allegedly made him do the above stuff against his better judgment. But, wait - in breaking news:
+
+https://www.nakedcapitalism.com/2022/07/indefensible-outrage-as-new-reporting-shines-light-on-biden-deal-with-mcconnell.html
+
+"The details of President Joe Biden’s deal with Republican Senate Minority Leader Mitch McConnell to nominate an anti-abortion lawyer to a lifetime federal judgeship came into clearer focus on Friday, sparking fresh calls for top congressional Democrats to block the proposed agreement."
+
+Sorry, but it's beyond clear that Biden is a career-long DINO (democrat in name only), just like both Clintons. They virtue-signal about being for progressive stuff, but are fundamentally for Big Money and Big War, just like the Rs; the only difference is in the phony progressive/populist packaging. There's a long-time saying, "there is only one War party in Washington." And one Wall Street party, and so forth. I'm done with "lesser of two evils" - the lesser of two evils is still evil, and often proves to be no less evil, but rather just the one with a better PR team or more buddies in the Big Media.
+
+And here's a very recent example of Nancy Pelosi "fighting for you": []
+
+Ever notice how no matter who sits in te Oval Office the imperial permawars continue, with every year or two bringing us the latest corporte-media-blared "grave threat to 'Murican democracy" in form of the "new Hitler" of country X, as does the relentless immiseration of an ever-growing swath of the population not belong to the elite-looter billionaire class? Or the same class realizing a vast increase in its wealth with every one of the central-bank-blown asset price bubles which are now recurring roughly every decade? (And the covid pandemic acted as a "free bonus round" for these parasites.) You think that's an accident? It's not - it's the hallmark of a nation's descent into kleptocratic oligarchy. And the tried and true way for the elite kleptocrats to prevent the bottom-90-whatever-percent from finding any kind of common cause and recognizing what really ails them is to keep them fighting and hating each other, by manufacturing and shamelessly exploiting divisive "hot button issues" - abortion, gunz, whether foreign leader X or Y is the new Hitler who must be stopped at any cost (especially if said cost further enriches the military-industrial complex and the oligarchs), etc. As a friend who also follows this "Look over there - squirrel!" politics-of-distraction theater put it, "Abortion is supposed to distract us from the war we’re losing which was supposed to distract us from out-of-control inflation which was supposed to distract us from the other war we lost which was supposed to distract us from the woefully indadequate public-health response to Covid which was supposed to distract us from…..I can’t remember."
+
+Just look how the neocon global-hegemon crazies slither seamlessly from one presidential administration to another and end up running foreign policy, no matter if POTUS wears an R or a D - not taht any of this is to be found anywhere on CNN, or Fox, or MSNBC:
+
+https://www.commondreams.org/views/2022/06/28/ukraine-latest-neocon-disaster
+
+"[Robert] Kagan penned the article as a private citizen while his wife Victoria Nuland was the US Ambassador to NATO under George W. Bush, Jr. Nuland has been the neocon operative par excellence. In addition to serving as Bush’s Ambassador to NATO, Nuland was Barack Obama’s Assistant Secretary of State for European and Eurasian Affairs during 2013-17, where she participated in the overthrow of Ukraine’s pro-Russian president Viktor Yanukovych, and now serves as Biden’s Undersecretary of State guiding US policy vis-à-vis the war in Ukraine."
+
+That's how we get heading-for-$100-billion in new-printed dollars for the ultranationalist crazies - sorry, "heroic freedom fighters" - in Ukraine, nearly all of which will end up in the pockets of the aforementioned kleptocrats - and multiple $Trillions (yes, trillions) in magically created money to fling at the Wall Street crooks to help them bid up and buy up everything that isn't nailed down, but "we can't afford" universal healthcare, or to pay the people impoverished by 40+ years of intentional policy-caused upward wealth transfer a decent wage.
+
+The only way to effect any kind of real change is to stop playing the corrupt party duopoly's rigged sham-democracy game, and pressure them to stop cheating any viable alternative party or candidate by way of their rigged primaries and rigged "debates".
+
+[snip from letter to Jay]
+
+
+============================
+
+gpuowl p-1 factors on gimp - find one(s) which exercise the stage 2 small-prime relocation code:
+
+	Bigstep 210|420|840 ==> B2_start = B2/11
+	Bigstep 330|660     ==> B2_start = B2/7
+
+[first 6 are Mlucas p-1 factors]
+p = 115422491; q = 22197387555003121676323762343		13.701.2671.112327.35169161
+p = 108425587; q = 2273397173519565609535707313			2^3.3.17921.889139.27413873
+p = 107566219; q = 662862723654746103161297				2^3.13.41.149.397.12215851
+p = 106536383; q = 130584422728852709768537022953		2^2.7.12239.32969.70229.772391
+p = 105660251; q = 188971360622975631014921				2^2.5.139.25633.12549029
+p = 105310747; q = 165810904439222217899593				2^2.3^2.11.43.89417.517043
+
+p = 104923649; q = 271312213139036553747271				3.5.7.23.26951.19864331
+p = 106842763; q = 1351080630715901368077129871			3^2.5.41.83.503.17299.4745071
+p = 106843931; q = 632620758502360632126079				3^2.11.47.227.47059.59561
+p = 106844267; q = 1159111038055982202566887			3.7.103.965927.2596229
+p = 108066793; q = 103407590037568247812343				13.337.1399.1543.50591
+p = 108105931; q = 2096192863556963845942519			3^2.61.1493.7741.1527997
+p = 108828217; q = 1359799126735490616859532611759		3^5.53.277.311.3637.13681.113167
+p = 113361331; q = 2986739543981825611261951			3.5^2.19.107.4211.20517221
+p = 111826411; q = 9751881649680086627100191			5.53.881.397829.469457
+p = 111826499; q = 794636344670378997762886649			2^2.17.173.2251.12163.11031193
+
+p = 106845317; q = 169332542038740704961031				3.5.15791.54409.61487
+p = 108684409; q = 1332492307396633719043161007			3.7^3.4567.90647.14390227
+p = 108682961; q = 127696922725177307343693784193		2^6.13.137.5477.802331.1172867
+p = 108793403; q = 339154150859459068974793				2^2.3.7.17.73.1103.13556201
+p = 111323627; q = 155864066503704380427719				7.59.741283.2286623
+p = 112124359; q = 342207248477302699537601				2^5.5^2.179.643.2213.7489
+p = 106863793; q = 1314651028704963254300497			2^3.3.433.59473.9952471
+p = 106871251; q = 196880573100849625407379529			2^2.82759.677147.4109167
+p = 106874239; q = 332275679222524889370559				3.13.19.181.17293.670237
+p = 106878557; q = 53898031776499389218947231			3^2.5.19.5297.51487.1081331
+
+p = 106879057; q = 1186752662293257401050649			2^2.191.6599.24061.45767
+vvvv--This one looks good, 2 stage 2 factors within the [B1,B2/7] relocation-remapped interval for B2 = 35e6; larger factor should catch this in q=10m interim-gcd ***:
+p = 109228331; q = 3258278300321182416433937			2^3.11.113.305611.4907867
+p = 109228331; q = 20576383782390150543028926977		2^8.577.20929.28687.1062073
+p = 108213283; q = 13594376103140616946633327			3.1637.839413.15237127
+p = 108631979; q = 1200161085210473269933727			24133.37507.6102787
+p = 108772199; q = 345812338945901034001791247961		2^2.5.31.41.643.2351.105227.393121
+p = 108218161; q = 58235683045811218866440318726384849	2^3.8069.32143.51047.146941.17288197
+p = 108792239; q = 1799034630813638944987409			2^3.7.37.103.167.239.970667
+p = 106899613; q = 71558988008410839150342943			3.11.1823.4679.5881.202187
+p = 108612919; q = 3111940553819877800582194849			2^4.3.193.2707.200201.2853427
+
+p = 108699907; q = 165119159033849334165937				2^3.3.7.23.29.6263.1082233
+p = 108229243; q = 1549230359679898279702649			2^2.11.17.979921.9764471
+p = 109498097; q = 30607090981844582827262401			2^5.3.5^2.73.193.491.8418071
+p = 108561697; q = 208154122716997215489457				2^3.3^2.11.137.701.12604181
+p = 108362923; q = 437842884185670233541769				2^2.3.7.151.7879.20215303
+p = 109155859; q = 263189394684323615251129				2^2.3.7.11.31.1171.2237.16067
+p = 109308307; q = 153337343158239505317721				2^2.3^2.5.157.1621.15311213
+p = 105969967; q = 1547746341198083423171377			2^3.3.7.37.443.919.1367.2111
+p = 107761799; q = 42175552820510212699325929			2^2.3.11.31.67.668963.1066973
+p = 107770681; q = 79317237024017595435902067497		2^2.29^2.173^2.337.509.2777.7673
+
+p = 108008911; q = 153079381577575048266889				2^2.3.7.251.487.7229.9547
+p = 108488839; q = 5998935012240685106138431			3.5.13.19.11969.23473.26561
+p = 108650491; q = 349935305014305361168313				2^2.11.229.1151.7127.19483
+p = 108651397; q = 2086254557690022887606912201			2^2.5^2.7.13.49223.124759.171799
+p = 108246911; q = 448256725122727168145257				2^2.3.11.89.137.11177.115099
+p = 110981441; q = 330870021250684036051817				2^2.83.1801.5297.470647
+p = 111536569; q = 449484302469728798630807				7.19.3347.11177.404981
+@
+==========================
+
+v21:
+*** Change default G-check/savefile intervals to be multiples/squares of 1024!
+***
+
+o Add Teal's factor-build path to make script
+o Have a utility which does the core-to-socket mapping, need to work out a way to integrate that with the self-testing setup.
+
+
+*** Do F24 run @896K, now with G-check ***
+*** add time estimate to GCD routine ***
+*** Add code to insert any user and machine ID provided to the primenet.py script and/or saved in the local.ini file into the JSON output ***
+
+Longer-term/Experimental:
+*** Change ASSERT to use stdlib-assert in assert.h to make life easier for the new GCC static analyzer?
+*** Fermat-mod G-check fails when residue-shift != 0
+*** Look into storing idx of max-frac convo-output each iter, for possible use inty-rounding-the-other-way error correction. Most obvious impl is in context of PRP-CF, where we can also cheaply compute mod-sqr checksum modulo known factor(s), use as a kind of cheap per-iter G-check for such pointwise error correction.
+
+==========================
+
+*** way to use that FFT-mul(a,b) has lower ROE than FFT-square(a) to use FFT-mul(a,a>>j) for error-correction? ***
+Here j is a random shift in [1,p). Letting b = a>>j and then convo-multiplying via FFT(a)*FFT(b) is easy enough, but can we do just one fwd-FFT
+and apply the shift at dyadic-mul time? IOW, we need FFT(2>>j)*FFT(a).
+FFT(1) is just a vector of 1s, FFT(2^j) is a little more difficult - if bit j is (j')th bit of (k)th word in our variable-base input representation, instead of a vector of 1s, FFT(2^j) is a vector (2^j')*w[i], where w[] is the (k)th column of our DFT roots-of-unity matrix and 2^j' is a scalar multiplier applied to the elements of said column.
+It seems that with some added bookkeeping, should be able to work this directly into the dyadic-mul step,
+i.e. need no 2nd fwd-FFT nor even a separate copy of FFT(a), just apply the needed multiplier (2^j')*w[i] to FFT(a)[i].
+==========================
+
+Hi, Teal - apologies for the delayed reply.
+
+Re. my example "hybrid system with 8 physical cores, 4 ht and 4 not, and hwloc maps the 4 ht ones to logical-core indices 0-7 and the 4 non-ht ones to 8-11" - 2 important question to frame the discussion:
+
+Q1: In the context of this kind of automated setup/tuning for your typical GIMPSer, do we want to allow running an instance across multiple sockets? While that might be OK on some kinds of systems, I can't recall any such system I've done build & test on where it gave better total throughput than restricting instances to a single socket.
+
+Q2: If user specifies a threads_per_core value which exceeds that available on the coreset in question, should the program throw an error or merely warn and substitute the max threads_per_core which *is* supported?
+
+[quote]OK, so for your example 8 core/12 thread Intel Alder Lake system, would these then be the correct [C]-core[/C] argument combinations  for my install/setup script to try (I know the "Threads" column is not quite right for the hyperthreaded combinations):
+[CODE]#  Workers/Runs  Threads  per core  -core arguments
+1  8             1        1         0 1 2 3 4 5 6 7
+2  4             2        1         0:1 2:3 4:5 6:7
+3  2             4        1         0:3 4:7
+4  1             8        1         0:7
+5  8             2        2         0:0:2 1:1:2 2:2:2 3:3:2 4:4:2 5:5:2 6:6:2 7:7:2
+6  4             4        2         0:1:2 2:3:2 4:5:2 6:7:2
+7  2             8        2         0:3:2 4:7:2
+8  1             16       2         0:7:2[/CODE]I am assuming Mlucas would ignore the [C]:threads_per_core[/C] argument for the non-hyperthreaded cores. Which of these [C]-core[/C] arguments above should the script pick to run the self-testing on? I guessing for each combination the self-testing should be run once for both the performance and efficiency cores (when possible), but the script would not which those are.[/quote]
+
+Your note re. performance and efficiency cores: I'm wondering if in v21 it makes sense to add a '-socket' flag to the supplement new -core flag. This wold be optional - for 1-socket systems it defaults to '-socket 0'. For multi-socket systems invoking it means run whatever -core lo:hi[:threads_per_core] is specified RELATIVE TO THAT SOCKET. We'll use the shorthand [s]lo:hi:threads_per_core to denote '-socket s -core lo:hi:threads_per_core'.
+
+Let's say the hypothetical hybrid has 2 sockets: socket 0 has physical cores 0-3 (supporting 2 tpc) and socket 1 has physical cores 4-7, supporting 1 tpc. Via the hwloc topology mapping, sockets 0 and 1 map to logical cores 0-7 and 8-11, respectively. The way I have the code setup currently, any attempt to run more than 12 total threads gives an error-exit; any instance running across both sockets will run but emit a warning to that effect. We should assume, as per the pthread affinity standard and the way most modern OSes do things, that specific instance/core assignments are treated as hints to the OS rather than being strictly observed. We hope the OS is smart enough to respect at least instance-to-socket bindings unless system load precludes it. Here are the combos I would try on this hybrid, with socket bindings indicated in []:
+[CODE]#	Workers/Runs	TPC	-core arguments
+1	8	1	1	[0]0 [0]1 [0]2 [0]3 [1]8 [1]9 [1]10 [1]11
+2	4	2	1	[0]0:1 [0]2:3 [1]8:9 [1]10:11
+3	2	4	1	[0]0:3 [1]8:11
+4	1	8	1	[0]0:7
+5	8	2	2/1	[0]0:0:2 [0]1:1:2 [0]2:2:2 [0]3:3:2 [1]8:8 [1]9:9 [1]10:10 [1]11:11
+6	4	4	2/1	[0]0:1:2 [0]2:3:2 [1]8:9 [1]10:11
+7	2	8	2/1	[0]0:3:2 [1]8:11
+8	1	12	2/1	[0]0:11[/CODE]
+Clearly, we need some mechanism by which Mlucas, perhaps via a new '-hwtopo' flag, could run its internal hwloc-data-gathering functionality and perhaps write a short-and-sweet summary to a local file which your script could read - after code-build, a single './Mlucas -hwtopo' call to write the file, which the script then reads and uses to set up the ensuing throughput-tuning runs. I have a simple(ish) standalone piece of code I can send you to run on any machines on which have hwloc installed. For example, on my 68c272t KNL it gives this:
+[code][ewmayer@localhost ~]$ ./hwloc_test
+HWLOC Version = 2.1.0
+Summary of Topology levels:
+Topology depth = 6
+There are 1 objects at level 0, all of type [0] = "Machine", pidx_range [0-0], lidx_range [0-0]
+There are 1 objects at level 1, all of type [1] = "Package", pidx_range [0-0], lidx_range [0-0]
+There are 34 objects at level 2, all of type [5] = "L2 (1024KB)", pidx_range [-1--1], lidx_range [0-33]
+There are 68 objects at level 3, all of type [4] = "L1d (32KB)", pidx_range [-1--1], lidx_range [0-67]
+There are 68 objects at level 4, all of type [2] = "Core", pidx_range [0-73], lidx_range [0-67]
+	Note: there are 6 missing physical Core indices at level 4.
+There are 272 objects at level 5, all of type [3] = "PU", pidx_range [0-271], lidx_range [0-271]
+The 272 PUs correspond to 1 hardware sockets.[/code]
+Notice the 'Core' pidx range on the KNL does not correspond to the core count - the full topology-tree listing (not shown) shows that the internal HW-core-numbering skips Core#14-17 and 28-29, and thus runs from Core#0-73: 74-6 = 68 HW cores, as advertised. However, the HW PU# entries run contiguously from 0-271, these apparently map to the Core indices in /proc/cpuinfo. I suspect the missing Core physical indices (i.e. corresponding obj->os_index entries) may be a die-yield thing, perhaps all KNL dies are etched with the same maximum number cores, but in binning the usable core count is set to e.g. 64?68/72/etc, depending on post-lithography testing.
+
+It would be really useful to run the code on a multi-socket system, but I don't have access to one - do you?
+
+Also, remind me - do you have a reasonably reliable way to gauge total throughput on hybrid systems, where one cannot launch a bunch of self-test instances and assume all will finish in more or less the same time? I have only been able to gauge total throughput on such by separately running max-throughput test on each socket (or "sub-processor", if e.g. the hybrid pieces map to a single socket/SoC), then firing up a production-style run using those per-socket worker/thread data, first "filling up" one piece of the hybrid, letting it get through a couple checkpoints, then filling the rest and rechecking the numbers after those runs each get through a few more checkpoints.
+
+Re. the Odroid N2: Using the indexing in /proc/cpuinfo, cores 0-1 map to the 'little' dual-core a53 CPU and cores 2-5 to the 'big' quad-core a72 CPU. But as with AlderLake, I do't know if that hybrid has 2 sockets or just 1. On single-socket hybrids, I may need to enhance the planned extract-topo-to-simple-text-file functionality to list physical cores according to the hwloc-data (here I mean the contiguous 'lidx_range' for the "Core" objects, level 4 in the above KNL topo-tree - yes, this gets confusing) and #threads supported by each.
+
+Re. C/C++ data types - when I first heard of GIMPS circa 1997, I was using a then-cutting-edge DEC Alpha for my scientific computing work. The Fortran (and probably C, but this was before I switched from the former to the latter) compiler supported a float128 data type, and I soon had a working basic FFT/IBDWT-mul code working using that, at which point I first contacted George and noted that I was able to get ~50 bits per FFT input using that. George asked if Alpha had actual hardware-instruction support for float128, and after some digging-into-the-details it emerged that float128 was being software-emulated, i.e. was ~10x slower than native float64. AFAIK, aside from the legacy x86 80-bit register float, this is still true of all CPUs on the market - I believe the old Cray supercomputers, before they moved to building them around top-end commodity CPUs, had hardware float128 support. Maybe there are a few other such examples, but Cray is the only one I am aware of. In specific contexts like bignum-integer math we can combine float-FFT and integer NTT to get the benefits of wider-floats with much less overhead than float128 emulation, but it remains to be seen whether there are any CPUs or GPUs where such hybrids offer better total compute throughput than an optimized FFT-only or NTT-only code. Instruction throughput becomes the bottleneck, especially for the NTTs with their need to supplement each basic-arithmetic instruction, or every few, with a modular reduction.
+
+==========================
+16 Mar 2022: Finally tracked down showstopper bug in v18 SP-float code. Remaining problematic FFT lengths/radices:
+
+o Tried running 16M using p = 51870331, code echoes p = 51870332 ... darg in Mlucas main needs to be double, not float.
+o R = 288, 160,320, 192,768, 224, 960, 1024: "nonzero exit carry"; these are all mutliples of 32 or 64, so have a look at  RADIX_[32|64]_DIT DFT macros -
+o R = 144 is OK, but 288 is bad:
+***Note: Possible optimizer bug: using -O[1-3] get just 144 mismatches, -O0 shows all 288 bad:
+   0          3.001588106155396          2.786598920822144, ERR= 1.7865996754e+00
+   1          0.081589892506599          0.210959926247597, ERR= 3.9970641091e+00
+   2          0.214379176497459          0.150399819016457, ERR= 1.0060694562e+01
+   3          0.218727171421051          0.115773878991604, ERR= 6.1479305848e+00
+   4          0.185519322752953          0.057689096778631, ERR= 5.6423769948e+00
+   5          0.198920041322708          0.138595178723335, ERR= 9.2115172899e+00
+   6          0.120757579803467          0.288297176361084, ERR= 1.1130493865e+01
+   7          0.072021976113319          0.185781911015511, ERR= 9.3610153671e+00
+   8          0.184032708406448          0.238724529743195, ERR= 3.3049023425e+00
+   9          0.125000014901161          0.031250000000000, ERR= 8.8185373823e+00
+  10          0.066440120339394          0.246814206242561, ERR= 6.1871476507e+00
+  11         -0.002723445417359          0.086476482450962, ERR= 7.1657763379e+00
+  12          0.093017131090164          0.195666551589966, ERR= 4.0391626106e+00
+  13         -0.030445601791143          0.135090604424477, ERR= 8.5261810111e+00
+  14          0.267380177974701          0.107098199427128, ERR= 7.1073249963e+00
+  15          0.231464684009552          0.036514002829790, ERR= 1.0075882442e+01
+  16          0.202870175242424          0.260002315044403, ERR= 1.7517842325e+00
+  17          7.459253787994385          5.655268669128418, ERR= 2.4062775449e+00
+  18          0.536964416503906          5.907205581665039, ERR= 6.0061039076e+00
+  19          6.610824584960938          4.801794528961182, ERR= 3.2465775883e+00
+  20          2.169943094253540          6.046467304229736, ERR= 1.1708655015e+00
+  21          3.187705278396606          6.521783828735352, ERR= 6.7960086665e+00
+  22          3.163739681243896          2.949474811553955, ERR= 8.4065921529e+00
+  23          2.134801149368286          6.092380046844482, ERR= 1.2539310631e+00
+  24          4.727641582489014          6.132533550262451, ERR= 5.1397548507e+00
+  25          4.615200042724609          3.515633821487427, ERR= 4.8480319877e+00
+  26          1.169917106628418          5.491473197937012, ERR= 7.6707506774e+00
+  27          4.307498455047607          5.829553604125977, ERR= 5.3484833038e+00
+  28          4.628603458404541          3.704482316970825, ERR= 2.3897389284e+00
+  29          5.699141025543213          3.220709085464478, ERR= 3.3916019843e+00
+  30          5.042326450347900          2.446134805679321, ERR= 2.7583820738e+00
+  31          5.080231189727783          5.974690914154053, ERR= 5.5823611462e+00
+  32          4.842704296112061          4.116869449615479, ERR= 4.5104515773e+00
+  33          0.145235940814018          0.227309912443161, ERR= 1.0363517934e+01
+  34          0.141910865902901         -0.026630533859134, ERR= 6.0874125073e+00
+  35          0.194524914026260          0.255129635334015, ERR= 3.8140176973e+00
+  36          0.187500000000000          0.062500000000000, ERR= 6.1269129666e+00
+  37          0.135723888874054          0.051352929323912, ERR= 9.8606915691e+00
+  38          0.109420232474804         -0.032370772212744, ERR= 1.8908568942e+00
+  39          0.173065468668938          0.057580631226301, ERR= 1.1883928336e+01
+  40          0.132834792137146          0.025782274082303, ERR= 1.1925383965e+01
+  41          0.201014429330826          0.038696091622114, ERR= 6.1216782885e+00
+  42          0.026614649221301          0.207057505846024, ERR= 7.9760734864e+00
+  43          0.299760013818741          0.107415378093719, ERR= 4.7374581851e+00
+  44          0.120937347412109          0.052309919148684, ERR= 8.1162259190e+00
+  45          0.187500000000000          0.218749985098839, ERR= 5.5583727666e+00
+  46          0.229720696806908          0.052312906831503, ERR= 4.2436413039e+00
+  47          0.055190887302160          0.276406645774841, ERR= 1.1900637207e+00
+  48          0.268788009881973          0.115282736718655, ERR= 6.7321991913e+00
+  49          3.381046772003174          5.237253665924072, ERR= 3.1569273571e+00
+  50          4.984274387359619          6.920848369598389, ERR= 4.1581992261e+00
+  51          5.135416507720947          2.882918834686279, ERR= 3.6573514665e+00
+  52          4.104106903076172          4.805932044982910, ERR= 3.1957641879e+00
+  53          3.051432847976685          5.678692340850830, ERR= 3.8340201937e+00
+  54          4.582985401153564          5.963938236236572, ERR= 1.7137990215e+00
+  55          1.799294829368591          3.438119411468506, ERR= 9.1149371850e-01
+  56          4.679064273834229          5.902552127838135, ERR= 3.4024511029e+00
+  57          2.609750986099243          3.059333086013794, ERR= 6.1263094884e-01
+  58          6.211780071258545          4.783377170562744, ERR= 6.3298012103e+00
+  59          3.495331048965454          2.774540901184082, ERR= 2.7883895789e+00
+  60          7.743479251861572          2.718498706817627, ERR= 2.8183323045e+00
+  61          5.219938278198242          4.074627876281738, ERR= 3.9298463338e+00
+  62          3.454942941665649          4.096527576446533, ERR= 4.5460821031e+00
+  63          7.453252315521240          2.656699657440186, ERR= 4.8065172139e+00
+  64          4.073601245880127          4.525663852691650, ERR= 6.0509429575e+00
+  65          0.241207435727119          0.063207030296326, ERR= 6.8569693203e+00
+  66          0.299394637346268          0.082267627120018, ERR= 4.9268374661e+00
+  67          0.187198817729950          0.169836953282356, ERR= 8.0242980080e+00
+  68          0.015893036499619          0.046688437461853, ERR= 3.5579108411e+00
+  69          0.270765542984009          0.179827272891998, ERR= 6.8590479884e+00
+  70          0.226814091205597          0.321112662553787, ERR= 5.0036161697e+00
+  71          0.057792179286480          0.133571103215218, ERR= 5.6867138665e+00
+  72          0.281250000000000          0.125000000000000, ERR= 9.5410809955e+00
+  73          0.102038465440273          0.008891754783690, ERR= 7.9917598248e+00
+  74          0.099272415041924          0.087710477411747, ERR= 2.1138025230e+00
+  75          0.207926750183105          0.172877773642540, ERR= 8.6812018748e+00
+  76          0.225184649229050          0.256440252065659, ERR= 7.8102904590e+00
+  77          0.118111386895180          0.070288948714733, ERR= 1.2814406276e+00
+  78          0.050752237439156          0.201878860592842, ERR= 7.9194551342e+00
+  79          0.105325728654861          0.046294901520014, ERR= 4.8948932584e+00
+  80          0.211594775319099          0.048624265938997, ERR= 8.1500168876e+00
+  81          5.291677951812744          4.528327941894531, ERR= 3.7573301517e+00
+  82          4.782493114471436          3.689565420150757, ERR= 5.0721663508e+00
+  83          6.571219444274902          3.529604673385620, ERR= 3.5555536913e+00
+  84          1.820301890373230          6.617973327636719, ERR= 2.5193147315e+00
+  85          4.645864963531494          5.936831951141357, ERR= 2.6392297614e+00
+  86          6.612782955169678          3.168505191802979, ERR= 1.9916006982e+00
+  87         -0.359699040651321          3.801875591278076, ERR= 3.1143680528e+00
+  88          2.866566896438599          2.271229982376099, ERR= 3.9577002303e+00
+  89          4.458497524261475          1.283615231513977, ERR= 3.7556280500e+00
+  90          5.258607387542725          1.886100172996521, ERR= 5.5607724025e+00
+  91          5.545562744140625          2.538136720657349, ERR= 2.1273947293e+00
+  92          4.877173423767090          5.285822391510010, ERR= 3.4723721400e+00
+  93          3.284251451492310          5.533625125885010, ERR= 3.6966276833e+00
+  94          6.205877780914307          2.450625896453857, ERR= 5.9717208100e+00
+  95          5.935768127441406         -0.849891960620880, ERR= 6.6038440261e+00
+  96          4.607904434204102          5.171480178833008, ERR= 3.8764819111e+00
+  97          0.052373457700014          0.058083046227694, ERR= 2.9481988419e+00
+  98          0.051194973289967          0.148778781294823, ERR= 8.3867232985e+00
+  99         -0.000000013245477          0.281250000000000, ERR= 8.7759102982e+00
+ 100          0.007128192577511          0.017356358468533, ERR= 7.1955516001e+00
+ 101          0.027316881343722          0.079485930502415, ERR= 4.4125485685e+00
+ 102          0.168417662382126          0.087610021233559, ERR= 1.1132816269e+01
+ 103          0.101386547088623          0.212816908955574, ERR= 9.2347016769e-01
+ 104          0.100516602396965          0.197405099868774, ERR= 1.1201612043e+01
+ 105          0.097777657210827          0.140644773840904, ERR= 7.6396224099e+00
+ 106          0.124816231429577          0.018339475616813, ERR= 7.7029033884e+00
+ 107          0.141972541809082          0.150906518101692, ERR= 9.3049441413e+00
+ 108          0.093749992549419          0.125000000000000, ERR= 4.8437500000e+00
+ 109          0.255424708127975          0.127703517675400, ERR= 6.9646038500e+00
+ 110          0.155087411403656          0.106477551162243, ERR= 2.0734765401e+00
+ 111          0.131381332874298          0.045295357704163, ERR= 8.8065230209e+00
+ 112          0.138636931777000          0.026181936264038, ERR= 8.4745006673e+00
+ 113          7.625295162200928          2.701599121093750, ERR= 2.0802474119e+00
+ 114          3.771089792251587          7.508494853973389, ERR= 6.9445805888e+00
+ 115          7.842692852020264          3.348286867141724, ERR= 4.8552010325e+00
+ 116          1.673040390014648          8.807787895202637, ERR= 5.3878586015e+00
+ 117          6.276913166046143          4.389736652374268, ERR= 2.6249106256e+00
+ 118          2.848929405212402          3.246725320816040, ERR= 5.1569758974e+00
+ 119          3.413131952285767          5.794855594635010, ERR= 2.4218361144e+00
+ 120          2.723098993301392          3.017585992813110, ERR= 2.4939444636e+00
+ 121          5.874457359313965          3.520640134811401, ERR= 2.7605204053e+00
+ 122          3.257790327072144          7.015235424041748, ERR= 7.1271005847e+00
+ 123          6.187969207763672          5.037796497344971, ERR= 6.5279462572e+00
+ 124          4.408190727233887          7.239629268646240, ERR= 4.7466884915e+00
+ 125          3.820219278335571          3.158740282058716, ERR= 2.9430178499e+00
+ 126          4.429134845733643          1.590758442878723, ERR= 4.4460431456e+00
+ 127          7.407725811004639          3.305119752883911, ERR= 5.8012497838e+00
+ 128          3.138793706893921          2.409047126770020, ERR= 4.0446299803e+00
+ 129          0.103954970836639          0.049028046429157, ERR= 1.0718359937e+01
+ 130         -0.027993109077215          0.111225247383118, ERR= 3.5295576243e+00
+ 131          0.133055835962296          0.122870527207851, ERR= 7.0351909529e+00
+ 132          0.157634347677231          0.068283259868622, ERR= 2.9359516365e+00
+ 133          0.144460171461105          0.136156871914864, ERR= 8.7581513720e+00
+ 134          0.088768735527992          0.013579219579697, ERR= 5.9929692083e+00
+ 135          0.125000000000000          0.187500000000000, ERR= 3.8145486299e+00
+ 136          0.318223536014557          0.197930335998535, ERR= 6.0311494335e+00
+ 137          0.376622945070267          0.069856151938438, ERR= 3.2569253935e+00
+ 138          0.080778293311596          0.108940638601780, ERR= 8.3511541426e+00
+ 139          0.059387113898993          0.164731532335281, ERR= 8.7703968462e+00
+ 140          0.048427224159241          0.105226889252663, ERR= 2.1469176309e+00
+ 141         -0.014929072931409          0.214410826563835, ERR= 4.1047903965e+00
+ 142          0.179265022277832          0.056557048112154, ERR= 9.2988828911e+00
+ 143          0.213802635669708          0.191322997212410, ERR= 5.7893596784e+00
+ 144          0.218750000000000          0.062500007450581, ERR= 7.0526064552e+00
+ 145          6.318037509918213          4.469949245452881, ERR= 4.4812492083e+00
+ 146          4.334716796875000          6.680037021636963, ERR= 3.5543636636e+00
+ 147          5.135308265686035          5.136854648590088, ERR= 5.6612196530e+00
+ 148          2.571514368057251          4.059698104858398, ERR= 3.3767326993e+00
+ 149          4.021214485168457          5.931673526763916, ERR= 2.2861822450e+00
+ 150          6.907253265380859          6.926455974578857, ERR= 3.9079453108e+00
+ 151          2.818405628204346          3.263771057128906, ERR= 1.1008273438e+00
+ 152          6.410797119140625          5.232565402984619, ERR= 3.1062908884e+00
+ 153          6.407562255859375          3.296911716461182, ERR= 3.3497178486e+00
+ 154          5.485407352447510          7.032186985015869, ERR= 5.5816757057e+00
+ 155          5.411101341247559          6.347814559936523, ERR= 6.3750727032e+00
+ 156          3.523282289505005          2.368793487548828, ERR= 2.5558858038e+00
+ 157          4.451206684112549          4.013007640838623, ERR= 3.5895655942e+00
+ 158          4.812846183776855          5.202975749969482, ERR= 2.8032786622e+00
+ 159          8.547803878784180          4.195505142211914, ERR= 3.2421199929e+00
+ 160          3.774847745895386          3.359400987625122, ERR= 3.2881567063e+00
+ 161          0.037513986229897          0.086576133966446, ERR= 1.1226017120e+01
+ 162          0.125000000000000          0.031250000000000, ERR= 5.0452057998e+00
+ 163         -0.071764029562473          0.184338405728340, ERR= 2.0799487150e+00
+ 164          0.273554772138596          0.198807835578918, ERR= 8.9103951428e+00
+ 165          0.019780661910772          0.168355971574783, ERR= 8.8316662733e+00
+ 166          0.226105824112892          0.083762206137180, ERR= 6.0835699096e+00
+ 167         -0.042737089097500          0.181874707341194, ERR= 8.2456773936e+00
+ 168          0.176311209797859          0.319809168577194, ERR= 8.9822335254e+00
+ 169          0.299378722906113          0.133508920669556, ERR= 6.0865091195e+00
+ 170          0.149394139647484         -0.074384264647961, ERR= 9.0756143325e+00
+ 171          0.031250014901161          0.281250000000000, ERR= 6.7882308538e+00
+ 172          0.047011587768793         -0.070658847689629, ERR= 5.1594346818e+00
+ 173          0.169796779751778          0.335234969854355, ERR= 6.3324255376e+00
+ 174          0.207895919680595          0.258233547210693, ERR= 4.6794588418e+00
+ 175          0.037128269672394          0.404431492090225, ERR= 8.8914204595e+00
+ 176         -0.014824854210019          0.037529509514570, ERR= 1.2023447653e+01
+ 177          4.618700504302979          6.997694015502930, ERR= 3.2936869027e+00
+ 178          3.222103118896484          3.816381216049194, ERR= 6.9245115473e+00
+ 179          5.208315849304199          4.481099605560303, ERR= 2.6802457445e+00
+ 180          0.317880779504776          4.504666805267334, ERR= 4.5158687117e+00
+ 181          4.564488887786865          6.517886638641357, ERR= 6.5690678746e+00
+ 182          6.434298038482666          1.920737147331238, ERR= 3.5998904635e+00
+ 183         -1.656478643417358          6.068410396575928, ERR= 1.9711474399e+00
+ 184          5.100152015686035          3.123932361602783, ERR= 3.7642518385e+00
+ 185          3.217700958251953          2.645915985107422, ERR= 2.2383328044e+00
+ 186          5.589497566223145          2.782192945480347, ERR= 5.7476977840e+00
+ 187          2.863371372222900          3.663700580596924, ERR= 3.7640552335e+00
+ 188          3.500930070877075          2.914020299911499, ERR= 3.1260744918e+00
+ 189          6.795519351959229          3.762454986572266, ERR= 1.4711793329e+00
+ 190          5.763720989227295          3.908089637756348, ERR= 4.7563201618e+00
+ 191          5.419909000396729          2.354100942611694, ERR= 6.1426486110e+00
+ 192          5.004088401794434          3.928232908248901, ERR= 3.0956002300e+00
+ 193          0.113097466528416          0.204516261816025, ERR= 6.9782261760e+00
+ 194          0.234052047133446         -0.063238374888897, ERR= 1.0123153330e+01
+ 195         -0.016225384548306          0.106587685644627, ERR= 8.9512850217e+00
+ 196          0.090875387191772          0.150200068950653, ERR= 4.0004267465e+00
+ 197          0.202819660305977          0.149039387702942, ERR= 4.8720706061e+00
+ 198          0.187500000000000          0.156250014901161, ERR= 5.8999635857e+00
+ 199          0.354274481534958          0.167544409632683, ERR= 8.8395580696e+00
+ 200          0.071854516863823          0.186410143971443, ERR= 4.8318334861e+00
+ 201          0.159780085086823          0.180397212505341, ERR= 2.8459432340e+00
+ 202          0.310736715793610          0.140417531132698, ERR= 8.3092153843e+00
+ 203          0.040838576853275          0.032857179641724, ERR= 7.2373612834e+00
+ 204          0.245977222919464          0.182367458939552, ERR= 2.8283488991e+00
+ 205          0.106771260499954          0.075356461107731, ERR= 7.6799904966e+00
+ 206          0.145999044179916          0.208231151103973, ERR= 8.3629167986e+00
+ 207          0.000000000000000          0.125000000000000, ERR= 1.0235508048e+01
+ 208          0.080640815198421          0.251542329788208, ERR= 8.9507071274e+00
+ 209          5.886084079742432          4.326506137847900, ERR= 3.1859168815e+00
+ 210          2.674759387969971          5.247319698333740, ERR= 5.2573896808e+00
+ 211          6.165500164031982          3.970832109451294, ERR= 3.4523279988e+00
+ 212          4.115349769592285          8.820077896118164, ERR= 3.2214797213e+00
+ 213          3.751927614212036          4.120731830596924, ERR= 3.8461405446e+00
+ 214          2.361998558044434          3.662600994110107, ERR= 3.6046182574e+00
+ 215          1.812656879425049          5.471566677093506, ERR= 2.7933418505e+00
+ 216          0.300021916627884          4.890892505645752, ERR= 4.1683009694e+00
+ 217          4.316752910614014          2.117331743240356, ERR= 1.3219701079e+00
+ 218          2.798574924468994          3.792839527130127, ERR= 4.2484204218e+00
+ 219          2.968302011489868          3.884987354278564, ERR= 3.6847681821e+00
+ 220          7.778041362762451          4.736055850982666, ERR= 2.1229867935e+00
+ 221          4.507896423339844          3.890035390853882, ERR= 5.2381021012e+00
+ 222          5.588702678680420          2.629333496093750, ERR= 1.7324255908e+00
+ 223          4.666958332061768          1.971871018409729, ERR= 7.0558432206e+00
+ 224          3.444143295288086          4.428331851959229, ERR= 1.6137404262e+00
+ 225          0.250000000000000          0.125000000000000, ERR= 7.7510079990e+00
+ 226          0.243099853396416          0.163745313882828, ERR= 7.7699775395e+00
+ 227          0.156468376517296         -0.039065912365913, ERR= 7.1584253461e+00
+ 228          0.051908124238253          0.091616071760654, ERR= 3.5005368775e+00
+ 229          0.156463071703911          0.159686535596848, ERR= 1.1179675899e+01
+ 230          0.165729239583015          0.038460664451122, ERR= 1.0657593047e+01
+ 231          0.301926881074905          0.222938805818558, ERR= 6.9865590890e+00
+ 232          0.164758592844009          0.178030878305435, ERR= 9.6195746650e+00
+ 233          0.101988554000854          0.226637199521065, ERR= 7.5711443969e+00
+ 234          0.281250000000000          0.187500000000000, ERR= 7.2836637630e+00
+ 235         -0.017348730936646          0.123042665421963, ERR= 5.0934116743e+00
+ 236          0.073128663003445          0.032432559877634, ERR= 1.1239102320e+01
+ 237          0.032063979655504          0.199019625782967, ERR= 8.4222165182e+00
+ 238          0.013899372890592          0.134210735559464, ERR= 5.3237551671e+00
+ 239          0.233527898788452          0.246211767196655, ERR= 6.9900583787e+00
+ 240          0.098685778677464          0.114967070519924, ERR= 8.7973858158e+00
+ 241          4.919932365417480          1.657728433609009, ERR= 4.1327423494e+00
+ 242          5.383358001708984          7.052719593048096, ERR= 6.0808789602e+00
+ 243          7.815053462982178          2.589828968048096, ERR= 6.4617802763e+00
+ 244          3.395198583602905          6.395094394683838, ERR= 1.6528471773e+00
+ 245          4.657174587249756          5.257194519042969, ERR= 4.5714228920e+00
+ 246          5.712658882141113          5.772626399993896, ERR= 6.3782232775e+00
+ 247          2.355376005172729          3.430989742279053, ERR= 2.7832994090e+00
+ 248          4.767189025878906          5.030455112457275, ERR= 4.3564351331e+00
+ 249          5.580431461334229          1.229425311088562, ERR= 3.4272562155e+00
+ 250          6.894357681274414          6.828706264495850, ERR= 5.3543677781e+00
+ 251          6.844116210937500          3.537087678909302, ERR= 1.2745707332e+00
+ 252          4.602802753448486          4.778292179107666, ERR= 2.0153279640e+00
+ 253          3.849796772003174          4.399302482604980, ERR= 3.4470028007e+00
+ 254          4.357211112976074          2.821409463882446, ERR= 3.4562203873e+00
+ 255          7.739422321319580          2.558039903640747, ERR= 5.9177882604e+00
+ 256          3.112327814102173          3.274378061294556, ERR= 3.3925674430e+00
+ 257          0.193776801228523          0.162819609045982, ERR= 7.5571519842e+00
+ 258          0.093961581587791          0.277202159166336, ERR= 8.2238493790e+00
+ 259          0.104264318943024          0.147028878331184, ERR= 4.8286851478e+00
+ 260          0.092486836016178          0.213108897209167, ERR= 7.7874400325e+00
+ 261          0.156250000000000          0.093750014901161, ERR= 5.8445019570e+00
+ 262          0.112736679613590          0.168298810720444, ERR= 2.0623989658e+00
+ 263          0.138519585132599          0.181641563773155, ERR= 9.2710040016e+00
+ 264          0.288968056440353          0.062157671898603, ERR= 9.6776435178e+00
+ 265          0.161399200558662          0.170117884874344, ERR= 6.9801419464e+00
+ 266          0.235697373747826          0.327604502439499, ERR= 9.1022976165e+00
+ 267          0.176437199115753          0.161692470312119, ERR= 5.1619889198e+00
+ 268          0.146316125988960          0.089965142309666, ERR= 4.3271833697e+00
+ 269          0.175706684589386          0.061644978821278, ERR= 7.4300004350e+00
+ 270          0.156249985098839          0.187500000000000, ERR= 6.8918118309e+00
+ 271          0.054678514599800          0.128522828221321, ERR= 8.9462442371e+00
+ 272          0.388608366250992          0.177119821310043, ERR= 6.6137637454e+00
+ 273          5.499972820281982          6.425673961639404, ERR= 6.4566049868e+00
+ 274          4.310240268707275          4.177427768707275, ERR= 5.5219570912e+00
+ 275          6.515669345855713          4.258778095245361, ERR= 2.2880321697e+00
+ 276          0.832663953304291          6.942303180694580, ERR= 2.2197849922e+00
+ 277          5.843280315399170          5.645469188690186, ERR= 3.2243122817e+00
+ 278          6.375353336334229          2.388936996459961, ERR= 2.4692515576e+00
+ 279          1.682512521743774          4.638034820556641, ERR= 2.3832073948e+00
+ 280          5.425467491149902          1.398255705833435, ERR= 2.1057710731e+00
+ 281          5.919648647308350          3.331194162368774, ERR= 9.7746775059e-01
+ 282          5.334066390991211          3.387891054153442, ERR= 3.9198610522e+00
+ 283          5.376749515533447          6.386384963989258, ERR= 4.4195544081e+00
+ 284          1.937494874000549          6.254403591156006, ERR= 1.1978358145e+00
+ 285          4.372032642364502          2.947496652603149, ERR= 1.8836208524e+00
+ 286          6.345236778259277          3.854143857955933, ERR= 2.7887863749e+00
+ 287          7.748931884765625          1.833866953849792, ERR= 8.4992356798e+00
+test_fft_radix: 288 Mismatches detected in DIF/DIT combo; maxerr = 1.2023447990e+01, avgerr = 5.3696341515e+00
+
+
+PM illustrating how to test p-1 stage 2 @512M w/o running time-consuming gcd:
+https://www.mersenneforum.org/private.php?do=showpm&pmid=172219
+
+ACTIVE BUGS:
+
+ISSUES TO LOOK INTO:
+o Should .s2 file be deleted at end of a stage 2 run, or merely ignored (and subsequently overwritten) by any S2 continuation?
+o Look for all fclose(), make sure they only occur if fp != 0x0 (check file_valid, as well?)
+
+==============================
+********************* v21 feature-adds: *********************
+MAJOR:
+o PRP-CF:
+Known-factor of F25 = 2170072644496392193 = 1111000011101101001011001001010011000000000000000000000000001, has 61 bits
+Bit-reversed verson = 1152921518183069455 = 1000000000000000000000000001100101001001101001011011100001111
+				BR of low 60 bits of (F-1) = 000000000000000000000000000110010100100110100101101110000111
+For the F25 case:
+	Euler-PRP/Pepin      Res64 = CB913B6E3B1FFE2A
+	Fermat-PRP      A[]: Res64 = 7B6B087B84A45562
+	3^(F-1) (mod N) B[]: Res64 = AB9C7A0F27DA4404, (A-B) Res64 = 7B6B087B84A45562 - AB9C7A0F27DA4404 = cfce8e6c5cca115e
+Get assertion in Q*C + R = (A - B) check ... here are the various data:
+	o bi[] holds B = 3^(F-1) (mod N), where F = product of known factors
+	o ai[] holds (A-B), where A = Fermat-PRP residue computed from Euler-PRP/Pepin residue via 1 modsqr
+		A > B prior to (A-B), so no +- N post-sub step needed; leading words:
+			A-B:ai[p/64-1] = 0x72a2e01125c799f8
+			  B:bi[p/64-1] = 0x382afa3d73c60e69
+
+	o C = N/F is the cofactor of F; C is composite if R := (A - B) (mod C) = 0
+
+atmp = arrtmp holds N/F = 2^2^25+1)/2170072644496392193, leading 2 limbs of N/F = 8*2^64 + 9232948683394859363
+j = len(N/F) = 524288
+Use binary-div to compute R = (A - B) mod C in B-array: have i = len(A-B) = 524289, lead-limbs = 0,0x72a2e01125c799f8
+	4 lead-limbs A-B: ai[i-2:5] = 8260411030803814904,3055506354837190719, 2670678209404379291,7194267227749155962
+	4 lead-limbs C: atmp[i-2:5] =                   8,9232948683394859363,16371654168284835003,2997350680434680990
+bc-div of those gives Q = 971753711040608211, R = ; compare vs C-code: curr_fac[0] = 971753711040608211
+bc-div          gives remainder R =                 2,17757945788391218518,6530367188118538624,17164100583863379008
+					C-code gives R =              1,2,17757945788391218518,6530367188118538624,... *** WRONG LENGTH! ***
+Store Q = (A - B)/C in curr_fac[] in case want to remultiply and verify Q*C + R = (A - B):
+==============================
+o CERT support
+o SequentialWorkToDo: https://www.mersenneforum.org/private.php?do=showpm&pmid=173012
+o HWLOC support
+
+DESIRABLE:
+o Integrate Emily Ingalls' Xeon Phi v1 512-bit SIMD code, using prepro flag USE_ICMI512
+o Use worktodo.txt as the default worktodo file, for constancy with Prime95/MPrime, CUDALucas and GpuOwl. This would allow our script to also use worktodo.txt as the default worktodo filename and make it easier for CUDALucas and GpuOwl users.
+o Support the SequentialWorkToDo option from Prime95/MPrime, so that Mlucas does not run out of work if P-1 finds a factor before an LL/PRP test. On systems that take more than 3 days to complete a full LL/PRP test, if P-1 finds a factor, the system can run out of work and Mlucas will exit. Currently the only way to prevent this is to use the deprecated -n/--num_cache option or a larger -W/--days_work value, but those also prevent most systems from getting lower category assignments, defeating one of the primary purposes of our script.
+o Support assignments with N/A as the assignment ID (AID) or assignments with no AID, for constancy with Prime95/MPrime, CUDALucas and GpuOwl (for the former). This would allow our script to eventually support registering individual assignments. As you know, currently Mlucas only supports no AID for LL assignments and only if no P-1 is needed.
+o Montgomery (p+1)-style multipliers in p-1 stage 2
+o Investigate GMP-ECM-like stage 2, O(sqrt(B2)) work given sufficient RAM: https://www.mersenneforum.org/showthread.php?t=27366
+George: "The new stage 2 selects a D value (330330 in this case) and then does batches of D values with a single polynomial multiplication. The new code completes the full batch that is larger than the target B2."
+"The larger FFT will hurt stage 2 throughput. More study is required to see if prime95 is switching to a larger FFT sooner than necessary. The new algorithm can be implemented for P+1 and ECM with some difficulty. Reading papers by Montgomery / Silverman / Kruppa / Zimmermann is no easy matter! "
+
+
+ewm:
+For SequentialWorkToDo=0 to have any effect implies that at least 2 LL/PRP assignments are in the workfile. So let's consider the case of 2 such assignments being queued up - under what circumstances can the user run out of work in a shorter-than-expected time interval?
+
+1. One assignment needs p-1 factoring: If it's the first of the 2 LL/PRPs, if p-1 finds a factor, we move on to the second LL/PRP, this time with no p-1 done. If the one needing p-1 is the 2nd LL/PRP in the file, after the first completes, if for some reason no new LL/PRP is gotten from the server, then no-more-work occurs if the p-1 finds a factor, or if the ensuing LL/PRP completes and the user's machine (or Primenet server) is still offline.
+
+2. Both assignments need p-1: if p-1 on the first finds a factor, move on the second, if p-1 also finds a factor and no new LL/PRP assignment has been queued, we run out of work.
+
+So what does SequentialWorkToDo=0 do for us in the above scenarios? In [1], it only alters the case of the 2nd LL/PRP being the one needing p-1. I don't see the sense of moving the resulting p-1 assignment to the top and leaving the ensuing if-no-factor-found LL/PRP assignment in slot 3, so we move both the p-1 and LL/PRP of the split-into-two-parts assignment to top of the workfile.
+
+MINOR:
+o 64-bit counters for various things, support for 64-bit shift
+o Auto-file-cleanup after run completion
+o Timestamps in console-log entries
+o ETAs in logfile entries
+
+MAYBE:
+o Fused p-1 stage1 / PRP
+o 256|512-bit Arm SIMD support
+o Fermat-mod dyadic-square and carry-macro Arm SIMD support
+
+Validate Mlucas 10000-iter prp-3 residues for 8-30M FFT vs gpuOwl ones:
+													Res64			ms/iter (gpuOwl w/2 prod-runs going on same GPU)	nuc2:
+./gpuowl -fft  8M -iters 10000 -prp 152816047	10447b5958c7153d	 2.7	10447B5958C7153Dull,  25649892134ull,  63692031319	 31.4
+./gpuowl -fft  9M -iters 10000 -prp 171465013	1259eff4d4b88ce2	 2.7	1259EFF4D4B88CE2ull,  20123348812ull,  61034401374	 36.8
+./gpuowl -fft 10M -iters 10000 -prp 190066777	d7b93bf968f0f50f	 3.2	D7B93BF968F0F50Full,  24193017740ull,   1698596575	 42.0
+./gpuowl -fft 11M -iters 10000 -prp 208626181	b73da3a3dcfc2715	 3.9	B73DA3A3DCFC2715ull,  18785773681ull,   5941932830	 47.2
+./gpuowl -fft 12M -iters 10000 -prp 227147083	372c128de18f44a8	 4.1	372C128DE18F44A8ull,  22661022105ull,  28319883481	 52.6
+./gpuowl -fft 13M -iters 10000 -prp 245632679	fea3e15ff92c0b9e	11.7	FEA3E15FF92C0B9Eull,  25087739150ull,  65596702716	 58.4
+./gpuowl -fft 14M -iters 10000 -prp 264085733	aa93e30434811c8d	11.9	AA93E30434811C8Dull,   2228362920ull,   8335956471	 63.7
+./gpuowl -fft 15M -iters 10000 -prp 282508657	804b979eb89922ba	11.1	804B979EB89922BAull,  26535016499ull,  63049971720	 67.7
+./gpuowl -fft 16M -iters 10000 -prp 300903377	e584214afa269421	 8.6	E584214AFA269421ull,  33543551870ull,  17530147104	 73.4
+./gpuowl -fft 18M -iters 10000 -prp 337615277	bce24ce8a48ef4c8	 9.2	BCE24CE8A48EF4C8ull,  18408960714ull,  40047346011	 84.2
+./gpuowl -fft 20M -iters 10000 -prp 374233309	38b9508197a2f880	11.2	38B9508197A2F880ull,  17914520610ull,  40675602543	 96.1
+./gpuowl -fft 22M -iters 10000 -prp 410766953	6d0da537655adb8f	12.8	6D0DA537655ADB8Full,  28534262546ull,  56406949849	107.2
+./gpuowl -fft 24M -iters 10000 -prp 447223969	294d8da9f0957d69	13.9	294D8DA9F0957D69ull,  18477018631ull,   4404820879	115.8
+./gpuowl -fft 26M -iters 10000 -prp 483610763	7ad715347087a95d	27.7	7AD715347087A95Dull,  29627983156ull,  55271838273	140.5
+./gpuowl -fft 28M -iters 10000 -prp 519932827	87268c55e4bcb257	29.7	87268C55E4BCB257ull,  23433413895ull,  47801213689	152.6
+./gpuowl -fft 30M -iters 10000 -prp 556194803	3d17bc75e5e3ddef	28.5	3D17BC75E5E3DDEFull,  32874051574ull,  57034690579	145.8
+./gpuowl -fft 32M -iters 10000 -prp 592400713	38c8047bb23d3146	48.7
+32M	38C8047BB23D3146ull, 18285343891ull, 62090151768	117.4
+36M	680471EBEF0500BCull, 29423921028ull, 21769143331	110.6
+40M	2022E24AC582ABDFull, 26611160419ull, 12727750935	137.4
+44M	1BD35D3BB502A327ull,  7929585559ull, 13807068803	150.1
+48M	B98AA627050B671Aull, 10196185952ull,  1461018327	159.2
+52M	91827F71C70B72E2ull,  6915899554ull, 51031186257	162.4
+56M	0B9FF561BB7E6A8Eull, 27229975800ull, 68594865215	155.2
+60M	2D3034F9BEFD96D5ull,  2175887418ull, 16970800813	177.7
+==============================
+BUGS:
+
+o *** FFT 7*2^k fermat-mod carry is broken in avx512 mode (also broken in v19.1)
+	15*2^k works, so first diff radix224|240, both of which support avx-512
+	[Saved compare-data in a.txt,b.txt - revisit later when time permits.]
+o *** FFT 63*2^k fermat-mod carry is broken in avx512 mode***
+
+===================================
+v21 request list:
+o tdulcet wants -cleanup flag like gpuowl has: "If -cleanup invoked, for each successfully submitted result, 'rm -f' the associated *[exp], *[exp].s1, *[exp].s2 and *[exp]*M files". You'll likely want to keep the .stat files, especially as unlike the residue-containing files, they are highly compressible. So the same snip of script-add could 'xzip p[exp].stat'.
+o followup: gpuowl has since flipped default behavior via '-noclean': residue files auto-deleted on completion if not invoked
+
+
+Kriesel's "I want a pony" v21 wish-list":
+
+o PRP proof generation
+o handling partial-B2 factor found bounds reporting
+o handling any leftover bugs or future finds practical
+o hardening core affinity specification against WSL's scattering effects
+o -s g to cover 256M-512M selftest and potentially someday higher (giant, gigantic, ginormous?)
+o mfactor multithread save file/resume
+o help.txt possible addition for how to update efficiently from beta to release version; I think it's make clean then usual install atop the existing, with .cfg and .log files undisturbed.
+o help.txt please add to the various -s (letter) cases, the fft length ranges each covers.
+o documentation of how to manually run a single large exponent P-1 stage 2, split among multiple machines or processes
+o output in .stat file, total compute time for a completed P-1 run
+o possibly resolution so mlucas or mfactor could again be built as a native Windows application
+o extension of nonzero shift to all the fft lengths
+o jacobi symbol check for LL (some day mlucas will be called upon again to confirm a discovery)
+o repeated-residue or other anomalies used as P-1 stage 1 or PRP error checks
+o (even if well guarded by GEC or Jacobi or both, a repeated-residue detection is computationally quick and gives much earlier error detection, saving cycles)
+o explicit pass/fail use of jacobi check and GEC guarded powering in P-1
+o with resume from earlier thought-good state upon detection of an error
+o more date/time stamps of output (nohup.out first entry of a run in particular)
+o Include ETAs
+o efficiency improvements anywhere
+o If you were so inclined, a developer's point of view description/tutorial, as readable as your DROID article, of the learning curve of creating efficient reliable P-1, would be great.
+
+
+==============================
+By way of final-small-updates, I will be adding support for an InterimGCD=[0|!0] flag in the user's local.ini file, which controls the p-1 stage 2 behavior, and where 0 means 'false' and nonzero means 'true' ('true' will be the default). This can be enhanced later to allow users to specify an actual iters-between-GCDs value in place of the first-cut "nonzero means 'true', with interim GCDs every 10m stage 2 iters"
+
+For the F33 distributed stage 2 effort which I plan to kick off after running a moderately deep (b2 = 10^8) stage 2 from my recently-completed b1 = 10^7 stage 1 residue, users will get assigned nonoverlapping stage 2 intervals and not wanting to do interim GCDs, since the single-threaded GMP GCD takes hours even on the fastest CPUs for inputs this large.
+
+For those of you inclined to code-geekery (and I think that applies to you both), s little GDB-based fun which also demos some of the kinds of things one can do in debug mode to alter program control flow, related to my yesterday v20.1.1 upload (md5 = 2d99cd26f93ad4a10c106c6195da63cd), follows. As the release-notes I sent mention, one of the bugfixes was to allow p-1 stage 2 runs at 512M FFT. "How would one test that that actually works, without burning a day or more of runtime?", you may be asking. I wanted a modulus which exercises 512M, but the only Fermat-number that fits that is F33, with no known factors one can use to check one's p-1 code (I have done debug using the known factor of F31, but that needs 'just' 128M FFT). So I did shallow (< 2^68) TF on a half-dozen M(p) with p > 2^33, looking for one with at least 2 factors q = 2.p.k+1 > 2^64 and which were amenable to p-1 with small stage bounds. p = 8589934693 looked good, that has 2 factors < 2^68, with k1 = 1866092580 = 2^2.3^4.5.11.23.29.157 and k2 = 2291914028 = 2^2.23.727.34267. So b1 = 1000 and b2 = 35000 should catch them both. We want the key control-code built so we can step through and examine variables, so here that compile/relink step for an avx-512 build:
+[i]
+gcc -c -O0 -g3 -ggdb -DUSE_THREADS -DUSE_AVX512 -march=knl ../src/util.c ../src/Mlucas.c -DPM1_DEBUG ../src/pm1.c && gcc -o Mlucas_dbg *o -lm -lrt -lpthread -lgmp
+[/i]
+Invoking the PM1_DEBUG preprocessor flag eanbles some useful debug-code in pm1.c, as well as disabling the recently-added b1-must-be-at-least-10^4 requirement.
+
+We don't want to do a GCD following stage 1, because although it would reveal the smoother of the above 2 factors, it's gonna take hours and hours - in fact the better part of a day on my KNL (only machine I have of running this big an exponent) since it's single-threaded, the GMP GCD (afaict) does not use the avx-512 instructions to any meaningful extent, and the KNL's cores are severely underclocked due to thermals.
+
+Note the bit of logic in which determines whether to do a GCD following stage 1 is at line Mlucas.c:2428:
+[code]if( ilo < ihi || !filegrep(STATFILE,"GCD",cbuf,0))[/code]
+The 'ilo < ihi' check is true if it's a just-completed stage 1, and false if it's a stage 2 restart. So we'll need to interactively bypass that first part of the if() in GDB. The second is to handle cases where the run crashed or was interrupted just as it was doing the stage 1 GCD. It's just a simple check of the exponent-log (.stat) file for this:
+[code]Stage 1: No factor found.
+Time for GCD = 00:00:59.103[/code], by way of checking for the substring "GCD". So the second part of the bypass procedure is to do like in the run directory:
+[code]cat > p8589934693.stat
+GCD
+ctrl-d[/code] That creates a p8589934693.stat file with contents consisting of a single line, "GCD". Next create a worktodo.ini file with this entry:
+[code]Pminus1=00000000000000000000000000000000,1,2,8589934693,-1,1000,3500[/code]
+
+The last thing we need before starting the run is 512M entry in our mlucas.cfg file. Slow way is to run the full '-s xxl' self-tests (note these require '-shift 0' at present), preferably at the maximum power-of-2 core count possible on one's system. Slightly faster is to self-test just 512M via './Mlucas -iters 1000 -cpu [whatever] -fft 512M -shift 0'. On my KNL that used '-cpu 0:63', and produced this entry:
+[code]    524288  msec/iter =  536.30  ROE[avg,max] = [0.247767938, 0.289062500]  radices = 256 32 32 32 32  0  0  0  0  0[/code] Each radix-combo needed ~10 min actual iteration-crunching time, but the ensuing unweight-FFT-outputs-and-convert-to-packed-integer form is at present single-threaded and non-SIMD-using, which adds ~?? wall-clock minutes each time, though that time is not reflected in the msec/iter number that is output.
+
+Now fire up GDB on the debuggable binary and set some breakpoints:
+[code]gdb Mlucas_dbg
+b util.c:100
+b Mlucas.c:2428
+b pm1.c:2385[/code]
+The first is a standard BP inside the ASSERT() function, to catch any fatal errors caught by the code at runtime - whatever other changes I make to util.c I keep that line fixed to make that BP location easy to remember. To view the code at the other 2 BPs, just use the GDB 'list' command in shorthand form:
+[code]l Mlucas.c:2428
+2428	if( ilo < ihi || !filegrep(STATFILE,"GCD",cbuf,0))
+l pm1.c:2385
+2385	  if(p == 33554432) {  // F25: check if the known factor divides the S2 result:[/code]
+That latter one is a bit cryptic, but it's the start of a debug block enabled by use of the PM1_DEBUG flag, containing several "canned" known-factor results for various moduli, which I used in developing the code. We're not going to modify it to add an if() block for the current exponent, but rather break there and do our GCD-bypassing output-test using a basic and much faster multiword divide. Now start the run:
+[code]run -cpu [whatever] -pm1_s2_nbuf 24[/code] 24 stage 2 buffers is the minium supported, that will need ~120GB of system memory at 512M FFT. Wait for stage 1 to complete; using 64 cores on my KNL that needed a little over a half-hour, and left this in the .stat file, some of which was also echoed to stderr:
+[code]Product of Stage 1 prime powers with b1 = 1000 is 1532 bits (24 limbs), vs estimated 1526. Setting PRP_BASE = 3.
+BRed (PM1_S1_PRODUCT sans leading bit) has 24 limbs, Res64 = 7267245851759737996
+INFO: primary restart file p8589934693 not found...looking for secondary...
+INFO: no restart file found...starting run from scratch.
+INFO: no restart file found...starting run from scratch.
+M8589934693: using FFT length 524288K = 536870912 8-byte floats, initial residue shift count = 0
+ this gives an average   16.000000188127160 bits per digit
+Using complex FFT radices       256        32        32        32        32
+[2021-10-29 14:42:32] M8589934693 S1 bit = 1531 [100.00% complete] clocks = 00:36:08.944 [1416.6851 msec/iter] Res64: 3D07282590AC38AE. AvgMaxErr = 0.140221873. MaxErr = 0.203125000. Residue shift count = 0.[/code] When we hit the BP at Mlucas.c:2428, we want to bypass the first part of the if(): 'set var ilo=ihi', then 'p ilo' should show ilo = 1531. Typing 'n' (short for 'next') should take us here:
+[code]2454	if(B2_start < B2) {[/code] Type 'c' to continue; you'll see, after a few minutes, output like this:
+[code]Using Bigstep 210, pairing-window multiplicity M = 1: Init M*24 = 24 [base^(A^(b^2)) % n] buffers for Stage 2...
+Init buf[] = A^11^2.13^2.17^2.19^2.23^2.29^2.31^2.37^2.41^2.43^2.47^2.53^2.59^2.61^2.67^2.71^2.73^2.79^2.83^2.89^2.97^2.101^2.103^2.
+Buffer-init done; clocks = 00:10:41.885, MaxErr = 0.156250000.
+Small-prime[11] relocation: will start Stage 2 at bound 3181
+Stage 2 q0 = 3150, k0 = 15
+Computing Stage 2 loop-multipliers...[/code] followed by a bunch of debug output, first for the individual modmuls used to compute the Stage 2 loop-multipliers, then for the stage 2 primes-processing. (The 'Mismatch' lines of which are related to te small-prime relocation. After a few more hours (a little over 1 hour on my KNL) we hit the end-of-stage-2 BP:
+[code]M =  1: #buf =   24, #pairs: 911, #single: 1795 (50.37% paired), #blocks: 153, #modmul: 3012
+Res64 = 0xD50201C59B660720; clocks = 00:00:00.000, MaxErr = 0.000000000
+
+Thread 1 "Mlucas_dbg" hit Breakpoint 3, pm1_stage2 (p=8589934693, bigstep=210, m=1, pow=0x7ffaecfce080, mult=0x7fffffffd470,
+    arrtmp=0x7ffa6cfcd010, func_mod_square=0x43aa30 <mers_mod_square>, n=536870912, scrnFlag=0, tdiff=0x7fffffffd650,
+    gcd_str=0x7fffffffd690 "") at ../src/pm1.c:2385
+2385	  if(p == 33554432) {  // F25: check if the known factor divides the S2 result:[/code]
+At this point, the integer array 'arrtmp' holds the packed-bit stage 2 residue. Rather than GCDing that with 2^p-1, we will divide by the known factors which should have been found. Our 2 factors are q1 = 32059226786583755881 and q2 = 39374783644981146809; we're just going to 1-shot check both by seeing if their product divides the stage 2 residue, by feeding to my hand-rolled base-2^64 multiword-int DIVREM routine. Said product has the following base-2^64 digits (low to high): 580155279774186465,13090549574461792706,3. In the p-1 stage 2 routine, 'nlimb' stores the number of 64-bit limbs of our modulus, and there are 2 nlimb-sized integer arrays available for use, vec1 and vec2. But vec1 is just a pointer-alias for our result-holding array, arrtmp. (This one is passed in from the main program, 'arrtmp' is its name there; vec1 and vec2 point to adjacent nlimb-sized chunks of it.) So vec1, a.k.a. arrtmp holds our result and we'll stick our trial-divisor into the first 3 limbs of vec2, then divide, feeding null pointer to the div function in the quotietn and remainder fields, meaning we get a simply result in form of the function return value. Note GDB needs one to cast the result of all functions invoked at runtime to a defined type:
+[code]set var vec2[0]=580155279774186465
+set var vec2[1]=13090549574461792706
+set var vec2[2]=3
+p (int)mi64_div(arrtmp,vec2, nlimb,3, 0x0, 0x0)
+$31 = 1[/code], the last line of which is the output ... 1 means success!
+==============================
+14 Oct: KK reports '-s e' timing anomalies:
+
+Xeon Phi 7250 Ubuntu/WSL/Win10 has an unusually long streak of 6 slower ffts, preceding 512MB's entry constructed from console log's 30:56.409 fastest radix set, './Mlucas -cpu 0:63 -s e -shift 0':
+    262144  msec/iter = 1043.02  ROE[avg,max] = [0.230455725, 0.281250000]  radices = 128 32 32 32 32  0  0  0  0  0
+    294912  msec/iter = 1639.82  ROE[avg,max] = [0.237371283, 0.281250000]  radices = 288 16 32 32 32  0  0  0  0  0
+    327680  msec/iter = 1947.63  ROE[avg,max] = [0.338402062, 0.406250000]  radices = 320 16 32 32 32  0  0  0  0  0
+    360448  msec/iter = 2127.18  ROE[avg,max] = [0.253483409, 0.312500000]  radices = 352 16 32 32 32  0  0  0  0  0
+    393216  msec/iter = 2394.62  ROE[avg,max] = [0.246095248, 0.296875000]  radices = 768 16 16 32 32  0  0  0  0  0
+    425984  msec/iter = 2840.29  ROE[avg,max] = [0.274077803, 0.343750000]  radices = 208 32 32 32 32  0  0  0  0  0
+    458752  msec/iter = 2737.63  ROE[avg,max] = [0.232894599, 0.281250000]  radices = 224 32 32 32 32  0  0  0  0  0
+    491520  msec/iter = 2932.35  ROE[avg,max] = [0.273440741, 0.312500000]  radices = 960 16 16 32 32  0  0  0  0  0
+    524288  msec/iter = 1856.41  ROE[avg,max] = [0.271527163, 0.343750000]  radices = 128 16 16 16 16 32  0  0  0  0
+#512MB was missing due to program crash; reconstructed from console log data
+
+These huge FFT lengths, especially the non-power-of-2 ones, have been nowhere near optimized, especially for large thread counts. For instance, one limitation of the carry-step-wrapping leading-FFT-radix routines is that the thread count they use must divide said radix. E.g. at 288M, the radix-288/carry routine can only use 36 of the 64 threads. since your CPU is hyperthreaded, better would be to use 64 threads for the power-of-2 chunk [32,32,32,32] processing and 72 threads for the radix-288/carry step. Currently such separate-thread-counts for the 2 phases is not supported. You can maybe get some idea of how that might perform by rerunning the 288M selftests with 72 threads; on your 68-core KNL that would be './Mlucas -cpu 0:63,68:75 -fft 288M -shift 0'.
+==============================
+EWM: Relocation sees to be working OK in terms of caching all the s2 primes - why the "mismatch"es in the debug-prints?
+
+p = 1000099: 2 factors, q1 = 1872347344039[k = 3^2.104009], q2 = 82815026005984871[k = 5.13.17.107.350179]
+216-buf fails to find q2:
+	Small-prime[11] relocation: will start Stage 2 at bound 31834
+	Stage 2 q0 = 31920, k0 = 152
+	M =  9: #buf =  216, #pairs: 12693, #single: 3432 (88.09% paired), #blocks: 1516, #modmul: 19157
+400-buf fails to find q2:
+	Small-prime[7] relocation: will start Stage 2 at bound 50025
+	Stage 2 q0 = 50160, k0 = 152
+	M = 10: #buf =  400, #pairs: 12878, #single: 3067 (89.36% paired), #blocks: 910, #modmul: 17765
+Thought it might have s.t. to do with relocation, but after disabling that, it still fails to find the larger factor.
+Maybe setting B2 = 350179 is the problem? B2 = 360000 woRks, find both factors. Data dump towards loop-end for 216-buf, does not contain 350179. We process upper-interval which should contain it, but never get to it.
+
+Try extending stage 2 upper loop bound from q < B2 to q < (B2 + m2*bigstep):
+
+New upper-interval with q0 = 349650, tagging its primes:
+k = 1661: q = 348810
+Processing 0-interval prime pairs:
+Mismatch: q2 = 348811[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348779[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348769[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348763[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348757[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348731[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348709[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q2 = 348949[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348643[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348629[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348617[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349051[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348563[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348559[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348527[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349121[0], bytevec_test_bit returns 1
+Extended-window pair [2]
+Mismatch: q1 = 348487[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348461[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348457[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348451[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349171[0], bytevec_test_bit returns 1
+	q = 348810 -+ 367: q1 = 348443[1], q2 = 349177[1], paired singles
+Mismatch: q2 = 349183[0], bytevec_test_bit returns 1
+	q = 348810 -+ 377: q1 = 348433[1], q2 = 349187[1], paired singles
+Mismatch: q1 = 348421[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349211[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348367[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348353[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348307[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348287[1], bytevec_test_bit returns 0
+Extended-window pair [3]
+Mismatch: q1 = 348259[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348253[1], bytevec_test_bit returns 0
+	q = 348810 -+ 563: q1 = 348247[1], q2 = 349373[1], paired singles
+Mismatch: q2 = 349379[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348239[1], bytevec_test_bit returns 0
+	q = 348810 -+ 589: q1 = 348221[1], q2 = 349399[1], paired singles
+Mismatch: q1 = 348217[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348209[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348181[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348161[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348149[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349493[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348083[1], bytevec_test_bit returns 0
+Extended-window pair [4]
+	q = 348810 -+ 757: q1 = 348053[1], q2 = 349567[1], paired singles
+Mismatch: q1 = 348043[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348031[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348017[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348011[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348001[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347993[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347989[1], bytevec_test_bit returns 0
+	q = 348810 -+ 827: q1 = 347983[1], q2 = 349637[1], paired singles
+Mismatch: q1 = 347969[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347959[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347957[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347951[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347933[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347929[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347899[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347891[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347887[1], bytevec_test_bit returns 0
+Mismatch: q1 = 347873[1], bytevec_test_bit returns 0
+Word 0, processing remaining p1-prime singletons:
+	q = 348810 -+ 823: q1 = 347987[1], q2 = 349633[0], 1-prime
+	q = 348810 -+ 829: q1 = 347981[1], q2 = 349639[0], 1-prime
+New upper-interval with q0 = 349860, tagging its primes:
+k = 1662: q = 349020
+Processing 0-interval prime pairs:
+Mismatch: q2 = 349051[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348949[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349121[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q2 = 349171[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349177[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349183[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349187[0], bytevec_test_bit returns 1
+	q = 349020 -+ 187: q1 = 348833[1], q2 = 349207[1], paired singles
+Mismatch: q2 = 349211[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348811[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348779[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348769[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348763[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348757[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348731[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348709[1], bytevec_test_bit returns 0
+Extended-window pair [2]
+	q = 349020 -+ 349: q1 = 348671[1], q2 = 349369[1], paired singles
+Mismatch: q2 = 349373[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349379[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348643[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349399[0], bytevec_test_bit returns 1
+	q = 349020 -+ 383: q1 = 348637[1], q2 = 349403[1], paired singles
+Mismatch: q1 = 348629[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348617[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348563[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348559[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349493[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348527[1], bytevec_test_bit returns 0
+Extended-window pair [3]
+Mismatch: q1 = 348487[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349567[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348461[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348457[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348451[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348443[1], bytevec_test_bit returns 0
+	q = 349020 -+ 583: q1 = 348437[1], q2 = 349603[1], paired singles
+Mismatch: q1 = 348433[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348421[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349637[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348367[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348353[1], bytevec_test_bit returns 0
+	q = 349020 -+ 697: q1 = 348323[1], q2 = 349717[1], paired singles
+Mismatch: q1 = 348307[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348287[1], bytevec_test_bit returns 0
+Extended-window pair [4]
+Mismatch: q1 = 348259[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348253[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348247[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348239[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348221[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348217[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348209[1], bytevec_test_bit returns 0
+	q = 349020 -+ 829: q1 = 348191[1], q2 = 349849[1], paired singles
+Mismatch: q1 = 348181[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348161[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348149[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348083[1], bytevec_test_bit returns 0
+	q = 349020 -+ 943: q1 = 348077[1], q2 = 349963[1], paired singles
+Word 0, processing remaining p1-prime singletons:
+	q = 349020 -+ 751: q1 = 348269[1], q2 = 349771[0], 1-prime
+	q = 349020 -+ 779: q1 = 348241[1], q2 = 349799[0], 1-prime
+	q = 349020 -+ 857: q1 = 348163[1], q2 = 349877[0], 1-prime
+	q = 349020 -+ 923: q1 = 348097[1], q2 = 349943[0], 1-prime
+New upper-interval with q0 = 350070, tagging its primes:
+k = 1663: q = 349230
+Processing 0-interval prime pairs:
+Mismatch: q1 = 349211[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349207[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349187[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349183[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349177[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349171[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q1 = 349121[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349369[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349373[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349379[0], bytevec_test_bit returns 1
+	q = 349230 -+ 151: q1 = 349079[1], q2 = 349381[1], paired singles
+Mismatch: q2 = 349399[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349403[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349051[1], bytevec_test_bit returns 0
+	q = 349230 -+ 241: q1 = 348989[1], q2 = 349471[1], paired singles
+Mismatch: q2 = 349493[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348949[1], bytevec_test_bit returns 0
+Extended-window pair [2]
+Mismatch: q2 = 349567[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349603[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348833[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349637[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348811[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348779[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348769[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348763[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348757[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349717[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348731[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348709[1], bytevec_test_bit returns 0
+Extended-window pair [3]
+Mismatch: q1 = 348671[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348643[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348637[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348629[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348617[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349849[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348563[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348559[1], bytevec_test_bit returns 0
+	q = 349230 -+ 677: q1 = 348553[1], q2 = 349907[1], paired singles
+	q = 349230 -+ 683: q1 = 348547[1], q2 = 349913[1], paired singles
+Mismatch: q1 = 348527[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349963[0], bytevec_test_bit returns 1
+Extended-window pair [4]
+Mismatch: q1 = 348487[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348461[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348457[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348451[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348443[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348437[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348433[1], bytevec_test_bit returns 0
+	q = 349230 -+ 799: q1 = 348431[1], q2 = 350029[1], paired singles
+Mismatch: q1 = 348421[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348367[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348353[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348323[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348307[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348287[1], bytevec_test_bit returns 0
+Word 0, processing remaining p1-prime singletons:
+	q = 349230 -+ 767: q1 = 348463[1], q2 = 349997[0], 1-prime
+	q = 349230 -+ 811: q1 = 348419[1], q2 = 350041[0], 1-prime
+	q = 349230 -+ 823: q1 = 348407[1], q2 = 350053[0], 1-prime
+	q = 349230 -+ 829: q1 = 348401[1], q2 = 350059[0], 1-prime
+	q = 349230 -+ 841: q1 = 348389[1], q2 = 350071[0], 1-prime
+New upper-interval with q0 = 350280, tagging its primes:
+k = 1664: q = 349440
+Processing 0-interval prime pairs:
+Mismatch: q2 = 349471[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349403[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349399[1], bytevec_test_bit returns 0
+	q1 = 349397[1], q2 = 349483[1], both prime
+Mismatch: q2 = 349493[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349381[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349379[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349373[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349369[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q2 = 349567[0], bytevec_test_bit returns 1
+	q = 349440 -+ 149: q1 = 349291[1], q2 = 349589[1], paired singles
+Mismatch: q2 = 349603[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349637[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349211[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349207[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349187[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349183[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349177[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349171[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349717[0], bytevec_test_bit returns 1
+Extended-window pair [2]
+Mismatch: q1 = 349121[1], bytevec_test_bit returns 0
+	q = 349440 -+ 347: q1 = 349093[1], q2 = 349787[1], paired singles
+Mismatch: q1 = 349079[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349051[1], bytevec_test_bit returns 0
+	q = 349440 -+ 397: q1 = 349043[1], q2 = 349837[1], paired singles
+	q = 349440 -+ 401: q1 = 349039[1], q2 = 349841[1], paired singles
+Mismatch: q2 = 349849[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348989[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349907[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349913[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348949[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349963[0], bytevec_test_bit returns 1
+Extended-window pair [3]
+Mismatch: q2 = 350029[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348833[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348811[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348779[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348769[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348763[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348757[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348731[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348709[1], bytevec_test_bit returns 0
+Extended-window pair [4]
+Mismatch: q1 = 348671[1], bytevec_test_bit returns 0
+	q = 349440 -+ 779: q1 = 348661[1], q2 = 350219[1], paired singles
+Mismatch: q1 = 348643[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348637[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348629[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348617[1], bytevec_test_bit returns 0
+	q = 349440 -+ 853: q1 = 348587[1], q2 = 350293[1], paired singles
+Mismatch: q1 = 348563[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348559[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348553[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348547[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348527[1], bytevec_test_bit returns 0
+Word 0, processing remaining p1-prime singletons:
+	q = 349440 -+ 857: q1 = 348583[1], q2 = 350297[0], 1-prime
+	q = 349440 -+ 869: q1 = 348571[1], q2 = 350309[0], 1-prime
+New upper-interval with q0 = 350490, tagging its primes:
+k = 1665: q = 349650
+Processing 0-interval prime pairs:
+Mismatch: q1 = 349637[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349603[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349589[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349717[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349567[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q2 = 349787[0], bytevec_test_bit returns 1
+	q = 349650 -+ 143: q1 = 349507[1], q2 = 349793[1], paired singles
+	q = 349650 -+ 151: q1 = 349499[1], q2 = 349801[1], paired singles
+Mismatch: q1 = 349493[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349483[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349471[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349837[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349841[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349849[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349403[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349399[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349397[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349907[0], bytevec_test_bit returns 1
+Mismatch: q2 = 349913[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349381[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349379[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349373[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349369[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349963[0], bytevec_test_bit returns 1
+Extended-window pair [2]
+Mismatch: q1 = 349291[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350029[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349211[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349207[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349187[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349183[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349177[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349171[1], bytevec_test_bit returns 0
+Extended-window pair [3]
+Mismatch: q1 = 349121[1], bytevec_test_bit returns 0
+	q = 349650 -+ 541: q1 = 349109[1], q2 = 350191[1], paired singles
+Mismatch: q1 = 349093[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350219[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349079[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349051[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349043[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349039[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350293[0], bytevec_test_bit returns 1
+Mismatch: q1 = 348989[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348949[1], bytevec_test_bit returns 0
+	q = 349650 -+ 727: q1 = 348923[1], q2 = 350377[1], paired singles
+	q = 349650 -+ 731: q1 = 348919[1], q2 = 350381[1], paired singles
+Extended-window pair [4]
+	q = 349650 -+ 761: q1 = 348889[1], q2 = 350411[1], paired singles
+Mismatch: q1 = 348833[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348811[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348779[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348769[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348763[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348757[1], bytevec_test_bit returns 0
+	q = 349650 -+ 911: q1 = 348739[1], q2 = 350561[1], paired singles
+Mismatch: q1 = 348731[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348709[1], bytevec_test_bit returns 0
+Word 0, processing remaining p1-prime singletons:
+	q = 349650 -+ 739: q1 = 348911[1], q2 = 350389[0], 1-prime
+	q = 349650 -+ 767: q1 = 348883[1], q2 = 350417[0], 1-prime
+	q = 349650 -+ 799: q1 = 348851[1], q2 = 350449[0], 1-prime
+	q = 349650 -+ 811: q1 = 348839[1], q2 = 350461[0], 1-prime
+	q = 349650 -+ 823: q1 = 348827[1], q2 = 350473[0], 1-prime
+New upper-interval with q0 = 350700, tagging its primes:
+k = 1666: q = 349860
+Processing 0-interval prime pairs:
+Mismatch: q1 = 349849[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349841[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349837[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349907[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349913[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349801[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349793[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349787[1], bytevec_test_bit returns 0
+Mismatch: q2 = 349963[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+	q = 349860 -+ 107: q1 = 349753[1], q2 = 349967[1], paired singles
+Mismatch: q1 = 349717[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350029[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349637[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349603[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349589[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349567[1], bytevec_test_bit returns 0
+Extended-window pair [2]
+Mismatch: q2 = 350191[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349507[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350219[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349499[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349493[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349483[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349471[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350293[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349403[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349399[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349397[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349381[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349379[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349373[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349369[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350377[0], bytevec_test_bit returns 1
+Mismatch: q2 = 350381[0], bytevec_test_bit returns 1
+Extended-window pair [3]
+Mismatch: q2 = 350411[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349291[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349211[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349207[1], bytevec_test_bit returns 0
+	q = 349860 -+ 661: q1 = 349199[1], q2 = 350521[1], paired singles
+Mismatch: q1 = 349187[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349183[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349177[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349171[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350561[0], bytevec_test_bit returns 1
+	q = 349860 -+ 727: q1 = 349133[1], q2 = 350587[1], paired singles
+Extended-window pair [4]
+Mismatch: q1 = 349121[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349109[1], bytevec_test_bit returns 0
+	q = 349860 -+ 761: q1 = 349099[1], q2 = 350621[1], paired singles
+Mismatch: q1 = 349093[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349079[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349051[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349043[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349039[1], bytevec_test_bit returns 0
+	q = 349860 -+ 869: q1 = 348991[1], q2 = 350729[1], paired singles
+Mismatch: q1 = 348989[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348949[1], bytevec_test_bit returns 0
+	q = 349860 -+ 923: q1 = 348937[1], q2 = 350783[1], paired singles
+Mismatch: q1 = 348923[1], bytevec_test_bit returns 0
+Mismatch: q1 = 348919[1], bytevec_test_bit returns 0
+	q = 349860 -+ 943: q1 = 348917[1], q2 = 350803[1], paired singles
+Word 0, processing remaining p1-prime singletons:
+	q = 349860 -+ 779: q1 = 349081[1], q2 = 350639[0], 1-prime
+	q = 349860 -+ 853: q1 = 349007[1], q2 = 350713[0], 1-prime
+New upper-interval with q0 = 350910, tagging its primes:
+k = 1667: q = 350070
+Processing 0-interval prime pairs:
+	q1 = 350033[1], q2 = 350107[1], both prime
+Mismatch: q1 = 350029[1], bytevec_test_bit returns 0
+	q1 = 350003[1], q2 = 350137[1], both prime
+	q1 = 349981[1], q2 = 350159[1], both prime
+Mismatch: q1 = 349967[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q1 = 349963[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350191[0], bytevec_test_bit returns 1
+	q = 350070 -+ 143: q1 = 349927[1], q2 = 350213[1], paired singles
+Mismatch: q2 = 350219[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349913[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349907[1], bytevec_test_bit returns 0
+	q = 350070 -+ 167: q1 = 349903[1], q2 = 350237[1], paired singles
+Mismatch: q1 = 349849[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350293[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349841[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349837[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349801[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349793[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349787[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350377[0], bytevec_test_bit returns 1
+Mismatch: q2 = 350381[0], bytevec_test_bit returns 1
+Extended-window pair [2]
+Mismatch: q1 = 349753[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350411[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349717[1], bytevec_test_bit returns 0
+	q = 350070 -+ 361: q1 = 349709[1], q2 = 350431[1], paired singles
+	q = 350070 -+ 373: q1 = 349697[1], q2 = 350443[1], paired singles
+Mismatch: q1 = 349637[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350521[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349603[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349589[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350561[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349567[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350587[0], bytevec_test_bit returns 1
+Extended-window pair [3]
+Mismatch: q2 = 350621[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349507[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349499[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349493[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349483[1], bytevec_test_bit returns 0
+	q = 350070 -+ 593: q1 = 349477[1], q2 = 350663[1], paired singles
+Mismatch: q1 = 349471[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350729[0], bytevec_test_bit returns 1
+	q = 350070 -+ 661: q1 = 349409[1], q2 = 350731[1], paired singles
+Mismatch: q1 = 349403[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349399[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349397[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349381[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349379[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349373[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349369[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350783[0], bytevec_test_bit returns 1
+Mismatch: q2 = 350803[0], bytevec_test_bit returns 1
+Extended-window pair [4]
+	q = 350070 -+ 739: q1 = 349331[1], q2 = 350809[1], paired singles
+Mismatch: q1 = 349291[1], bytevec_test_bit returns 0
+	q = 350070 -+ 829: q1 = 349241[1], q2 = 350899[1], paired singles
+Mismatch: q1 = 349211[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349207[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349199[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349187[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349183[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349177[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349171[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349133[1], bytevec_test_bit returns 0
+Word 0, processing remaining p1-prime singletons:
+	q = 350070 -+ 757: q1 = 349313[1], q2 = 350827[0], 1-prime
+	q = 350070 -+ 767: q1 = 349303[1], q2 = 350837[0], 1-prime
+New upper-interval with q0 = 351120, tagging its primes:
+k = 1668: q = 350280
+Processing 0-interval prime pairs:
+Mismatch: q2 = 350293[1], bytevec_test_bit returns 0
+Mismatch: q1 = 350237[1], bytevec_test_bit returns 0
+Mismatch: q1 = 350219[1], bytevec_test_bit returns 0
+Mismatch: q1 = 350213[1], bytevec_test_bit returns 0
+Mismatch: q1 = 350191[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350377[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350381[1], bytevec_test_bit returns 0
+Extended-window pair [1]
+Mismatch: q1 = 350159[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350411[0], bytevec_test_bit returns 1
+Mismatch: q1 = 350137[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350431[0], bytevec_test_bit returns 1
+Mismatch: q2 = 350443[0], bytevec_test_bit returns 1
+Mismatch: q1 = 350107[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350521[0], bytevec_test_bit returns 1
+Mismatch: q1 = 350033[1], bytevec_test_bit returns 0
+Mismatch: q1 = 350029[1], bytevec_test_bit returns 0
+Mismatch: q1 = 350003[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350561[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349981[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350587[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349967[1], bytevec_test_bit returns 0
+Extended-window pair [2]
+Mismatch: q1 = 349963[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350621[0], bytevec_test_bit returns 1
+	q = 350280 -+ 349: q1 = 349931[1], q2 = 350629[1], paired singles
+Mismatch: q1 = 349927[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349913[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349907[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349903[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350663[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349849[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349841[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349837[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350729[0], bytevec_test_bit returns 1
+Mismatch: q2 = 350731[0], bytevec_test_bit returns 1
+	q = 350280 -+ 461: q1 = 349819[1], q2 = 350741[1], paired singles
+	q = 350280 -+ 467: q1 = 349813[1], q2 = 350747[1], paired singles
+Mismatch: q1 = 349801[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349793[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349787[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350783[0], bytevec_test_bit returns 1
+Mismatch: q2 = 350803[0], bytevec_test_bit returns 1
+Extended-window pair [3]
+Mismatch: q1 = 349753[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350809[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349717[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349709[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349697[1], bytevec_test_bit returns 0
+Mismatch: q2 = 350899[0], bytevec_test_bit returns 1
+Mismatch: q1 = 349637[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349603[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349589[1], bytevec_test_bit returns 0
+	q = 350280 -+ 701: q1 = 349579[1], q2 = 350981[1], paired singles
+Mismatch: q1 = 349567[1], bytevec_test_bit returns 0
+Extended-window pair [4]
+	q = 350280 -+ 751: q1 = 349529[1], q2 = 351031[1], paired singles
+	q = 350280 -+ 761: q1 = 349519[1], q2 = 351041[1], paired singles
+Mismatch: q1 = 349507[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349499[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349493[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349483[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349477[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349471[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349409[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349403[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349399[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349397[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349381[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349379[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349373[1], bytevec_test_bit returns 0
+Mismatch: q1 = 349369[1], bytevec_test_bit returns 0
+	q = 350280 -+ 937: q1 = 349343[1], q2 = 351217[1], paired singles
+	q = 350280 -+ 943: q1 = 349337[1], q2 = 351223[1], paired singles
+Word 0, processing remaining p1-prime singletons:
+	q = 350280 -+ 857: q1 = 349423[1], q2 = 351137[0], 1-prime
+	q = 350280 -+ 869: q1 = 349411[1], q2 = 351149[0], 1-prime
+	q = 350280 -+ 893: q1 = 349387[1], q2 = 351173[0], 1-prime
+	q = 350280 -+ 923: q1 = 349357[1], q2 = 351203[0], 1-prime
+New upper-interval with q0 = 351330, tagging its primes:
+M =  9: #buf =  216, #pairs: 12561, #single: 3727 (87.08% paired), #blocks: 1621, #modmul: 19530
+
+================================
+
+23 Sep 2021: When adding debug-code to compute V[D] 2 separate ways, saw that V[D/2]^2 hit fatal ROE:
+
+dtmp = 0; for(j = 0; j < n; j++) { dtmp += fabs(mult[0][j]); } dtmp /= n;
+fprintf(stderr,"V[1] has L1 = %20.10f",dtmp);
+ierr = func_mod_square(buf[i], 0x0, n, 0,1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+fprintf(stderr," gives IERR = %u, ROE = %10.6f\n",ierr,MME);
+
+******************* This autosquare gives ROE = 0.5 - why? *****************
+A: added above loop which autosquares all buf[1-24] (buf[0] is pure-int) - maxROE set = 0 prior to each autosqaure;
+L1 norm of inputs and ROEs look like they increase monotonically. This case [p = 108268067, n = 6M] uses 17.209 bpd, which
+corr. to a fractional average-base ~= 151478, which means a balanced-digit normalization should have L1 half that, ~75739.
+(But that crude average does not take into account #bw-vs-sw: bw = p%n = 1313315 ~= 20% bigwords, thus L1 will be < 75739)
+The L1 data below are based on FFT-pass-1-done outputs, but with properly normalized inputs to that,
+how can L1 keep growing like that? Data are getting renormalized every mod_square call:
+Init buf[] = (pow^j + pow^-j) with j = 1.11.13.17.19.23.29.31.37.41.43.47.53.59.61.67.71.73.79.83.89.97.101.103.
+V[1]                  has L1 =     52421.7348402341
+After FFT-pass1, V[1] has L1 =    998399.1726450265		<*** ratio ~= 19, R0 = 192, so ratio = O(sqrt(R0))
+FFT-pass1(V[1]^2)     has L1 =    705754.0070178247, gives IERR = 0, ROE =   0.109375
+Normalized V[1]^2     has L1 =     39305.2854727109		<*** ratio ~= 18
+V[2]*V[1]             has L1 =    705912.1840996306, gives IERR = 0, ROE =   0.054688
+******* up to this point things are fine - V[1]^2 is properly normalized, and the unnormalized -= 2 does not signify.
+******* But now we start using unnormalized whole-vector subtracts, e.g. V[3] = V[2]*V[1] - V[1]. So V[3] L1 jumps:
+V[3]                  has L1 =   1222716.6898910117, gives IERR = 0, ROE =   0.054688
+V[3]*V[2]             has L1 =    705994.3160107044, gives IERR = 0, ROE =   0.078125
+******* Similarly for rest - the V[odd]*V[2] intermediate is normalized, but L1 of the subtrahend increases monotonically:
+V[ 5] = V[ 3]*V[2] - V[ 1] has L1 =   1222786.9329456112	V[ 5]*V[2] has L1 =    705730.2279694607, gives IERR = 0, ROE =   0.070312
+V[ 7] = V[ 5]*V[2] - V[ 3] has L1 =   1411983.6492863866	V[ 7]*V[2] has L1 =    705652.3466845521, gives IERR = 0, ROE =   0.085938
+V[ 9] = V[ 7]*V[2] - V[ 5] has L1 =   1411222.1661252610	V[ 9]*V[2] has L1 =    705793.4601404053, gives IERR = 0, ROE =   0.078125
+V[11] = V[ 9]*V[2] - V[ 7] has L1 =   1578687.5101256447	V[11]*V[2] has L1 =    705779.8257252158, gives IERR = 0, ROE =   0.093750
+V[13] = V[11]*V[2] - V[ 9] has L1 =   1578148.6311953021	V[13]*V[2] has L1 =    705937.8993017868, gives IERR = 0, ROE =   0.093750
+V[15] = V[13]*V[2] - V[11] has L1 =   1729283.3953367928	V[15]*V[2] has L1 =    705861.1528589149, gives IERR = 0, ROE =   0.093750
+V[17] = V[15]*V[2] - V[13] has L1 =   1728732.5963791402	V[17]*V[2] has L1 =    705607.8255692247, gives IERR = 0, ROE =   0.093750
+V[19] = V[17]*V[2] - V[15] has L1 =   1867609.4404687127	V[19]*V[2] has L1 =    705638.3091354192, gives IERR = 0, ROE =   0.109375
+V[21] = V[19]*V[2] - V[17] has L1 =   1867377.1789625145	V[21]*V[2] has L1 =    705752.6844463811, gives IERR = 0, ROE =   0.125000
+V[23] = V[21]*V[2] - V[19] has L1 =   1996045.3122936096	V[23]*V[2] has L1 =    705946.1795069684, gives IERR = 0, ROE =   0.140625
+V[25] = V[23]*V[2] - V[21] has L1 =   1996523.2985843269	V[25]*V[2] has L1 =    705810.4059925607, gives IERR = 0, ROE =   0.125000
+V[27] = V[25]*V[2] - V[23] has L1 =   2117403.6915278956	V[27]*V[2] has L1 =    705668.8090272589, gives IERR = 0, ROE =   0.125000
+V[29] = V[27]*V[2] - V[25] has L1 =   2118004.7338563842	V[29]*V[2] has L1 =    705745.2454878832, gives IERR = 0, ROE =   0.140625
+V[31] = V[29]*V[2] - V[27] has L1 =   2232574.0055101570	V[31]*V[2] has L1 =    705737.7263725555, gives IERR = 0, ROE =   0.125000
+V[33] = V[31]*V[2] - V[29] has L1 =   2232158.6115046418	V[33]*V[2] has L1 =    706046.6994884271, gives IERR = 0, ROE =   0.125000
+V[35] = V[33]*V[2] - V[31] has L1 =   2340976.9322796511	V[35]*V[2] has L1 =    705912.3527314166, gives IERR = 0, ROE =   0.140625
+V[37] = V[35]*V[2] - V[33] has L1 =   2341337.6481166678	V[37]*V[2] has L1 =    705894.0191094307, gives IERR = 0, ROE =   0.125000
+V[39] = V[37]*V[2] - V[35] has L1 =   2445014.1360923438	V[39]*V[2] has L1 =    706046.1196181303, gives IERR = 0, ROE =   0.156250
+V[41] = V[39]*V[2] - V[37] has L1 =   2445373.3279811987	V[41]*V[2] has L1 =    705671.2299129679, gives IERR = 0, ROE =   0.125000
+V[43] = V[41]*V[2] - V[39] has L1 =   2545403.2839866602	V[43]*V[2] has L1 =    705919.3677476902, gives IERR = 0, ROE =   0.156250
+V[45] = V[43]*V[2] - V[41] has L1 =   2545341.3288265099	V[45]*V[2] has L1 =    705746.3465865570, gives IERR = 0, ROE =   0.156250
+V[47] = V[45]*V[2] - V[43] has L1 =   2641707.9945408851	V[47]*V[2] has L1 =    705882.2703424484, gives IERR = 0, ROE =   0.171875
+V[49] = V[47]*V[2] - V[45] has L1 =   2642067.9171360526	V[49]*V[2] has L1 =    705633.4059700002, gives IERR = 0, ROE =   0.156250
+V[51] = V[49]*V[2] - V[47] has L1 =   2733744.1073602466	V[51]*V[2] has L1 =    705461.2517017508, gives IERR = 0, ROE =   0.156250
+V[53] = V[51]*V[2] - V[49] has L1 =   2735087.4197977753	V[53]*V[2] has L1 =    705783.2183185094, gives IERR = 0, ROE =   0.171875
+V[55] = V[53]*V[2] - V[51] has L1 =   2823269.0379582359	V[55]*V[2] has L1 =    705787.0080619190, gives IERR = 0, ROE =   0.187500
+V[57] = V[55]*V[2] - V[53] has L1 =   2824536.8681066013	V[57]*V[2] has L1 =    705918.2385740363, gives IERR = 0, ROE =   0.156250
+V[59] = V[57]*V[2] - V[55] has L1 =   2910273.4693916929	V[59]*V[2] has L1 =    705771.1675234813, gives IERR = 0, ROE =   0.187500
+V[61] = V[59]*V[2] - V[57] has L1 =   2912057.6499399715	V[61]*V[2] has L1 =    705736.8458482487, gives IERR = 0, ROE =   0.171875
+V[63] = V[61]*V[2] - V[59] has L1 =   2994764.0288728816	V[63]*V[2] has L1 =    706044.8143669493, gives IERR = 0, ROE =   0.187500
+V[65] = V[63]*V[2] - V[61] has L1 =   2996097.1318264655	V[65]*V[2] has L1 =    705985.2199928697, gives IERR = 0, ROE =   0.187500
+V[67] = V[65]*V[2] - V[63] has L1 =   3076187.6492947978	V[67]*V[2] has L1 =    705888.5198715123, gives IERR = 0, ROE =   0.187500
+V[69] = V[67]*V[2] - V[65] has L1 =   3078093.4014721573	V[69]*V[2] has L1 =    705888.1422055494, gives IERR = 0, ROE =   0.171875
+V[71] = V[69]*V[2] - V[67] has L1 =   3156746.4699530434	V[71]*V[2] has L1 =    705771.7686750811, gives IERR = 0, ROE =   0.187500
+V[73] = V[71]*V[2] - V[69] has L1 =   3157926.7798694689	V[73]*V[2] has L1 =    705693.2327568721, gives IERR = 0, ROE =   0.187500
+V[75] = V[73]*V[2] - V[71] has L1 =   3234740.9016230037	V[75]*V[2] has L1 =    705983.5134977843, gives IERR = 0, ROE =   0.187500
+V[77] = V[75]*V[2] - V[73] has L1 =   3236284.5278078788	V[77]*V[2] has L1 =    706029.0484257579, gives IERR = 0, ROE =   0.187500
+V[79] = V[77]*V[2] - V[75] has L1 =   3310392.0326165264	V[79]*V[2] has L1 =    705783.5974629819, gives IERR = 0, ROE =   0.187500
+V[81] = V[79]*V[2] - V[77] has L1 =   3312398.8559860145	V[81]*V[2] has L1 =    705891.5879002098, gives IERR = 0, ROE =   0.203125
+V[83] = V[81]*V[2] - V[79] has L1 =   3384767.4603683748	V[83]*V[2] has L1 =    705754.8981257236, gives IERR = 0, ROE =   0.187500
+V[85] = V[83]*V[2] - V[81] has L1 =   3387698.3408878404	V[85]*V[2] has L1 =    705573.2477783947, gives IERR = 0, ROE =   0.203125
+V[87] = V[85]*V[2] - V[83] has L1 =   3457733.8249144717	V[87]*V[2] has L1 =    705944.4998081648, gives IERR = 0, ROE =   0.234375
+V[89] = V[87]*V[2] - V[85] has L1 =   3460612.2933156467	V[89]*V[2] has L1 =    705784.8535581465, gives IERR = 0, ROE =   0.187500
+V[91] = V[89]*V[2] - V[87] has L1 =   3529179.9426860246	V[91]*V[2] has L1 =    705758.0506816959, gives IERR = 0, ROE =   0.203125
+V[93] = V[91]*V[2] - V[89] has L1 =   3531806.8479941040	V[93]*V[2] has L1 =    705829.7656981653, gives IERR = 0, ROE =   0.218750
+V[95] = V[93]*V[2] - V[91] has L1 =   3598916.2795623336	V[95]*V[2] has L1 =    705783.9113590183, gives IERR = 0, ROE =   0.218750
+V[97] = V[95]*V[2] - V[93] has L1 =   3601442.4441221599	V[97]*V[2] has L1 =    705833.0160627919, gives IERR = 0, ROE =   0.203125
+V[99] = V[97]*V[2] - V[95] has L1 =   3667732.8965289909	V[99]*V[2] has L1 =    705604.3232590142, gives IERR = 0, ROE =   0.218750
+V[101]= V[99]*V[2] - V[97] has L1 =   3669572.1187865455	V[101]*V[2] has L1 =   705953.0830486178, gives IERR = 0, ROE =   0.218750
+V[103]=V[101]*V[2] - V[99] has L1 =   3735250.9816183313
+Autosquares of the resulting buffers amplify the ROEs even more:
+Autosquare: buf[ 1] with L1 =   1578687.5101256447 gives IERR = 0, ROE = 0.3125000000
+Autosquare: buf[ 2] with L1 =   1578148.6311953021 gives IERR = 0, ROE = 0.3125000000
+Autosquare: buf[ 3] with L1 =   1728732.5963791402 gives IERR = 0, ROE = 0.3750000000
+Autosquare: buf[ 4] with L1 =   1867609.4404687127 gives IERR = 9, ROE = 0.4687500000
+Autosquare: buf[ 5] with L1 =   1996045.3122936096 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[ 6] with L1 =   2118004.7338563842 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[ 7] with L1 =   2232574.0055101570 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[ 8] with L1 =   2341337.6481166678 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[ 9] with L1 =   2445373.3279811987 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[10] with L1 =   2545403.2839866602 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[11] with L1 =   2641707.9945408851 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[12] with L1 =   2735087.4197977753 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[13] with L1 =   2910273.4693916929 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[14] with L1 =   2912057.6499399715 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[15] with L1 =   3076187.6492947978 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[16] with L1 =   3156746.4699530434 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[17] with L1 =   3157926.7798694689 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[18] with L1 =   3310392.0326165264 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[19] with L1 =   3384767.4603683748 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[20] with L1 =   3460612.2933156467 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[21] with L1 =   3601442.4441221599 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[22] with L1 =   3669572.1187865455 gives IERR = 9, ROE = 0.5000000000
+Autosquare: buf[23] with L1 =   3735250.9816183313 gives IERR = 9, ROE = 0.5000000000
+
+===================================
+Montgomery paper re. single-modmul bigstep-advancing in p-1 stage 2 [here, b = stage 1 residue; since no stage 1 factor found, b and N are coprime, hence b^-1 mod N exists]:
+"In subsection 4.1, we used f(n) = b^(n^2) mod N. Another acceptable selection is f(n) = b^n + b^-n == V_n(b + b^-1) mod N. This is well-defined since GCD(b,N) = 1. This selection of f requires only multiplication modulo N to compute each successive value of f(vw) or f(u), by 5.2. It also leads to compatibility with the p+1 method of factoring."
+
+Pavel Patnashev writes: "Btw, the most important improvement of P-1 stage 2 is turning it into P+1 stage 2."
+===================================
+Changes in current dev-src:
+o p-1 stage 2 maxerr reporting made consistent with LL/PRP/stage-1, i.e. maxerr reset to 0 at start of each iteration-interval between savefile writes.
+o Restart logic now supports running s2 continuation; don't have to 'cp p*.s1 p*' first
+o An uninitialized local-time buffer which was causing gmtime() to return the "0 date" of 1970-01-01 00:00:00 in stage 2 restart cases has been fixed.
+===================================
+Lucas sequences: Given fixed ints p,q, define LS of 1st and 2nd kind as 3-term recurrences
+
+	[1] u[0] = 0, u[1] = 1, u[n+1] = p.u[n] - q.u[n-1] for n > 0;
+	[2] v[0] = 2, v[1] = p, v[n+1] = p.v[n] - q.v[n-1] for n > 0.
+Thus
+	u[2] = p, u[3] = p^2 - q, u[4] = p^3 - 2.p.q, u[5] = p.u[4] - q.u[3] = p^4 - 3.p^2.q + q^2, ... ,
+	v[2] = p^2 - 2.q, v[3] = p^3 - 3.p.q, v[4] = p.v[3] - q.v[2] = p^4 - 4.p^2.q + 2.q^2, ... .
+
+	Looking like v[n] equals u[n+1] with the coeffs of any q-terms incremented by 1 ... no, v[5] breaks the pattern.
+
+Useful identities:
+
+	u[n+1] = (p.u[n] + v[n])/2	[*]
+Proof by induction: (p.u[0] + v[0])/2 = 1 = u[1] and (p.u[1] + v[1])/2 = p, so holds for the 0,1-terms.
+Now u[n+1] = p.u[n] - q.u[n-1]. Assuming [*] holds, replace u[n] in RHS by (p.u[n-1] + v[n-1])/2 ???
+	p.u[n] - q.u[n-1] = (p.u[n] + v[n])/2
+->	p.u[n]/2 - q.u[n-1] = v[n]/2
+
+
+===================================
+Williams' p+1 algorithm: uses Lucas sequences to perform exponentiation in a quadratic field.
+Choose some integer A > 2 which characterizes the Lucas sequence:
+
+    V[0] = 2, V[1] = A, V[j] = A.V[j−1] − V[j−2],
+
+where all operations are performed modulo N, the number we wish to factor.
+
+Then any odd prime p divides gcd(N,V_M-2) whenever M is a multiple of p-(D/p), where D = A^2 - 4 and (D/p) is the Jacobi symbol.
+
+We require that ( D / p ) = − 1 (D/p)=-1, that is, D should be a quadratic non-residue modulo p. But as we don't know p beforehand, more than one value of A may be required before finding a solution. If ( D / p ) = + 1 (D/p)=+1, this algorithm degenerates into a slow version of Pollard's p − 1 algorithm.
+
+So, for different values of M we calculate gcd ( N , V M − 2 ) \gcd(N,V_M-2), and when the result is not equal to 1 or to N, we have found a non-trivial factor of N.
+
+The values of M used are successive factorials, and V M V_M is the M-th value of the sequence characterized by V M − 1 V_{M-1}.
+
+===================================
+
+PatWolt Edrwards-curves paper:
+
+o "A multiplication of two different numbers requires forward transform of both inputs, dyadic (per-element) multiplication, inverse transform and carry propagation. A squaring thus requires 2 transforms while a multiplication requires 3, which is..."
+
+o "A core can spend most of its time waiting for data to arrive from main memory." -- perhaps add "...This mismatch between bandwidth between main memory and the CPU on the one hand and the CPU's data processing capability on the other has tended to become worse, not better, with modern CPUs sporting ever more processing cores."
+
+o "A better approach is to perform (a + b) · c per-element by exploiting the input-linearity of transform arithmetic and doing the resulting combined add-mul operations during the dyadic-multiply step."
+
+o "The only limitation here is that words of the output must be capable of holding enough data before carry is propagated." -- Replace "enough data" with "sufficient bits of precision". A good way to think about interposing an extra (a+b) or (a-b) during the dyadic-mul step is to view the add/sub as roughly equivalent to an extra radix-2 transform butterfly. In practice, that requires only a fractional-bit worth of conservaism re. input word sizes. Using my own code as an example - between Mlucas 20.0 (end of Jul) and 20.1 (end of Aug) I went from separately computing (a-b) in p-1 stage 2 to the fused approach with its more-complex function interface, got a 10-15% speedup. Looking at the logfile for M109228331 run at 6M FFT: the max ROE encountered in both stage 1 and 2 was 0.156250000. The only hint that the fused (a-b)*c i stage 2 was detrimental to ROE is that stage 1 first hit that ROE level around modmul 500000, whereas stage 2 hit it around modmul 100000. George can surely dig out some statistically broader samples from his own runs.
+
+o "carry with mul It is trivial to multiply a result by a small constant" - suggest "small integer constant".
+
+o
+===================================
+PatWolt pairing paper:
+
+o Suggest you pick a symbol for the factor-to-be-found, e.g. f (I will use that in further notes below);
+
+o "Start with a generator G and multiply it by all prime powers below B" -- Language needs to be made more precise. I prsume the dot operator symbol is intended to sand in for the composition operations used by the various algorithms? E.g. for p-1 we don't multiply a generator, we raise an initial seed to the small-primes-product modulo N, where N is the number we are trying to find a factor of. Williams' p+1 method uses Lucas sequences to perform exponentiation in a quadratic field, etc.
+Pavel:
+"The dot operator stands for scalar multiplication (multiple group addition operations). For P-1 we have nG = 3^n, 1G = 3 (or 'a' generally), 0G = 3^0 = 1. xG+yG = 3^x * 3^y = 3^(x + y) = (x+y)G. For P+1 we have nG = V_n, 1G = V_1 = P, 0G = V_0 = 2, For ECM nG means exactly scalar multiplication of a generator element. All these cases can be nicely abstracted by group theory with generators, group operations, scalar multiplications and identity elements. I even have the same C++ template code for stage 2 precomputation for both P+1 and ECM.
+
+"There are several conventions for group operations. I'm using additive convention with + and dot. Multiplicative convention with dot and power is also popular. I find it more cumbersome: g^x . g^y = g^(x+y)"
+
+o What does "impossible division" mean?
+Pavel:
+"In ECM, coordinates are represented projectively as (X/Z, Y/Z). Trying to perform the division when gcd(Z,N)!=1 raises exception because there's no inverse of Z in this case. When that happens we just get the factor by gcd(Z,N). The division is impossible, but we don't need to finish the calculation because we've found what we're looking for."
+
+o "try to recover a factor from each value." -- "from the resulting value" better?
+
+o The a.X = ... line - shouldn't those = be replaced by equivalences (mod f)?
+
+o "Select constant D and let p = iD − r." - A reference to Shanks' baby-steps/giant-steps approach (Ref. in Montgomery's 1987 Math. Comp. paper) would be good, e.g. "In the language used by Shanks [ref], D is our giant step, which is typically a product of small-prime powers such as D = 210 = 2*3*5*7, i is a loop index running from floor(B1/D) to ceiling (B2/D), and r runs over the integers in (-D/2,D/2) which are coprime to D.
+
+o "Numbers such as a leading edge Mersenne prime candidate can take up to 50MB of system memory..." -- I prefer "Numbers such as the (mod N) residues which arise in factoring or primality-testing of a leading edge Mersenne prime candidate can take up to 50MB of system memory when stored in a form suitable for fast discrete-transform-based modmul arithmetic. The general assumption is that one should be able to achieve nearly 100% stage 2 prime pairing for D less than 1000."
+
+o S2.1 Relocatable primes: "Since the goal of stage 2 is to test whether a prime is..." -- suggest "whether a single prime p in (B1,B2] is"
+
+o "Relocatable primes increase density of primes," -> "Relocating the primes in the lower ranges of the stage 2 interval increases the density of primes available for pairing,"
+
+o "If B2/B1 ratio is large" -> "If the ratio B2/B1 is large"
+
+o "there can be several constants satisfying condition B2/c0 < cp < B2. Instead of choosing the constant at initialization phase, add all {c}p to the pairing algorithm." -> I think it would help to give an example of this. E.g. for B1 = 10^6 and B2 = 10^8, you mean the prime p = 1000003 can be relocated to {c}p for any positive integer - or perhaps any positive odd integer - c < 100? But I still don't see why "only one of them can be paired" - I would think e.g. 49 eligible odd values of c would yield multiple pairing opportunities, of which we could take the first one which arises, but presumably the point of bringing graph theory (GT) to bear is because any sort of greedy-matching is suboptimal.
+
+o "This decreases the amount of D-sections that need to be iterated through." -- Not clear to me that this in, in and of itself, a gain. The number of primes needing to be incorporated into the stage 2 residue via modmul has not changed; that is, we have fewer bigstep-intervals to loop over, but each possesses more primes to be processed. It's really just the fact that we increase the pairing fraction, and thus decrease the number of modmul needed to process the given set of primes.
+
+o Before delving into the details of your GT approach: It seems to me that the set-up is:
+	0. Use n1 and n2 to denote #primes in the 2 subintervals [B1,B2/c0) and [B2/c0,B2], respectively. We assume n2 > n1.
+	1. For the n2 primes in [B2/c0,B2] and a given #buffers, some fraction f, this n2*f primes, will remain unpaired.
+	2. If n1 <= n2*f, ideally each of the n1 relocatable primes gets paired with one of the n2*f unpaired ones. If n1 > n2*f, ideally all n2*f unpaired primes get paired with a relocatable prime, and the remaining relocatable primes can all be paired with each other.
+
+This sounds superficially like some variant of a bipartite-graph Assignment Problem. It would be very useful if you could relate the GT algorithm you use to well-known canonical ones - ah, wait, I see you did, "The first thing to note about the graph is that it isn’t bipartite ... The algorithm we’re presenting is based on a simple BFS bipartite matching algorithm". Some kind of visual ball-and-stick-style illustration of the pairing problem in classic node/edge form would be immensely helpful to readers of the paper. Specifically, some cartoon showing the general-graph problem, and another "how we turn this into a bipartite-graph matching problem." How do already-paired, unpaired relocatable-and-not primes, and pairing opportunities, appear in your graph representation? Nodes are primes and edges represent pairing opportunites, what?
+Pavel:
+"Primes are nodes. We do not distinguish between 'true' primes and relocated primes, they're all nodes. Edges are pairing opportunities. There's a set of matches which contains pairs of nodes (with the edge between them). When a node is added to the match, it is flagged as occupied. If the node is a relocated prime, all other nodes belonging to the same relocatable prime are flagged as occupied. That is how relocated primes are distinguished. It's like they get added to the match all together (entire subgraph)."
+"Forget about relocatable primes for a moment, there could be none at all, and graph matching would still work. For example, if the second base trick adds more edges (pairing opportunities) between nodes, then graph matching will still find more pairs than any greedy matching. So there's a graph with primes connected to primes, and we should pick the maximum number of connected pairs. We do it by searching for augmenting paths: paths of odd length starting at free node and ending at free node, with alternating free and occupied nodes in between. The simplest such path is free-(occupied-occupied)-free. By removing the central pair from the match and adding two side pairs, we get (occupied-occupied)-(occupied-occupied) and increase the match by 1 pair. Repeat until no such path can be found. The difference between bipartite and arbitrary graphs is that in bipartite graph the resulting match is proven to be optimal. In arbitrary graph it is 'good enough' unless you employ sophisticated algorithms to find augmenting paths, like Micali-Vazirani algorithm."
+
+I didn't examine the actual graph-related pseudocode, since that sort of thing is hard enough even when one has a clear visual image of the graph problem being tackled.
+
+Lastly, re. Pavel's comment about "turning p-1 stage 2 into p+1 stage 2" - presumably this is to take advantage of the alternate selection for bigstep-loop-multiplier pointed out by Montgomery, f(n) = (b^n + b^-n), where b is the stage  residue and b^-1 the inverse of b (mod N). Interestingly, Montgomery's description seems to imply that said form should work as-is with the p-1 stage 2 algorithm. e.g. "(other choices for / will be presented later)" on p251 just below equation (4.1.2). So I tried it on a toy example, p-1 run on M(p) with p = 191, which has two factors easily found via p-1, 383 = 2p + 1 and 7068569257 = 2p.2^2.3^2.7.97.757 + 1. Here some simple bc-code using a small function library I wrote, function names should make obvious which operations are being performed:
+
+Stage 1: need all primes < 10 and exponent-as-seed:
+[code]	b1 = 10; p = 191; n = 2^p-1;
+	tmp = s1_ppow_prod(b1,p);
+	pow = modpow_lr(3,tmp,n);
+	gcd1 = abs(gcd(pow-1,n));[/code]
+...gives pow = 2887311629500234812370277648848447825871473936996717773602, gcd1 = 383 .
+
+Stage 2: need to capture the primes 97 and 757 = (427 -+ 330):
+[code]	a = 427; b = 330;
+	asq = modpow_lr(pow,a^2,n);
+	bsq = modpow_lr(pow,b^2,n);
+	pow2 = pow*(asq - bsq) % n;
+	gcd2 = abs(gcd(pow2,n))/gcd1;[/code]
+...gives B = 734507924635104636316008894873215872056074027539152312501, gcd2 = 7068569257, as expected.
+
+PLM suggests replacing pow^(x^2) % n with (pow^x + pow^-x) in the above, where pow^-1 is the mod-inverse of pow:
+[code]	ipow = modinv(pow,n);	<=== Gives 844727262142117735035947808492865015950605233864393867511, pow*ipow == 1 (mod n)
+	asq = modpow_lr(pow,a,n) + modpow_lr(ipow,a,n);
+	bsq = modpow_lr(pow,b,n) + modpow_lr(ipow,b,n);
+	pow2 = pow*(asq - bsq) % n;
+	gcd2 = abs(gcd(pow2,n))/gcd1;[/code]
+...but that fails for some reason, it gives 1, i.e. pow2 contains just the expected stage 1 factor.
+
+So I'd be very interested to hear how you turn stage 2 into a p+1 stage 2.
+
+[later]
+Couple p.s.es to my comments yesterday:
+
+o "you mean the prime p = 1000003 can be relocated to {c}p for any positive integer - or perhaps any positive odd integer - c < 100?" - Actually, the typical way of constructing the coprime sieve precludes that; we only have sieve bits corresponding to primes which are not factors of D.
+
+o "This decreases the amount of D-sections that need to be iterated through." -- Actaully, the savings is twofold: fewer D-sections save one modmul per D-section, and increased prime density increases the pairing fraction.
+
+o The toy example I gave w.r.to Montgomery's alternate form of the bigstep-loop-multiplier f(n) is actually more interesting than I intended it to be. Stage 2 is only supposed to be able to capture a single outlier-prime in the factorization of p-1, but capturing both outlier-primes 97 and 757 in a single (a^2 - b^2)-modmul finds the factor.
+
+Pavel:
+"Your P+1 code works as expected, it's just P-1 code that works better than expected. The purpose of stage 2 is to test all primes in a range if any of them is the one missing factor of P-1. So, we should test:
+	97X = 0G
+	757X = 0G
+but stage 2 is not supposed to test
+	(97*757)X = 0G
+"Exactly this happens in your P-1 code. Not only it tests (a-b)X and (a+b)X, but also (a-b)*(a+b)X. There can be even more combinations by using higher-order polynomials, like E=6 or Dickson polynomials. But you pay for that with performance. The probability that both primes of a pair are factors is rapidly decreasing, and performance penalty is rapidly increasing with E. P+1 stage 2 in its simplest implementation lacks any higher-order combinations, but is the fastest. It strictly tests (a-b)X and (a+b)X while requiring only one multiplication in D-section increment."
+
+Retry above example with b1 = 100, see if both forms of f(n) bigstep-multiplier find the sigle outlier 757:
+Stage 1: need all primes < 100 and exponent-as-seed:
+	b1 = 100; p = 191; n = 2^p-1;
+	tmp = s1_ppow_prod(b1,p);
+	pow = modpow_lr(3,tmp,n);
+	gcd1 = abs(gcd(pow-1,n));
+...gives pow = 128769258292776737605522125681498085343532977178760115477, gcd1 = 383 .
+
+Stage 2: need to capture the prime 757. Let's use bigstep D=210 757 = 630+127, and 630-127 = 503 also prime:
+	a = 630; b = 127;
+	asq = modpow_lr(pow,a^2,n);
+	bsq = modpow_lr(pow,b^2,n);
+	pow2 = pow*(asq - bsq) % n;
+	gcd2 = abs(gcd(pow2,n))/gcd1;
+...gives gcd2 = 7068569257, as expected.
+
+PLM suggests replacing pow^(x^2) % n with (pow^x + pow^-x) in the above, where pow^-1 is the mod-inverse of pow:
+	ipow = modinv(pow,n);	ipow += (ipow<0)*n;
+	asq = modpow_lr(pow,a,n) + modpow_lr(ipow,a,n);
+	bsq = modpow_lr(pow,b,n) + modpow_lr(ipow,b,n);
+	pow2 = pow*(asq - bsq) % n;
+	gcd2 = abs(gcd(pow2,n))/gcd1;
+...and, it works!
+
+Now, how to 1-multiply "power up" (pow^x + pow^-x) to get (pow^[x+1] + pow^-[x+1])? Montgomery[1987], with variable names replaced to match mine above:
+
+"In Subsection 4.1, we used f(x) = pow^(x^2) mod n. Another acceptable selection is
+	f(x) = (pow^x + pow^-x) = V[n]*(pow^1 + pow^-1) mod n.
+This is well defined since GCD(pow,n) = 1."	<===== Q: Does this preclude p-1 on known-stage-1-factor runs, i.e. ones where we seek additional factors using stage 2?
+										A: No, because have a stage 1 factor if GCD(pow-1,n) > 1, not GCD(pow,n) > 1.
+
+Here, V[n] is the Lucas sequence of the 2nd kind. The identity for index-incrementing we need is
+	V[n+j] = V[n]*V[j] - V[n-j] . [**]
+Try it for above example:
+d = 210; a = 630;
+v0 = modpow_lr(pow,  d,n) + modpow_lr(ipow,  d,n); tmp -= (tmp >= n)*n;
+v1 = modpow_lr(pow,a-d,n) + modpow_lr(ipow,a-d,n);
+v2 = modpow_lr(pow,a  ,n) + modpow_lr(ipow,a  ,n);
+v3 = modpow_lr(pow,a+d,n) + modpow_lr(ipow,a+d,n);
+Check [**]:
+tmp = (v2*v0%n - v1)%n; tmp += (tmp<0)*n;
+tmp == v3
+Note: implementation of [**] ideally needs an FFT-based fused multiply-subtract. For 1st go just compute V[n]*V[j] - via FFT-mul, fwd-FFT the reult, and subtract V[n-j], which is stored in fwd-FFTed form.
+
+Need: GMP mod-inverse
+===================================
+Enhancements:
+o
+o
+
+That all sounds good, but maybe accept slightly more of a performance decrease for an even lower error, such as:
+If ((t2/t1 <= 1.02) and (e1/e2 >= 1.2)) or
+((t2/t1 <= 1.03) and (e1/e2 >= 1.3)) or
+((t2/t1 <= 1.04) and (e1/e2 >= 1.5))
+, take the [t2,e2] radix set.
+Switching the carry-step accuracy mode also of course has a performance cost, likely in this same 1-4% range, so it would be great if that could be avoided altogether from the beginning by picking a better radix-set during the self-testing.
+
+Additionally, maybe always take the second best if the error is above some threshold:
+If (e1 > 0.4), take the [t2,e2] radix set.
+===================================
+
+********** v20.1 **********
+
+This is an Update-release of v20, but with enough changes as to warrant a minor-version number increment.
+
+*** I urge users to delete (or rename) the mlucas.cfg file they are using for runs and run the self-tests using the v20.1 build to generate a fresh one, due to the v20 suboptimal-radix-set selection issue mentioned in the list below. ***
+
+Changes include:
+
+o The help menu has been scrapped in favor of a help.txt file in the same top-level directory as makemake.sh and primenet.py.
+
+o Algorithmic improvements which yield a 10-20% faster p-1 stage 2. In my p-1 runs using the initial v20 release, the ratio between time-per-modmul in stage 2 vs stage 1 was in the 1.35-1.4 range. (We expect stage 2 modmuls to be somehwat slower than stage 1 because they FFT-convolve pairs of distinct inputs whereas stage 1 does auto-convolutions of a single input, but 1.4x is rather on the large side). The improved code yields a timing ratio in the 1.15-1.2 range.
+
+o A bug in the stage 2 "number of buffers available based on current RAM allocation" was allowing the difference of that value and the number of auxiliary-computation stage 2 buffers of 5 to drop below (signed int)0, which yielded nonsense whe the result was stored in its target unsiged-int variable. (This led to the stage 2 code to try to allocate some 4-billion-plus number of buffers, resulting in an unable-to-alloc error-exit.) That is now fixed. Also, said number-buffers-available computation is now being done at the start of each stage 2, rather than just once at run-start.
+
+o A fix for 2 bugs brought to my attention by Ken Kriesel:
+	1. a suboptimal-radix-set selection bug in the self-testing;
+	2. For p-1 factor-found cases, the JSON output written to results.txt was not wrapping the factor (currently there will be at most 1 factor printed, which in rare cases will be the product of 2 prime factors) in double-quotes, which was causing submission of the result vai the online manual result-reporting page at primenet.org to fail. As best I can tell, automated submissions using either the primenet.py script which ships with the Mlucas v20 release or the Dulcet/Connelly enhanced primenet.py script should be fine with or without the quotes, but users are encouraged to upgrade to v20.1 to gain the benefit of the faster stage 2.
+
+o A fix for a missing null-string-terminator bug in the p-1 assignment-splitting code brought to my attention by tdulcet, which was leading to the Test/PRP one of the resulting assignment pair to contain whatever chars the string buffer in question happened to be holding beyond the (missing) end of the Test/PRP assignment.
+
+o Reference-residues for 128-240M were incorrect, due to a hidden assumption in once piece of the residue-shift-handling code (which figures out where to inject the -2 of each LL-test iteration into the circularly-shifted residue) which amounted to assuming p &lt; 2<sup>31</sup>.
+
+o v20.1 raises the largest Mersenne number testable to match the longstanding Fermat-number limit, set by the maximum supported FFT length of 512M. (Note that exponents &gt; 2<sup>32</sup>, thus FFT lengths 256-512M, require '-shift 0' to run.) In practice, this translates to M(p) with p approaching 9 billion. Clearly, full-length primality tests of numbers this large are nowhere near practicable as of this writing, but such moduli can be useful for software and hardware parallel-scaling tests.
+
+o Miscellaneous additional minor bug- and pretty-print fixes.
+
+																		line# workfile:
+Pminus1=6E085FA51C839B5E490CA28A46F3C9C2,1,2,111288899,-1,1000000,30000000	2
+Pminus1=28B12CC8961F58C80E18B77DA973C142,1,2,111265621,-1,1000000,30000000	3
+Pminus1=105080CBBE17FB95328596F76F5CF792,1,2,111322951,-1,1000000,30000000	3
+Pminus1=7A6D663941B30A4D995C3D43F4F81BAF,1,2,111323137,-1,1000000,30000000	3
+Pminus1=4B4AEEA283A9CD63035F1B8D1DE7CFBA,1,2,111289657,-1,1000000,30000000	4
+Pminus1=BB9163CB63DD5C4601B092FAC7E3B176,1,2,110725117,-1,1000000,30000000	5
+Pminus1=7C54170AA80D1A5315556D1CF83297D9,1,2,111322867,-1,1000000,30000000	6
+
+grep 111288899 gpu*/run*/worktodo.txt
+grep 111265621 gpu*/run*/worktodo.txt
+grep 111322951 gpu*/run*/worktodo.txt
+grep 111323137 gpu*/run*/worktodo.txt
+grep 111289657 gpu*/run*/worktodo.txt
+grep 110725117 gpu*/run*/worktodo.txt
+grep 111322867 gpu*/run*/worktodo.txt
+
+===================================
+*** if S1 ups FFTlen based on ROE, how to make sure S2 follows suit? ***
+gpuOwl-found p-1 factors for Mlucas v20 shakedown testing:
+Notes:
+o 54 cases total, ~3 each per 4-core job on RAM-enhanced KNL (~2 days each 17-batch @b1 = 1m, b2 = 30m)
+o p ~= 107m good ROE-testcases for FFT-length-upping logic
+o largest penultimate k-factor = 965927; so all those deep stage 1s done by newer version are accomplishing what, exactly?
+o largest stage 2 prime ~= 155m; 3 [p=108026407,108268067,108418679] have stage 2 prime > 30m, those are good tests of S2-by-intervals code
+o Small sample, but in no larger-bounds run was the larger B1 useful.
+
+Rightmost column notes ones using larger p-1 bounds due to newer gpuowl version with fused p-1 stage 1/PRP:
+	p					q						factorization of k = p/(2.p)		Bounds:
+For small-p relocation S2 from 1-30m, actual s2 starts at q = 2727272[psmall = 7), q = 4285714[psmall = 11];
+the relocated small-primes start appearing at q = 7m and 11m, respectively. So look for S2 prime just > 1m:
+* marks factors findable via S1 to 1m, have 24 such - make sure each our 17 worktodo files has at least 1 such:
+@ marks factors needing S2 > 30m:
+102973951*	470377562071431809697977			2^2.61.3001.26813.116329
+103938073	63347254536844980613450159			3.152441.190243.3502607
+103984901	160591388845376267845337			2^2.19.179.3491.16259437
+104923649	271312213139036553747271			3.5.7.23.26951.19864331
+104936141	250141944912629284682087			907.358429.3666241
+105811081*	164547537331432075405111			3^2.5.2399.10429.690629
+105969967*	1547746341198083423171377			2^3.3.7.37.443.919.1367.2111
+106842763	1351080630715901368077129871		3^2.5.41.83.503.17299.4745071
+106843931*	632620758502360632126079			3^2.11.47.227.47059.59561
+106844267	1159111038055982202566887			3.7.103.965927.2596229
+106845317*	169332542038740704961031			3.5.15791.54409.61487
+106853921*	1534541226878817707414551			3.5^2.7.1409.15121.641959
+106863793	1314651028704963254300497			2^3.3.433.59473.9952471
+106871251	196880573100849625407379529			2^2.82759.677147.4109167
+106874239*	332275679222524889370559			3.13.19.181.17293.670237	*** nuc2 run @5.5M missed, lots of ROEs ***
+106878557	53898031776499389218947231			3^2.5.19.5297.51487.1081331
+106879057*	1186752662293257401050649			2^2.191.6599.24061.45767
+106899613*	71558988008410839150342943			3.11.1823.4679.5881.202187
+107373143	262356824147950958931679			3.23.37.81761.5852881				B1:5500000, B2:165000000
+107761799	42175552820510212699325929			2^2.3.11.31.67.668963.1066973
+107770681*	79317237024017595435902067497		2^2.29^2.173^2.337.509.2777.7673
+108008911*	153079381577575048266889			2^2.3.7.251.487.7229.9547
+108009233	2454561457224155347091761			2^3.3^3.5.11.359.883.3017251		B1:5500000, B2:165000000
+108026407	109188943005594256502792873			2^2.47.2713.8713.113721709			B1:5500000, B2:165000000
+108066793*	103407590037568247812343			13.337.1399.1543.50591
+108105931	2096192863556963845942519			3^2.61.1493.7741.1527997
+108120973	3649786404429157907687726098799		937.3557.43987.69473.1657157		B1:5500000, B2:165000000
+108213283	13594376103140616946633327			3.1637.839413.15237127
+108223459*	413575480405674193955713			2^6.3.7.13.41.101.1987.1329			B1:5500000, B2:165000000
+108268067@	342408014271113891647523663			7.17.19.61.294313.38955941			B1:5500000, B2:165000000
+108285497*	695905392994438223077402673			2^3.709.10337.192103.285289			B1:5500000, B2:165000000
+108362923	437842884185670233541769			2^2.3.7.151.7879.20215303
+108370063*	318672959346216298154687			19.937.116041.711707				B1:5500000, B2:165000000
+108418679@	50832606993408715828331599			3.19.1459.18181.155045927			B1:5500000, B2:165000000
+108488839*	5998935012240685106138431			3.5.13.19.11969.23473.26561
+108561697	208154122716997215489457			2^3.3^2.11.137.701.12604181
+108566231	1702767653420430592429706143		3^2.13.19.311.535169.21195313		B1:5500000, B2:165000000
+108612919	3111940553819877800582194849		2^4.3.193.2707.200201.2853427
+108631979	1200161085210473269933727			24133.37507.6102787
+108650491*	349935305014305361168313			2^2.11.229.1151.7127.19483
+108651397*	2086254557690022887606912201		2^2.5^2.7.13.49223.124759.171799
+108654233*	67982298569481109165442009			2^2.113.281.521.4951.954869			B1:5500000, B2:165000000
+108667943	16418832312370641568683553			2^4.3^2.487.969071.1111639			B1:5500000, B2:165000000
+108682961	127696922725177307343693784193		2^6.13.137.5477.802331.1172867
+108684409	1332492307396633719043161007		3.7^3.4567.90647.14390227
+108687253*	114147260626125616930303			3.71.1381.2801.637339				B1:5500000, B2:165000000
+108699907	165119159033849334165937			2^3.3.7.23.29.6263.1082233
+108700589*	323344577449164947506913			2^4.21937.33287.127301				B1:5500000, B2:165000000
+108772199*	345812338945901034001791247961		2^2.5.31.41.643.2351.105227.393121
+108774803	10099992720918026654828389087		3.7.107.113.5113.9041.3955387		B1:5500000, B2:165000000
+108780599*	2509099817679000151400338721		2^4.5.11.19.65393.85303.123653		B1:4500000, B2:?
+108828217*	1359799126735490616859532611759		3^5.53.277.311.3637.13681.113167
+108831473	86640716132372060547169				2^4.3.7.139.3527.2416451			B1:5500000, B2:165000000
+108877759	16696681201033367334775696620407	41.139.4909.9103.70121.4293749
+109228331	3258278300321182416433937			2^3.11.113.305611.4907867
+			20576383782390150543028926977		2^8.577.20929.28687.1062073	<*** With relocation, this one appears 2nd!
+
+Pminus1=00000000000000000000000000000000,1,2,106874239,-1,1000000,30000000	<*** rerun @5.5M to make sure S1 finds factor even with multiple ROE = 0.4375 warnings
+
+Pminus1=00000000000000000000000000000000,1,2,106863793,-1,1000000,30000000	<*** run @5.5M to test S2 gcd-every-10M code
+106863793	1314651028704963254300497			2^3.3.433.59473.9952471
+
+PaulU's Odroid: IP can be found by searching for www.worldofprimes.co.uk (needs the www prefix!) on
+https://www.site24x7.com/find-ip-address-of-web-site.html
+pwd: ernst567mayer
+============================
+Notes to beta-testers:
+
+Mlucas v20 beta is available here: http://www.mersenneforum.org/mayer/src/C/mlucas_v20.txz (md5 = 26a7cbc3c108886e56b7bb10cd5514a3). Use 'tar xJf mlucas_v20.txz' to unpack.
+
+I will be busy updating the README over the coming week and fixing any issues the beta build-and-testers report (please via PM or e-mail, not into the existing "v20 preview" thread on the forum, which will get blown away once I post the official v20 releases thread.) The handful of folks getting this PM are presumably well-versed in Mlucas building, so FYI the v20 build is same as v19, just add -lgmp to the link lib flags.
+
+Note that v20 does need the GNU-MP library installed on the target system - If 'ls -l /usr/include/gmp*' comes up with one or more header files, it is likely that GMP is already installed on your system. If that comes up empty:
+
+o For Linux distros which use the apt package manager, try 'sudo apt install -y libgmp-dev'
+o For distros (such as CentOS) using yum, try 'sudo yum install -y libgmp-dev'.
+
+Should libgmp-dev trigger a "not found" package manager error, you need to search for the package name. For Linux distros which use the apt package manager, 'apt search gmp'. Under CentOS, 'yum search gmp'. Since Mlucas only supports 64-bit builds, the x86_64 version of GMP is what you want, just install anything that comes up in the search with a name like gmp.x86_64 or gmp-devel.x86_64 .
+
+Any MacOS builders - probably just Laurent - who need help installing GMP, PM me and I'll send you the recipe, which is alas much lengthier than for Linux. If anyone knows how to shortcut the install-latest-source-and-build-GMP-yourself path I used to install on a MacPro (running OSX 10.10 Yosemite, several years older-than-latest), by all means LMK.
+
+	============
+
+For convenience, v20 now supports both the old -fftlen flag and a shorter -fft invocation. These are treated exctly the same, but now the code supports FFT-length setting using both the old -integer-arg-denoting-Kdoubles, but the arg may now be a float with either a 'K' or 'M' suffix. For example, the following are all equivalent: -fft 5632, -fft 5632, -fft 5632K, -fft 5.5M .
+
+The only new cmd-line flag of importance is -maxalloc, which takes an integer 'percent' argument, which value limits the max amount of available system RAM used - default setting is 90%, i.e. unspecified is same as '-maxalloc 90'. It tends to be conservative on Linux systems: On Paul Underwood's Odroid N2 with 4GB RAM - a good test of the low-RAM end of things - I first started a p-1 stage 2 run from a completed stage 1 savefile test using the default, saw that using < 50% in top's 'MEM' column, because 90%-available was just shy of permitting 48 stage 2 buffers. Said #bufs is highly granular at small numbers, the smallest available numbers are 24,40 and 48. 48 is nice because it is 24x2, the x2 representing the "stage 2 prime-pairing window multiplicity" M. M > 1 means appeciably more pairing opportunities than M = 1. So I restarted with '-maxalloc 100', that allowed #bufs = 48 to be used, and the MEM column in 'top' rose up to ~60%, with the KiB Mem field a few lines above the columnwise output having a 'free' number that remained healthily large.
+
+The linux mem-setting uses the struct sysinfo's freeram subfield - have not found an analogous field in Mac OS's sysctl-based mechanism (cf. util.c::get_system_ram(void) for the current implementation of this), until I figure that out, Mac users are best off using '-maxalloc 50' for their initial stage 2 runs and seeing what their nohup.out file says re. buffers-used, what 'top' says re. the resulting mem-usage, and whether the dreaded 'kswapd' entries start appearing near the top of the %CPU column.
+
+	============
+
+Pfactor and Pminus jobs are what directly triggers the p-1 code. It is also triggered indirectly by PRP and LL/DC assignments needing additional p-1 work. These will get automatically split into a Pminus= assignment, followed by the original PRP/LL/DC one, but with the latter's "more p-1 needed?" field cleared. If the p-1 run finds a factor, both lines get deleted.
+
+Note that the "more p-1 needed?" conventions are different for PRP and LL:
+
+1. for PRP, an assignment ending in ..,tf_bits,n means "n PRP saved if p-1 factor found". n can be 0,1 or 2, but due to the advent of PRP-with-CERT, any n > 0 gets treated the same, "run p-1 first". For v20, n gets set = 0 in the 2nd line of the resulting 2-assignment pair.
+
+2. For LL/DC, for an assignment ending in ..,tf_bits,n, n is a binary "has sufficient p-1 been done?" flag. So a 0 triggers a split into a Pminus1 entry followed by the LL/DC one with n reset = 1.
+
+(Don't blame me, I didn't create these rules, I only work here, or something.)
+
+Thanks for the build-and-test and CPU cycles, LMK if you have any problems.
+-Ernst
+
+============================
+
+LOACC-cy-mode default:
+./Mlucas -s m -cpu 0:3 -iters 100 >& test.log
+mv mlucas.cfg mlucas.cfg.loacc
+HIACC-cy-mode expos:
+./Mlucas -fftlen 2048 -cpu 0:3 -iters 100 -m  39791159
+./Mlucas -fftlen 2304 -cpu 0:3 -iters 100 -m  44649151
+./Mlucas -fftlen 2560 -cpu 0:3 -iters 100 -m  49495093
+./Mlucas -fftlen 2816 -cpu 0:3 -iters 100 -m  53792327
+./Mlucas -fftlen 3072 -cpu 0:3 -iters 100 -m  59155549
+./Mlucas -fftlen 3328 -cpu 0:3 -iters 100 -m  63971851
+./Mlucas -fftlen 3584 -cpu 0:3 -iters 100 -m  68779813
+./Mlucas -fftlen 3840 -cpu 0:3 -iters 100 -m  73580119
+./Mlucas -fftlen 4096 -cpu 0:3 -iters 100 -m  78373261
+./Mlucas -fftlen 4608 -cpu 0:3 -iters 100 -m  87939689
+./Mlucas -fftlen 5120 -cpu 0:3 -iters 100 -m  97482191
+./Mlucas -fftlen 5632 -cpu 0:3 -iters 100 -m 107003159
+./Mlucas -fftlen 6144 -cpu 0:3 -iters 100 -m 116504581
+./Mlucas -fftlen 6656 -cpu 0:3 -iters 100 -m 125988091
+./Mlucas -fftlen 7168 -cpu 0:3 -iters 100 -m 135455107
+./Mlucas -fftlen 7680 -cpu 0:3 -iters 100 -m 144906809
+mv mlucas.cfg mlucas.cfg.hiacc
+
+Paul's Odroid, -cpu 2:5
+LOACC:
+      2048  msec/iter =   37.55  ROE[avg,max] = [0.188169643, 0.218750000]  radices = 256 16 16 16  0  0  0  0  0  0
+      2304  msec/iter =   43.95  ROE[avg,max] = [0.191294643, 0.218750000]  radices = 144  8  8  8 16  0  0  0  0  0
+      2560  msec/iter =   48.84  ROE[avg,max] = [0.183635603, 0.218750000]  radices = 160 16 16 32  0  0  0  0  0  0
+      2816  msec/iter =   54.54  ROE[avg,max] = [0.224567522, 0.281250000]  radices = 352 16 16 16  0  0  0  0  0  0
+      3072  msec/iter =   66.42  ROE[avg,max] = [0.217857143, 0.250000000]  radices = 768  8 16 16  0  0  0  0  0  0
+      3328  msec/iter =   65.60  ROE[avg,max] = [0.267410714, 0.343750000]  radices = 208  8  8  8 16  0  0  0  0  0
+      3584  msec/iter =   70.62  ROE[avg,max] = [0.218080357, 0.250000000]  radices = 224  8  8  8 16  0  0  0  0  0
+      3840  msec/iter =   77.23  ROE[avg,max] = [0.241852679, 0.281250000]  radices = 240 16 16 32  0  0  0  0  0  0
+      4096  msec/iter =   90.72  ROE[avg,max] = [0.164874704, 0.187500000]  radices = 128 32 32 16  0  0  0  0  0  0
+      4608  msec/iter =   93.01  ROE[avg,max] = [0.206696429, 0.281250000]  radices = 288 16 16 32  0  0  0  0  0  0
+      5120  msec/iter =  111.04  ROE[avg,max] = [0.210602679, 0.400000000]  radices = 320 32 16 16  0  0  0  0  0  0
+      5632  msec/iter =  127.33  ROE[avg,max] = [0.192215402, 0.218750000]  radices = 176 32 32 16  0  0  0  0  0  0
+      6144  msec/iter =  139.24  ROE[avg,max] = [0.203794643, 0.250000000]  radices = 192 32 32 16  0  0  0  0  0  0
+      6656  msec/iter =  149.55  ROE[avg,max] = [0.228348214, 0.312500000]  radices = 208 32 32 16  0  0  0  0  0  0
+      7168  msec/iter =  160.13  ROE[avg,max] = [0.205385045, 0.250000000]  radices = 224 32 32 16  0  0  0  0  0  0
+      7680  msec/iter =  185.53  ROE[avg,max] = [0.189118304, 0.218750000]  radices = 240  8  8 16 16  0  0  0  0  0
+HIACC:
+
+Resulting cfg-file ... 3584|6656 added later after fixing radix-28 bug, note the wildly lower timings for those:
+20.0
+      2048  msec/iter =   38.60  ROE[avg,max] = [0.283265904, 0.375000000]  radices =  64 32 32 16  0  0  0  0  0  0	p =  39791159: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 5E2890B073F0C704, 16005608288, 24505757489
+      2304  msec/iter =   46.80  ROE[avg,max] = [0.290290179, 0.343750000]  radices = 288 16 16 16  0  0  0  0  0  0	p =  44649151: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 49FC588099FEA04F, 14742566642, 60937374274
+      2560  msec/iter =   50.25  ROE[avg,max] = [0.294531250, 0.375000000]  radices = 160 32 16 16  0  0  0  0  0  0	p =  49495093: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = AFFD5BADEBCFAE5F, 20241706544, 60248236407
+      2816  msec/iter =   61.43  ROE[avg,max] = [0.245647321, 0.281250000]  radices = 352 16 16 16  0  0  0  0  0  0	p =  53792327: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 6C658F13E0F4A102,  1998570299, 59196879534
+      3072  msec/iter =   75.66  ROE[avg,max] = [0.283175223, 0.343750000]  radices =  48 32 32 32  0  0  0  0  0  0	p =  59155549: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = DF67D9D9AF791066, 29440801514, 42264516912
+      3328  msec/iter =   82.20  ROE[avg,max] = [0.288560268, 0.312500000]  radices = 208  8  8  8 16  0  0  0  0  0	p =  63971851: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = DF676ACC34A01C91,  3742544490, 49957994501
+      3584  msec/iter =   68.86  ROE[avg,max] = [0.285048131, 0.343750000]  radices = 224 32 16 16  0  0  0  0  0  0	p =  68779813: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 5829BC3DCF2041E7, 10363732428, 46317934324
+      3840  msec/iter =   90.38  ROE[avg,max] = [0.304519217, 0.343750000]  radices = 240 32 16 16  0  0  0  0  0  0	p =  73580119: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = D9A1232A60A1DEB9,  8073616309, 50880091858
+      4096  msec/iter =   97.74  ROE[avg,max] = [0.289773996, 0.328125000]  radices = 256 32 16 16  0  0  0  0  0  0	p =  78373261: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 2680F08BB85EA705, 27940900304, 65221278277
+      4608  msec/iter =  119.67  ROE[avg,max] = [0.271749442, 0.312500000]  radices = 144 32 32 16  0  0  0  0  0  0	p =  87939689: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 6D05A7F07720FF73, 11349380764,  3831684709
+      5120  msec/iter =  106.93  ROE[avg,max] = [0.292647879, 0.343750000]  radices = 160 32 32 16  0  0  0  0  0  0	p =  97482191: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 57F387599D6ED64B, 10382266875,  1670788453
+      5632  msec/iter =  146.40  ROE[avg,max] = [0.272691127, 0.312500000]  radices = 176 32 32 16  0  0  0  0  0  0	p = 107003159: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 4314B217A658ED77, 25210104994, 26600624278
+      6144  msec/iter =  160.96  ROE[avg,max] = [0.280737305, 0.312500000]  radices = 192 32 32 16  0  0  0  0  0  0	p = 116504581: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = AA2D217439527102, 19030016302, 44173450453
+      6656  msec/iter =  177.09  ROE[avg,max] = [0.323325893, 0.375000000]  radices = 208 32 32 16  0  0  0  0  0  0	p = 125988091: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 40EA5F892C45886B, 16049235955, 32714575989
+      7168  msec/iter =  152.34  ROE[avg,max] = [0.287862723, 0.343750000]  radices = 224 32 32 16  0  0  0  0  0  0	p = 135455107: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = 315D00538DCB617C, 28402330254, 39998315541
+      7680  msec/iter =  194.31  ROE[avg,max] = [0.288258580, 0.328125000]  radices = 240 32 32 16  0  0  0  0  0  0	p = 144906809: 100-iter Res mod 2^64, 2^35-1, 2^36-1 = BE6FD4A4FD6F2FD8, 28143104231, 13186696229
+===================================
+20.0
+// 64-thread:
+     30720  msec/iter =   38.75  ROE[avg,max] = [0.226473905, 0.400000000]  radices = 240 16 16 16 16  0  0  0  0  0
+     61440  msec/iter =   65.00  ROE[avg,max] = [0.265888773, 0.312500000]  radices = 240 16 16 16 32  0  0  0  0  0
+     65536  msec/iter =   69.06  ROE[avg,max] = [0.020561989, 0.025390625]  radices = 256 16 16 16 32  0  0  0  0  0
+    122880  msec/iter =  128.01  ROE[avg,max] = [0.265888773, 0.312500000]  radices = 240 16 16 32 32  0  0  0  0  0
+    131072  msec/iter =  134.83  ROE[avg,max] = [0.025406582, 0.029296875]  radices =  64 32 32 32 32  0  0  0  0  0
+    245760  msec/iter =  246.58  ROE[avg,max] = [0.348503947, 0.437500000]  radices = 960 16 16 16 32  0  0  0  0  0	240,16,32,32,32 has maxROE = 0.390625000
+    262144  msec/iter =  279.42  ROE[avg,max] = [0.043690837, 0.050781250]  radices = 256 16 32 32 32  0  0  0  0  0
+// 512M timings use (t1000-t100)/900:
+//  524288  msec/iter =  495.31  ROE[avg,max] = [0.062328850, 0.078125000]  radices = 256 32 32 32 32  0  0  0  0  0
+// 128-thread: -cpu 0:63,68:131
+    524288  msec/iter =  458.85  ROE[avg,max] = [0.062328850, 0.078125000]  radices = 256 32 32 32 32  0  0  0  0  0
+============================
+To-Do for Fermat-mod code:
+o Everytime we write savefile, recompute this loop to get fresh set of random shift-offset bits:
+	for(i = 0; i < j; i++) { BASE_MULTIPLIER_BITS[i] = rng_isaac_rand(); }
+o Is carry-chain-length logic relevant for Fermat-mod?
+o
+
+Mlucas v20 To-Dos:
+o In self-tests, store ROE as well as times ... if tdiff between 2 radsets mall (< 1%, say), pick the more-accurate one;
+o Consider smartening up increase-FFT-length-due-to-ROE code to collect stats on freq-of-occurrence of ROEs; if low, revert to original FFT length after safely passing ROE-affected iter interval;
+o Remove printing of non-results stuff to results.txt
+o Tweak py-script to print in non-debug mode, add printing of GHz-years credit for submissions, new assignments DLed
+
+=============================================
+grep MemTotal /proc/meminfo
+grep MemFree /proc/meminfo
+grep Committed_AS /proc/meminfo
+******** p-1 To-Do: ***********
+
+Timings for various S2 tweaks - Core2 is 2-threaded S2 34-35k @896K, KNL is 64-threaded F29 S2 1-10k @30M:
+Basic S2:
+	Core2:	24.2
+	KNL:	89.4	<*** modmul only account for 34.7 of that! ***
+Parallelize the FFT(a-b) in Stage 2:
+	Core2:	25.4	<*** LOL, 2-threads on Core2 is *slower*
+	KNL:	44.2	<*** yes!!
+Eliminate 2 memcpy in main S2 loop by adding support for both-inputs-fwd-FFTed [still do memcpy, but now ||]:
+	Core2:	24.8	<*** Core2 again likely highly misleading
+	KNL:	40.8	<*** yes!
+===============
+Apr 2021: F33 timings on 68-core/272-thread KNL @512M FFT:
+[64/128/256-thread core assignments: 0:63, 0:63,68:131, 0:63,68:131,136:199,204:267]
+radset				ms/iter
+		nthread:	64			128			256
+1024,16,16,32,32	591
+256,32,32,32,32		557.7951	524.8311	636.2986
+		100-iter:	102.1012	 98.4604	109.6557
+per-iter sans ovrhd:506			474			585		<*** 128-thread looks like a winner @512M! ***
+128,16,16,16,16,32	576
+ 64,16,16,16,32,32	566
+NOTE: postprocessing (1-thread dif1-undo/unweight/FP-to-int) needs ~2min on KNL for F33, ~2% of 10000-iter interval:
+higher than one would like, but still acceptable.
+===============
+1000 iters of F31 @120M, avx2 build on nuc1:
+HIACC:
+960,16,16,16,16	AvgMaxErr = 0.222687963. MaxErr = 0.257812500	Clocks = 00:27:07.544
+240,16,16,32,32	AvgMaxErr = 0.224789083. MaxErr = 0.281250000	Clocks = 00:25:50.278
+ 60,32,32,32,32	Mlucas.c:5481: Assertion failed: Input float-residue elements must have 0 fractional part! (a[0] = nan)
+LOACC:
+960,16,16,16,16	AvgMaxErr = 0.263984979. MaxErr = 0.400000000	Clocks = 00:25:01.601 (Hit 0.4375 @iter 200 ==> hiacc)
+240,16,16,32,32	AvgMaxErr = 0.278028351. MaxErr = 0.343750000	Clocks = 00:25:10.168
+ 60,32,32,32,32	AvgMaxErr = 0.239831795. MaxErr = 0.281250000	Clocks = 00:24:32.012
+
+v20 avx-512 compile errors:
+397:../src/radix16_dyadic_square.c:1221:2: error: #error Still need to do avx-512 dyadic-mul section!
+398: #error Still need to do avx-512 dyadic-mul section!
+
+656:../src/radix32_dyadic_square.c:860:2: error: #error Still need to do avx-512 dyadic-mul section!
+657: #error Still need to do avx-512 dyadic-mul section!
+
+==================================
+******* v20 To-Do *******
+o *** Check status/accuracy of HIACC cy-routine build mode in all SIMD modes! [e.g. radix-352 broken in avx2 mode ***
+o Change HIACC-mode for preprocessor-defined (compile time) to runtime, extension to carry-chain length-fiddle mechanism
+Compare '-s m -iters 1000' cfg-entries for LOACC vs HIACC:
+20.0
+      2048  msec/iter =    8.27  ROE[avg,max] = [0.199682869, 0.281250000]  radices =  64 16 32 32  0  0  0  0  0  0
+      2304  msec/iter =    9.38  ROE[avg,max] = [0.182823637, 0.218750000]  radices = 144 16 16 32  0  0  0  0  0  0
+      2560  msec/iter =   10.24  ROE[avg,max] = [0.224905364, 0.281250000]  radices = 160 16 16 32  0  0  0  0  0  0
+      2816  msec/iter =   11.57  ROE[avg,max] = [0.183906382, 0.230468750]  radices = 176 16 16 32  0  0  0  0  0  0
+      3072  msec/iter =   13.06  ROE[avg,max] = [0.252202803, 0.312500000]  radices = 192 16 16 32  0  0  0  0  0  0
+      3328  msec/iter =   13.41  ROE[avg,max] = [0.225825548, 0.281250000]  radices = 208 16 16 32  0  0  0  0  0  0
+      3584  msec/iter =   14.40  ROE[avg,max] = [0.260567010, 0.375000000]  radices = 224 16 16 32  0  0  0  0  0  0
+      3840  msec/iter =   16.08  ROE[avg,max] = [0.200714048, 0.281250000]  radices = 240 16 16 32  0  0  0  0  0  0
+      4096  msec/iter =   16.61  ROE[avg,max] = [0.183265985, 0.250000000]  radices = 256 16 16 32  0  0  0  0  0  0
+      4608  msec/iter =   19.13  ROE[avg,max] = [0.192892739, 0.250000000]  radices = 288 16 16 32  0  0  0  0  0  0
+      5120  msec/iter =   21.64  ROE[avg,max] = [0.228104865, 0.312500000]  radices = 160 16 32 32  0  0  0  0  0  0
+      5632  msec/iter =   23.94  ROE[avg,max] = [0.187610146, 0.250000000]  radices = 352 16 16 32  0  0  0  0  0  0
+      6144  msec/iter =   27.73  ROE[avg,max] = [0.216966012, 0.312500000]  radices = 192 16 32 32  0  0  0  0  0  0
+      6656  msec/iter =   28.64  ROE[avg,max] = [0.196862667, 0.250000000]  radices = 208 16 32 32  0  0  0  0  0  0
+      7168  msec/iter =   30.43  ROE[avg,max] = [0.201512162, 0.265625000]  radices = 224 16 32 32  0  0  0  0  0  0
+      7680  msec/iter =   33.64  ROE[avg,max] = [0.234418197, 0.312500000]  radices = 240 16 32 32  0  0  0  0  0  0
+// Feb 2021: Rebuilt CY-files in HIACC mode to check timings/ROEs vs default LOACC mode above:
+      2048  msec/iter =    8.64  ROE[avg,max] = [0.189335900, 0.250000000]  radices = 128 16 16 32  0  0  0  0  0  0
+      2304  msec/iter =    9.78  ROE[avg,max] = [0.179079225, 0.218750000]  radices = 144 16 16 32  0  0  0  0  0  0
+      2560  msec/iter =   10.58  ROE[avg,max] = [0.185031694, 0.250000000]  radices = 160 16 16 32  0  0  0  0  0  0
+      2816  msec/iter =   11.96  ROE[avg,max] = [0.176047874, 0.218750000]  radices = 176 16 16 32  0  0  0  0  0  0
+      3072  msec/iter =   13.55  ROE[avg,max] = [0.181323934, 0.234375000]  radices = 192 16 16 32  0  0  0  0  0  0
+      3328  msec/iter =   14.05  ROE[avg,max] = [0.189367015, 0.250000000]  radices = 208 16 16 32  0  0  0  0  0  0
+      3584  msec/iter =   15.18  ROE[avg,max] = [0.177438087, 0.220703125]  radices = 224 16 16 32  0  0  0  0  0  0
+      3840  msec/iter =   16.77  ROE[avg,max] = [0.189130630, 0.250000000]  radices = 240 16 16 32  0  0  0  0  0  0
+      4096  msec/iter =   17.28  ROE[avg,max] = [0.208334885, 0.250000000]  radices = 256 16 16 32  0  0  0  0  0  0
+      4608  msec/iter =   20.05  ROE[avg,max] = [0.179972163, 0.218750000]  radices = 288 16 16 32  0  0  0  0  0  0
+      5120  msec/iter =   22.33  ROE[avg,max] = [0.185164773, 0.234375000]  radices = 160 16 32 32  0  0  0  0  0  0
+      5632  msec/iter =   24.62  ROE[avg,max] = [0.181785599, 0.218750000]  radices = 352 16 16 32  0  0  0  0  0  0
+      6144  msec/iter =   28.38  ROE[avg,max] = [0.185112204, 0.250000000]  radices = 192 16 32 32  0  0  0  0  0  0
+      6656  msec/iter =   29.60  ROE[avg,max] = [0.189008638, 0.250000000]  radices = 208 16 32 32  0  0  0  0  0  0
+      7168  msec/iter =   31.97  ROE[avg,max] = [0.174693699, 0.218750000]  radices = 224 16 32 32  0  0  0  0  0  0
+      7680  msec/iter =   35.35  ROE[avg,max] = [0.189658662, 0.234375000]  radices = 240 16 32 32  0  0  0  0  0  0
+And 10000-iter test runs of expo just < 107M, complex FFT radices 176,16,32,32:
+LOACC:	AvgMaxErr = 0.300811269. MaxErr = 0.406250000. Program: E20.0	Clocks = 00:04:02.546
+HIACC:	AvgMaxErr = 0.287712219. MaxErr = 0.375000000. Program: E20.0	Clocks = 00:04:09.465 [rads 352,16,16,32 worse,
+		AvgMaxErr = 0.298592356. MaxErr = 0.437500000 ]
+HIACC: Try a really tough expo, 107353937, which even gpuOwl hit 'EE' on and flailed @5632K before I switched it to 6144K:
+352,16,16,32:
+		M107353937 Roundoff warning on iteration      841, maxerr =   0.437500000000
+		M107353937 Roundoff warning on iteration     2860, maxerr =   0.437500000000
+		M107353937 Roundoff warning on iteration     6001, maxerr =   0.437500000000
+		M107353937 Roundoff warning on iteration     6777, maxerr =   0.437500000000
+		10000 iterations of M107353937 with FFT length 5767168 = 5632 K, final residue shift count = 21385949
+		Res64: 958AC43A79D60376. AvgMaxErr = 0.326061381. MaxErr = 0.437500000. Program: E20.0
+176,16,32,32:
+		Res64: 958AC43A79D60376. AvgMaxErr = 0.315422730. MaxErr = 0.406250000. Program: E20.0
+o Get rid of #warning LOACC = 1 in cy-routines
+o Add support for per-run tracking of Gerbicz-errors & ROEs;
+o Fiddle ROE-retry logic:
+	+ add support for new [hiacc] mode
+	+ expos > 0.98*pmax switch immed. to next-FFT-length, revert if success & low ROE frequency
+	+
+o -radset must only allow *either* an index or set-of-rads, not both
+o Re-add print_help([topic]) to main()
+o Re-do '-s s' ref-data, use p ~= 0.99*pmax
+o p-1 support
+o Improve accuracy of twiddles and DWT weights??
+o files for each expo go into an [expo] dir! - modify util.c::set_mlucas_path() to take an argument to support this!
+o Add support for specifying FFT length in M, e.g. '-fftlen 5M' = '-fftlen 5120'
+o VB radix-13 DFT for Arm SIMD
+o Review avx-512 macros, use 32-registers to get rid of avx2-legacy spills and implied-mem-operands
+o Purge remaining trivial-FMA-heavy macros
+o radix30*cy*c is broken, gives fatal ROEs for C-mode builds
+o Smarten up self-test radix selection: current "tbest with maxROE <= 0.40625" ==> "lowest avgROE among timings <= 1.05*tbest"
+Here some sample data in this vein:
+Phone cfg-file, -cpu 0:3 -iters 100:
+19.1
+      2048  msec/iter =   61.01  ROE[avg,max] = [0.214955357, 0.281250000]  radices = 128 16 16 32  0  0  0  0  0  0
+      2304  msec/iter =   68.98  ROE[avg,max] = [0.191183036, 0.234375000]  radices = 144 32 16 16  0  0  0  0  0  0
+      2560  msec/iter =   73.46  ROE[avg,max] = [0.177608817, 0.250000000]  radices = 160 32 16 16  0  0  0  0  0  0
+      2816  msec/iter =   84.08  ROE[avg,max] = [0.242857143, 0.312500000]  radices = 176  8  8  8 16  0  0  0  0  0
+      3072  msec/iter =   90.25  ROE[avg,max] = [0.210267857, 0.250000000]  radices =  48 32 32 32  0  0  0  0  0  0
+      3328  msec/iter =   98.18  ROE[avg,max] = [0.326562500, 0.406250000]  radices = 208 32 16 16  0  0  0  0  0  0
+      3584  msec/iter =  100.66  ROE[avg,max] = [0.218080357, 0.250000000]  radices = 224  8  8  8 16  0  0  0  0  0
+      3840  msec/iter =  109.60  ROE[avg,max] = [0.196037946, 0.218750000]  radices = 240 32 16 16  0  0  0  0  0  0
+      4096  msec/iter =  117.92  ROE[avg,max] = [0.164874704, 0.187500000]  radices = 128 32 32 16  0  0  0  0  0  0
+      4608  msec/iter =  131.01  ROE[avg,max] = [0.202525112, 0.250000000]  radices = 288 32 16 16  0  0  0  0  0  0
+      5120  msec/iter =  143.89  ROE[avg,max] = [0.193805804, 0.218750000]  radices = 160 16 32 32  0  0  0  0  0  0
+      5632  msec/iter =  165.40  ROE[avg,max] = [0.181166295, 0.218750000]  radices = 176 32 32 16  0  0  0  0  0  0
+      6144  msec/iter =  186.21  ROE[avg,max] = [0.181194196, 0.218750000]  radices = 192 16 32 32  0  0  0  0  0  0
+      6656  msec/iter =  201.62  ROE[avg,max] = [0.175289481, 0.218750000]  radices = 208 32 32 16  0  0  0  0  0  0
+      7168  msec/iter =  205.02  ROE[avg,max] = [0.205385045, 0.250000000]  radices = 224 32 32 16  0  0  0  0  0  0
+      7680  msec/iter =  229.92  ROE[avg,max] = [0.205357143, 0.281250000]  radices = 240 32 32 16  0  0  0  0  0  0
+Hiacc-version of above - choose the lowest-ROE radset which is close in timing to the above. ROEs here based on 1000-iters:
+*** IDEA: For runs which hit excess ROE at cy-chain [small], switch to a special HIACC-version of the cfg-file ***
+*** BUT: Only makes sense if the associated timing < [LOACC timing at next-larger FFT] ****************************
+19.1
+      2048  msec/iter =   61.30  ROE[avg,max] = [0.193605026, 0.250000000]  radices =  64 32 32 16  0  0  0  0  0  0
+      2304  msec/iter =   68.40  ROE[avg,max] = [0.194187943, 0.250000000]  radices = 144 32 16 16  0  0  0  0  0  0
+      2560  msec/iter =   73.33  ROE[avg,max] = [0.175973149, 0.250000000]  radices = 160 32 16 16  0  0  0  0  0  0
+      2816  msec/iter =   84.67  ROE[avg,max] = [0.193232774, 0.250000000]  radices = 176 32 16 16  0  0  0  0  0  0
+      3072  msec/iter =   89.84  ROE[avg,max] = [0.207530606, 0.281250000]  radices =  48 32 32 32  0  0  0  0  0  0
+      3328  msec/iter =  104.30  ROE[avg,max] = [0.222680412, 0.312500000]  radices =  52 32 32 32  0  0  0  0  0  0
+      3584  msec/iter =  105.10  ROE[avg,max] = [0.199996036, 0.250000000]  radices =  56 32 32 32  0  0  0  0  0  0
+      3840  msec/iter =  113.90  ROE[avg,max] = [0.196037946, 0.218750000]  radices =  60 32 32 32  0  0  0  0  0  0
+      4096  msec/iter =  117.92  ROE[avg,max] = [0.164874704, 0.187500000]  radices = 128 32 32 16  0  0  0  0  0  0	*same*
+============
+
+Examine weighted-timings for 5.5M timing test on Nuc1, using wruntime = runtime*(1 + 4*AME + MME):
+p = [medium]:
+radices				ame			mme		rtime	wtime
+352,16,16,32	0.197766931	0.265625000	44.356	91.226662465744	<*** winner happens to have best rtime and slitghtly lower errs than #2
+352,32,16,16	0.199986409	0.250000000	45.857	94.004357030052
+176,16,32,32	0.213014457	0.281250000	48.759	104.017956385452
+176,32,32,16	0.208254470	0.281250000	49.608	104.884600991040
+176,8,8,16,16	0.192264832	0.250000000	51.704	104.393443494912
+44,16,16,16,16	0.229357281	0.312500000	51.754	115.407751883496
+p = 107353937[hiacc]:
+radices				ame			mme		rtime	wtime
+352,16,16,32	0.325589209+0.437500000	45.444	124.510054055184	<*** still wins, even tho slightly larger maxerr
+352,32,16,16	0.321849768	0.406250000	46.928	126.407563650816	<*** for this to win, rtime would need to be <= 46.22, i.e. not more than 2% worse - seems reasonable.
+176,16,32,32	0.314699027	0.375000000	50.972	134.249855216976
+176,32,32,16	0.314619178	0.406250000	51.569	137.417291811128
+176,8,8,16,16	0.342190473	0.437500000	53.895	151.243484669340
+44,16,16,16,16	0.334130513	0.406250000	53.860	147.725702720720
+Retry 1st 2 radsets, same p but prp 3:			10000-iters:
+352,16,16,32	0.324966305	0.406250000	45.544	0.325855982	0.437500000[5]	454.7
+352,32,16,16	0.320790556	0.382812500	47.055	0.322476218	0.437500000[1]	468.8	<*** Use this one, hope ROEs > 0.4375 are rare ***
+176,16,32,32									0.315831234	0.406250000		508.7
+./Mlucas -fftlen 2048 -cpu 0:3 -iters 1000 -m 39791159
+./Mlucas -fftlen 2304 -cpu 0:3 -iters 1000 -m 44649151
+./Mlucas -fftlen 2560 -cpu 0:3 -iters 1000 -m 49495093
+./Mlucas -fftlen 2816 -cpu 0:3 -iters 1000 -m 53792327
+./Mlucas -fftlen 3072 -cpu 0:3 -iters 1000 -m 59155549
+./Mlucas -fftlen 3328 -cpu 0:3 -iters 1000 -m 63971851
+./Mlucas -fftlen 3584 -cpu 0:3 -iters 1000 -m 68779813
+./Mlucas -fftlen 3840 -cpu 0:3 -iters 1000 -m 73580119
+./Mlucas -fftlen 4096 -cpu 0:3 -iters 1000 -m 78373261
+./Mlucas -fftlen 4608 -cpu 0:3 -iters 1000 -m 87939689
+./Mlucas -fftlen 5120 -cpu 0:3 -iters 1000 -m 97482191
+./Mlucas -fftlen 5632 -cpu 0:3 -iters 1000 -m 107003159
+./Mlucas -fftlen 6144 -cpu 0:3 -iters 1000 -m 116504581
+./Mlucas -fftlen 6656 -cpu 0:3 -iters 1000 -m 125988091
+./Mlucas -fftlen 7168 -cpu 0:3 -iters 1000 -m 135455107
+./Mlucas -fftlen 7680 -cpu 0:3 -iters 1000 -m 144906809
+
+On AVX2, are there any radsets where we should prefer a slightly-slower more-accurate one?
+20.0
+      2048  msec/iter =   14.64  ROE[avg,max] = [0.289620500, 0.375000000]  radices =  64 16 32 32  0  0  0  0  0  0
+      2304  msec/iter =   17.83  ROE[avg,max] = [0.295795747, 0.400000000]  radices =  36 32 32 32  0  0  0  0  0  0
+      2560  msec/iter =   18.88  ROE[avg,max] = [0.311464353, 0.400000000]  radices = 160 16 16 32  0  0  0  0  0  0
+      2816  msec/iter =   21.99  ROE[avg,max] = [0.241285721, 0.312500000]  radices =  44 32 32 32  0  0  0  0  0  0
+      3072  msec/iter =   24.43  ROE[avg,max] = [0.309152945, 0.400000000]  radices = 192 16 16 32  0  0  0  0  0  0
+      3328  msec/iter =   26.21  ROE[avg,max] = [0.334457429, 0.437500000]  radices =  52 32 32 32  0  0  0  0  0  0
+      3584  msec/iter =   27.31  ROE[avg,max] = [0.306631312, 0.400000000]  radices = 224 16 16 32  0  0  0  0  0  0
+      3840  msec/iter =   31.15  ROE[avg,max] = [0.305484103, 0.400000000]  radices =  60 32 32 32  0  0  0  0  0  0
+// These were run after I modded Mlucas.c to force immediate use of [hiacc] mode for p > pmax:
+      4096  msec/iter =   33.61  ROE[avg,max] = [0.287445005, 0.343750000]  radices =  64 32 32 32  0  0  0  0  0  0
+      4608  msec/iter =   36.48  ROE[avg,max] = [0.300099103, 0.375000000]  radices = 288 16 16 32  0  0  0  0  0  0
+      5120  msec/iter =   40.75  ROE[avg,max] = [0.306653713, 0.437500000]  radices = 160 16 32 32  0  0  0  0  0  0
+      5632  msec/iter =   45.57  ROE[avg,max] = [0.298060639, 0.375000000]  radices = 352 32 16 16  0  0  0  0  0  0	Special for 107M+
+      6144  msec/iter =   53.42  ROE[avg,max] = [0.301052447, 0.375000000]  radices = 192 16 32 32  0  0  0  0  0  0
+      6656  msec/iter =   60.04  ROE[avg,max] = [0.310369558, 0.375000000]  radices = 208 16 32 32  0  0  0  0  0  0
+      7168  msec/iter =   59.87  ROE[avg,max] = [0.288220215, 0.375000000]  radices = 224 16 32 32  0  0  0  0  0  0
+      7680  msec/iter =   72.44  ROE[avg,max] = [0.313650890, 0.375000000]  radices = 240 16 32 32  0  0  0  0  0  0
+
+==================================
+v19.1:
+Clang-offending macros in v19:	#args,#GPR used by Armv8 version of macro:
+Macro							before:		after:
+--------------------			--	--		--	--
+SSE2_RADIX8_DIF_TWIDDLE_OOP		30			6	14
+SSE2_RADIX8_DIT_TWIDDLE_OOP		30			6	14
+SSE2_RADIX16_DIF_0TWIDDLE		23			9	18
+SSE2_RADIX16_DIT_0TWIDDLE		23			9	18	<=== Needed to further cut GPR usage from 26 to 18 to get to compile
+SSE2_RADIX_11_DFT				23			5	14
+SSE2_RADIX_13_DFT				27			5	16
+SSE2_RADIX16_DIF_TWIDDLE_OOP	23	17		7	18
+SSE2_RADIX32_DIT_TWIDDLE		16	16		12	16
+SSE2_RADIX32_WRAPPER_DIT		25	5		22	5	<=== Laurent getting Clang out-of-regs error, (#arg+#gpr) = 30 too large on Apple M1
+SSE2_RADIX16_DIF_NOTWIDDLE		24	12		9	12	<=== 15 args are regular-stride local-store addresses, Armv8 macro only *used* 1!
+
+ewmayer@localhost:~/mlucas_v19/obj_clang$ grep error build.log
+
+==================================
+Try on Haswell:
+sudo usermod -a -G video $LOGNAME
+
+=================================
+BUGS:
+o 1024K: obj_c: R0 = 32 gives wrong LL-test residue
+
+Sincos-stuff: https://mersenneforum.org/showthread.php?t=25099&page=3
+

@@ -1,0 +1,328 @@
+Discrete Cosine Transform [DCT] for Mersenne-modmul: cf. https://en.wikipedia.org/wiki/Discrete_cosine_transform
+
+=============================
+
+DCT-2 for fwd transform: for N-element real input vector x = x_0, ..., x_N-1
+         N-1
+X_k = Sum   { x_j * cos[(j + 1/2)*k*Pi/N] }, k = 0, ... , N-1 .
+         j=0
+
+Ex: N = 4: The DCT-2 multiplier matrix is
+	1	1	1	1
+	c1	c3	-c3 -c1
+	c2	-c2	-c2	 c2
+	c3	-c1	c1	-c3
+where
+c1 = cos[  Pi/8] = 0.92387953251128675613
+c3 = cos[3*Pi/8] = 0.38268343236508977175
+c2 = cos[  Pi/4] = 0.70710678118654752440 .
+It is useful to contrast this with the N = 4 DFT multiplier matrix, which is
+	1	1	1	1		1	1	1	1
+DFT:1	E	E^2	E^3	=	1	I	-1	-I
+	1	E^2	E	E^2		1	-1	1	-1
+	1	E^3	E^2	E		1	-I	-1	I , where E := exp(I*2*Pi/4) = I .
+Notably, the distinct even/odd symmetries make for different index patterns.
+
+DCT-3 for inv transform: swap j and k in computing the argument of the cosine, and each output gets an x0/2 DC component:
+                N-1
+X_k = x0/2 + Sum   { x_j * cos[j*(k + 1/2)*Pi/N] }, k = 0, ... , N-1 .
+                j=1
+
+Ex: N = 4: The DCT-3 multiplier matrix is just the transpose of the DCT-2 one:
+	1/2	c1	c2	c3
+	1/2	c3	-c2	-c1
+	1/2	-c3	-c2	c1
+	1/2	-c1	c2	-c3
+
+Check the product of the 2 multiplier matrices: The off-diagonal terms are 2, 2*(c1^2+c3^2) = 2 (twice), 4.c2^2 = 2;
+thus we again (as with the corresponding length-N/2 DFT) need to normalize the resulting convolution outputs by 2/N.
+
+Multiplication via DCT: for input vector [x0,x1,x2,x3], the fwd-DCT gives
+	x0+x1+x2+x3
+	c1*(x0-x3)+c3*(x1-x2)
+Y = c2*(x0-x1-x2+x3)
+	c3*(x0-x3)-c1*(x1-x2)
+Whereas the inv-DCT gives
+	y0/2+c1*y1+c2*y2+c3*y3
+	y0/2+c3*y1-c2*y2-c1*y3
+X = y0/2-c3*y1-c2*y2+c1*y3
+	y0/2-c1*y1+c2*y2-c3*y3
+Try input vector [3,1,4,1]: "Convolution" outputs do not look promising, nowhere near whole-numbered:
+p=4*a(1);
+c1=c(p/8);c2=c(p/4);c3=c(3*p/8);
+x0=3;x1=1;x2=4;x3=1
+y0=x0+x1+x2+x3
+y1=c1*(x0-x3)+c3*(x1-x2)
+y2=c2*(x0-x1-x2+x3)
+y3=c3*(x0-x3)-c1*(x1-x2)
+y0*=y0;y1*=y1;y2*=y2;y3*=y3
+x0=y0/2+c1*y1+c2*y2+c3*y3;x0
+x1=y0/2+c3*y1-c2*y2-c1*y3;x1
+x2=y0/2-c3*y1-c2*y2+c1*y3;x2
+x3=y0/2-c1*y1+c2*y2-c3*y3;x3
+gives
+x0 = 46.09340348718645813373
+x1 = 28.77569593211050841191
+x2 = 51.51719728670294406371
+x3 = 35.61370329400008939065
+
+=============================
+
+DCT-1 for fwd transform: for N-element real input vector x = x_0, ..., x_N-1
+                                 N-1
+X_k = [x0 + (-1)^k*x_N-1]/2 + Sum   { x_j * cos[j*k*Pi/(N-1)] }, k = 0, ... , N-1 .
+                                 j=2
+
+Ex: N = 4: The DCT-1 multiplier matrix is
+0	1/2	1	1	1/2
+1	1/2	c1	-c1	-1/2
+2	1/2	-c1	-c1	1/2
+3	1/2	-1	1	-1/2
+where
+c1 = cos[  Pi/3] = 0.5 .
+The above matrix is its own inverse, up to a needed (2/3) scaling factor for the inverse transform for the N=4 case.
+For the general-N case we note that the 0-row of the matrix = 1/2,1,...,1,1/2 and the 0-col = 1/2,...,1/2, thus the
+inner product of the 0-row and 0-col = 2*(1/4)+(N-2)*(1/2) = (N-1)/2, thus the inverse transform scaling factor = 2/(N-1).
+
+Multiplication via DCT: for input vector [x0,x1,x2,x3], the fwd-DCT gives (h = 1/2)
+	(x0+x3)*h+x1+x2
+	h*(x0+x1-x2-x3)
+Y = h*(x0-x1-x2+x3)
+	(x0-x3)*h-x1+x2
+Whereas the inv-DCT gives
+	((y0+y3)*h+y1+y2)*2/3
+	(h*(y0+y1-y2-y3))*2/3
+X = (h*(y0-y1-y2+y3))*2/3
+	((y0-y3)*h-y1+y2)*2/3
+Try input vector [3,1,4,1]: "Convolution" outputs do not look promising, nowhere near whole-numbered:
+h=0.5;x0=3;x1=1;x2=4;x3=1
+y0=(x0+x3)*h+x1+x2
+y1=h*(x0+x1-x2-x3)
+y2=h*(x0-x1-x2+x3)
+y3=(x0-x3)*h-x1+x2
+y0*=y0;y1*=y1;y2*=y2;y3*=y3
+x0=((y0+y3)*h+y1+y2)*2/3;x0
+x1=(h*(y0+y1-y2-y3))*2/3;x1
+x2=(h*(y0-y1-y2+y3))*2/3;x2
+x3=((y0-y3)*h-y1+y2)*2/3;x3
+Gives outputs 22,11,21.5,11, which look more promising than for the DCT-2/3 combo, but still not all whole-numbered.
+
+*** compare to 4-DFT outputs for same inputs ****
+The DFT multiplier matrix and resulting fwd-FFT and dyadic-square are
+	1	1	1	1		3+1+4+1			9		81
+	1	i	-1	-i		(3-4)+i*(1-1)	-1		1
+	1	-1	1	-1		3-1+4-1			5		25
+	1	-i	-1	i		(3-4)-i*(1-1)	-1		1
+The iDFT multiplier matrix and resulting inv-FFT and carries-propagated result are
+	1	1	1	1		81+1+25+1		108/4	27	7
+	1	-i	-1	i		(81-25)-i*(1-1)	56 /4	14	6
+	1	-1	1	-1		81-1+25-1		104/4	26	7
+	1	i	-1	-i		(81-25)+i*(1-1)	56 /4	14	16, final wraparound carry gives [8,6,7,6], which matches: 1413^2%9999 = 6768.
+
+======================
+Compare 2 ways of packing real data into a half-length complex DFT vector:
+[1] The standard way, real data [x0,x1,...,x_N-2,x_N-1] paired as complex z0 = [x0+I*x1], ..., z_(N/2-1) = x_N-2+I*x_N-1
+
+Ex: N=8: Resulting complex 4-DFT outputs are
+	1	1	1	1	x0+I*x1		[x0+x2+x4+x6] + I*[x1+x3+x5+x7] = X0
+	1	I	-1	-I	x2+I*x3 =	[x0-x3-x4+x7] + I*[x1+x2-x5-x6] = X1
+	1	-1	1	-1	x4+I*x5		[x0-x2+x4-x6] + I*[x1-x3+x5-x7] = X2
+	1	-I	-1	I	x6+I*x7		[x0+x3-x4-x7] + I*[x1-x2-x5+x6] = X3
+
+The 8-DFT of the real input vector is (with E := (1+I)/sqrt(2), E3 := E^3 = (-1+I)/sqrt(2), E5 := E^5 = -(1+I)/sqrt(2), E7 := E^7 = (1-I)/sqrt(2), E^j = E^(j%8), and E^2 = I, E^4 = -1, E^6 = -I). Further let S := 1/sqrt(2):
+	1	1	1	1	1	1	1	1	[x0+x2+x4+x6] + [x1+x3+x5+x7]						Re(X0) + Im(X0)
+	1	E	I	E3	-1	E5	-I	E7	[x0+I*x2-x4-I*x6] + [x1-x3-x5+x7] + I*[x1+x3-x5-x7]	[x0+x1-x3-x4-x5+x7] + I*[x1+x2+x3-x5-x6-x7]
+	1	I	-1	-I	1	I	-1	-I	[x0-x2+x4-x6] + I*[x1-x3+x5-x7]
+	1	E3	-I	E	-1	E7	I	E5	[x0-I*x2-x4+I*x6] - [x1-x3-x5+x7] + I*[x1+x3-x5-x7]	[x0-x1+x3-x4+x5-x7] + I*[x1-x2+x3-x5+x6-x7]
+	1	-1	1	-1	1	-1	1	-1	[x0+x2+x4+x6] - [x1+x3+x5+x7]						Re(X0) - Im(X0)
+	1	E5	I	E7	-1	E	-I	E3	[x0+I*x2-x4-I*x6] - [x1-x3-x5+x7] - I*[x1+x3-x5-x7]	[x0-x1+x3-x4+x5-x7] - I*[x1-x2+x3-x5+x6-x7]
+	1	-I	-1	I	1	-I	-1	I	[x0-x2+x4-x6] - I*[x1-x3+x5-x7]
+	1	E7	-I	E5	-1	E3	I	E	[x0-I*x2-x4+I*x6] + [x1-x3-x5+x7] - I*[x1+x3-x5-x7]	[x0+x1-x3-x4-x5+x7] - I*[x1+x2+x3-x5-x6-x7]
+Hermitian symmetry: for real input signal, j = 1,...,N, X_j = ~X_N-j, thus X[1,2,3] = ~X[7,6,5] .
+Note also that reversing the Im-part input order from [x1,...,xN-1] to [xN-1,...,x1] similarly flips the signs of the output Im-parts.
+
+Derive this from def. of DFT:
+         N-1
+X_j = Sum   { x_k * exp[2*I*Pi*k*j/N] }, j = 0, ... , N-1 .
+         k=0
+Thus
+           N-1
+X_N-j = Sum   { x_k * exp[2*I*Pi*k*(N-j)/N] }, j = 0, ... , N-1 , and exp[2*I*Pi*k*(N-j)/N] = exp[-2*I*Pi*k*j/N] .
+           k=0
+For a pure-imaginary input vector, we analogously have -X_j = ~X_N-j .
+Convolution theorem: consider the iDFT of a vector whose (j)th elt is the dyadic-mul of the (j)th terms of 2 fwd-DFTed vectors, X_j * Y_j .
+
+Now consider real length-N input [x0,...,x_N-1], treated as half-length complex input vectorvia the pairing
+	z0 = [x0+I*x1], ..., z_(N/2-1) = x_N-2+I*x_N-1 .
+We do a length-N/2 DFT on this, which amounts to length-N/2 DFT of the sum [x_even] + I*[x_odd] .
+Now, compare the (j)th terms of the length-N/2 and length-N DFTs of the *real* input vectors [x_even] and [x0,...,x_N-1]:
+DFT_N/2[x_even]:
+         N/2-1
+X_j = Sum   { x_k * exp[2*I*Pi*k*(2*j)/(N/2)] }, j = 0, ... , N/2-1 .
+         k=0
+
+         N-1
+X_j = Sum   { x_k * exp[2*I*Pi*k*j/N] }, j = 0, ... , N-1 .
+         k=0
+
+****** needs work: ******
+Thus we have
+         N-1
+Z_j = Sum   { X_k * Y_k * exp[-2*I*Pi*k*j/N] }, j = 0, ... , N-1 .
+         k=0
+
+======================
+Discrete Hartley Transform:
+
+         N-1
+X_k = Sum   { x_j * cas[2*Pi*j*k/N] }, k = 0, ... , N-1, where cas(x) := cos(x) + sin(x) .
+         j=0
+
+[1] The standard way, real data [x0,x1,...,x_N-2,x_N-1] paired as complex z0 = [x0+I*x1], ..., z_(N/2-1) = x_N-2+I*x_N-1
+
+Ex: N = 4: The DHT multiplier matrix and resulting fwd-DHT outputs, in general and for our example x = [3,1,4,1] are
+	1	1	1	1	x0		x0+x1+x2+x3		9
+	1	1	-1	-1	x1 =	x0+x1-x2-x3		-1
+	1	-1	1	-1	x2		x0-x1+x2-x3		5
+	1	-1	-1	1	x3		x0-x1-x2+x3		-1, dyadic-square y = X*X = [81,1,25,1] .
+Inverse DHT has same multiplier-matrix, i.e. the transform is involutory; applied to our dyadic-square vector we have:
+	1	1	1	1	y0		y0+y1+y2+y3		108/4	27
+	1	1	-1	-1	y1 =	y0+y1-y2-y3		56/4	14
+	1	-1	1	-1	y2		y0-y1+y2-y3		104/4	26
+	1	-1	-1	1	y3		y0-y1-y2+y3		56/4	14, which matches the complex-4-DFT result.
+
+N = 8: The DHT multiplier matrix is, with s := sqrt(2):
+	1	1	1	1	1	1	1	1	(x0+x4)+(x1+x5)+(x2+x6)+(x3+x7)
+	1	s	1	0	-1	-s	-1	0	(x0-x4)+s*(x1-x5)+(x2-x6)
+	1	1	-1	-1	1	1	-1	-1	(x0+x4)+(x1+x5)-(x2+x6)-(x3+x7)
+	1	0	-1	s	-1	0	1	-s	(x0-x4)-(x2-x6)+s*(x3-x7)
+	1	-1	1	-1	1	-1	1	-1	(x0+x4)-(x1+x5)+(x2+x6)-(x3+x7)
+	1	-s	1	0	-1	s	-1	0	(x0-x4)-s*(x1-x5)+(x2-x6)
+	1	-1	-1	1	1	-1	-1	1	(x0+x4)-(x1+x5)-(x2+x6)+(x3+x7)
+	1	0	-1	-s	-1	0	1	s	(x0-x4)-(x2-x6)-s*(x3-x7)
+Try 2 different inputs here
+[a] a zero-padded length-4 input [4,1,5,9], whose auto-square should yield (since 9514^2 = 90516196) [6,9,1,6,1,5,0,9]:
+s=sqrt(2)
+x0=4;x1=1;x2=5;x3=9;x4=0;x5=0;x6=0;x7=0
+y0 = (x0+x4)+(x1+x5)+(x2+x6)+(x3+x7)
+y1 = (x0-x4)+s*(x1-x5)+(x2-x6)
+y2 = (x0+x4)+(x1+x5)-(x2+x6)-(x3+x7)
+y3 = (x0-x4)-(x2-x6)+s*(x3-x7)
+y4 = (x0+x4)-(x1+x5)+(x2+x6)-(x3+x7)
+y5 = (x0-x4)-s*(x1-x5)+(x2-x6)
+y6 = (x0+x4)-(x1+x5)-(x2+x6)+(x3+x7)
+y7 = (x0-x4)-(x2-x6)-s*(x3-x7)
+y0*=y0;y1*=y1;y2*=y2;y3*=y3;y4*=y4;y5*=y5;y6*=y6;y7*=y7
+x0 = ((y0+y4)+(y1+y5)+(y2+y6)+(y3+y7))/8; x0
+x1 = ((y0-y4)+s*(y1-y5)+(y2-y6))/8; x1
+x2 = ((y0+y4)+(y1+y5)-(y2+y6)-(y3+y7))/8; x2
+x3 = ((y0-y4)-(y2-y6)+s*(y3-y7))/8; x3
+x4 = ((y0+y4)-(y1+y5)+(y2+y6)-(y3+y7))/8; x4
+x5 = ((y0-y4)-s*(y1-y5)+(y2-y6))/8; x5
+x6 = ((y0+y4)-(y1+y5)-(y2+y6)+(y3+y7))/8; x6
+x7 = ((y0-y4)-(y2-y6)-s*(y3-y7))/8; x7
+Gives outputs x0-7 = 123,58,9,32,0,40,49,50, or [8,0,6,3,3,0,3,5] after DFT-style carries ... not even close.
+
+[b] an unpadded length-8 input [3,1,4,1,5,9,2,6], whose auto-square (mod 10^8-1) should yield 38325373:
+x0=3;x1=1;x2=4;x3=1;x4=5;x5=9;x6=2;x7=6
+Gives outputs x0-7 = 172,122,133,135,76,122,102,96, or [2,0,7,9,0,1,5,7] after DFT-style carries ... not even close.
+
+So we do need to do the [j,n-j] output-pair fiddling to revover the true real-vector DFT and associated convolution property ... bugger.
+
+Compare to length-8 complex DFT, both on a real input and constructed from a 4-DFT on a packed-as-complex version of the same input vector:
+
+The DFT mult-matrix is, with s := 1/sqrt(2), E := exp(2*I*Pi/8) = s*(1+I), E^2 = I, E^3 = s*(-1+I), E^4= -1, E^5 = -E, E^6 = -I, E^7 = -E^3:
+											Re-part								Im-part:				input [3,1,4,1,5,9,2,6]:
+	1	1	1	1	1	1	1	1	(x0+x4)+(x1+x5)+(x2+x6)+(x3+x7)										31
+	1	E	I	E3	-1	-E	-I	-E3	(x0-x4)+s*(x1-x5)-s*(x3-x7)			s*(x1-x5)+(x2-x6)+s*(x3-x7)		-4.1213203435 - I*7.1923881554
+	1	I	-1	-I	1	I	-1	-I	(x0+x4)-(x2+x6)						(x1+x5)-(x3+x7)					2+I*3
+	1	E3	-I	E	-1	-E3	I	-E	(x0-x4)-s*(x1-x5)+s*(x3-x7)			s*(x1-x5)-(x2-x6)+s*(x3-x7)		.1213203435 - I*11.1923881554
+	1	-1	1	-1	1	-1	1	-1	(x0+x4)-(x1+x5)+(x2+x6)-(x3+x7)										-3
+	1	-E	I	-E3	-1	E	-I	E3	(x0-x4)-s*(x1-x5)+s*(x3-x7)			-s*(x1-x5)+(x2-x6)-s*(x3-x7)	.1213203435 + I*11.1923881554
+	1	-I	-1	I	1	-I	-1	I	(x0+x4)-(x2+x6)						-(x1+x5)+(x3+x7)				2-I*3
+	1	-E3	-I	-E	-1	E3	I	E	(x0-x4)+s*(x1-x5)-s*(x3-x7)			-s*(x1-x5)-(x2-x6)-s*(x3-x7)	-4.1213203435 + I*7.1923881554
+s = 1/sqrt(2); x0=3;x1=1;x2=4;x3=1;x4=5;x5=9;x6=2;x7=6
+y0r = (x0+x4)+(x1+x5)+(x2+x6)+(x3+x7); y0i = 0
+y1r = (x0-x4)+s*(x1-x5)-s*(x3-x7)	; y1i = s*(x1-x5)+(x2-x6)+s*(x3-x7)
+y2r = (x0+x4)-(x2+x6)				; y2i = (x1+x5)-(x3+x7)
+y3r = (x0-x4)-s*(x1-x5)+s*(x3-x7)	; y3i = s*(x1-x5)-(x2-x6)+s*(x3-x7)
+y4r = (x0+x4)-(x1+x5)+(x2+x6)-(x3+x7); y4i = 0
+y5r = (x0-x4)-s*(x1-x5)+s*(x3-x7)	; y5i = -s*(x1-x5)+(x2-x6)-s*(x3-x7)
+y6r = (x0+x4)-(x2+x6)				; y6i = -(x1+x5)+(x3+x7)
+y7r = (x0-x4)+s*(x1-x5)-s*(x3-x7)	; y7i = -s*(x1-x5)-(x2-x6)-s*(x3-x7)
+Dyadic-square:
+t = (y0r-y0i)*(y0r+y0i); y0i = 2*y0r*y0i; y0r = t;	t = (y1r-y1i)*(y1r+y1i); y1i = 2*y1r*y1i; y1r = t;
+t = (y2r-y2i)*(y2r+y2i); y2i = 2*y2r*y2i; y2r = t;	t = (y3r-y3i)*(y3r+y3i); y3i = 2*y3r*y3i; y3r = t;
+t = (y4r-y4i)*(y4r+y4i); y4i = 2*y4r*y4i; y4r = t;	t = (y5r-y5i)*(y5r+y5i); y5i = 2*y5r*y5i; y5r = t;
+t = (y6r-y6i)*(y6r+y6i); y6i = 2*y6r*y6i; y6r = t;	t = (y7r-y7i)*(y7r+y7i); y7i = 2*y7r*y7i; y7r = t;
+Inv-DFT mult-matrix: using same defs of E-E^7 as for fwd-DFT, need to swap I <-> -I, E <-> -E3: Let
+p04r = y0r+y4r; p15r = y1r+y5r; p26r = y2r+y6r; p37r = y3r+y7r;
+p04i = y0i+y4i; p15i = y1i+y5i; p26i = y2i+y6i; p37i = y3i+y7i;
+m04r = y0r-y4r; m15r = y1r-y5r; m26r = y2r-y6r; m37r = y3r-y7r;
+m04i = y0i-y4i; m15i = y1i-y5i; m26i = y2i-y6i; m37i = y3i-y7i;
+	1	1	1	1	1	1	1	1	p04r+p15r+p26r+p37r							p04i+p15i+p26i+p37i
+	1	-E3	-I	-E	-1	E3	I	E	m04r+s*(m15r+m15i)+m26i-s*(m37r-m37i)		m04i+s*(-m15r+m15i)-m26r-s*(m37r+m37i)
+	1	-I	-1	I	1	-I	-1	I	p04r+p15i-p26r-p37i							p04i-p26i-p15r+p37r
+	1	-E	I	-E3	-1	E	-I	E3	m04r-s*m15r+s*m37r -s*m15i+m26i-s*m37i		m04i-s*m15i+s*m37i +s*m15r-m26r+s*m37r
+	1	-1	1	-1	1	-1	1	-1	p04r-p15r+p26r-p37r 						p04i-p15i+p26i-p37i
+	1	E3	-I	E	-1	-E3	I	-E	m04r+s*(-m15r-m15i)+m26i+s*(m37r-m37i)		m04i+s*(m15r-m15i)-m26r+s*(m37r+m37i)
+	1	I	-1	-I	1	I	-1	-I	p04r-p15i-p26r+p37i							p04i+p15r-p26i-p37r
+	1	E	I	E3	-1	-E	-I	-E3	m04r+s*(m15r-m15i)-m26i-s*(m37r+m37i)		m04i+s*(m15r+m15i)+m26r+s*(m37r-m37i)
+z0r = p04r+p15r+p26r+p37r					; z0i = p04i+p15i+p26i+p37i						; z0r/8
+z1r = m04r+s*(m15r+m15i)+m26i-s*(m37r-m37i)	; z1i = m04i+s*(-m15r+m15i)-m26r-s*(m37r+m37i)	; z1r/8
+z2r = p04r+p15i-p26r-p37i					; z2i = p04i-p26i-p15r+p37r						; z2r/8
+z3r = m04r+s*(m37r+m37i)-m26i-s*(m15r-m15i)	; z3i = m04i+s*(-m37r+m37i)+m26r-s*(m15r+m15i)	; z3r/8
+z4r = p04r-p15r+p26r-p37r 					; z4i = -p04i+p15i-p26i+p37i					; z4r/8
+z5r = m04r-s*(m15r+m15i)+m26i+s*(m37r-m37i)	; z5i = m04i-s*(-m15r+m15i)-m26r+s*(m37r+m37i)	; z5r/8
+z6r = p04r-p15i-p26r+p37i					; z6i = p04i+p15r-p26i-p37r						; z6r/8
+z7r = m04r-s*(m37r+m37i)-m26i+s*(m15r-m15i)	; z7i = m04i-s*(-m37r+m37i)+m26r+s*(m15r+m15i)	; z7r/8
+
+Div-by8 gives outputs z0-7 = [80,148,138,110,160,96,107,122], or [3,7,3,5,2,3,8,3] after DFT-style carries, should = rev(38325373), matches.
+
+Now reconstruct same 8-DFT outputs using a complex 4-DFT on the treated-as-complex inputs [3,1],[4,1],[5,9],[2,6]:
+	1	1	1	1	x0+I.x1		(x0+x4)+I.(x1+x5)+(x2+x6)+I.(x3+x7) = z0
+	1	I	-1	-I	x2+I.x3	=	(x0-x4)+I.(x1-x5)+I.(x2-x6)-(x3+x7) = z1
+	1	-1	1	-1	x4+I.x5		(x0+x4)+I.(x1+x5)-(x2+x6)-I.(x3+x7) = z2
+	1	-I	-1	I	x6+I.x7		(x0-x4)+I.(x1-x5)-I.(x2-x6)+(x3-x7) = z3
+Needed combos:
+z13r = (z1+z3*)/2 = (x0-x4)+I.(x2-x6)		z13i = -I.(z1-z3*)/2 = (x1-x5)+I.(x3+x7)
+	z13i.E = E.(x1-x5)+E^3.(x3+x7) = s.(1+I).(x1-x5)+s.(-1+I).(x3+x7) = s.(x1-x5)-s.(x3+x7) + I.[s.(x1-x5)+s.(x3+x7)]
+The 8-DFT of the corr. real input 8-vector is								In terms of complex 4-DFT outputs:
+y0r = (x0+x4)+(x1+x5)+(x2+x6)+(x3+x7); y0i = 0								z0r + z0i, 0
+y1r = (x0-x4)+s*(x1-x5)-s*(x3-x7)	; y1i = s*(x1-x5)+(x2-x6)+s*(x3-x7)		z13r + E.z13i
+y2r = (x0+x4)-(x2+x6)				; y2i = (x1+x5)-(x3+x7)					z2r, z2i
+y3r = (x0-x4)-s*(x1-x5)+s*(x3-x7)	; y3i = s*(x1-x5)-(x2-x6)+s*(x3-x7)
+y4r = (x0+x4)-(x1+x5)+(x2+x6)-(x3+x7); y4i = 0
+y5r = (x0-x4)-s*(x1-x5)+s*(x3-x7)	; y5i = -s*(x1-x5)+(x2-x6)-s*(x3-x7)
+y6r = (x0+x4)-(x2+x6)				; y6i = -(x1+x5)+(x3+x7)
+y7r = (x0-x4)+s*(x1-x5)-s*(x3-x7)	; y7i = -s*(x1-x5)-(x2-x6)-s*(x3-x7)
+
+Now consider 4-DHT of same packed length-8 real input:
+	1	1	1	1	x0+I.x1		(x0+x4)+I.(x1+x5)+(x2+x6)+I.(x3+x7) = z0
+	1	1	-1	-1	x2+I.x3	=	(x0-x4)+I.(x1-x5)+(x2-x6)+I.(x3+x7) = ??
+	1	-1	1	-1	x4+I.x5		(x0+x4)+I.(x1+x5)-(x2+x6)-I.(x3+x7) = z2
+	1	-1	-1	1	x6+I.x7		(x0-x4)+I.(x1-x5)-(x2-x6)-I.(x3+x7) = ??
+To recover DFT outputs from DHT ones, use the identity
+	  H_j + I.H_n-j
+X_j = ------------- , j = 1,...,n-1 . For j = 0 we have X_0 = H_0, and for j = n/2 the identity similarly reduces to X_n/2 = H_n/2 .
+	      1+I
+For j = 1:
+H_1 + I.H_3 = (1+I).(x0-x4)+(I-1).(x1-x5)-(x2-x6)-I.(x3+x7) ??? Ah ... DHT assumes real inputs, e.g.
+4-DHT:
+	1	1	1	1	x0		(x0+x2)+(x1+x3)		H_0
+	1	1	-1	-1	x1	=	(x0-x2)+(x1-x3)	=	H_1
+	1	-1	1	-1	x2		(x0+x2)-(x1-x3)		H_2
+	1	-1	-1	1	x3		(x0-x2)-(x1-x3)		H_3
+4-DFT:
+ 	1	1	1	1	x0		(x0+x2)+  (x1+x3)	X_0
+	1	I	-1	-I	x1	=	(x0-x2)+I.(x1-x3) = X_1
+	1	-1	1	-1	x2		(x0+x2)-  (x1+x3)	X_2
+	1	-I	-1	I	x3		(x0-x2)-I.(x1-x3)	X_3
+H_1 + I.H_3   (1+I).(x0-x2)+(1-I).(x1-x3)
+----------- = --------------------------- = (x0-x2)-I.(x1-x3) = X_3,
+   1+I                    1+I
+and
+H_3 + I.H_1   (1+I).(x0-x2)-(1-I).(x1-x3)
+----------- = --------------------------- = (x0-x2)+I.(x1-x3) = X_1,
+   1+I                    1+I
+where we have used that 1-I = sqrt2.exp(-I.Pi/4) and 1+I = sqrt2.exp(I.Pi/4) have (1-I)/(1+I) = -I .

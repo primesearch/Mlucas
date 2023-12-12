@@ -1,0 +1,718 @@
+NOTES:
+o In data below, "points[j]" short for "saved residue at squaring points[j]"
+o For each separate middle[]-element accumulation, the iteration-diff-vs-previous appears to be uniform
+o The smaller diffs are used for the larger strides
+o At end of each I-loop in the examples, the resulting buf[0] is added to the middles-vector via push_back()
+
+QUESTIONS:
+o Why do we appear to use POWER middles but just (POWER - 1) middle-derived hashes?
+
+============================
+Copy of PM between Mihai,George & Pavel:
+George:
+I worked through an example and I think it won't be much work.
+
+For n=25, proof power =3 we need 8 residues
+
+The halving starting at 25 generates: 25, 13, 7, 4.
+We need 8 residues numbered from 1 to 8.
+For each bit set in the residue number, add from the halving values.
+Residue 1 is iteration 4. Residue 7 is at iteration 13 + 7 + 4 = 24.
+
+Combining the 8 residues to generate the proof is unchanged.	<*** EWM: Note! ***
+Verification has some extra squarings thrown in - no big deal.
+
+Originally Posted by preda
+I'm worried that in that situation, when using a variable interval, the computation of the
+"middles" from the checkpoints (during proof generation) is more complicated. (I think in
+the current implementation of computing the middles we rely on the "step" being uniform).
+
+I'll need to re-read that section of the paper.
+
+- Mihai
+
+Originally Posted by patnashev
+
+	Originally Posted by preda
+	How can the server compute the res64 of the client?
+
+You can use the trick Pietrzak describes in section 3.1.
+Code:
+	distance /= 2
+	If (distance is odd)
+		y_i = y_i^2
+		distance++
+
+The distance between intermediate points won't be the same anymore,
+but if you have the ability to save them at arbitrary moments that
+shouldn't be a problem. This trick will get rid of the tail and
+decrease server load.
+
+============================
+POWER = 3:
+Starting program: /Users/ewmayer/mlucas/GPUOWL/a.out 216091 3
+Power = 3, diff0 = 27012; Outer loop from p = 0 to (power-1):
+****** Stride s = 4; I-loop: i from 0 to 1 ******
+buf[0] = points[3] = 108046, (diff0 - diff) = 27011
+****** Stride s = 2; I-loop: i from 0 to 2 ******
+buf[0] = points[1] = 54023, (diff0 - diff) = 27011
+buf[1] = points[5] = 162069, (diff0 - diff) = 27011
+i = 1: k = 0.buf[0 = 0^h0*1].
+****** Stride s = 1; I-loop: i from 0 to 4 ******
+buf[0] = points[0] = 27012, (diff0 - diff) = 27012
+buf[1] = points[2] = 81035, (diff0 - diff) = 27012
+i = 1: k = 0.buf[0 = 0^h1*1].
+buf[1] = points[4] = 135058, (diff0 - diff) = 27012
+buf[2] = points[6] = 189081, (diff0 - diff) = 27012	<*** buf[2] only used to hold r[13] ***
+i = 3: k = 0.buf[1 = 1^h1*2].1.buf[0 = 0^h0*1].
+Done.
+
+In the above data, "points[j]" short for "saved residue at squaring number points[j]," which below I write as r[j].
+Thus, in terms of saved residues r[0] through r[6], the middles m[j] are as follows:
+m[0] = r[3]					<*** h[0] = hash(m[0])?
+m[1] = r[1]^h[0] * r[5]		<*** h[1] = hash(m[1])?
+For m[2], I see the following buffer-computation sequence:
+	buf[0] = r[0]^h[1] * r[2]
+	buf[1] = r[4]^h[1] * r[6]
+	buf[0] = buf[0]^h[0] * buf[1],
+then
+m[2] = buf[0] .
+Is that the correct dependency chain?
+============================
+POWER = 4:
+Starting program: /Users/ewmayer/mlucas/GPUOWL/a.out 216091 4
+Power = 4, diff0 = 13506; Outer loop from p = 0 to (power-1):
+****** Stride s = 8; I-loop: i from 0 to 1 ******
+buf[0] = points[7] = 108046, (diff0 - diff) = 13505
+****** Stride s = 4; I-loop: i from 0 to 2 ******
+buf[0] = points[3] = 54023, (diff0 - diff) = 13505
+buf[1] = points[11] = 162069, (diff0 - diff) = 13505
+i = 1: k = 0.buf[0 = 0^h0*1].
+****** Stride s = 2; I-loop: i from 0 to 4 ******
+buf[0] = points[1] = 27012, (diff0 - diff) = 13506
+buf[1] = points[5] = 81035, (diff0 - diff) = 13506
+i = 1: k = 0.buf[0 = 0^h1*1].
+buf[1] = points[9] = 135058, (diff0 - diff) = 13506
+buf[2] = points[13] = 189081, (diff0 - diff) = 13506	<*** buf[2] only used to hold r[13] ***
+i = 3: k = 0.buf[1 = 1^h1*2].1.buf[0 = 0^h0*1].
+****** Stride s = 1; I-loop: i from 0 to 8 ******
+buf[0] = points[0] = 13506, (diff0 - diff) = 13506
+buf[1] = points[2] = 40518, (diff0 - diff) = 13506
+i = 1: k = 0.buf[0 = 0^h2*1].
+buf[1] = points[4] = 67529, (diff0 - diff) = 13506
+buf[2] = points[6] = 94541, (diff0 - diff) = 13506
+i = 3: k = 0.buf[1 = 1^h2*2].1.buf[0 = 0^h1*1].
+buf[1] = points[8] = 121552, (diff0 - diff) = 13506
+buf[2] = points[10] = 148564, (diff0 - diff) = 13506
+i = 5: k = 0.buf[1 = 1^h2*2].
+buf[2] = points[12] = 175575, (diff0 - diff) = 13506
+buf[3] = points[14] = 202587, (diff0 - diff) = 13506	<*** buf[3] only used to hold r[14] ***
+i = 7: k = 0.buf[2 = 2^h2*3].1.buf[1 = 1^h1*2].2.buf[0 = 0^h0*1].
+Done.
+
+In terms of saved intermediate residues r[0-14], the middles m[j] are as follows:
+m[0] = r[7]					<*** h[0] = hash(m[0])?
+m[1] = r[3]^h[0] * r[11]	<*** h[1] = hash(m[1])?
+For m[2], have the following buffer-computation sequence:
+	buf[0] = r[1]^h[1] * r[5]
+	buf[1] = r[9]^h[1] * r[13]
+m[2] = (buf[0] = buf[0]^h[0] * buf[1]).	<*** h[2] = hash(m[2])?
+For m[3], have the following buffer-computation sequence:
+	buf[0] = r[0]^h[2] * r[2]
+	buf[1] = r[4]^h[2] * r[6]
+buf[0] = buf[0]^h[1] * buf[1]).
+	buf[1] = r[ 8]^h[2] * r[10]
+	buf[2] = r[12]^h[2] * r[14]
+	buf[1] = buf[1]^h[1] * buf[2]
+m[3] = (buf[0] = buf[0]^h[0] * buf[1]).
+
+============================
+	buf[@] = r[@]^h[@] * r[@]
+	buf[@] = r[@]^h[@] * r[@]
+============================
+POWER = 5:
+Starting program: /Users/ewmayer/mlucas/GPUOWL/a.out 216091 5
+Power = 5, diff0 = 6753; Outer loop from p = 0 to (power-1):
+****** Stride s = 16; I-loop: i from 0 to 1 ******
+buf[0] = points[15] = 108046, (diff0 - diff) = 6752
+****** Stride s = 8; I-loop: i from 0 to 2 ******
+buf[0] = points[7] = 54023, (diff0 - diff) = 6752
+buf[1] = points[23] = 162069, (diff0 - diff) = 6752
+i = 1: k = 0.buf[0 = 0^h0*1].
+****** Stride s = 4; I-loop: i from 0 to 4 ******
+buf[0] = points[3] = 27012, (diff0 - diff) = 6753
+buf[1] = points[11] = 81035, (diff0 - diff) = 6753
+i = 1: k = 0.buf[0 = 0^h1*1].
+buf[1] = points[19] = 135058, (diff0 - diff) = 6753
+buf[2] = points[27] = 189081, (diff0 - diff) = 6753
+i = 3: k = 0.buf[1 = 1^h1*2].1.buf[0 = 0^h0*1].
+****** Stride s = 2; I-loop: i from 0 to 8 ******
+buf[0] = points[1] = 13506, (diff0 - diff) = 6753
+buf[1] = points[5] = 40518, (diff0 - diff) = 6753
+i = 1: k = 0.buf[0 = 0^h2*1].
+buf[1] = points[9] = 67529, (diff0 - diff) = 6753
+buf[2] = points[13] = 94541, (diff0 - diff) = 6753
+i = 3: k = 0.buf[1 = 1^h2*2].1.buf[0 = 0^h1*1].
+buf[1] = points[17] = 121552, (diff0 - diff) = 6753
+buf[2] = points[21] = 148564, (diff0 - diff) = 6753
+i = 5: k = 0.buf[1 = 1^h2*2].
+buf[2] = points[25] = 175575, (diff0 - diff) = 6753
+buf[3] = points[29] = 202587, (diff0 - diff) = 6753
+i = 7: k = 0.buf[2 = 2^h2*3].1.buf[1 = 1^h1*2].2.buf[0 = 0^h0*1].
+****** Stride s = 1; I-loop: i from 0 to 16 ******
+buf[0] = points[0] = 6753, (diff0 - diff) = 6753
+buf[1] = points[2] = 20259, (diff0 - diff) = 6753
+i = 1: k = 0.buf[0 = 0^h3*1].
+buf[1] = points[4] = 33765, (diff0 - diff) = 6753
+buf[2] = points[6] = 47271, (diff0 - diff) = 6753
+i = 3: k = 0.buf[1 = 1^h3*2].1.buf[0 = 0^h2*1].
+buf[1] = points[8] = 60776, (diff0 - diff) = 6753
+buf[2] = points[10] = 74282, (diff0 - diff) = 6753
+i = 5: k = 0.buf[1 = 1^h3*2].
+buf[2] = points[12] = 87788, (diff0 - diff) = 6753
+buf[3] = points[14] = 101294, (diff0 - diff) = 6753
+i = 7: k = 0.buf[2 = 2^h3*3].1.buf[1 = 1^h2*2].2.buf[0 = 0^h1*1].
+buf[1] = points[16] = 114799, (diff0 - diff) = 6753
+buf[2] = points[18] = 128305, (diff0 - diff) = 6753
+i = 9: k = 0.buf[1 = 1^h3*2].
+buf[2] = points[20] = 141811, (diff0 - diff) = 6753
+buf[3] = points[22] = 155317, (diff0 - diff) = 6753
+i = 11: k = 0.buf[2 = 2^h3*3].1.buf[1 = 1^h2*2].
+buf[2] = points[24] = 168822, (diff0 - diff) = 6753
+buf[3] = points[26] = 182328, (diff0 - diff) = 6753
+i = 13: k = 0.buf[2 = 2^h3*3].
+buf[3] = points[28] = 195834, (diff0 - diff) = 6753
+buf[4] = points[30] = 209340, (diff0 - diff) = 6753
+i = 15: k = 0.buf[3 = 3^h3*4].1.buf[2 = 2^h2*3].2.buf[1 = 1^h1*2].3.buf[0 = 0^h0*1].
+Done.
+
+=======================
+POWER = 6:
+run 216091 6
+Starting program: /Users/ewmayer/mlucas/GPUOWL/a.out 216091 6
+Power = 6, diff0 = 3377; Outer loop from p = 0 to (power-1):
+****** Stride s = 32; I-loop: i from 0 to 1 ******
+buf[0] = points[31] = 108046, (diff0 - diff) = 3375
+****** Stride s = 16; I-loop: i from 0 to 2 ******
+buf[0] = points[15] = 54023, (diff0 - diff) = 3375
+buf[1] = points[47] = 162069, (diff0 - diff) = 3375
+i = 1: k = 0.buf[0 = 0^h0*1].
+****** Stride s = 8; I-loop: i from 0 to 4 ******
+buf[0] = points[7] = 27012, (diff0 - diff) = 3376
+buf[1] = points[23] = 81035, (diff0 - diff) = 3376
+i = 1: k = 0.buf[0 = 0^h1*1].
+buf[1] = points[39] = 135058, (diff0 - diff) = 3376
+buf[2] = points[55] = 189081, (diff0 - diff) = 3376
+i = 3: k = 0.buf[1 = 1^h1*2].1.buf[0 = 0^h0*1].
+****** Stride s = 4; I-loop: i from 0 to 8 ******
+buf[0] = points[3] = 13506, (diff0 - diff) = 3376
+buf[1] = points[11] = 40518, (diff0 - diff) = 3376
+i = 1: k = 0.buf[0 = 0^h2*1].
+buf[1] = points[19] = 67529, (diff0 - diff) = 3376
+buf[2] = points[27] = 94541, (diff0 - diff) = 3376
+i = 3: k = 0.buf[1 = 1^h2*2].1.buf[0 = 0^h1*1].
+buf[1] = points[35] = 121552, (diff0 - diff) = 3376
+buf[2] = points[43] = 148564, (diff0 - diff) = 3376
+i = 5: k = 0.buf[1 = 1^h2*2].
+buf[2] = points[51] = 175575, (diff0 - diff) = 3376
+buf[3] = points[59] = 202587, (diff0 - diff) = 3376
+i = 7: k = 0.buf[2 = 2^h2*3].1.buf[1 = 1^h1*2].2.buf[0 = 0^h0*1].
+****** Stride s = 2; I-loop: i from 0 to 16 ******
+buf[0] = points[1] = 6753, (diff0 - diff) = 3376
+buf[1] = points[5] = 20259, (diff0 - diff) = 3376
+i = 1: k = 0.buf[0 = 0^h3*1].
+buf[1] = points[9] = 33765, (diff0 - diff) = 3376
+buf[2] = points[13] = 47271, (diff0 - diff) = 3376
+i = 3: k = 0.buf[1 = 1^h3*2].1.buf[0 = 0^h2*1].
+buf[1] = points[17] = 60776, (diff0 - diff) = 3376
+buf[2] = points[21] = 74282, (diff0 - diff) = 3376
+i = 5: k = 0.buf[1 = 1^h3*2].
+buf[2] = points[25] = 87788, (diff0 - diff) = 3376
+buf[3] = points[29] = 101294, (diff0 - diff) = 3376
+i = 7: k = 0.buf[2 = 2^h3*3].1.buf[1 = 1^h2*2].2.buf[0 = 0^h1*1].
+buf[1] = points[33] = 114799, (diff0 - diff) = 3376
+buf[2] = points[37] = 128305, (diff0 - diff) = 3376
+i = 9: k = 0.buf[1 = 1^h3*2].
+buf[2] = points[41] = 141811, (diff0 - diff) = 3376
+buf[3] = points[45] = 155317, (diff0 - diff) = 3376
+i = 11: k = 0.buf[2 = 2^h3*3].1.buf[1 = 1^h2*2].
+buf[2] = points[49] = 168822, (diff0 - diff) = 3376
+buf[3] = points[53] = 182328, (diff0 - diff) = 3376
+i = 13: k = 0.buf[2 = 2^h3*3].
+buf[3] = points[57] = 195834, (diff0 - diff) = 3376
+buf[4] = points[61] = 209340, (diff0 - diff) = 3376
+i = 15: k = 0.buf[3 = 3^h3*4].1.buf[2 = 2^h2*3].2.buf[1 = 1^h1*2].3.buf[0 = 0^h0*1].
+****** Stride s = 1; I-loop: i from 0 to 32 ******
+buf[0] = points[0] = 3377, (diff0 - diff) = 3377
+buf[1] = points[2] = 10130, (diff0 - diff) = 3377
+i = 1: k = 0.buf[0 = 0^h4*1].
+buf[1] = points[4] = 16883, (diff0 - diff) = 3377
+buf[2] = points[6] = 23636, (diff0 - diff) = 3377
+i = 3: k = 0.buf[1 = 1^h4*2].1.buf[0 = 0^h3*1].
+buf[1] = points[8] = 30389, (diff0 - diff) = 3377
+buf[2] = points[10] = 37142, (diff0 - diff) = 3377
+i = 5: k = 0.buf[1 = 1^h4*2].
+buf[2] = points[12] = 43895, (diff0 - diff) = 3377
+buf[3] = points[14] = 50648, (diff0 - diff) = 3377
+i = 7: k = 0.buf[2 = 2^h4*3].1.buf[1 = 1^h3*2].2.buf[0 = 0^h2*1].
+buf[1] = points[16] = 57400, (diff0 - diff) = 3377
+buf[2] = points[18] = 64153, (diff0 - diff) = 3377
+i = 9: k = 0.buf[1 = 1^h4*2].
+buf[2] = points[20] = 70906, (diff0 - diff) = 3377
+buf[3] = points[22] = 77659, (diff0 - diff) = 3377
+i = 11: k = 0.buf[2 = 2^h4*3].1.buf[1 = 1^h3*2].
+buf[2] = points[24] = 84412, (diff0 - diff) = 3377
+buf[3] = points[26] = 91165, (diff0 - diff) = 3377
+i = 13: k = 0.buf[2 = 2^h4*3].
+buf[3] = points[28] = 97918, (diff0 - diff) = 3377
+buf[4] = points[30] = 104671, (diff0 - diff) = 3377
+i = 15: k = 0.buf[3 = 3^h4*4].1.buf[2 = 2^h3*3].2.buf[1 = 1^h2*2].3.buf[0 = 0^h1*1].
+buf[1] = points[32] = 111423, (diff0 - diff) = 3377
+buf[2] = points[34] = 118176, (diff0 - diff) = 3377
+i = 17: k = 0.buf[1 = 1^h4*2].
+buf[2] = points[36] = 124929, (diff0 - diff) = 3377
+buf[3] = points[38] = 131682, (diff0 - diff) = 3377
+i = 19: k = 0.buf[2 = 2^h4*3].1.buf[1 = 1^h3*2].
+buf[2] = points[40] = 138435, (diff0 - diff) = 3377
+buf[3] = points[42] = 145188, (diff0 - diff) = 3377
+i = 21: k = 0.buf[2 = 2^h4*3].
+buf[3] = points[44] = 151941, (diff0 - diff) = 3377
+buf[4] = points[46] = 158694, (diff0 - diff) = 3377
+i = 23: k = 0.buf[3 = 3^h4*4].1.buf[2 = 2^h3*3].2.buf[1 = 1^h2*2].
+buf[2] = points[48] = 165446, (diff0 - diff) = 3377
+buf[3] = points[50] = 172199, (diff0 - diff) = 3377
+i = 25: k = 0.buf[2 = 2^h4*3].
+buf[3] = points[52] = 178952, (diff0 - diff) = 3377
+buf[4] = points[54] = 185705, (diff0 - diff) = 3377
+i = 27: k = 0.buf[3 = 3^h4*4].1.buf[2 = 2^h3*3].
+buf[3] = points[56] = 192458, (diff0 - diff) = 3377
+buf[4] = points[58] = 199211, (diff0 - diff) = 3377
+i = 29: k = 0.buf[3 = 3^h4*4].
+buf[4] = points[60] = 205964, (diff0 - diff) = 3377
+buf[5] = points[62] = 212717, (diff0 - diff) = 3377
+i = 31: k = 0.buf[4 = 4^h4*5].1.buf[3 = 3^h3*4].2.buf[2 = 2^h2*3].3.buf[1 = 1^h1*2].4.buf[0 = 0^h0*1].
+Done.
+
+=======================
+POWER = 7:
+=======================
+POWER = 8:
+=======================
+POWER = 9:
+Starting program: /Users/ewmayer/mlucas/GPUOWL/a.out 216091 9
+Breakpoint 1 at 0x1000016b7: file ewm_loop.c, line 19.
+Breakpoint 2 at 0x1000017e8: file ewm_loop.c, line 26.
+Power = 9, diff0 = 423; Outer loop from p = 0 to (power-1):
+****** Stride s = 256; I-loop: i from 0 to 1 ******
+buf[0] = points[255] = 108046, (diff0 - diff) = 418
+****** Stride s = 128; I-loop: i from 0 to 2 ******
+buf[0] = points[127] = 54023, (diff0 - diff) = 418
+buf[1] = points[383] = 162069, (diff0 - diff) = 418
+i = 1: k = 0.buf[0 = 0^h0*1].
+****** Stride s = 64; I-loop: i from 0 to 4 ******
+buf[0] = points[63] = 27012, (diff0 - diff) = 419
+buf[1] = points[191] = 81035, (diff0 - diff) = 419
+i = 1: k = 0.buf[0 = 0^h1*1].
+buf[1] = points[319] = 135058, (diff0 - diff) = 419
+buf[2] = points[447] = 189081, (diff0 - diff) = 419
+i = 3: k = 0.buf[1 = 1^h1*2].1.buf[0 = 0^h0*1].
+****** Stride s = 32; I-loop: i from 0 to 8 ******
+buf[0] = points[31] = 13506, (diff0 - diff) = 419
+buf[1] = points[95] = 40518, (diff0 - diff) = 419
+i = 1: k = 0.buf[0 = 0^h2*1].
+buf[1] = points[159] = 67529, (diff0 - diff) = 419
+buf[2] = points[223] = 94541, (diff0 - diff) = 419
+i = 3: k = 0.buf[1 = 1^h2*2].1.buf[0 = 0^h1*1].
+buf[1] = points[287] = 121552, (diff0 - diff) = 419
+buf[2] = points[351] = 148564, (diff0 - diff) = 419
+i = 5: k = 0.buf[1 = 1^h2*2].
+buf[2] = points[415] = 175575, (diff0 - diff) = 419
+buf[3] = points[479] = 202587, (diff0 - diff) = 419
+i = 7: k = 0.buf[2 = 2^h2*3].1.buf[1 = 1^h1*2].2.buf[0 = 0^h0*1].
+****** Stride s = 16; I-loop: i from 0 to 16 ******
+buf[0] = points[15] = 6753, (diff0 - diff) = 419
+buf[1] = points[47] = 20259, (diff0 - diff) = 419
+i = 1: k = 0.buf[0 = 0^h3*1].
+buf[1] = points[79] = 33765, (diff0 - diff) = 419
+buf[2] = points[111] = 47271, (diff0 - diff) = 419
+i = 3: k = 0.buf[1 = 1^h3*2].1.buf[0 = 0^h2*1].
+buf[1] = points[143] = 60776, (diff0 - diff) = 419
+buf[2] = points[175] = 74282, (diff0 - diff) = 419
+i = 5: k = 0.buf[1 = 1^h3*2].
+buf[2] = points[207] = 87788, (diff0 - diff) = 419
+buf[3] = points[239] = 101294, (diff0 - diff) = 419
+i = 7: k = 0.buf[2 = 2^h3*3].1.buf[1 = 1^h2*2].2.buf[0 = 0^h1*1].
+buf[1] = points[271] = 114799, (diff0 - diff) = 419
+buf[2] = points[303] = 128305, (diff0 - diff) = 419
+i = 9: k = 0.buf[1 = 1^h3*2].
+buf[2] = points[335] = 141811, (diff0 - diff) = 419
+buf[3] = points[367] = 155317, (diff0 - diff) = 419
+i = 11: k = 0.buf[2 = 2^h3*3].1.buf[1 = 1^h2*2].
+buf[2] = points[399] = 168822, (diff0 - diff) = 419
+buf[3] = points[431] = 182328, (diff0 - diff) = 419
+i = 13: k = 0.buf[2 = 2^h3*3].
+buf[3] = points[463] = 195834, (diff0 - diff) = 419
+buf[4] = points[495] = 209340, (diff0 - diff) = 419
+i = 15: k = 0.buf[3 = 3^h3*4].1.buf[2 = 2^h2*3].2.buf[1 = 1^h1*2].3.buf[0 = 0^h0*1].
+****** Stride s = 8; I-loop: i from 0 to 32 ******
+buf[0] = points[7] = 3377, (diff0 - diff) = 420
+buf[1] = points[23] = 10130, (diff0 - diff) = 420
+i = 1: k = 0.buf[0 = 0^h4*1].
+buf[1] = points[39] = 16883, (diff0 - diff) = 420
+buf[2] = points[55] = 23636, (diff0 - diff) = 420
+i = 3: k = 0.buf[1 = 1^h4*2].1.buf[0 = 0^h3*1].
+buf[1] = points[71] = 30389, (diff0 - diff) = 420
+buf[2] = points[87] = 37142, (diff0 - diff) = 420
+i = 5: k = 0.buf[1 = 1^h4*2].
+buf[2] = points[103] = 43895, (diff0 - diff) = 420
+buf[3] = points[119] = 50648, (diff0 - diff) = 420
+i = 7: k = 0.buf[2 = 2^h4*3].1.buf[1 = 1^h3*2].2.buf[0 = 0^h2*1].
+buf[1] = points[135] = 57400, (diff0 - diff) = 420
+buf[2] = points[151] = 64153, (diff0 - diff) = 420
+i = 9: k = 0.buf[1 = 1^h4*2].
+buf[2] = points[167] = 70906, (diff0 - diff) = 420
+buf[3] = points[183] = 77659, (diff0 - diff) = 420
+i = 11: k = 0.buf[2 = 2^h4*3].1.buf[1 = 1^h3*2].
+buf[2] = points[199] = 84412, (diff0 - diff) = 420
+buf[3] = points[215] = 91165, (diff0 - diff) = 420
+i = 13: k = 0.buf[2 = 2^h4*3].
+buf[3] = points[231] = 97918, (diff0 - diff) = 420
+buf[4] = points[247] = 104671, (diff0 - diff) = 420
+i = 15: k = 0.buf[3 = 3^h4*4].1.buf[2 = 2^h3*3].2.buf[1 = 1^h2*2].3.buf[0 = 0^h1*1].
+buf[1] = points[263] = 111423, (diff0 - diff) = 420
+buf[2] = points[279] = 118176, (diff0 - diff) = 420
+i = 17: k = 0.buf[1 = 1^h4*2].
+buf[2] = points[295] = 124929, (diff0 - diff) = 420
+buf[3] = points[311] = 131682, (diff0 - diff) = 420
+i = 19: k = 0.buf[2 = 2^h4*3].1.buf[1 = 1^h3*2].
+buf[2] = points[327] = 138435, (diff0 - diff) = 420
+buf[3] = points[343] = 145188, (diff0 - diff) = 420
+i = 21: k = 0.buf[2 = 2^h4*3].
+buf[3] = points[359] = 151941, (diff0 - diff) = 420
+buf[4] = points[375] = 158694, (diff0 - diff) = 420
+i = 23: k = 0.buf[3 = 3^h4*4].1.buf[2 = 2^h3*3].2.buf[1 = 1^h2*2].
+buf[2] = points[391] = 165446, (diff0 - diff) = 420
+buf[3] = points[407] = 172199, (diff0 - diff) = 420
+i = 25: k = 0.buf[2 = 2^h4*3].
+buf[3] = points[423] = 178952, (diff0 - diff) = 420
+buf[4] = points[439] = 185705, (diff0 - diff) = 420
+i = 27: k = 0.buf[3 = 3^h4*4].1.buf[2 = 2^h3*3].
+buf[3] = points[455] = 192458, (diff0 - diff) = 420
+buf[4] = points[471] = 199211, (diff0 - diff) = 420
+i = 29: k = 0.buf[3 = 3^h4*4].
+buf[4] = points[487] = 205964, (diff0 - diff) = 420
+buf[5] = points[503] = 212717, (diff0 - diff) = 420
+i = 31: k = 0.buf[4 = 4^h4*5].1.buf[3 = 3^h3*4].2.buf[2 = 2^h2*3].3.buf[1 = 1^h1*2].4.buf[0 = 0^h0*1].
+****** Stride s = 4; I-loop: i from 0 to 64 ******
+buf[0] = points[3] = 1689, (diff0 - diff) = 421
+buf[1] = points[11] = 5066, (diff0 - diff) = 421
+i = 1: k = 0.buf[0 = 0^h5*1].
+buf[1] = points[19] = 8442, (diff0 - diff) = 421
+buf[2] = points[27] = 11819, (diff0 - diff) = 421
+i = 3: k = 0.buf[1 = 1^h5*2].1.buf[0 = 0^h4*1].
+buf[1] = points[35] = 15195, (diff0 - diff) = 421
+buf[2] = points[43] = 18572, (diff0 - diff) = 421
+i = 5: k = 0.buf[1 = 1^h5*2].
+buf[2] = points[51] = 21948, (diff0 - diff) = 421
+buf[3] = points[59] = 25325, (diff0 - diff) = 421
+i = 7: k = 0.buf[2 = 2^h5*3].1.buf[1 = 1^h4*2].2.buf[0 = 0^h3*1].
+buf[1] = points[67] = 28701, (diff0 - diff) = 421
+buf[2] = points[75] = 32078, (diff0 - diff) = 421
+i = 9: k = 0.buf[1 = 1^h5*2].
+buf[2] = points[83] = 35454, (diff0 - diff) = 421
+buf[3] = points[91] = 38831, (diff0 - diff) = 421
+i = 11: k = 0.buf[2 = 2^h5*3].1.buf[1 = 1^h4*2].
+buf[2] = points[99] = 42207, (diff0 - diff) = 421
+buf[3] = points[107] = 45584, (diff0 - diff) = 421
+i = 13: k = 0.buf[2 = 2^h5*3].
+buf[3] = points[115] = 48960, (diff0 - diff) = 421
+buf[4] = points[123] = 52337, (diff0 - diff) = 421
+i = 15: k = 0.buf[3 = 3^h5*4].1.buf[2 = 2^h4*3].2.buf[1 = 1^h3*2].3.buf[0 = 0^h2*1].
+buf[1] = points[131] = 55712, (diff0 - diff) = 421
+buf[2] = points[139] = 59089, (diff0 - diff) = 421
+i = 17: k = 0.buf[1 = 1^h5*2].
+buf[2] = points[147] = 62465, (diff0 - diff) = 421
+buf[3] = points[155] = 65842, (diff0 - diff) = 421
+i = 19: k = 0.buf[2 = 2^h5*3].1.buf[1 = 1^h4*2].
+buf[2] = points[163] = 69218, (diff0 - diff) = 421
+buf[3] = points[171] = 72595, (diff0 - diff) = 421
+i = 21: k = 0.buf[2 = 2^h5*3].
+buf[3] = points[179] = 75971, (diff0 - diff) = 421
+buf[4] = points[187] = 79348, (diff0 - diff) = 421
+i = 23: k = 0.buf[3 = 3^h5*4].1.buf[2 = 2^h4*3].2.buf[1 = 1^h3*2].
+buf[2] = points[195] = 82724, (diff0 - diff) = 421
+buf[3] = points[203] = 86101, (diff0 - diff) = 421
+i = 25: k = 0.buf[2 = 2^h5*3].
+buf[3] = points[211] = 89477, (diff0 - diff) = 421
+buf[4] = points[219] = 92854, (diff0 - diff) = 421
+i = 27: k = 0.buf[3 = 3^h5*4].1.buf[2 = 2^h4*3].
+buf[3] = points[227] = 96230, (diff0 - diff) = 421
+buf[4] = points[235] = 99607, (diff0 - diff) = 421
+i = 29: k = 0.buf[3 = 3^h5*4].
+buf[4] = points[243] = 102983, (diff0 - diff) = 421
+buf[5] = points[251] = 106360, (diff0 - diff) = 421
+i = 31: k = 0.buf[4 = 4^h5*5].1.buf[3 = 3^h4*4].2.buf[2 = 2^h3*3].3.buf[1 = 1^h2*2].4.buf[0 = 0^h1*1].
+buf[1] = points[259] = 109735, (diff0 - diff) = 421
+buf[2] = points[267] = 113112, (diff0 - diff) = 421
+i = 33: k = 0.buf[1 = 1^h5*2].
+buf[2] = points[275] = 116488, (diff0 - diff) = 421
+buf[3] = points[283] = 119865, (diff0 - diff) = 421
+i = 35: k = 0.buf[2 = 2^h5*3].1.buf[1 = 1^h4*2].
+buf[2] = points[291] = 123241, (diff0 - diff) = 421
+buf[3] = points[299] = 126618, (diff0 - diff) = 421
+i = 37: k = 0.buf[2 = 2^h5*3].
+buf[3] = points[307] = 129994, (diff0 - diff) = 421
+buf[4] = points[315] = 133371, (diff0 - diff) = 421
+i = 39: k = 0.buf[3 = 3^h5*4].1.buf[2 = 2^h4*3].2.buf[1 = 1^h3*2].
+buf[2] = points[323] = 136747, (diff0 - diff) = 421
+buf[3] = points[331] = 140124, (diff0 - diff) = 421
+i = 41: k = 0.buf[2 = 2^h5*3].
+buf[3] = points[339] = 143500, (diff0 - diff) = 421
+buf[4] = points[347] = 146877, (diff0 - diff) = 421
+i = 43: k = 0.buf[3 = 3^h5*4].1.buf[2 = 2^h4*3].
+buf[3] = points[355] = 150253, (diff0 - diff) = 421
+buf[4] = points[363] = 153630, (diff0 - diff) = 421
+i = 45: k = 0.buf[3 = 3^h5*4].
+buf[4] = points[371] = 157006, (diff0 - diff) = 421
+buf[5] = points[379] = 160383, (diff0 - diff) = 421
+i = 47: k = 0.buf[4 = 4^h5*5].1.buf[3 = 3^h4*4].2.buf[2 = 2^h3*3].3.buf[1 = 1^h2*2].
+buf[2] = points[387] = 163758, (diff0 - diff) = 421
+buf[3] = points[395] = 167135, (diff0 - diff) = 421
+i = 49: k = 0.buf[2 = 2^h5*3].
+buf[3] = points[403] = 170511, (diff0 - diff) = 421
+buf[4] = points[411] = 173888, (diff0 - diff) = 421
+i = 51: k = 0.buf[3 = 3^h5*4].1.buf[2 = 2^h4*3].
+buf[3] = points[419] = 177264, (diff0 - diff) = 421
+buf[4] = points[427] = 180641, (diff0 - diff) = 421
+i = 53: k = 0.buf[3 = 3^h5*4].
+buf[4] = points[435] = 184017, (diff0 - diff) = 421
+buf[5] = points[443] = 187394, (diff0 - diff) = 421
+i = 55: k = 0.buf[4 = 4^h5*5].1.buf[3 = 3^h4*4].2.buf[2 = 2^h3*3].
+buf[3] = points[451] = 190770, (diff0 - diff) = 421
+buf[4] = points[459] = 194147, (diff0 - diff) = 421
+i = 57: k = 0.buf[3 = 3^h5*4].
+buf[4] = points[467] = 197523, (diff0 - diff) = 421
+buf[5] = points[475] = 200900, (diff0 - diff) = 421
+i = 59: k = 0.buf[4 = 4^h5*5].1.buf[3 = 3^h4*4].
+buf[4] = points[483] = 204276, (diff0 - diff) = 421
+buf[5] = points[491] = 207653, (diff0 - diff) = 421
+i = 61: k = 0.buf[4 = 4^h5*5].
+buf[5] = points[499] = 211029, (diff0 - diff) = 421
+buf[6] = points[507] = 214406, (diff0 - diff) = 421
+i = 63: k = 0.buf[5 = 5^h5*6].1.buf[4 = 4^h4*5].2.buf[3 = 3^h3*4].3.buf[2 = 2^h2*3].4.buf[1 = 1^h1*2].5.buf[0 = 0^h0*1].
+****** Stride s = 2; I-loop: i from 0 to 128 ******
+buf[0] = points[1] = 845, (diff0 - diff) = 845
+buf[1] = points[5] = 2534, (diff0 - diff) = 422
+i = 1: k = 0.buf[0 = 0^h6*1].
+buf[1] = points[9] = 4222, (diff0 - diff) = 422
+buf[2] = points[13] = 5911, (diff0 - diff) = 422
+i = 3: k = 0.buf[1 = 1^h6*2].1.buf[0 = 0^h5*1].
+buf[1] = points[17] = 7598, (diff0 - diff) = 422
+buf[2] = points[21] = 9287, (diff0 - diff) = 422
+i = 5: k = 0.buf[1 = 1^h6*2].
+buf[2] = points[25] = 10975, (diff0 - diff) = 422
+buf[3] = points[29] = 12664, (diff0 - diff) = 422
+i = 7: k = 0.buf[2 = 2^h6*3].1.buf[1 = 1^h5*2].2.buf[0 = 0^h4*1].
+buf[1] = points[33] = 14351, (diff0 - diff) = 422
+buf[2] = points[37] = 16040, (diff0 - diff) = 422
+i = 9: k = 0.buf[1 = 1^h6*2].
+buf[2] = points[41] = 17728, (diff0 - diff) = 422
+buf[3] = points[45] = 19417, (diff0 - diff) = 422
+i = 11: k = 0.buf[2 = 2^h6*3].1.buf[1 = 1^h5*2].
+buf[2] = points[49] = 21104, (diff0 - diff) = 422
+buf[3] = points[53] = 22793, (diff0 - diff) = 422
+i = 13: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[57] = 24481, (diff0 - diff) = 422
+buf[4] = points[61] = 26170, (diff0 - diff) = 422
+i = 15: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].2.buf[1 = 1^h4*2].3.buf[0 = 0^h3*1].
+buf[1] = points[65] = 27857, (diff0 - diff) = 422
+buf[2] = points[69] = 29546, (diff0 - diff) = 422
+i = 17: k = 0.buf[1 = 1^h6*2].
+buf[2] = points[73] = 31234, (diff0 - diff) = 422
+buf[3] = points[77] = 32923, (diff0 - diff) = 422
+i = 19: k = 0.buf[2 = 2^h6*3].1.buf[1 = 1^h5*2].
+buf[2] = points[81] = 34610, (diff0 - diff) = 422
+buf[3] = points[85] = 36299, (diff0 - diff) = 422
+i = 21: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[89] = 37987, (diff0 - diff) = 422
+buf[4] = points[93] = 39676, (diff0 - diff) = 422
+i = 23: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].2.buf[1 = 1^h4*2].
+buf[2] = points[97] = 41363, (diff0 - diff) = 422
+buf[3] = points[101] = 43052, (diff0 - diff) = 422
+i = 25: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[105] = 44740, (diff0 - diff) = 422
+buf[4] = points[109] = 46429, (diff0 - diff) = 422
+i = 27: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].
+buf[3] = points[113] = 48116, (diff0 - diff) = 422
+buf[4] = points[117] = 49805, (diff0 - diff) = 422
+i = 29: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[121] = 51493, (diff0 - diff) = 422
+buf[5] = points[125] = 53182, (diff0 - diff) = 422
+i = 31: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].2.buf[2 = 2^h4*3].3.buf[1 = 1^h3*2].4.buf[0 = 0^h2*1].
+buf[1] = points[129] = 54868, (diff0 - diff) = 422
+buf[2] = points[133] = 56557, (diff0 - diff) = 422
+i = 33: k = 0.buf[1 = 1^h6*2].
+buf[2] = points[137] = 58245, (diff0 - diff) = 422
+buf[3] = points[141] = 59934, (diff0 - diff) = 422
+i = 35: k = 0.buf[2 = 2^h6*3].1.buf[1 = 1^h5*2].
+buf[2] = points[145] = 61621, (diff0 - diff) = 422
+buf[3] = points[149] = 63310, (diff0 - diff) = 422
+i = 37: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[153] = 64998, (diff0 - diff) = 422
+buf[4] = points[157] = 66687, (diff0 - diff) = 422
+i = 39: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].2.buf[1 = 1^h4*2].
+buf[2] = points[161] = 68374, (diff0 - diff) = 422
+buf[3] = points[165] = 70063, (diff0 - diff) = 422
+i = 41: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[169] = 71751, (diff0 - diff) = 422
+buf[4] = points[173] = 73440, (diff0 - diff) = 422
+i = 43: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].
+buf[3] = points[177] = 75127, (diff0 - diff) = 422
+buf[4] = points[181] = 76816, (diff0 - diff) = 422
+i = 45: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[185] = 78504, (diff0 - diff) = 422
+buf[5] = points[189] = 80193, (diff0 - diff) = 422
+i = 47: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].2.buf[2 = 2^h4*3].3.buf[1 = 1^h3*2].
+buf[2] = points[193] = 81880, (diff0 - diff) = 422
+buf[3] = points[197] = 83569, (diff0 - diff) = 422
+i = 49: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[201] = 85257, (diff0 - diff) = 422
+buf[4] = points[205] = 86946, (diff0 - diff) = 422
+i = 51: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].
+buf[3] = points[209] = 88633, (diff0 - diff) = 422
+buf[4] = points[213] = 90322, (diff0 - diff) = 422
+i = 53: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[217] = 92010, (diff0 - diff) = 422
+buf[5] = points[221] = 93699, (diff0 - diff) = 422
+i = 55: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].2.buf[2 = 2^h4*3].
+buf[3] = points[225] = 95386, (diff0 - diff) = 422
+buf[4] = points[229] = 97075, (diff0 - diff) = 422
+i = 57: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[233] = 98763, (diff0 - diff) = 422
+buf[5] = points[237] = 100452, (diff0 - diff) = 422
+i = 59: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].
+buf[4] = points[241] = 102139, (diff0 - diff) = 422
+buf[5] = points[245] = 103828, (diff0 - diff) = 422
+i = 61: k = 0.buf[4 = 4^h6*5].
+buf[5] = points[249] = 105516, (diff0 - diff) = 422
+buf[6] = points[253] = 107205, (diff0 - diff) = 422
+i = 63: k = 0.buf[5 = 5^h6*6].1.buf[4 = 4^h5*5].2.buf[3 = 3^h4*4].3.buf[2 = 2^h3*3].4.buf[1 = 1^h2*2].5.buf[0 = 0^h1*1].
+buf[1] = points[257] = 108891, (diff0 - diff) = 422
+buf[2] = points[261] = 110580, (diff0 - diff) = 422
+i = 65: k = 0.buf[1 = 1^h6*2].
+buf[2] = points[265] = 112268, (diff0 - diff) = 422
+buf[3] = points[269] = 113957, (diff0 - diff) = 422
+i = 67: k = 0.buf[2 = 2^h6*3].1.buf[1 = 1^h5*2].
+buf[2] = points[273] = 115644, (diff0 - diff) = 422
+buf[3] = points[277] = 117333, (diff0 - diff) = 422
+i = 69: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[281] = 119021, (diff0 - diff) = 422
+buf[4] = points[285] = 120710, (diff0 - diff) = 422
+i = 71: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].2.buf[1 = 1^h4*2].
+buf[2] = points[289] = 122397, (diff0 - diff) = 422
+buf[3] = points[293] = 124086, (diff0 - diff) = 422
+i = 73: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[297] = 125774, (diff0 - diff) = 422
+buf[4] = points[301] = 127463, (diff0 - diff) = 422
+i = 75: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].
+buf[3] = points[305] = 129150, (diff0 - diff) = 422
+buf[4] = points[309] = 130839, (diff0 - diff) = 422
+i = 77: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[313] = 132527, (diff0 - diff) = 422
+buf[5] = points[317] = 134216, (diff0 - diff) = 422
+i = 79: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].2.buf[2 = 2^h4*3].3.buf[1 = 1^h3*2].
+buf[2] = points[321] = 135903, (diff0 - diff) = 422
+buf[3] = points[325] = 137592, (diff0 - diff) = 422
+i = 81: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[329] = 139280, (diff0 - diff) = 422
+buf[4] = points[333] = 140969, (diff0 - diff) = 422
+i = 83: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].
+buf[3] = points[337] = 142656, (diff0 - diff) = 422
+buf[4] = points[341] = 144345, (diff0 - diff) = 422
+i = 85: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[345] = 146033, (diff0 - diff) = 422
+buf[5] = points[349] = 147722, (diff0 - diff) = 422
+i = 87: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].2.buf[2 = 2^h4*3].
+buf[3] = points[353] = 149409, (diff0 - diff) = 422
+buf[4] = points[357] = 151098, (diff0 - diff) = 422
+i = 89: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[361] = 152786, (diff0 - diff) = 422
+buf[5] = points[365] = 154475, (diff0 - diff) = 422
+i = 91: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].
+buf[4] = points[369] = 156162, (diff0 - diff) = 422
+buf[5] = points[373] = 157851, (diff0 - diff) = 422
+i = 93: k = 0.buf[4 = 4^h6*5].
+buf[5] = points[377] = 159539, (diff0 - diff) = 422
+buf[6] = points[381] = 161228, (diff0 - diff) = 422
+i = 95: k = 0.buf[5 = 5^h6*6].1.buf[4 = 4^h5*5].2.buf[3 = 3^h4*4].3.buf[2 = 2^h3*3].4.buf[1 = 1^h2*2].
+buf[2] = points[385] = 162914, (diff0 - diff) = 422
+buf[3] = points[389] = 164603, (diff0 - diff) = 422
+i = 97: k = 0.buf[2 = 2^h6*3].
+buf[3] = points[393] = 166291, (diff0 - diff) = 422
+buf[4] = points[397] = 167980, (diff0 - diff) = 422
+i = 99: k = 0.buf[3 = 3^h6*4].1.buf[2 = 2^h5*3].
+buf[3] = points[401] = 169667, (diff0 - diff) = 422
+buf[4] = points[405] = 171356, (diff0 - diff) = 422
+i = 101: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[409] = 173044, (diff0 - diff) = 422
+buf[5] = points[413] = 174733, (diff0 - diff) = 422
+i = 103: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].2.buf[2 = 2^h4*3].
+buf[3] = points[417] = 176420, (diff0 - diff) = 422
+buf[4] = points[421] = 178109, (diff0 - diff) = 422
+i = 105: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[425] = 179797, (diff0 - diff) = 422
+buf[5] = points[429] = 181486, (diff0 - diff) = 422
+i = 107: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].
+buf[4] = points[433] = 183173, (diff0 - diff) = 422
+buf[5] = points[437] = 184862, (diff0 - diff) = 422
+i = 109: k = 0.buf[4 = 4^h6*5].
+buf[5] = points[441] = 186550, (diff0 - diff) = 422
+buf[6] = points[445] = 188239, (diff0 - diff) = 422
+i = 111: k = 0.buf[5 = 5^h6*6].1.buf[4 = 4^h5*5].2.buf[3 = 3^h4*4].3.buf[2 = 2^h3*3].
+buf[3] = points[449] = 189926, (diff0 - diff) = 422
+buf[4] = points[453] = 191615, (diff0 - diff) = 422
+i = 113: k = 0.buf[3 = 3^h6*4].
+buf[4] = points[457] = 193303, (diff0 - diff) = 422
+buf[5] = points[461] = 194992, (diff0 - diff) = 422
+i = 115: k = 0.buf[4 = 4^h6*5].1.buf[3 = 3^h5*4].
+buf[4] = points[465] = 196679, (diff0 - diff) = 422
+buf[5] = points[469] = 198368, (diff0 - diff) = 422
+i = 117: k = 0.buf[4 = 4^h6*5].
+buf[5] = points[473] = 200056, (diff0 - diff) = 422
+buf[6] = points[477] = 201745, (diff0 - diff) = 422
+i = 119: k = 0.buf[5 = 5^h6*6].1.buf[4 = 4^h5*5].2.buf[3 = 3^h4*4].
+buf[4] = points[481] = 203432, (diff0 - diff) = 422
+buf[5] = points[485] = 205121, (diff0 - diff) = 422
+i = 121: k = 0.buf[4 = 4^h6*5].
+buf[5] = points[489] = 206809, (diff0 - diff) = 422
+buf[6] = points[493] = 208498, (diff0 - diff) = 422
+i = 123: k = 0.buf[5 = 5^h6*6].1.buf[4 = 4^h5*5].
+buf[5] = points[497] = 210185, (diff0 - diff) = 422
+buf[6] = points[501] = 211874, (diff0 - diff) = 422
+i = 125: k = 0.buf[5 = 5^h6*6].
+buf[6] = points[505] = 213562, (diff0 - diff) = 422
+buf[7] = points[509] = 215251, (diff0 - diff) = 422
+i = 127: k = 0.buf[6 = 6^h6*7].1.buf[5 = 5^h5*6].2.buf[4 = 4^h4*5].3.buf[3 = 3^h3*4].4.buf[2 = 2^h2*3].5.buf[1 = 1^h1*2].6.buf[0 = 0^h0*1].
+****** Stride s = 1; I-loop: i from 0 to 256 ******
+
+Program received signal EXC_BAD_ACCESS, Could not access memory.
+Reason: KERN_INVALID_ADDRESS at address: 0x00000001007ffffc
+gdb stack crawl at point of internal error:
+0   gdb-i386-apple-darwin               0x000000010010a10a internal_vproblem + 308
+1   gdb-i386-apple-darwin               0x000000010010a2e4 internal_verror + 27
+2   gdb-i386-apple-darwin               0x000000010010a382 align_down + 0
+3   gdb-i386-apple-darwin               0x000000010000f067 objfile_section_offset + 150
+4   gdb-i386-apple-darwin               0x00000001000452f2 fixup_section + 319
+5   gdb-i386-apple-darwin               0x0000000100046c2b lookup_symbol_aux_block + 218
+6   gdb-i386-apple-darwin               0x00000001000496f7 lookup_symbol + 309
+7   gdb-i386-apple-darwin               0x000000010006df35 print_frame_args + 322
+8   gdb-i386-apple-darwin               0x000000010006e1c9 print_args_stub + 125
+9   gdb-i386-apple-darwin               0x00000001000733b6 catch_errors + 70
+10  gdb-i386-apple-darwin               0x000000010006edaa print_frame_info + 1711
+11  gdb-i386-apple-darwin               0x000000010006f772 print_stack_frame_stub + 47
+12  gdb-i386-apple-darwin               0x00000001000733b6 catch_errors + 70
+13  gdb-i386-apple-darwin               0x000000010006e239 print_stack_frame + 53
+14  gdb-i386-apple-darwin               0x0000000100062189 normal_stop + 1440
+0x0000000100001ad2 in main (/SourceCache/gdb/gdb-1518/src/gdb/objfiles.c:2278: internal-error: Section index is out of range for objfile
+A problem internal to GDB has been detected,
+further debugging may prove unreliable.

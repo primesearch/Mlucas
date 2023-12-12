@@ -1,0 +1,1446 @@
+Notes on fast PRP proof-of-correctness based on Verifiable Delay Function (VDF)
+(My comments in standalone [] or inline [EWM: ])
+
+************************************************************************
+18 Jul 2022: Mihai says to examine gpuowl/Proof.cpp, esp. functions Proof::verify() and Proof::computeProof().
+[My comments follow the //:]
+Key utilities used:
+using Words = vector<u32>;
+inline u64 res64(const Words& words) { return words.empty() ? 0 : ((u64(words[1]) << 32) | words[0]); }
+// Takes Mersenne exponent E and inits an E-bit u32-vector = value:
+inline Words makeWords(u32 E, u32 value) {
+  Words ret((E-1)/32 +1);	// = ceiling(E/32)
+  ret[0] = value;
+  return ret;
+}
+
+o Notes re
+Proof ProofSet::computeProof(Gpu *gpu) const {
+	Words B = load(E);
+	Words A = makeWords(E, 3);
+	// Vector of (power) residue-length mod-product of intermediate PRP-residues:
+	vector<Words> middles;
+	vector<u64> hashes;
+
+	auto hash = proof::hashWords(E, B);
+
+	vector<Buffer<i32>> bufVect = gpu->makeBufVector(power);
+	// EWM: Use power = 9 for example:
+	for (u32 p = 0; p < power; ++p) {	// p = 0,...,power-1 = 0,...,8
+		auto bufIt = bufVect.begin();
+		assert(p == hashes.size());	// #hashes must == proof power
+		u32 s = (1u << (power - p - 1));// s = 2^[8,...,0] = stride
+		for (u32 i = 0; i < (1u << p); ++i) {	// ihi = 2^[0,...,8]
+			Words w = load(points[s * (i * 2 + 1) - 1]);	<**What is stored in points[]? Intermediate PRP-residues?**
+p	s	ihi	points[] indices
+---	---	---	----------------
+0	256	1	256*[1]-1			[256]-1					255
+1	128	2	128*[1,3]-1			[128,384]-1				127,383
+2	64	4	64*[1,3,5,7]-1		[64,192,320,448]-1		63,191,311,447
+3	32	8	32*[1:15:2]-1		[32,96,...,416,480]-1	31,95,...,415,479
+4	16	16	16*[1:31:2]-1		[16,48,...,464,496]-1	15,47,...,463,495
+5	8	32	8*[1:63:2]-1		[8,24,...,488,504]-1	7,23,...,487,503
+6	4	64	4*[1:127:2]-1		[4,12,...,500,508]-1	3,11,...,499,507
+7	2	128	2*[1:255:2]-1		[2,6,...,506,510]-1		1,5,...,505,509
+8	1	256	1*[1:511:2]-1		[1,3,...,509,511]-1		0,2,4,...,508,510
+			gpu->writeIn(*bufIt++, w);	// Copy residues w into sequential bufVect[] entries
+			for (u32 k = 0; i & (1u << k); ++k) {	<****** parse this indexing *****
+				assert(k <= p - 1);
+				--bufIt;
+				u64 h = hashes[p - 1 - k];
+				gpu->expMul(*(bufIt - 1), h, *bufIt);
+			}
+		}
+		assert(bufIt == bufVect.begin() + 1);
+		middles.push_back(gpu->readAndCompress(bufVect.front()));
+		hash = proof::hashWords(E, hash, middles.back());
+		hashes.push_back(hash[0]);
+
+		log("proof level %u : M %016" PRIx64 ", h %016" PRIx64 "\n", p, res64(middles.back()), hashes.back());
+	}
+	return Proof{E, std::move(B), std::move(middles)};
+}
+
+o Notes re Proof::verify():
+	u32 power = middles.size();	// Proof power == #middles
+	bool isPrime = (B == makeWords(E, 9));	// B = final PRP residue
+	Words A{makeWords(E, 3)};	// Init starting PRP residue A = 3
+	Words B{this->B};		// Copy of B
+	auto hash = proof::hashWords(E, B);	// Hash based on 64-bit Mersenne exponent and B
+	// Use E = 216091, power = 9 for example:
+	u32 span = E;	// Init span = 216091; values of span on the ensuing (power) loop-execs are:
+	// Loop over the [power] middles:
+	for (u32 i = 0; i < power; ++i, span = (span + 1) / 2) {// span = 216091,108046,54023,27012,13506,67533377,1689,845
+		const Words& M = middles[i];
+		hash = proof::hashWords(E, hash, M);
+		u64 h = hash[0];
+		A = gpu->expMul(A, h, M);
+
+		if (span % 2) {
+			B = gpu->expMul2(M, h, B);
+		} else {
+			B = gpu->expMul(M, h, B);
+		}
+
+		log("%u : A %016" PRIx64 ", M %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(M), res64(B), h);
+	}
+
+	log("proof verification: doing %d iterations\n", span);
+	A = gpu->expExp2(A, span);
+
+	bool ok = (A == B);
+	if (ok) {
+		log("proof: %u proved %s\n", E, isPrime ? "probable prime" : "composite");
+	} else {
+		log("proof: invalid (%016" PRIx64 " expected %016" PRIx64 ")\n", res64(A), res64(B));
+	}
+	return ok;
+}
+
+
+************************************************************************
+**************************** KEY TAKEAWAYS: ****************************
+************************************************************************
+[1] Need to switch checkpointing from powers of 10 to powers of 2, e.g. ssvefile-writes every J*1024 iters.
+From Mlucas.c:
+"G-checkproduct update interval must divide savefile-update one, which must divide the G-check interval".
+So currently might have:
+	G-checkproduct update interval = 1000 := j
+	Savefile-update interval      = 10000 := k	Divisible by j
+	G-check interval            = 1000000 := i	Divisible by k; usually take i = j^2
+For powers of 2 we might have
+	G-checkproduct update interval = 1024 := j
+	Savefile-update interval      =  8192 := k	Divisible by j
+	G-check interval            = 1048576 := i	i = j^2 = 64*k
+
+************************************************************************
+PRP PROOF FILE SPEC: https://github.com/preda/gpuowl/wiki/PRP-Proof-File-Spec
+[I have local copy in ~/mlucas/PRP_PROOF/PRP Proof File Spec · preda_gpuowl Wiki · GitHub.html]
+************************************************************************
+
+o The file starts with an ASCII section composed of a few lines separated by a single '\n' character. Example header:
+
+PRP PROOF
+VERSION=1
+HASHSIZE=64
+POWER=9
+NUMBER=M216091
+
+o This ASCII header is immediately followed by POWER + 1 binary residues without separators.
+
+o A residue is a value modulo the Mersenne candidate 2^E-1. As such, a residue has exactly E bits. A residue is stored as a sequence of bytes starting with the least-significant byte. The number of bytes of a residue is N = ceiling(E/8) = (E-1)/8+1 = (E+7)/8.
+
+EWM: The sample 216091-9.proof file = 270175 bytes. Thus E = 216091, N = 27012.
+	10 residues => 270120 bytes, remaining 55 are for above header, including 5 '\n' newline chars.
+	[There is no explicit EOF char - per e.g.
+	https://unix.stackexchange.com/questions/537858/do-files-actually-contain-an-end-of-file-eof-character :
+	"I don't know of any Unixy systems that would use an end-of-file character, they all store the length of a file down to a byte, making such markers unnecessary."]
+
+o The first residue is called B and is the PRP residue at iteration topK. The next N residues are called "middles", denoted M[0]...M[N-1]. More details about the meaning of these residues is found in Proof Verification.
+
+o The proof covers the iteration range up to iteration topK -- it allows to verify the correctness of the residue at topK (B). The implicit value topK is the lowest multiple of 2^POWER that is larger than E.
+
+EWM: E.g. for above example, 2^POWER = 512, topK = 2^POWER * ceiling(E/2^POWER) = 216576 .
+
+************************************************************************
+PROOF VERIFICATION PROCEDURE: https://github.com/preda/gpuowl/wiki/Proof-Verification
+************************************************************************
+
+0. Need freeware lib for SHA3-256 and related hashes.
+
+	The hash function used is SHA3-256, denoted by hash256() in the following.
+	We also use a 64-bits truncation of the 256-bit hash, denoted with low64().
+
+1. Initialization:
+
+	hash = hash256(E, B)	// E = exponent, B = first residue that follows the proof header
+	A = 3					// A = full-length starting residue; init = PRP-test seed
+
+2. Walking the Middles: There are N middles, where N is the proof power. For each middle M[i] in turn:
+
+**** EWM: Great, but how to compute the M[i] is not explained! ****
+	hash = hash256(hash, M[i])
+	h64 = low64(hash)
+	A = A^h64 * M[i]	// ^ = modular exponentiation
+	B = M[i]^h64 * M[i]	// * = modular multiplication
+
+At this point a check of file integrity and hash correct application is available, by comparing for equality the Proof-hash from the file header with the low64(hash) where hash is the final hash value after walking the middles as shown in the above loop.
+
+3. The PRP iterations
+
+The last step of proof verification consists in running a number of PRP iterations (modular squarings). We use the value topK = (E/1024 + 1)*1024, topK being the smallest multiple of 1024 larger than E.
+
+The number of PRP iterations is
+
+	k = topK/2^N, where N is the proof power. [Ex: E = 216091, topK = 217088; N = 9 gives k = 424, 10 gives k = 212.]
+
+The verification consist in checking that k iterations starting from A produce B, i.e.
+
+	A^2^k == B
+*** From the Spec: "The first residue is called B and is the PRP residue at iteration topK." Which of the 2 topKs? ***
+
+The bulk of the work of proof verification consists in these PRP iterations. We see the effect of the proof power N on the verification cost -- each increment of the power halves the verification cost.
+
+4. Composite or Probable-prime?
+
+The previous steps allow to verify that the PRP residue at iteration topK is indeed equal to the first residue stored in the proof file (called "B" in the proof file format). We still need to decide whether the outcome of the PRP test for exponent E was composite or probable prime.
+
+According to the PRP test, for a probable prime, the residue at iteration E must be equal to 9, so the residue at iteration topK must be equal to 92topK-E; otherwise (if that equality doesn't hold) the outcome of the test is composite.
+************************************************************************
+BACKGROUND & RELATED READING:
+************************************************************************
+
+- tdulcet,kk's PM re. proof powers https://mersenneforum.org/private.php?do=showpm&pmid=172514,172530,177451
+- tdulcet's PM re. his script's proof-uploading features https://mersenneforum.org/private.php?do=showpm&pmid=172974
+
+--------------------------------------------------------------------------------
+[0] Fundamental issue: We have a long sequential large-integer mod-squaring chain, x^2^m (mod n). Currenly, we verify correctness of the result was to do an independent run using the same (x,m,n) and comparing the results. In some cases - e.g. the F24 primality test - we have run 1 deposit interim-checkpoint residues, allowing us to distribute the verification. That touches on the key issue:
+
+	Q: Given (alleged) interim residues x and y such that y == x^2^T, can we confirm correctness of y to a
+	desired level of statistical certitude without redoing the full work of the T-iteration squaring chain?
+
+--------------------------------------------------------------------------------
+[1] Since below time-lock paper is by Rivest & Shamir of RSA cryptosystem fame, start with basics of RSA:
+
+Wikipedia outlines the history of asymmetric-key ciphers, including the crucial role played by - LOL -Manischewitz wine:
+
+[quote]The idea of an asymmetric public-private key cryptosystem is attributed to Whitfield Diffie and Martin Hellman, who published this concept in 1976. They also introduced digital signatures and attempted to apply number theory. Their formulation used a shared-secret-key created from exponentiation of some number, modulo a prime number. However, they left open the problem of realizing a one-way function, possibly because the difficulty of factoring was not well-studied at the time.[4]
+
+Ron Rivest, Adi Shamir, and Leonard Adleman at the Massachusetts Institute of Technology made several attempts over the course of a year to create a one-way function that was hard to invert. Rivest and Shamir, as computer scientists, proposed many potential functions, while Adleman, as a mathematician, was responsible for finding their weaknesses. They tried many approaches, including "knapsack-based" and "permutation polynomials". For a time, they thought what they wanted to achieve was impossible due to contradictory requirements.[5] In April 1977, they spent Passover at the house of a student and drank a good deal of Manischewitz wine before returning to their homes at around midnight.[6] Rivest, unable to sleep, lay on the couch with a math textbook and started thinking about their one-way function. He spent the rest of the night formalizing his idea, and he had much of the paper ready by daybreak. The algorithm is now known as RSA – the initials of their surnames in same order as their paper.
+
+Clifford Cocks, an English mathematician working for the British intelligence agency Government Communications Headquarters (GCHQ), described an equivalent system in an internal document in 1973.[8] However, given the relatively expensive computers needed to implement it at the time, it was considered to be mostly a curiosity and, as far as is publicly known, was never deployed. His discovery, however, was not revealed until 1997 due to its top-secret classification.[/quote]
+
+Seek a "one-way" or "trapdoor" function f(n) allowing one to encrypt message M using a *public* encryption key to create a ciphertet C = f(M), which is nonetheless secure in the sense that to *decrypt* the ciphertext, M = f^-1(C), is practically infeasible. RSA uses the disparity between the arithmetic cost of multiplying two large(ish) primes p*q = n and that of factoring n to produce p and q as the basis for its one-way function.
+
+0. Composite modulus n = p*q, where n is public, i.e. provided to the encrypter(s) and (presumably) to a would-be eavesdropper, and p,q are 2 randomly-generated large secret primes. [Wikipedia notes: "Since any common factors of (p − 1) and (q − 1) are present in the factorisation of n − 1 = p.q − 1 = (p − 1).(q − 1) + (p − 1) + (q − 1),[17] it is recommended that (p − 1) and (q − 1) have only very small common factors, if any, besides the necessary 2."]
+
+1. Let k = randomly selected key of some size, then the encryption procedure is C = M^k (mod n), which is computationally cheap. Decryption by someone not possessing the secret primes p,q entails extracting the (k)th root of C (mod n), which is believed to be computationally hard; the function f(M) := M^k (mod n) thus is our trapdoor function.
+
+2. However, if k and n have been suitably chosen, it turns out there is an integer k', the so-called "recovery exponent", such that M = C^k' (mod n). Thus both en-and-decryption use the same mod-n powering algorithm, just with different exponents. Given k and n the recovery exponent k' can in principle be deduced by an eavesdropper, but with sufficiently large primes p and q, this is believed to be practically impossible.
+
+3. We have M = C^k' = M^(k.k') (mod n), which looks like Euler's theorem in slight disguise: If (a,n) coprime and n = Π p_i^a^i, then a^phi(n) == 1 (mod n), or equivalently, a^[phi(n)+1] == a (mod n). Thus in our case, if (M,n) coprime, then k.k' = phi(n) + 1 = (p-1).(q-1) + 1 = n - (p+q) + 2 .
+
+Can do a bit better by making use of Carmichael's theorem: If (a,n) coprime and n = Π p_i^a^i, then a^lambda(n) == 1 (mod n), where the functions phi(x) and lambda(x) coincide for x prime (except for the special case lambda(2^j) = phi(2^j)/2 for j > 2), whereas for composite n = Π p_i^a^i, lambda(n) = LCM(lambda(p_i^a^i)). The advantage is that lambda(n) is always a *proper* divisor of phi(n) when n is the product of distinct odd primes as here. In the special case n = p.q we have lambda(n) = phi(n)/GCD(p-1,q-1) = (p-1).(q-1)/GCD(p-1,q-1), thus our recovery exponent is given by:
+
+	k.k' == 1 (mod lambda(n)) .
+
+Since lambda(n) is composite by construction, finding k' the as the mod-inverse of k is out; instead find an integer m such that we can completely factor k.k' == m.lambda(n) + 1 and pick our k, k' from the factors. Here, Riesel notes: "If you assume that no one can factor your n, then it is probably about as difficult to find the complete prime factorization of the numbers m.lambda(n) + 1 (which are of approximately the same size as n) as it would be to factorize n."
+
+However, there is a big difference: we can try as many m as we like, discarding those which do not quickly yield a complete factorization and moving on to the next.
+
+Riesel's worked example using a pair of 15-digit primes: p = 440334654777631, q = 145295143558111:
+	n = 63978486879527143858831415041,
+	lambda(n) = (p-1)*(q-1)/gcd(p-1,q-1) = (p-1)*(q-1)/90 = 710872076439183980322589770.
+
+Here are the results of TF on the first few m, beginning with m = 1 and using a small-prime bound of 10^6:
+
+	m	factorization result
+	---	--------------------
+	1	1193.17107.55511.627477424257511 is an unfactored composite
+	2	47.131.199.1160377290772824623887 is an unfactored composite
+	3	6257.674683.505180743265016381 is an unfactored composite
+	4	17.53.3155924867654534873796181 is an unfactored composite
+	5	15647.227159224272762823647533 is an unfactored composite
+	6	2293.29581.62881920817755729037 is an unfactored composite
+	7	19.261900238688120413803059389	<=== our first suitable sandidate ===
+	A few more complete factorizations to this TF bound:
+	15	1871.17579.500807.647357777401277
+	17	193.1091.57392919456248855048057
+	18	5039.2539332680274917969003099
+	19	41.33151.9937212247833082786841
+
+Q: For given-size p,q, on average how many m do we need to try in order to produce a complete factorization of m.lambda(n) + 1 of a given smoothness?
+
+In fact, WE DON'T NEED TO BE ABLE TO COMPLETELY FACTOR m.lambda(n) + 1; we simply need to find an m such that we can factor m.lambda(n) + 1 so as to produce a k of a desired size from the partial factorization. The rub would be if we want k,k' to be similar-sized, in which case we'd need to completely factor 1/3-1/2 of one of our candidate m.lambda(n) + 1, but there seems no especially good reason this is needed. For 1024-bit random composites roughly 1 in 700 is prime, roughly the same proportion will be semiprime, pick one of those with a decent-sized small factor for our k,k'?
+
+Riesel proceeds to note "For [large n] you would probably find only one or two small prime factors ... of the first few numbers in the series m.lambda(n) + 1 ... [for the above example n] you night stop after having computed the first factor 1193 of the initial number lambda(n) + 1 and then choose k = 1193 and k' = (lambda(n) + 1)/1193 = 595869301290179363220947."
+
+"The other alternative for obtaining valid combinations of m, k and k' ... is to compute m such that m.lambda(n) + 1 is divisible by some factor that has been chosen in advance. This leads to a linear congruence (mod k) for m, and is therefore quite a simple problem [especially if k << n]. E.g. we pick k = 101, then m.lambda(n) + 1 == 0 (mod 101), which leads [since lambda(n) == 11 (mod 101)] to m == 55 (mod 101), yielding k' = 55.(lambda(n) + 1)/101 = 387108556476783355621212251." [Conversely, an attacker who discovers the factors p,q of n can recover the secret exponent k' the same way, since lambda(n) follows trivially from the factorization of n.]
+
+Wikipedia adds (they use 'e' in place of Riesel's k, substitute the latter here): "k having a short bit-length and small Hamming weight results in more efficient encryption – the most commonly chosen value for k is 216 + 1 = 65537. The smallest (and fastest) possible value for k is 3, but such a small value for k has been shown to be less secure in some settings ... Practical implementations use the Chinese remainder theorem to speed up the [modular exponentiation used in the decryption phase] using modulus of factors (mod p.q using mod p and mod q)."
+
+Lastly, since we cannot assume that (M,n) coprime, what to do? In the case that n is the product of distinct primes, a^(k.k') == a (mod n) FOR ALL a, thus covering that exception to the assumptions of Euler's theorem.
+
+[Wikipedia] Signing messages:
+
+Suppose Alice uses Bob's public key to send him an encrypted message. In the message, she can claim to be Alice, but Bob has no way of verifying that the message was from Alice, since anyone can use Bob's public key to send him encrypted messages. In order to verify the origin of a message, RSA can also be used to sign a message.
+
+Suppose Alice wishes to send a signed message to Bob. She can use her own private key to do so. She produces a hash value of the message, raises it to the power of d (modulo n) (as she does when decrypting a message), and attaches it as a "signature" to the message. When Bob receives the signed message, he uses the same hash algorithm in conjunction with Alice's public key. He raises the signature to the power of e (modulo n) (as he does when encrypting a message), and compares the resulting hash value with the message's hash value. If the two agree, he knows that the author of the message was in possession of Alice's private key and that the message has not been tampered with since being sent.
+...
+Thus the keys may be swapped without loss of generality, that is, a private key of a key pair may be used either to:
+
+o Decrypt a message only intended for the recipient, which may be encrypted by anyone having the public key (asymmetric encrypted transport);
+o Encrypt a message which may be decrypted by anyone, but which can only be encrypted by one person; this provides a digital signature.
+
+VULNERABILITIES: Wikipedia lists a bunch; onesuch not fixable via the implementation standard is when keygen algos, typically in embedded devices, is detailed by Heninger at al:
+freedom-to-tinker.com/2012/02/15/new-research-theres-no-need-panic-over-factorable-keys-just-mind-your-ps-and-qs/
+
+Gather a bunch of public keys n1,n2,...,nk; to efficiently search for keyspairs sharing at least one prime factor p use GCD idea of D.J.Bernstein, namely that
+
+	GCD(n1, n2*...*nk) = GCD(n1, (n1*n2*...*nk % n1^2)/n1) . [*]
+
+This allows one to just compute the huge product of all B-bit keys n1*...*nk once, then loop over the individual keys nj = n1 ... nk and for each compute a single 2B-bit remainder (mod nj^2), divide by nj and then take a GCD of nj the resulting B-bit quotient, which is very fast.
+
+[*] works because if n1 = p.q shares p with nj, then p^2|(n1*n2*...*nk) and (n1*n2*...*nk % n1^2) still contains p^2, and (n1*n2*...*nk % n1^2)/n1 contains p.
+
+--------------------------------------------------------------------------------
+[2] Rivest/Shamir/Wagner's 1996 "Time-lock puzzles and timed-release Crypto" - some notation is my own:
+
+Gist is to construct a puzzle whose computational solution is "inherently sequential": requires long sequence on nonparallelizable arithmetic operations, e.g. sequence of short-length modular multiplies. Resulting time-lock is only approximate due to range of top-end hardware speeds, e.g. if NSA has access to high-speed supercooled GaAS-based CPU, might run several times faster than top-end commercial one. (This also raises computational-reliability issues: need algo s.t. solvers can error-check their work along the way - obvious approach is to run same 'unlock' computation on 2 different machines simultaneously.)
+
+To time-lock-encrypt message M for a period T seconds:
+
+0. Composite modulus n = p*q, where p,q are 2 randomly-generated large secret primes. Also compute phi(n) = (p-1)*(q-1), this will be used to efficiently time-lock-encrypt the random key used to encrypt M; note that it is decryption of this *key* which creates the timelock. [OTOH, if message M is small, say similar in size to such a key, could directly time-lock-encrypt it.]
+
+1. Define S = number of squarings per second (mod n) that can be performed by the solver. (Or, for time-lock of >= T seconds, define S w.r.to "largest #mod-squares per second achievable on any known compute hardware"). Then t := T*S is the needed number of sequential mod-squarings.
+
+2. Generate random key K for conventional cryptosystem (call it 'Encrypt') of sufficient length s.t. any kind of cracking is believed infeasible in anything approaching an O(T) timeframe. [EWM: It seems 'conventional' == 'bulk' == 'symmetric-key'; the more-expensive RSA-style encryption step [4] is used on the much shorter key K.]
+
+3. Encrypt M with key K and the associated algorithm to generate ciphertext: C_M := Encrypt(K,M).
+
+4. Choose a random seed X in (1,n) and use it to encrypt the key K as C_K := K + X^2^t (mod n). This normally needs t sequential mod-squarings - that's the whole point on the prover side of things - but can be done efficiently by the problem-setter via knowledge of the primes p and q - hence the order of the multiplicative group (mod n) - by first computing E := 2^t (mod phi(n)), which needs just O(lg t) mod-n squarings, then Y := X^[j.phi(n) + E] (mod n), where the portion multiplied by the large quotient j := 2^t/phi(n) can be ignored because X^phi(n) == 1 (mod n) by Euler's theorem (cf. the similar usage in the RSA algorithm).
+	Thus X^2^t == X^E (mod n), which needs just O(lg n) mod-n multiplies, whence C_K = K + Y (mod n).
+[Technical note: want to choose p,q and X carefully s.t. 2 has a large order (mod phi(n)), and X has a large order (mod n), but choosing p,q,X randomly satisfies these desiderata with overwhelming probability.]
+
+5. Once the key K has been encrypted, the time-lock puzzle consists of encryption parameters and output of [4]: (n,X,t,C_K,C_M). Without knowledge of the factors of n, there seems no way to recover Y = X^2^t (mod n) other than to perform the t sequential squarings (mod n). For moduli of similar size to current RSA-encryption moduli, there is no effective way to bring massively parallel supercomputer-style hardwar to bear, so the speed comes down to that of current fast single-processor hardware, i.e. this bottleneck applies to all, from individuals to state-level intelligence agencies.
+
+EWM: Note the seeming contrast - RSW suggest inherently-sequential chained computations to implement a VDF; with PRP-proofing we want to use a large-integer version of such a chain to generate some kind of certificate which can be *quickly* used to verify the result of said computation, which seems more akin to a blockchain-style "proof of work".
+
+2/27/22: If M is small, i.e. M < n, can directly time-lock encrypt it as C'_M = M + X^2^t (mod n). To do this, we want p,q around 150 digits or more and similar-sized, thus n of 300+ digits. How to efficiently find such p,q ? If we are not having to generate large number of such (p,q) pairs can just use standard approaches to finding candidate PRPs and then subjecting to SPRP or rigorous-primality test. First step as always should be a small-prime sieve ... say we have a ~1kb int stored in base-2^64-vector form. Given a PRP p, could generate a product P of lots of small primes (mod p) and test whether g := GCD(P,p) > 1; if so, p is composite as it is divisible by the small primes which are the factors of g.
+
+Example: start with random block of decimal digits, e.g. the following 1000-digit block:
+4673331833592310999883355855611155212513211028177144957985823385935679234805211772074843110997402088496213680900380493172483674425135191443652492202867874992249236396330386193059511707705228503560117796386440509541282741095485197432735510143257532499769938081916410407749906070270851317808544314827192879270515747600591825011224264939011775241470201122113881802463571203852569710311808614896188925840677509768149545679074421592539280860434515131070523185728006225351733050439315450492769468962852688696749443421129857922337323378017542414218271741256702644166443533138904426722561811076280626415505109923842039912255378570492258674504781998501869851883957199630080387179659069436984462272457690484426240770404565169263900086517264629905937605954294867916546335621392167445576727464978844343535204565567970524509804814389313497959388771053506144966934894092551559533068728147334900455650828565781908689333271410463787949726552668938875959796413163310288065921775297698341521241159133233652681667066444; small factors are 2^2.31.74189
+Convert to base-2^64 form (bc code):
+b = 2^64; t = n; i = 0;
+while(t) {
+	n_arr[i++] = t%b; t /= b;
+}
+
+Taking presumably random-digit string n and extract substrings of ndigit decimal digits which are PRP if low digit is forced to be odd turns up the following 100-digit PRPs in the above 1000-digit string; for 100-digits, expect ~1 in 100 odds to be prime, so with 900 available 100-digit sub-chunks expect ~9 primes, and find 12:
+
+3592310999883355855611155212513211028177144957985823385935679234805211772074843110997402088496213681
+5855611155212513211028177144957985823385935679234805211772074843110997402088496213680900380493172483
+4843110997402088496213680900380493172483674425135191443652492202867874992249236396330386193059511707
+8431109974020884962136809003804931724836744251351914436524922028678749922492363963303861930595117077
+4923639633038619305951170770522850356011779638644050954128274109548519743273551014325753249976993809
+2038525697103118086148961889258406775097681495456790744215925392808604345151310705231857280062253517
+5231857280062253517330504393154504927694689628526886967494434211298579223373233780175424142182717413
+9223373233780175424142182717412567026441664435331389044267225618110762806264155051099238420399122553
+1421827174125670264416644353313890442672256181107628062641550510992384203991225537857049225867450479
+3313890442672256181107628062641550510992384203991225537857049225867450478199850186985188395719963009
+5169263900086517264629905937605954294867916546335621392167445576727464978844343535204565567970524509
+9409255155953306872814733490045565082856578190868933327141046378794972655266893887595979641316331029
+
+Can increase fraction of primes by using a small-p sieve beyond p = 2:
+For p = 2,3: Add following to make n != (mod 6): given i = (n%6), for i = [0-5] add [+-1,0,-1,+-2,+1,0].
+To eliminate bias in the +- entries, instead use (n%12) and offsets [1,0,-1,-2,1,0,-1,0,-1,2,1,0]
+That gives the following PRPs in addition to (or in place of) the above:
+
+3172483674425135191443652492202867874992249236396330386193059511707705228503560117796386440509541281
+246357120385256971031180861489618892584067750976814954567907442159253928086043451513107052318572799
+3050439315450492769468962852688696749443421129857922337323378017542414218271741256702644166443533137
+4844262407704045651692639000865172646299059376059542948679165463356213921674455767274649788443435351
+2948679165463356213921674455767274649788443435352045655679705245098048143893134979593887710535061451
+9533068728147334900455650828565781908689333271410463787949726552668938875959796413163310288065921773
+
+It also misses 1421827174125670264416644353313890442672256181107628062641550510992384203991225537857049225867450479, because that was generated as ...478+1, but ...478 == 6 (mod 12) and now instead get a -1 added.
+But that points to an even better way to increase the PRP yield: evaluate let i = n mod 6. Then for each i = 0-5, try each of offsets [-5,-1,1,5] - i, each of which eliminates 2,3 from the factors of n+i. This can be easily generalized like so:
+
+define extract_prps(n,ndigit,pmax) {
+	auto d,debug,i,j,q,r,t,noff,pow10;
+	i = 0; debug = 0;
+	/* For our product-of-small-primes D, find all coprime +-offsets in [1,D/2-1]: */
+	d = 2310; j = d/2; noff = 0;
+	if(debug) print "D = ",d,"; offsets = -+[";
+	for(i = 1; i < j; i++) {
+		if(gcd(d,i) == 1) {
+			off[noff++] = i;	if(debug) print i,".";
+		}
+	}
+	if(debug) print "]\n";
+	print "Computed ",noff," (mod D = ",d,") offsets.\n";
+	pow10 = 10^ndigit;
+	for(t = n; t == n || t > pow10; t /= 10) {
+		q = t % pow10; i = q%d;
+		/* Loop over all [noff] (q + offset) values indivisible by small primes comprising D: */
+		for(j = 0; j < noff; j++) {
+			r = q + off[j] - i;
+			if(!factor_gcd(r,pmax,1) && is_prp(r))
+				print "PRP: ",r,"\n";
+		}
+	}
+}
+extract_prps(n,100,pmax)
+
+That finds 4 PRPs just using the trailingmost 100-digit substring of n:
+
+933327141046378794972655266893887595979641316331028806592177529769834152124115913323365268166706[6861,6927,7221,7341]
+
+Here the first few PRP-clusters for 300-digits:
+
+Computed 240 (mod D = 2310) offsets.
+PRP: 624077040456516926390008651726462990593760595429486791654633562139216744557672746497884434353520456556797052450980481438931349795938877105350614496693489409255155953306872814733490045565082856578190868933327141046378794972655266893887595979641316331028806592177529769834152124115913323365268166705243,5351,5579,5597
+PRP: 262407704045651692639000865172646299059376059542948679165463356213921674455767274649788443435352045655679705245098048143893134979593887710535061449669348940925515595330687281473349004556508285657819086893332714104637879497265526689388759597964131633102880659217752976983415212411591332336526816670119,1131
+PRP: 426240770404565169263900086517264629905937605954294867916546335621392167445576727464978844343535204565567970524509804814389313497959388771053506144966934894092551559533068728147334900455650828565781908689333271410463787949726552668938875959796413163310288065921775297698341521241159133233652681667583,7757
+PRP: 442624077040456516926390008651726462990593760595429486791654633562139216744557672746497884434353520456556797052450980481438931349795938877105350614496693489409255155953306872814733490045565082856578190868933327141046378794972655266893887595979641316331028806592177529769834152124115913323365268165981,6229,6271
+PRP: 844262407704045651692639000865172646299059376059542948679165463356213921674455767274649788443435352045655679705245098048143893134979593887710535061449669348940925515595330687281473349004556508285657819086893332714104637879497265526689388759597964131633102880659217752976983415212411591332336526816533,6719
+PRP: 484426240770404565169263900086517264629905937605954294867916546335621392167445576727464978844343535204565567970524509804814389313497959388771053506144966934894092551559533068728147334900455650828565781908689333271410463787949726552668938875959796413163310288065921775297698341521241159133233652681809,2177
+Need efficient way to prove primaliTy, or at least slash risk of false-primality. So, start with SPRP:
+Ex 1:
+n = 341 is smallest Fermat base-2 pseudoprime. Consider mentally doing the powering, to see if a^(n-1) == 1 (mod n).
+We might look for a small power of the base a which gives a result close to 0 (mod n). E.g. for a = 2, we find that 2^10 == 1 (mod n). Since the full power 340 is a multiple of 10, we immediately see that 2^340 == 1 (mod n). But is it feasible to systematize this, or is it just "beginner's luck" for this one example?
+	Note that since 341 != +-1 (mod 8), 2 is not a QR mod n, so a base-2 Euler-PRP test is 2^170 ?= -1 (mod n), thus 341 fails that test. The smallest Euler bade-2 psp is n = 561 for which we again have 2^(n-1)/2 == 1 (mod n) but now 2 *is* a QR (mod n).
+	In binary, n-1 = 101010100, so for LRBE our computed sequence of powers is 2^[1,2,5,10,21,42,85,170,340] == 2,4,32,1,2,4,32,1,1, so in this case we luck out at hit 1 early on.
+Ex 2:
+n = 561 is next 2-psp; n-1 = 560 = 2^4.5.7; in this case the smallest power 2^i == 1 (mod n) is i = 40 = 2^3.5:
+Code:
+	n = 561; n2 = n/2; x = 1;
+	for(i = 1; i < 560; i++) {
+		x = (x+x)%561;
+		if(x > n2) x -= n;
+		if(x <-n2) x += n;
+		print "[",i,"]",x,".";
+		if(x == 1) break;
+	}
+	print "\n";
+In binary, n-1 = 1000110000, so for LRBE our computed sequence of powers is 2^[1,2,4,8,17,35,70,140,280,560] == 2,4,16,256,359,263,166,67,1,1, so we have no inkling of the PRP-ness until the penultimate iteration.
+
+A number n is a strong probable prime (SPRP) to base a if, for n = odd*2^k + 1:
+[a]	a^odd == 1 (mod n)
+or
+[b] a^(odd*2^j) == −1 (mod n) for some 0 ≤ j ≤ k − 1.
+
+Ex 3: n = 97 = 3*2^5 + 1, i.e. odd = 3, k = 5. Taking a = 2: 2^(3*2^j) == 8,-33,22,-1, thus [b] is satisfied for j = 3.
+Ex 4: n = 2047 = 3*11*31*2 + 1, i.e. odd = 3*11*31, k = 1. Taking a = 2: 2^(3*11*31*2^j) == 1 for j = 0, satisfying [a].
+
+A composite strong probable prime to base a is called a strong pseudoprime to base a. Every strong probable prime to base a is also an Euler probable prime to the same base, but not vice versa. 2047 = smallest base-2 strong pseudoprime.
+
+
+--------------------------------------------------------------------------------
+
+[3] From https://blog.trailofbits.com/2018/10/12/introduction-to-verifiable-delay-functions-vdfs/ :
+
+Pietrzak and Wesolowski independently arrived at extremely similar constructions based on repeated squaring in groups of unknown order. At a high level, here’s how the Pietrzak scheme works.
+
+To set up the VDF, choose a time parameter T, a finite Abelian (members related by a commutative operation, in our case modular multiplication) group G of unknown order, and a hash function H from bytes to elements of G [EWM: do we need H(x) << x ?]:
+
+	Given an input x, let g = H(x), then evaluate the VDF by computing y = g^2^T.	[vdf]
+
+The repeated squaring computation is not parallelizable and reveals nothing about the end result until the last squaring. These properties are both due to the fact that we do not know the order of G. That knowledge would allow attackers to use group theory based attacks to speed up the computation.
+
+[Re. "unknown order" - for M(p) we only know the order of the group defined by multiplication (mod M(p)) if the complete factorization of M(p) is known. Since the smallest possible factor of M(p) is 2.p+1, we know the order >= 2.p, though.
+
+Re. sequence of squarings, GIMPS PRP+Gerbicz does that - here my comment for v19, the first to support that:
+
+	v19: Unlike standard Fermat-PRP test with its [p-2 squarings-and-mul-by-base, followed by 1 final pure-squaring],
+	Gerbicz check requires a pure sequence of squarings. RG: simply replace the standard Fermat-PRP test with a modified
+	one where we add 2 to the computed power and check whether the result == x0^2 (mod n).
+	E.g. for n = 2^p-1, instead of the standard base-x0 Fermat PRP test,
+		x0^(n-1) = x0^(2^p-2) == 1 (mod n)
+	we check whether
+		x0^(n+1) = x0^(2^p) == x0^2 (mod n).
+	That means start with initial seed x0 and do p mod-squarings.
+]
+************************************** Key idea: **************************************
+Now, suppose someone asserts that the output of the VDF is some number z (which may or may not be equal to y), i.e. that z = g^2^T, which is equivalent to showing that z = v^2^(T/2) and v = g^2^(T/2). [EWM: T/2 squarings to get v from g, another T/2 to get z from v - even though we can do both mod-exponentiations in parallel, the total work is the same as for the single serial ^2^T exponentiation - is the key that the prover sends interim full-length residues, which the verifier converts to short-length hashes, and then does the needed mod-powerings on the short hashes? That seems unlikely.] Since both of the previous equations have the same exponent, they can be verified simultaneously [EWM: *If* both v and z are are provided at the start] by checking a random linear combination, e.g., v^r.z = (g^r.v)^2^(T/2), for a random r in {1, … , 2^λ} (where λ is the security parameter). More formally, the prover and verifier perform the following interactive proof scheme:
+
+1. The prover computes v = g^2^(T/2) and sends v to the verifier	<*** midway residue - does prover also send z? ***
+2. The verifier sends a random r in {1, ... , 2^λ} to the prover
+3. Both the prover and verifier compute g1 = g^r.v and z1 = v^r.z
+4. The prover and verifier recursively prove that z1 = g1^2^(T/2)	<*** "recursively" in what sense? ***
+***************************************************************************************
+Q: How does this verify that prover's z = g^2^T, or that prover's z = v^2^(T/2) and v = g^2^(T/2) ?
+***************************************************************************************
+The above scheme can be made non-interactive using a technique called the Fiat-Shamir heuristic. Here, the prover generates a challenge r at each level of the recursion by hashing (G,g,z,T,v) and appending v to the proof. In this scenario the proof contains log2(T) elements and requires approximately (1 + 2/√T) T.
+
+EWM: Work thru some simple examples to try to grasp the key aspects: Start with PRP needing exactly 2^k mod-squarings, say base-3 Fermat-PRP on a Fermat number F_m = 2^(2^m)+1, meaning we compute 3^(F_m - 1) == 3^2^(2^m) (mod F_m), thus T = 2^m. (Not sure if '3' qualifies as a hash function in the above sense, but ignore for now.)
+
+1. I (the prover) compute half the needed mod-squaring chain v = 3^2^2^(m-1) (mod F_m), send v to verifier
+2. Verifier sends random power of 2
+
+--------------------------------------------------------------------------------
+
+[4] Pietrzak paper:
+
+Proofs of sequential work (PoSW) are closely related to time-lock puzzles. PoSW were introduced in [MMV13], and informally are proof systems where on input a random challenge x and time parameter T one can compute a publicly verifiable proof making T sequential computations, but it’s hard to come up with an accepting proof in significantly less than T sequential steps, even given access to massive parallelism.
+
+The PoSW constructed in [MMV13] is not very practical (at least for large T ) as the prover needs not only T time, but also linear in T space to compute a proof. Recently [CP18] constructed a very simple and practical PoSW in the random oracle model ... The main open problem left open in [CP18] was to construct PoSW that is unique, in the sense that one cannot compute two accepting proofs on the same challenge.
+
+Boneh, Bonneau, Bu ̈nz and Fisch [BBBF18] recently introduced the notion of a verifiable delay function (VDF). A VDF can be seen as a relaxation of unique PoSW which still suffices for all known applications of unique PoSW. ... In a VDF the proof on challenge (x,T) has two parts (y,π), where y is a deterministic function of x that needs T sequential time to compute, and π is a proof that y was correctly computed (the reason this is not necessarily a unique PoSW is the fact that this π does not need to be unique). It must be possible to compute π with low parallelism and such that π can be output almost at the same time as y. In [BBBF18] this is achieved using incrementally verifiable computation [Val08]. The (very high level) idea is to compute a hash chain
+
+	y = h(h(...h(x)))	[T successive hashes]
+
+and at the same time use incrementally verifiable computation to compute the proof π, so the proof will be ready shortly after y is computed. To make this generic approach actually practical the h used in [BBBF18] is a particular algebraic function (a permutation polynomial) which has the property that one can invert it significantly faster than compute in forward direction (so instead of verifying the evaluation of h(·), one can just verify the the much simpler computation of h−1(·)), and also the proof system used to compute π is tailored so it can exploit the algebraic structure of h.
+
+The RSW time-lock puzzle looks like a promising starting point for constructing a VDF. The main difficulty one needs to solve is achieving public verifiability: to efficiently verify y =? x^2^T (mod N) one needs the group order of Z∗N (or equivalently, the factorization of N). But the factorization cannot be public as then computing y becomes easy.
+
+One idea to solve this issue is to somehow obfuscate the group order so it can only be used to efficiently verify if a given solution is correct, but not to speed up its computation. There currently is no known instantiation to this approach.
+
+In this work we give a different solution. We construct a protocol where a prover P can convince a verifier V it computed the correct solution y = x^2^T (mod N) without either party knowing the factorization (or any other hard to compute function) of N. Our interactive protocol is public-coin [EWM: gah - I hate the cryptocurrency buzzwords], but can be made non-interactive – and thus give a VDF – by the Fiat-Shamir transformation. Here the prover’s messages are replaced by simply applying a random function to the transcript. The Fiat-Shamir transformation applied to any constant-round public-coin interactive proof systems results in a sound non-interactive proof system in the random oracle model. Although our proof is not constant-round, we can still show that this transformation works, i.e., gives a sound noninteractive proof system relative to a random function (i.e., in the random oracle model). In practice the random function is instantiated with an actual hash-function like SHA256, as then soundness only holds computationally, such systems are called arguments, not proofs.
+[
+EWM: change Pietrzak's μ -> v and y' -> v' (he bizarrely uses y' below) below to match notation in above [2] excerpts]:
+Our protocol is inspired by the sumcheck protocol [LFKN90,Sha90]. The key idea of the proof is very simple. Assume P wants to convince V that a tuple (x,y) satisfies y = x^2^T . For this, P first sends v = x^2^(T/2) to V. Now v = x^2^(T/2) together with y = v^2^(T/2) imply y = x^2^T. The only thing we have achieved at this point is to reduce the time parameter from T to (T/2) at the cost of having two instead just one statement to verify. We then show that the verifier can merge those two statements in a randomized way into a single statement (x', v') = (x^r · v, v^r · y) that
+satisfies v' = x'^2^(T/2) if the original statement y = x^2^T was true (and P sends the correct v), but is almost certainly wrong (over the choice of the random exponent r) if the original statement was wrong, no matter what v the malicious prover did send. This subprotocol is repeated log(T) times – each time halving the time parameter T – until T = 1, at which point V can efficiently verify correctness of the claim itself.
+
+EWM: Remember our exponentiation rules, esp. w.r.to repeated exponentiation:
+1:	x^a * x^b = x^(a+b) = x^(b+a)
+2:	(x^a)^b = x^(a*b) = x^(b*a) = (x^b)^a
+3:	But x^a^b = x^(a^b) != x^(b^a)
+
+Try a random (small, in the sense that lg(r) << T) exponentiation of x: given an exponent r, first compute
+	x' = x^r.v = x^r.x^2^(T/2) = x^[r + 2^(T/2)]	[*]		(Ensures that initial seed matches alleged one, e.g. x = 3)
+and
+	v' = v^r.y = [x^2^(T/2)]^r.y = x^[r*2^(T/2)].y = x^[r*2^(T/2) + 2^T] = x^[r + 2^(T/2)]^2^(T/2) = x'^2^(T/2),	[**]
+(Mihai shorthand for this, replacing x,T,v = x^2^(T/2),r,y with A,topK,M,h,B, is "prp(A^h * M, topK/2) == M^h * B."
+============================================
+Now let's say we want to do such a check at quarter-length intervals (assume 4|T). Call the initial seed v0 (instead of x), and let v1,v2,v3 denote the interim residues at T/4,T/2,3*T/4 and y the final T-iteration residue. Then:
+[1] small-random-exponent = a:
+	v0' = v0^a.v1 = v0^a.v0^2^(T/4) = v0^[a + 2^(T/4)]
+	v1' = v1^a.v2 = [v0^2^(T/4)]^a.v2 = v0^[a*2^(T/4)].v2 = v0^[a*2^(T/4)].v0^2^(2*T/4) = v0^[a + 2^(T/4)]^2^(T/4) = v0'^2^(T/4)
+	This works because the iteration-gap between v0,v1 in v0' is the same as that between v1,v2 in v1'.[***]
+[2] small-random-exponent = b:
+	v1' = v1^b.v2 = v1^b.v1^2^(T/4) = v1^[b + 2^(T/4)]
+	v2' = v2^b.v3 = [v1^2^(T/4)]^b.v3 = v1^[b*2^(T/4)].v3 = v1^[b*2^(T/4)].v1^2^(2*T/4) = v1^[b + 2^(T/4)]^2^(T/4) = v1'^2^(T/4)
+[Cf. below for numeric example of different-expo for each stage]
+============================================
+as desired. These linear combinations (in the sense of exponentiation) need just O(lg r) modexp, as opposed to T.
+If v != x^2^(T/2) then the v^r.y = [x^2^(T/2)]^r.y step in [*] fails. If OTOH v^r.y = [x^2^(T/2)]^r.y but y != x^2^T, the x^[r*2^(T/2)].y = x^[r*2^(T/2) + 2^T] step in [**] fails.
+
+But, "This subprotocol is repeated log(T) times – each time halving the time parameter T" - huh? So e.g. the prover would send x^2,4,8,16,32,... ?
+
+Example: base-3 PRP of the M-prime n = 2^607-1. In order to use all mod-squarings, instead of the normal Fermat-PRP test 3^(n-1) == 1 (mod n), we check whether 3^(n+1) == 1 (mod n) = 3^2^p == 9 (mod n):
+
+p = 607; n = 2^607-1;
+modpow_lr(3,n+1,n) gives 9, as expected. Now break computation into 2 equal-length halves, corr. to the
+first 606 (of 607) mod-squares:, which should give a result y == +- 3 (mod n)
+
+x = 3;
+v = x; for(i = 0; i < p/2; i++) { v = v^2%n; }
+y = v; for(i = 0; i < p/2; i++) { y = y^2%n; } gives y = -3, as expected.
+
+Now pick a random 64-bit exponent: r = 0xf72d51bb7808967c = 17810981966934742652, and compute
+
+xp = v * modpow_lr(x,r,n) % n
+  = 28965147278978399144341622609269419776502429590662561474402340357432\
+	38499944983814880526696244919374990487645550416590268229255700604508\
+	39500407300960938621712004780879625683248596069
+vp = y * modpow_lr(v,r,n) % n
+  = 20920744130428760211597451488410894394877825405139662748771045861997\
+	25032386705653886775371219471942119829736824651437021339623245528043\
+	9890702777610174036421524881887487910397044969
+yp = xp; for(i = 0; i < p/2; i++) { yp = yp^2%n; }
+
+and yp == vp, as expected. Very nice! In practice, the prover and verifier agree on an initial seed x and protocol for choosing the 'random' exponents (e.g. one based on some checksum-hash of the powering data) and prover would send midpoint and final residues v,y to verifier, who then computes x' = x^r.v and v' = v^r.y (each needs just O(lg r) modmuls), then does a half-length powering to check that v' == x'^2^(T/2).
+
+Analogously, can replace T/2 in the above with T/4 and 2nd rand-r, say r2 = 0x95D96F04253A3269 = 10797783645192598121,
+now using p+1 = 608 for the overall power since it is divisible by 4:
+x = 3; p = 607; e4 = (p+1)/4;
+u1 =  x; for(i = 0; i < e4; i++) { u1 = u1^2%n; }
+u2 = u1; for(i = 0; i < e4; i++) { u2 = u2^2%n; }
+u3 = u2; for(i = 0; i < e4; i++) { u3 = u3^2%n; }
+u4 = u3; for(i = 0; i < e4; i++) { u4 = u4^2%n; }
+gives u4 = 81 = 9^2 = (-3)^4, as expected. These are the interim residues the prover would send to the verifier.
+
+v1 = u1 * modpow_lr( x,r,n) % n
+v2 = u2 * modpow_lr(u1,r,n) % n
+yp = v1; for(i = 0; i < e4; i++) { yp = yp^2%n; }	check: yp == v2
+v3 = u3 * modpow_lr(u2,r,n) % n
+yp = v2; for(i = 0; i < e4; i++) { yp = yp^2%n; }	check: yp == v3
+v4 = u4 * modpow_lr(u3,r,n) % n
+yp = v3; for(i = 0; i < e4; i++) { yp = yp^2%n; }	check: yp == v4
+
+The above quarter-length subchecks all share same exponent r, but can use  different r for each:
+
+r1 = 17810981966934742652;
+v1 = u1 * modpow_lr( x,r1,n) % n;	/* v1 = u1.u0^r1 */
+w1 = u2 * modpow_lr(u1,r1,n) % n;	/* w1 = u2.u1^r1 */
+yp = v1; for(i = 0; i < e4; i++) { yp = yp^2%n; }; yp == w1;	/* v1^2^(T/4) == v2 */
+r2 = 10797783645192598121;
+v2 = u2 * modpow_lr(u1,r2,n) % n;	/* v2 = u2.u1^r2 */
+w2 = u3 * modpow_lr(u2,r2,n) % n;	/* w2 = u3.u2^r2 */
+yp = v2; for(i = 0; i < e4; i++) { yp = yp^2%n; }; yp == w2;	/* v2^2^(T/4) == w2 */
+r3 = 13628685960879915820;
+v3 = u3 * modpow_lr(u2,r3,n) % n;	/* v3 = u3.u2^r3 */
+w3 = u4 * modpow_lr(u3,r3,n) % n;	/* w3 = u4.u3^r3 */
+yp = v3; for(i = 0; i < e4; i++) { yp = yp^2%n; }; yp == v4;	/* v3^2^(T/4) == w3 */
+
+Works. Note we do 2x the modpow_lr() calls than with same-r-each-stage, but these are presumed to use O(1) modmuls versus the typically much larger e4 modmuls used for the yp-computations - but need to fiddle things to do just ONE of the latter for the entire interim-residue-chain verification.
+
+What if we multiply together the v1,v2,v3 from the first of each the above 3-step sequences, and separately the w1,w2,w3 from the second of each, then raise the combined v1.v2.v3 to the power 2^(T/4)?
+
+y1 = v1*v2*v3 % n; y2 = w1*w2*w3 % n; for(i = 0; i < e4; i++) { y1 = y1^2%n; }; y1 == y2;	/* v3^2^(T/4) == w3 */
+
+That works! Total cost: O(1) (more precisely, O(lg r)) modmuls per interim residue to init y1 and y2, followed by T/(2^power) modsquares to raise y1^2^(T/(2^power)) .
+[
+Mihai's notation for the iteration-subinterval "link" verify steps is "(A^h * M)^q == M^h * B", where h = random small exponent (my r) for link in question, A = starting residue, M = end residue (M is ref. to Pietrzak paper & 'midpoint'),
+q = number of mod-squarings in subinterval. Thus, replacing A and M with u[i],u[i+1] and subscripting the small-power used for said link as h[i], we have this scheme (All arithmetic is (mod n)):
+
+1. Starting with an initial iterate u[0] = A, can verify any desired q-squaring link u[i+1] = u[i]^q like so:
+
+	v[i] = u[i] * u[i-1]^h[i], w[i] = u[i+1] * u[i]^h[i], then checking that v[i]^q == w[i] .
+
+2. But the whole point is to be able to reliably verify the *entire* squaring chain starting from a set of N interim residues u[i] provided by the prover, using O(1/N) times the work of computing the full chain. To that end, we omit the (v[i]^q == w[i]) link-verify step in [1] and instead use the computed v[] and w[] to accumulate a pair of lumped residues, which we cross-verify using q mod-squarings:
+
+	(v[1] * ... * v[N])^q == w[1] * ... * w[N] (mod n) .
+---------------------------------
+2/16: Compare to Gerbicz-check, first using original G-check notation as in gerbicz.txt:
+Let L be some fixed subinterval length, say L = 1000 squarings.
+[0]	u(k*t) = (a^k)^(2^t) = a^(k*(2^t)) = a^((2^t)*k) = (a^(2^t))^k (mod N)
+[1]	d(L*t) = u(0)*u(L)*u(2*L)*...*u(L*t) (mod N)	<*** Accumulate product of regularly-spaced interim residues ****
+	Then each d()-increment is of the form
+[2]	d(t+1) = d(t)*u((t+1)*L) (mod N) 	<*** product of current chkpt residue with d(t) = accum. value at pvs chkpt
+	but we also have that
+[3]	d(t+1) = u(0)*d(t)^(2^L) (mod N)	<*** product of initial seed with (accumulator value at pvs chkpt)^(2^L)
+	is also true.
+In terms of our above notation, L = q, u(0) = A, u(k*t) = u[k], d(L*t) = w[i] with all h[i] = 0, and the check [3] is just the lumped-residue check 2, and thus my above 2-step scheme with arbitrary per-link small-exponents h[i] represents a generalization of the G-check.
+[E-mailed Mhai about this, he agreed but noted that one advantage of the current proof scheme is that for a given proof power, while we store (2^power) intermediate proof residues on the prover side, we only need provide (power) residues at the end, to the verifier.
+---------------------------------
+NOTES:
+o There is no requirement for the indivdual-link length q to be a power of 2;
+o The prover and verifier need not pre-agree on a scheme to compute the small pseudorandom exponents h[i] - prover simply provides verifier with his I interim residues, and verifier does the rest. Again using our base-3 PRP of M(607) as an example, now with iteration-intervals of length q = 100 and 6 random 64-bit small-powers:
+@
+Prover:
+x = 3; p = 607; q = 100;
+u1 =  x; for(i = 0; i < q; i++) { u1 = u1^2%n; }
+u2 = u1; for(i = 0; i < q; i++) { u2 = u2^2%n; }
+u3 = u2; for(i = 0; i < q; i++) { u3 = u3^2%n; }
+u4 = u3; for(i = 0; i < q; i++) { u4 = u4^2%n; }
+u5 = u4; for(i = 0; i < q; i++) { u5 = u5^2%n; }
+u6 = u5; for(i = 0; i < q; i++) { u6 = u6^2%n; }
+ y = u6; for(i = 0; i < (p%q); i++) { y = y^2%n; } gives y = x^2 = 9, as expected. Now do both of the above verify steps [1] (here in full for demo purposes) and [2]:
+
+r1 = 17810981966934742652;
+v1 = u1 * modpow_lr( x,r1,n) % n; w1 = u2 * modpow_lr(u1,r1,n) % n;
+yp = v1; for(i = 0; i < q; i++) { yp = yp^2%n; }; yp == w1;
+r2 = 10797783645192598121;
+v2 = u2 * modpow_lr(u1,r2,n) % n; w2 = u3 * modpow_lr(u2,r2,n) % n;
+yp = v2; for(i = 0; i < q; i++) { yp = yp^2%n; }; yp == w2;
+r3 = 13628685960879915820;
+v3 = u3 * modpow_lr(u2,r3,n) % n; w3 = u4 * modpow_lr(u3,r3,n) % n;
+yp = v3; for(i = 0; i < q; i++) { yp = yp^2%n; }; yp == w3;
+r4 = 17311389551423073011;
+v4 = u4 * modpow_lr(u3,r4,n) % n; w4 = u5 * modpow_lr(u4,r4,n) % n;
+yp = v4; for(i = 0; i < q; i++) { yp = yp^2%n; }; yp == w4;
+r5 = 16563178570998716619;
+v5 = u5 * modpow_lr(u4,r5,n) % n; w5 = u6 * modpow_lr(u5,r5,n) % n;
+yp = v5; for(i = 0; i < q; i++) { yp = yp^2%n; }; yp == w5;
+
+To verify the integrity of the full chain to this point:
+
+	y1 = v1*v2*v3*v4*v5 % n; y2 = w1*w2*w3*w4*w5 % n; for(i = 0; i < q; i++) { y1 = y1^2%n; }; y1 == y2;
+
+In terms of the original residues (defining u0 := x) and small-exponents this is
+
+	y1 = v1*v2*v3*v4*v5 % n = u0^r1.u1^(r2+1).u2^(r3+1).u3^(r4+1).u4^(r5+1).u5;
+	y2 = w1*w2*w3*w4*w5 % n = u1^r1.u2^(r2+1).u3^(r3+1).u4^(r4+1).u5^(r5+1).u6;
+
+Each wj = vj^q, we are just verifying this in an all-lumped-together fashion.
+
+To verify the integrity of the final partial-length link, the usual link-verify step modified to have just (p%q) squarings fails, because said step's inputs have the interval length q "baked in":
+r6 =  2120677880804048650;
+v6 = u6 * modpow_lr(u5,r6,n) % n; w6 = y * modpow_lr(u6,r6,n) % n;
+yp = v6; for(i = 0; i < (p%q); i++) { yp = yp^2%n; }; yp == w6 gives 0, and check [2] also fails:
+y1 = v1*v2*v3*v4*v5*v6 % n; y2 = w1*w2*w3*w4*w5*w6 % n; for(i = 0; i < q; i++) { y1 = y1^2%n; }; y1 == y2 gives 0.
+
+But prover himself could do the final p%q squarings starting with the prover-provided (and verified above) u6.
+Q: In practice, say prover uses q = 10^6, that means verifier needs to do up to q iterations. is that too much?
+A: yes, but could init a shorter-interval subsequence at this point, say q = 10^5.
+In the present case have just p%q = 7 iters remaining, do one extra to make it an even number, 8, divide that into two length q = 4 subintervals, u6 now acts as our initial seed:
+
+u7 = u6; for(i = 0; i < 4; i++) { u7 = u7^2%n; }
+ y = u7; for(i = 0; i < 4; i++) { y = y^2%n; } gives y = x^4 = 81, as expected. Verify steps are:
+
+v7 = u7 * modpow_lr(u6,r7,n) % n; w7 = y * modpow_lr(u7,r7,n) % n;
+yp = v7; for(i = 0; i < 4; i++) { yp = yp^2%n; }; yp == w7 gives 1, as expected.
+
+***Q: What does the challenge-hash stuff really get us, over prover just sending raw squaring-chain residues u[i]? ***
+Q: what are the simplest methods of gaming the above?
+
+We need some "cheat" version of interim residues u1-u6 which causes y1 == y2, where
+y1 := v1*v2*v3*v4*v5 % n =  x^r1.u1^(r2+1).u2^(r3+1).u3^(r4+1).u4^(r5+1).u5, y1^q = x^(r1*q).[u1^....u5]^q;
+y2 := w1*w2*w3*w4*w5 % n = u1^r1.u2^(r2+1).u3^(r3+1).u4^(r4+1).u5^(r5+1).u6 == y1^q;
+
+A: prover sets u1 = x, u2 ... u5 = 1, u6 = x^q, runs final p%q mod-squarings starting from u6 to get a fake result y.
+x = 3; p = 607; q = 100;
+r1 = 17810981966934742652;
+r2 = 10797783645192598121;
+r3 = 13628685960879915820;
+r4 = 17311389551423073011;
+r5 = 16563178570998716619;
+u1=x;u2=u3=u4=u5=u6=1;
+
+Again recall our above "generalized Gerbicz check" scheme, now subbing the "cheat" values:
+v1 = u1. x^r1 = x^(r1+1)
+v2 = u2.u1^r2 =
+v3 = u3.u2^r3 =
+v4 = u4.u3^r4 =
+v5 = u5.u4^r5 =
+v1 = u1 * modpow_lr( x,r1,n) % n; w1 = u2 * modpow_lr(u1,r1,n) % n;
+v2 = u2 * modpow_lr(u1,r2,n) % n; w2 = u3 * modpow_lr(u2,r2,n) % n;
+v3 = u3 * modpow_lr(u2,r3,n) % n; w3 = u4 * modpow_lr(u3,r3,n) % n;
+v4 = u4 * modpow_lr(u3,r4,n) % n; w4 = u5 * modpow_lr(u4,r4,n) % n;
+v5 = u5 * modpow_lr(u4,r5,n) % n; w5 = u6 * modpow_lr(u5,r5,n) % n;
+
+	y1 = v1*v2*v3*v4*v5 % n =  x^r1.u1^(r2+1).u2^(r3+1).u3^(r4+1).u4^(r5+1).u5 = x^r1
+	y2 = w1*w2*w3*w4*w5 % n = u1^r1.u2^(r2+1).u3^(r3+1).u4^(r4+1).u5^(r5+1).u6;
+
+BUT, that doesn't pass the lumped-residue test at iteration 600...
+per-link:	v[i] := u[i] * u[i-1]^h[i], w[i] := u[i+1] * u[i]^h[i], then also w[i] == v[i]^q.
+product:	(v[1] * ... * v[N])^q == w[1] * ... * w[N] (mod n) .
+@
+]
+
+R. Gerbicz (u[0] = x = 3):
+	( u[0]^(r0*r1)*u[1]^r0*u[2]^r1*u[3] )^(2^(topk/4)) == u[1]^(r0*r1)*u[2]^r0*u[3]^r1*u[4]  mod N
+You can rewrite the left side in a more compact form, using much less computation:
+	(u[0]^r0*u[2])^r1*u[1]^r0*u[3] and you can write the right side similarly.
+In terms of above interim residues u1-u4 and expos r1-r3, what does this come to?
+LHS:
+	( u[0]^(r0*r1)*u[1]^r0*u[2]^r1*u[3] )^(2^(topk/4)) ==>
+	t = modpow_lr( x,r1*r2,n)
+	t = t*modpow_lr(u1,r1,n) % n
+	t = t*modpow_lr(u2,r2,n) % n
+	t = t*u3 % n
+	for(i = 0; i < e4; i++) { t = t^2%n; }
+RHS:
+	u[1]^(r0*r1)*u[2]^r0*u[3]^r1*u[4]  mod N
+
+2/11/22:
+--------------------------------------------------------------------------------
+
+[4] VDF thread @M-forum: https://mersenneforum.org/showthread.php?t=24654
+
+o Mihai #3: 09 Aug 2019:
+I found of interest in particular
+Pietrzak: https://eprint.iacr.org/2018/627.pdf
+Wesolowski: https://eprint.iacr.org/2018/623.pdf
+
+which present two different ways of constructing VDF proofs with different trade-offs.
+
+Pietrzak shows a proof that is fast to produce but log(exp)*residues in size; while Wesolowski shows a proof that is 1-residue in size, but costlier to produce.
+
+For example for a 90M exponent, Pietrzak's proof would be about 256MB in size vs. Wesolowski's 10MB. OTOH if I understand correctly Pietrzak's proof can be produced with negligeble computation cost (overhead relative to the PRP itself).
+
+Anyway, it seems this allows to get rid of the PRP double-check completely, at the cost of the large transfer (256MB per exponent) to a verifier.
+
+o Mihai #8:
+
+I'll try to describe briefly Pietrzak's verification applied to PRP (as I understand it).
+
+For m = 2^p - 1
+PRP(p) = 3^(m-1) mod m, or equivalently PRP(p)*9 = 3^(2^p) mod m.
+
+Let's fix the modulo m, and define f(x, T) := x^(2^T) mod m.
+
+for x = 3, we compute y = f(x, p). How to prove to a verifier that the result is correct?
+
+We call the two actors involved "the author" [Pietrzak's "prover"] who does the hard work of computing the PRP and producing the proof, and "the verifier" who receives the proof from the author and checks it. The goal is to convince the verifier that the result of the PRP is genuine and correct even when the verifier does not trust the author.
+
+If the author would send the verifier only the PRP result (y), the verifier could re-do the whole PRP computation *again* and thus validate the result (i.e. the double-check we do currently), but this would be very costly to the verifier, and wasteful because of the double computation. [This is just the old double-checking approach]
+
+To make the verification easier, the author also sends the "middle" point u=f(x, p/2), which the author computed anyway on the way to y. (let's assume for a moment that "p" is even (although it isn't), so we can halve it without additional trouble). The verifier can now verify
+	f(x, p/2) == u and f(u, p/2) == y,
+and this is equivalent to verifying f(x, p) == y, but still no reduction in work for the verifier.
+
+Because the two verification "branches" above share the same exponent p/2, they can be combined and verified together. Choosing a random [exponent] "r1" (let's say "r1" is a 64-bit number), the verifier computes the new seed x1 = x^r1 * u, and verifies that:
+	f(x1, p/2) == y1, where y1 == u^r1 * y.
+[
+EWM: This is the crux - the random-linear-combination result can only be true (we believe) if f(x,p) == y.
+1. Starting with the prover-supplied seed x and waypoints (middle and final residue), verifier computes modified ones:
+	x1 = x^r1 * u;
+	y1 = u^r1 * y;		<*** This costs the verifier O(1) iterations ***
+2. and verifies that
+	f(x1, p/2) == y1.	<*** This costs the verifier T/2 iterations ***
+Thus this costs half as much work as the full PRP-test, and we can recursively do firher halvings as far
+the binary exponent p and prover+verifier bandwidth/disk-storage allow.
+]
+So we transformed the verification f(x,p) = y into f(x1,p/2) = y1, halving the work. This "halving" is possible because the author sent to the verifier the value "u" (the middle value between x and y) -- so "u" is part of the proof.
+
+But if we have a way to halve the work of the verifier, why stop after only one halving step? let's look at the next halving: the author makes available "u1" the middle point between x1 and y1, u1 = f(x1, p/4). The verifier chooses another random 64-bit number r2, and computes x2 = x1^r2 * u1, y2 = u1^r2 * y1 and verifies f(x2, p/4) = y2, with only a quarter of the work of the author.
+
+And we can keep halving a bit more, making the work of the verifier log(work of the author).
+At some point, after k halvings, when p/(2^k) is small enough, the verifier checks directly
+f(x_k, p/(2^k)) == y_k and this is the outcome of the verification.
+
+One may observe that we ask the author to publish as part of the proof the values u, u1, u2 etc, but those (excluding "u") depend on the random [exponents] r1, r2, which in the setup above are chosen by the verifier. We solve this by having the author produce the random [exponents] r1, r2 -- not by choosing them (because we don't trust the author) -- but instead by having these [exponents] determined by applying a hash on the result:
+
+	r1 = hash(y), r2 = hash(y,y1) etc. (apparently this trick is called the Fiat-Shamir heuristic)
+
+o Mihai #15, 26 May 2020:
+
+Given the exponent E of mersenne candidate 2^E - 1, to work around the problem of E not being a power of 2, we choose a convenient [multiple of] a power of two that is just under E that we call "topK" -- let's take topK as the largest multiple of 1024 that is smaller than E.
+
+The proof is going to cover only the PRP iteration range from beginning to topK. The verifier will proceed to first verify the proof up to topK, after which will re-do the remaining number of iterations from topK to E (which is small because the distance from topK to E is less than 1024).
+
+Let's call the starting value ("residue") of the PRP test "A", in our case A == 3.
+
+During the progress of the PRP test, we save the residue (meaning full data residue, not just the 64bits of res64) at the iteration topK. This residue will be part of the proof, let's call it "B" as it represents the final point of PRP iterations covered by the proof.
+
+What we want to prove is that a number of topK iterations (squarings) applied to A produces B. (i.e. A^(2^topK) == B )
+
+As a notation let's use prp(C, n) to denote the result of applying n PRP iterations (squarings) to C. Thus we want to prove that prp(A, topK) == B.
+
+To facilitate the proof we also save the residue at iteration topK/2, let's call it M (from middle). (M has the properties prp(A, topK/2) == M and prp(M, topK/2) == B)
+
+At this point the proof contains {E, M, B}, and the prover can verify the proof in topK/2 iterations by choosing any random value h and verifying that prp(A^h * M, topK/2) == M^h * B.
+[EWM:
+prp(A^h * M, topK/2) == (A^h * M)^2^(topK/2) == [A^(h * 2^(topK/2))] * M^2^(topK/2) == M^h * M^2^(topK/2) == M^h * B.
+]
+So adding M to the proof halved the verification effort. We recursively apply the same trick a number of times, every addional step halving the verification effort. For example the next step consists in adding to the proof the point M1 that is halfway on the topK/2 iterations between A^h * M and M^h * B, i.e. M1 = prp(A^h * M, topK/4).
+
+The first middle, M (that we're going to call M0 now) was encountered during the normal progress of original the PRP test (thus, to obtain M0 we simply save that residue). OTOH M1 is not part of the original PRP iterations, nevertheless it can be efficiently computed from two residues (the ones at iterations topK/4 and 3*topK/4) of the original PRP test.
+
+We can choose how far to go with this sequence of "middles", M0, M1, ... . I'm going to call the number of middles that are part of the proof the "power" of the proof. When power = 1 (the smallest proof), we store in the proof in addition to B only M0, and the verification effort is topK/2 iterations. When power = 2, the size of the proof increases by one residue (adding M1), and the verification effort is halved to topK/4 iterations.
+
+COST OF COMPUTING THE PRP-PROOF:
+
+The original tester (that runs the PRP test) is also the one computing (generating) the PRP-proof. The cost is two-fold: a storage (disk space) cost, and a computation cost.
+
+1. Space Cost:
+
+For M0, we need to save the residue at iteration topK/2 (one residue).
+For M1, we need to save the residues at topK/4 and 3*topK/4 (two residues).
+And so on, for M[i] we need to save 2^i residues when going through the initial PRP test.
+
+So for a proof of power N we need to save in total 2^N residues. (for a 100M exponent, a residue is roughly 12MB in size, so for a proof of power = 9 we need about 6GB of disk space for residue storage during the progress of the PRP test).	<*** This is storage needed on the PROVER end ***
+
+Once the proof has been computed (and presumably verified to make sure it was computed correctly) this storage can be released. The size of the proof itself (of power N) is just N+1 residues, so for power = 9 the proof size is 120MB (much smaller than the transient space requirements of 6GB during the PRP test).	<*** Storage needed on the VERIFIER end ***
+
+2. Computation Cost:
+
+In order to be a proof, it must be non-fakeable (i.e. it must be impossible to "prove" something false), even when a dishonest author purposely attempts to fake it. This resistance is achieved through the use of the random value "h" when checking that
+	prp(A^h * M, topK/2) == M^h * B
+the random value "h" being chosen by the verifier.
+
+But the particular choice of "h" above impacts the computation of the follow-up middles (M1, M2, etc) which must be computed by the proof author. This conundrum is solved by using the Fiat-Shamir heuristic [https://en.wikipedia.org/wiki/Fiat%E2%80%93Shamir_heuristic]
+
+The FS-heuristic allows the proof author to know the value of "h" (i.e. removes the liberty of the verifier to choose any random value he'd like), as long as the proof author has absolutely no liberty in choosing or affecting the value of h in the proof context. (if the proof author could choose the value of "h", he could fake the proof). This is achieved by setting "h" from a secure hash of the proof context: h = hash(E, topK, B, M0).
+
+Similarly to how we have a sequence of middles M0, M1.., we also have a sequence of such exponents "h", we're going to call them h0, h1..:
+	contextHash = hash(E, topK, B)
+	h0 = hash(contextHash, M0)
+	h1 = hash(h0, M1)
+	h2 = hash(h1, M2)
+etc.
+
+For computing the middle M[i], we use a set of saved 2^i residues, raised to powers computed from products of h[0] ... h[i-1]. (thus, M0 is always stored in the proof "unadultered" by any hash). Example (r[] stands for residue[]):
+[EWM: append u[0-7] notation to ease comparison w/my GEC generalization below]
+	M0 = r[topK/2] = u4
+	M1 = r[topK/4]^h0 * r[3*topK/4] = u2^h0 * u6
+	M2 = r[topK/8]^(h1*h0) * r[3*topK/8]^h0 * r[5*topK/8]^h1 * r[7*topK/8] = u1^(h0.h1) * u3^h0 * u5^h1 * u7
+etc.
+---------------------------------
+EWM:
+See if can recast my 2-step scheme analogously - using the same topK and powers-of-2 convention, my u[] are Mihai's r[]:
+1. Starting with an initial iterate u[0] = A, can verify any desired q-squaring link u[i+1] = u[i]^q like so:
+	v[i] = u[i] * u[i-1]^h[i], w[i] = u[i+1] * u[i]^h[i], then checking that v[i]^q == w[i] .
+E.g. for q = topK/8:
+	v1 = u1.u0^h1	w1 = u2.u1^h1
+	v2 = u2.u1^h2	w2 = u3.u2^h2
+	v3 = u3.u2^h3	w3 = u4.u3^h3
+	v4 = u4.u3^h4	w4 = u5.u4^h4
+	v5 = u5.u4^h5	w5 = u6.u5^h5
+	v6 = u6.u5^h6	w6 = u7.u6^h6
+	v7 = u7.u6^h7	w7 = u8.u7^h7
+
+2. But the whole point is to be able to reliably verify the *entire* squaring chain starting from a set of N interim residues u[i] provided by the prover, using O(1/N) times the work of computing the full chain. To that end, we omit the (v[i]^q == w[i]) link-verify step in [1] and instead use the computed v[] and w[] to accumulate a pair of lumped residues, which we cross-verify using q mod-squarings:
+	(v[1] * ... * v[N])^q == w[1] * ... * w[N] (mod n) .
+E.g. for q = topK/8:
+	(u0^h1 * u1^(h2+1) * ... * u6^(h7+1) * u7)^q == (u1^h1 * u2^(h2+1) * ... * u7^(h7+1) * u8)
+So Mihai's above scheme is just a variant of this which lends itself to a divide-and-conquer approach - instead of sequential accumulation, he has the prover lump together various power-of-2-based index-offset residue subproducts, e.g. for power = 8 we lump together u0-255, the 8 subgroups contain the following residues:
+
+1	128+[0]
+2	 64+[0,128]
+3	 32+[0,64,128,192]
+4	 16+[0,32,64,96,128,160,192,224]
+5	  8+[0,16,...,256-16]
+6	  4+[0,8,...,256-8]
+7	  2+[0,4,...,256-4]
+8	  1+[0,2,...,256-2]
+
+and instead of verifying [2] for the full q = [p/256]-iteration subinterval, just raise the resulting lumped-product to the (p%256)th power.
+
+Ex: p = 114824929, proof power 8, note *************** to do! ****************
+that n := 897070 = ceiling(114824929/2^power), and p = n*(2^power) - 31.
+
+Q: Is the current proof scheme merely validating that one lumped product V and another W satisfy
+V^(small exponent < p/2^power) == W (mod N)?
+
+---------------------------------
+The bulk of the proof computation cost is in these exponentiations residue^product(h). It grows a bit faster than 2^power. I estimate the computation cost for a proof of power = 9 to be the equivalent of 200K iterations, which for a 100M exponents corresponds to the proof computation cost being 0.2% of the PRP test itself (so, low enough).
+[
+R. Gerbicz, post #98:
+	You can do those costly residue^product(h) computations in the proof much faster:
+	The setup, fix the base = 3, and let
+		r[i] == 3^(2^(i*topK/2^power)) mod N
+	store the residue with space = topK/2^power for i = 0,1,2,..,2^power (of course r[0] = 3).
+
+	What would be the proof check say for power = 2 ? Easy it is checking:
+
+	( r[0]^(h0*h1)*r[1]^h0*r[2]^h1*r[3] )^(2^(topk/4)) == r[1]^(h0*h1)*r[2]^h0*r[3]^h1*r[4]  mod N
+
+	[guessing that h_k is in the exponent for r[d] in the left side iff the (e-1-k)-th bit of d is zero;
+	then the right side is easy, because just write r[d+1] for r[d])
+
+	You can rewrite the left side in a more compact form, using much less computation:
+
+	(r[0]^h0*r[2])^h1*r[1]^h0*r[3] and you can write the right side similarly.
+
+	Each r[i] term appears exactly once, for t = 2^power you do t-1 exponentations (to a 64 bits exponent) and t-1 multiplications. Big gain over your trivial way, now counting everything in powering to a 64 bits number: (power/2)*t exponentations and (t-1) multiplications.
+
+	And that makes sense for power = 10. And in these costs you can double everything, because you'll do the same
+	in the right side of the equation.
+
+	ps. power = 2 is still small example but you see the idea (r[0]=3 the only small base in the left side)
+
+George, post #99:
+	So for preda's power = 9 example, we'll do 511 exponentiations (each costing 63 squarings plus on average 31.5 multiplications) and 511 multiplications. Assume multiply cost approximately equals squaring cost and we get a total proof building cost of 48,800 PRP iterations.
+	[RG: plus topK/2^power squarings]
+	Now a question. Are we gaining anything by using a 64-bit h value? Why not 32 or 16 bits reducing cost to 24,300 or 12,000 PRP iterations.
+]
+PROOF VERIFICATION COST:
+
+The verifier obtains the proof consisting of:
+	{E, topK, B, M[0 .. N-1]}	<*** Upload just N+1 residues (1 final B and N intermediates M[0..N-1]) ***
+(i.e.: the exponent, the upper bound of the proof topK, "B" the final residue at iteration topK, and the vector of middles containing N middles for a proof of power N)
+
+The verifier sets:
+	A0 = 3, B0 = B
+	rootHash = hash(E, topK, B)	<*** Is this the same as above's contextHash? ***
+
+And iteratively computes:
+	h0 = hash(rootHash, M0)
+	A1 = A0^h0 * M0, B1 = M0^h0 * B0
+
+	h1 = hash(h0, M1)
+	A2 = A1^h1 * M1, B2 = M1^h1 * B1
+	...
+---------------------
+EWM: Examples (N = proof power):
+In each case, prover computes raw residues r[i] := x^(2^(i*topK/2^N)) for i = 1,...,2^N, then combines as described to obtain the N "middles" M[0],...,M[N-1] and the final residue at topK mod-squarings B.
+
+o N = 2: prover computes raw residues r[0-3], then combines as
+	M[0] = r[2];
+	M[1] = r[1] * r[3];
+	B = r[4];
+[ On prover side: rootHash computed from (E, topK, B); h0 from M0, h1 from M1, then
+	A1 = A0^h0 * r[2], B1 = r[2]^h0 * r[4]
+	A2 = A1^h1 * M1, B2 = M1^h1 * B1 ]
+
+o N = 3: prover computes raw residues r[0-7], then combines as
+	M[0] = r[4];
+	M[1] = r[2] * r[6];
+	M[2] = r[1] * r[3] * r[5] * r[7];
+	B = r[8];
+
+And for general N, prover computes raw residues r[i] := x^(2^(i*topK/2^N)) for i = 1,...,2^N, then combines to obtain the N "middles" M[0],...,M[N-1] and the final residue at topK mod-squarings B like so:
+
+pow2 = 2^N;	// N = proof power
+// Combine 2^N PRP residues r[i] := x^(2^(i*topK/2^N)) for i = 1,...,2^N into N middles:
+for(i = 0; i < N; i++) {
+	stride = pow2 >> i;	// stride = pow2 / 2^i
+	// Multiply-accumulate loop for (i)th middle: For this inner loop,
+	// stride * (#loop-execs) = pow2, thus #loop-execs = pow2/stride = 2^i:
+	m[i] = 1;
+	for(ridx = stride/2; ridx < pow2; ridx += stride) {
+		m[i] *= r[ridx];	// Modular-multiply implied here
+	}
+}
+
+
+---------------------
+And continues thus for the full set of middles, obtaining A[N-1] and B[N-1].
+
+At this point the verifier must run topK/(2^N) PRP iterations to verify that:
+	prp(A[N-1], topK/(2^N)) == B[N-1]
+
+If this equality holds, the proof is valid, otherwise it isn't.
+So the bulk of the proof (of power N) verification cost is topK/(2^N) PRP iterations.
+
+For power = 9 and a 100M exponent this comes to about 200K iterations, 0.2% of the cost of the PRP test.
+
+PROOF FILE FORMAT:
+
+We'd like the proof that is generated by one piece of software to be verifiable by a different software -- having multiple software capable of verifying proofs reduces the chances of uniform bugs (affecting both the proof generator and the verifier in the same way) or the possibility of intentional "cheating" by the programmer.
+
+For this we need to agree on a format for the proof file to allow interoperable reading/writing of the proof. We also need to agree on the cryptographic hash that is used, as both sides (proof author and verifier) need to see the same hash values.
+
+1. File format
+As a starting point proof save/load is already implemented in gpuowl, I'm going to describe the format used. (Of course the goal is to reach agreement on a format that is acceptable to multiple software authors.)
+
+The proof file starts with one line containing textual (ASCII) information with a single '\n' line terminator. This line is called the header, and contains in order:
+	"PROOF" : a string identifying the file format
+	1: the version of the proof file format
+	exponent
+	topK
+	power
+	finalHash, a 64-bit hash value (discussed below)
+
+All numbers being in decimal except finalHash which is in hex.
+
+Header example:
+	PROOF 1 2976221 2975744 8 c7b648a462da0b28	<*** EWM: p%256 = 221, why not make topK = 2976000? *** [I think he inadvertently used power = 9 to compute topK here]
+Right after the header we have a set of residues in binary.
+A residue is a sequence of 32-bit little-endian words, with the least significant word first. As each residue contains exactly E (E being the exponent) bits, the very last 32-bit word of the residue is only partially filled -- the extra bits (beyond E) are 0. (So the length in bytes of a residue in this format is ((E-1)/32 + 1)*4 )
+[EWM: little-endian is format Mlucas uses, only difference is padding out to 32-bit word rather than byte.]
+
+Right after the header we have one residue representing B (the residue at iteration topK), followed by N residues representing the middles (N being the proof power) in order starting with M0.
+
+And that's all file-format wise; I think it's as simple as it gets. I'm looking for feedback from fellow developers whether this format looks acceptable, or what changes are proposed.
+
+The finalHash is a value which allows to check both the file for integrity, and the to verify the correct computation of the hashes, to be discussed next.
+
+o CRYPTOGRAPHIC HASH:
+We need a cryptographic hash function for choosing the exponents "h" in prp(A^h * M , k) == M^h * B
+
+After a bit of consideration I chose Blake2 (the Blake2b variant) which in addition to being fast, secure is also very simple to implement.
+
+Concerning the size of the exponents "h" in the proof, I propose we use 64bits. (The larger the hash-size the more secure is the proof, but also the effort to generate the proof increases proportionally. The proof verification OTOH is not affected much by the hash size).
+
+How to compute the hashes:
+The simplest scheme I came up with is: have the function hash(bytes) which computes a 64-bit Blake2b hash of the bytes.
+
+1. start by computing the "rootHash":
+rootHash = hash(E, topK, B)
+
+which covers pretty much everything except the middles. What it does *not* cover, in addition to the middles, is: the proof power, the finalHash value (a check), the res64 value (redundant).
+
+When hashing we need to turn E and topK to bytes -- in my implementation I represent E and topK on 4bytes (32bits) little-endian (which does limit the exponent to 32bits).
+
+2. For every step, update the hash by adding the middle in:
+h0 = hash(rootHash, M0)
+A1 = A0^h0 * M0
+B1 = M0^h0 * B0
+
+h1 = hash(h0, M1)
+etc.
+
+I realize code may be clearer:
+
+	u64 h = Blake2::hash({E, topK, B});
+	for (u32 i = 0; i < power; ++i) {
+		Words& M = middles[i];
+		h = Blake2::hash({h, M});
+		A = gpu->expMul(A, h, M);
+		B = gpu->expMul(M, h, B);
+	}
+	// check h == finalHash
+
+The final value of the hash at the end of the above loop should be compared for equality with the finalHash from the proof file header -- their equality indicates both file integrity and correct implementation of the hash() -- that would be a check that is done before the expensive part of proof verification consisting in doing the large number of PRP iterations. (to prevent paying the verification time just to reject a corrupted file, or just to detect wrong hash application).
+
+o VERIFICATION
+The proof file contains B, the presumed residue at prp iteration topK.
+Verifying the proof proves that B is correct, i.e. that prp(3, topK) == B.
+
+After this, the verifier can proceed to run the iterations from topK up to E, which is tiny (less than 1024 iterations). This way the verifier finds out the res64 type1, type4, whether the PRP test outcome is probable-prime or composite, etc.
+
+As a convenience, the expected type-1 res64 is included in the proof header as well, and by comparing with it the verifier gains confidence in this final small number (<1024) of iterations (let's call these final iterations on top of B "the tail").
+
+(Of course the verifier can also double-check the tail, although this won't be needed in practice because the whole proof verification will be double-checked anyway).
+
+o PROOF AND PRIMENET
+The goal of using the PRP-proof with primenet is to eliminate the double-checks. (I estimate right now 10%-20% of the PRP/LL computing power is used for DCs)
+
+The main problem is the size of the proof (e.g. 120MB for a 100M exponent) which makes the internet transfer significant. A secondary question is who contributes the compute-power for proof verification. I'll try to enumerate some possibilities.
+
+Setup:
+User X gets assigned a PRP task. Using software A, he starts the PRP test with proof generation, indicating the desired proof power. The PRP test proceeds and saves a large number of residues (needed for proof generation) as it goes along. Afther the PRP test finishes, the proof is generated (by program A) using this PRP data. After the proof is generated, it is verified by A (to make sure that the generation went without issues), after which all the temporary residues that were needed for proof generation are deleted. At this point X has:
+- the usual one-line JSON result of the PRP test, indicating (among others): composite/probable-prime and the res64
+- the proof, a 120MB file.
+[EWM: #1 and #3 are nonstarters due to obvious fakery issues]
+1. Local proof verification
+User X can now do proof verification. For this he uses software B and C, that independently read the proof file and validate it. After validation, B and C sign their results and send them to primenet. (the results being again small JSON files)
+
+2. Primenet-centered verification
+User X uploads the proof (120MB) to primenet. Primenet queues the proof file for verification. A new task type exists, "proof verification". User Y is assigned the "proof verification" task, he downloads the proof (120MB), verifies it and uploads the result to primenet. At this point primenet has both the initial result from X, and the independent verification from Y. Optionally, primenet can even triple-verify (by user Z) the proof, after which the proof file is deleted from the server to save space or archived.
+
+3. Verifier-node verification
+User X uploads the proof to a special Verifier server. (the Verifier may run in AWS, and thus have free inbound bandwidth). The Verifier server verifies the proof, twice, using two independent methods. The Verifier signs the results, publishes them to primenet, and removes or archives the proof file.
+
+RE. Hashes:
+M344587487:
+	OpenSSL is my go-to library for crypto and it has SHA3, for future reference mbedtls is a nice library of self-contained crypto implementations but it doesn't appear to have SHA3. If speed is a primary concern SHA256 is hardware accelerated on modern x86 and lets be honest SHA256 isn't going to be broken in a meaningful way anytime soon. All three suggestions would do the job fine so IMO stick with what you know.
+
+Post #51: R. Gerbicz replies to Mihai post about possibility that knowing a small factor q of M(p) might allow someone to create a fake PRP-proof, thus earning PRP credit:
+
+"With a knowledge of a new factor (after the published proof) actually the verifier will have an advantage to catch cheaters even in a faster way: just check ((g^(2^L) mod N) mod q), where the g^(2^L) mod N is a single residue from the proof. If it isn't g^(2^L) mod q then gotcha, the proof is broken. And for this you need only one full residue and the cheater has only 1/q chance to fake it whatever he does."
+
+Post #80, MP:
+
+For a 96.5M exponent (around the current wavefront), generating a proof of power 9 takes about 4minutes (on Radeon VII). Verifiying the same proof takes E/512 i.e. 188540 iterations, which on the same GPU comes to ~2min. This seems to me around the optimum, considering that a proof is normally verified twice.
+
+If instead of 9, a power = 8 is used, the proof generation time is halved to 2min, but the proof verification time is doubled to 4min.
+
+If instead of 9, a power = 10 is used, the generation is (a bit more than) doubled let's say to 9minutes, and the verification in halved. Also the temporary disk space needed for residues while the PRP is proceeding is doubled to 1024 residues.
+...
+A nice property of the current proof plan is that a proof of a given power is unique for an exponent -- any producer should produce exactly the same proof (assuming correct computation). If the power flexibility is removed, the (correct) proof becomes unique for the exponent (which may simplify things a bit for primenet's integration of proofs).
+
+Post #117, MP:
+
+I think I can toughen this up some more and still keep temporary space requirements low. Make h1 = hash(M0). Let h2, h3, ... h11 remain pre-computable. This is brutal to Mr. bad guy because "Find M such that B = (A^hh)^q * M^(q-hh)" becomes extremely hard because hh now depends on M -- a nasty feedback loop.
+
+In case it is not obvious why pre-computing h values saves temp space for the proof author, an example. If I understand correctly, if power >= 5 one of the middle values in the proof is computed by combining 16 different intermediate residues:
+
+Code:
+   (((r0^h3 * r1)^h2 * r2^h3 * r3)^h1 * (r4^h3 * r5)^h2 * r6^h3 * r7)^h0
+ * ((r8^h3 * r9)^h2 * r10^h3 * r11)^h1 * (r12^h3 * r13)^h2 * r14^h3 * r15
+[
+EWM: yields 'weighted' (= small-exponentiated) residues r0-15^h'0-15 with h0'-h15' given in terms of h0-3 products:
+	h0'-h15' = h[0123,012,013,01,023,02,03,0,123,12,13,1,23,2,3,-]
+Re. "brutal to Mr. bad guy" - but if prover can fake any/all intermediates, he can generate the hashes/h's from those.
+]
+As r0, r1, r2, r3 become available they can be combined because h3 and h2 are known in advance. We are now a quarter way through the PRP test and h1 will not be known until M, the half-way point residue, is available. In the meantime, we can combine r4, r5, r6, r7 because h3 and h2 are known. At the PRP halfway point we can compute h1 and combine r0-r3 and r4-r7 into one value, but we do not know h0 yet. During the second half of the PRP test, we can compute the r8-r15 part of formula with at most 2 temporaries. When the PRP completes, we take B (the final residue) and compute h0, which then lets us complete the computation of this middle value.
+
+Post #118, MP:
+
+But how hard is it to find M when "hh" above is fixed? Or, the equivalent (I think) question:
+
+How hard is it to find *a* residue X that satisfies the modular equation:
+	(A^h * X)^q == X^h * B (mod N)
+given N, A, B, q and h? (X, A, B are modular residues, q and h (smallish) integers).
+EWM: Amounts to
+	A^(h*q) * X^(q - h) == B (mod N)
+
+Post #125, RG:
+
+It doesn't imply for any h value: to pass the test (for E=1) you need
+	(A^h * M)^(2^(top/2)) == M^h * B mod N
+
+but if you fix M then you can choose B in a unique way, so it has N solutions, but that is still nice for us, that means you can fake it with O(1/N) probability, since you have N^2 pairs for (M,B).
+
+Post #128, PA [quote of RG post: ": to pass the test (for E=1) you need (A^h*M)^(2^(top/2)) == M^h*B mod N"]:
+
+Even simpler, you can set M = 1 and then B = A^(h*2^(top/2)). Or you can have M = random and B = A^(h*2^(top/2)) / M^h.
+All of this is trivial to compute unless h = hash(B), which is the cornerstone of Pietrzak VDF security.
+
+Post #133,135, PA:
+
+It's rather "easy" to cheat Pietrzak VDF. Just set all u_i to 1, then the cheating boils down to finding y = x^hash(y). If you replace hash(y) with any predetermined hash value, then it's trivial to find the solution. And it can be extended to random u_i, the rough formula looks like y = x^hash(y) / (all u_i with appropriate exponents).
+
+The idea is to construct the result in such a way that it cancels all proof data and essentially becomes the first intermediate point (r1) with the exponent computed from predetermined values. It is possible only if the exponent does not depend on the result. Pietrzak himself writes in his paper that it's important to include the result in the hash. He also provides a simple example how to cheat if it's not done. So, the security of the VDF critically depends on using hash(y). Curiously, it doesn't depend on cryptographic strength of the hash function. I suspect that even non-cryptographic hash functions may work securely.
+...
+The fundamental problem of computing proofs on the user side is that every time you compute a product it's hiding its content. No simple way to check if the product contains 2 operands or 4 operands or just a random value. The most secure way is to upload ALL intermediate points and compute the product on the server (using random exponents). But Pietrzak found a way to "look" inside the product. It is possible because every point added in a Pietrzak iteration ends between two points known to exist from the previous iterations. Every iteration can be compared to increasing resolution of a picture. You get the general idea already after a few iterations, and then the picture just becomes more detailed by inserting pixels between known pixels.
+
+If only h0 depends on the result, and all other hashes are predetermined, then it's possible to construct a proof that will prove only two distances of iterations. Let distance be the number of iterations between x_t and y_t at the highest depth. Then you need only to calculate x, x^distance, x^2distance. Then using the hashes you construct a proof consisting of 1's or randoms which cancel each other at depths > 1.
+
+Another way to say it is that every iteration has to use hash(y_i) of that iteration, otherwise u_i can be used to construct y_i. The easiest way to do it is by setting u_i=1 (but not the only way).
+
+Btw, you may already noticed that the last intermediate point has exponent=1 in x_i. It's "purpose" is to become the result during verification.
+
+Post #136, PA:
+----------------------------
+RG's depth-2 example:
+q:= topK/4; r[i] = x^(i*q) mod N, h0,h1 are small 'random' expos constructed from the intermediates via hashing scheme.
+Verify is that
+	( r[0]^(h0*h1)*r[1]^h0*r[2]^h1*r[3] )^(2^q) == r[1]^(h0*h1)*r[2]^h0*r[3]^h1*r[4]  mod N
+Can rewrite LHS & RHS in a more compact form, using much less computation:
+	LHS = (r[0]^h0*r[2])^h1*r[1]^h0*r[3]
+	RHS = (r[1]^h0*r[3])^h1*r[2]^h0*r[4], then check that LHS^(2^q) == RHS mod N .
+If let r[2] = r[3] = r[4] = 1
+	LHS = (r[0]^h0)^h1*r[1]^h0
+	RHS = (r[1]^h0)^h1, then check that LHS^(2^q) == RHS mod N .
+Patnashev's fake below, in this notation:
+ y = r[2]^(h1*h1); h0 = hash(y)	<*** If h1 predetermined, 'prover' can cheat by computing just halfway to get r[2] ***
+u1 = r[1]^h1; x_1 = r[0] * r[1]^h1; y_1 = r[1]^(h0*h1) * r[2]^(h1*h1)
+----------------------------
+As an exercise, I constructed a solution for depth 2 in case h1 is predetermined. Only two intermediate points is needed, not four. The solution passes the check but is wrong, because it's only half of the work.
+[EWM: replace his 'distance_k' with 'kq' := k*q, where q = topK/4, i.e. q-iter = 1/4th-way, 2q = halfway, etc.
+Also, 'kq' here is shorthand for 'kq mod-squarings', e.g. x^(kq) = x^(2^(kq)):
+]
+x = r[0]
+y = x^(2q*h1*h1) = r[2]^(h1*h1)	<*** [halfway-residue]^(h1*h1)
+h0 = hash(y)
+
+u1 = x^(q*h1) = r[1]^h1	<*** [1/4-way-residue]^(h1)
+x_1 = x^h0 * x^(q*h1) = r[0]^h0 * r[1]^h1
+y_1 = x_1^(q*h1) = x^(q*h0*h1) * x^(2q*h1*h1) = r[1]^(h0*h1) * r[2]^(h1*h1)
+
+u2 = 1
+x_2 = x^(h0*h1) * x^(q*h1*h1) = r[0]^(h0*h1) * r[1]^(h1*h1)
+y_2 = x^(q*h0*h1) * x^(2q*h1*h1) = r[1]^(h0*h1) * r[2]^(h1*h1)
+
+x_2^q = x^(q*h0*h1) * x^(2q*h1*h1) == y_2
+
+And this is how it should be if h1 is computed in the iteration. All 4 points necessary.
+
+x = r0
+y = x^(4q)
+h0 = hash(y)
+
+u1 = x^(2q)
+x_1 = x^h0 * x^(2q)
+y_1 = x^(2q*h0) * x^(4q)
+
+h1 = hash(y_1)
+u2 = x^(q*h0) * x^(3q)
+x_2 = x^(h0*h1) * x^(2q*h1) * x^(q*h0) * x^(3q)
+y_2 = x^(q*h0*h1) * x^(3q*h1) * x^(2q*h0) * x^(4q)
+
+x_2^q == y_2
+[EWM: I.e. every hash value must be "backwards dependent" on the latest intermediate result]
+
+Post #138, axn:
+
+How do you know the verifier and author are not the same person or that the verifier is not working together with the author? You are "trusting" that the verifier is independent and does not have access to the original y_t submitted to the server.
+
+Post #139, PA:
+
+Yes, this is exactly the scenario that has to be dealt with. Solution is simple: provide the verifier with x_t^random and expect y_t^random from him. Even if the verifier knows (x_t, y_t), he has to do discrete logarithm to obtain the random exponent and cheat. Not a small problem, to say the least. Computing x_t^random^distance is much easier.
+
+This way the tester can securely verify his own test, which is a useful feature for projects with low participation.
+
+Post #144, PA:
+
+Above approach always allows cheating with only first 2 intermediate points, i.e. forward-defined hashes do not cheating more expensive with increasing proof power.
+
+Post #148, PA [re. choice of hash size]:
+
+In cheating scenario with u_i = const the probability of finding a solution increases with the decrease of hash size. Lower distance also helps. I personally like 64 bit, but that's a feeling. I also prefer hashes to not be divisible by small primes to decrease the probability of roots of unity messing around.
+
+Post #152, PA [re. offloading final subinterval to another (user != original prover)]:
+
+The server performs all calculations in that post until prp(A[N-1], topK/(2^N)) == B[N-1]
+Only this one is offloaded to a verifier. In Pietrzak terminology A[N-1] = x_t, B[N-1] = y_t, and let's call 2^(topK/(2^N)) = distance. So, the server sends A[N-1] (one number, not the whole proof) to a verifier and asks to perform topK/(2^N) modular squarings. The verifier returns the result, it doesn't have to be the whole number, res64 is enough. The server compares the res64 to res64(B[N-1]) and if it matches, the test is verified. The verifier makes no decisions, just performs a few iterations.
+
+Computation of (x_t, y_t) have to be done by a trusted authority (otherwise it can be just a random number and its ^distance pair). That's why I call this process "certification". And x_t becomes a "certificate" which can be validated by anyone. (For clarity, I omit the additional step of ^random, but it is there, in the certificate).
+
+Post #154, GW:
+
+Ah, that makes much more sense. Bonus, the server upon receiving the big proof file can immediately perform the steps to calculate A[N-1], B[N-1] and discard all the middle values in the proof file, saving server disk space. Even lop B[N-1] down to res64 bits saving more space.
+
+In your opinion, is there any security risk in sending A[N-1] to the original tester? In other words, should we apply the "^random" operation on the server just to be safe?
+
+The security risk becomes the server database if res64(B[N-1]) is stored in the database in plaintext. That is easily solved.
+
+Post #155, PA:
+
+Yes, the risk is real. It's not only the cheaters who want to fake the original test, it's also those lazy ones who rather return their stored B[N-1] than perform a few iterations. And the B[N-1] can be wrong due to hardware error at proof generation stage, which will be detected by the consensus of good verifiers.
+
+Applying random exponent to both sides of the certificate takes little time and basically "encrypts" the certificate for the original tester. (A[N-1]^random, res64(B[N-1]^random))
+
+Post #163, PA:
+
+As a matter of fact, the proof is not unique. I ran simulations at small numbers and found some ways to decrease the number of parasitic proofs. First of all, check that x_t != 0 and gcd(x_t, N) = 1. This check can't fail in normal circumstances, but hardware errors can make it happen. Then there're a lot of proofs that differ from each other only by roots of unity modulo N. Since we do exponentiations, roots of unity just disapper from the calculated values. And while the probability of encountering one is low, and it's not practical to look for them on purpose, I feel more comfortable when hashes do not contain small divisors, thus reducing the probability of gcd(hash, phi(N)) != 1.
+
+Post #170, GW:
+
+A time for hacking fun.
+
+The random exponent is required to have no divisors <1000 in my code. After disabling this check I was able to "hide" a 321 prime [3*2^E + 1] by multiplying the result by 3rd root of unity. Every third certificate passes validation.
+Code:
+
+***** cert.txt
+Certificate RES64: 2C2CCA7B6A1F7703  Time : 4.290 sec.
+3*2^2291610+1 is not prime.  Proth RES64: 0000000000000002  Time : 125.660 ms.
+***** CERT_DC.TXT
+Certificate RES64: 2C2CCA7B6A1F7703  Time : 52.338 sec.
+*****
+
+This is because when the random exponent is divisible by 3, the 3rd root of unity turns into 1 and has no effect on the verification process. Generally this works when gcd(random, N-1) != 1.
+
+I strengthened the random to contain no divisors < 10^6. Can also check the gcd, but this doesn't look necessary for Proth numbers.
+
+[later:  This is the A[N]^random value sent to the user to run topK/(2^N) squarings. The user's result is compared to B[N]^random. Only the Primenet server ever sees the random value.]
+
+EWM: I.e. such a random-expo nullifes the utility of the added A[N]^random == B[N]^random anti-cheating step.
+
+Post #182, PA [re. hash size]:
+
+I use 64-bit md5 with no divisors <1000 "just in case". But I see the appeal of shorter unhardened hashes. Server load is linear with hash size.
+
+Post #185, PA:
+
+Brute-force attack:
+Code:
+	for (h0 = 1; h0 < max_hash; h0++)
+	{
+		y = x^(h0*h0);
+		u_1 = x^(-h0);
+		if (hash(y) == h0)
+			break;
+	}
+	u_i[i>1] = 1;
+[EWM: Worst part, the above can be ||ized to an arbitrary degree]
+
+Post #@, @:
+
+
+Post #@, @:
+
+
+Post #@, @:
+
+
+--------------------------------------------------------------------------------
+
+EWM, 06 Feb 2022: For p = 114824929, in the 'proof' subdir I see the files below, each size 14353124 bytes.
+This M(p) needs 14353116 bytes, each file is that plus 8 bytes. I ran with proof power 7, note
+that n := 897070 = ceiling(114824929/2^power), and p = n*(2^power) - 31. We have proof checkpoints at [1-7]*897070, then start scalar-div of proof powers every 8 proof checkpointss to make final one occur after iteration p:
+
+	Feb  6 02:06 114824929 = 128*897070-31
+	Feb  6 01:43 113927864 = 127*897070-26
+	Feb  6 01:21 113030794
+	Feb  6 00:59 112133724
+	Feb  6 00:36 111236654
+	Feb  6 00:14 110339584
+	Feb  5 23:52 109442514
+	Feb  5 23:29 108545444
+	Feb  5 23:07 107648374 = 120*897070-26
+	Feb  5 22:45 106751305 = 119*897070-25
+	Feb  5 22:22 105854235
+	Feb  5 22:00 104957165
+	Feb  5 21:38 104060095
+	Feb  5 21:15 103163025
+	Feb  5 20:53 102265955
+	Feb  5 20:30 101368885
+	Feb  5 20:08 100471815 = 112*897070-25
+	Feb  5 19:46 99574747 = 111*897070-23
+	Feb  5 19:23 98677677
+	Feb  5 19:02 97780607
+	Feb  5 18:39 96883537
+	Feb  5 18:17 95986467
+	Feb  5 17:55 95089397
+	Feb  5 17:32 94192327
+	Feb  5 17:10 93295257 = 104*897070-23
+	Feb  5 16:48 92398188 = 103*897070-22
+	Feb  5 16:25 91501118
+	Feb  5 16:03 90604048
+	Feb  5 15:41 89706978
+	Feb  5 15:18 88809908
+	Feb  5 14:56 87912838
+	Feb  5 14:34 87015768
+	Feb  5 14:11 86118698 = 96*897070-22
+	Feb  5 13:49 85221631 = 95*897070-19
+	Feb  5 13:27 84324561
+	Feb  5 13:04 83427491
+	Feb  5 12:42 82530421
+	Feb  5 12:20 81633351
+	Feb  5 11:57 80736281
+	Feb  5 11:35 79839211
+	Feb  5 11:13 78942141 = 88*897070-19
+	Feb  5 10:50 78045072 = 87*897070-18
+	Feb  5 10:28 77148002
+	Feb  5 10:06 76250932
+	Feb  5 09:43 75353862
+	Feb  5 09:21 74456792
+	Feb  5 08:59 73559722
+	Feb  5 08:36 72662652
+	Feb  5 08:14 71765582 = 80*897070-18
+	Feb  5 07:52 70868514 = 79*897070-16
+	Feb  5 07:29 69971444
+	Feb  5 07:07 69074374
+	Feb  5 06:45 68177304
+	Feb  5 06:22 67280234
+	Feb  5 06:00 66383164
+	Feb  5 05:38 65486094
+	Feb  5 05:15 64589024 = 72*897070-16
+	Feb  5 04:53 63691955 = 71*897070-15
+	Feb  5 04:31 62794885
+	Feb  5 04:08 61897815
+	Feb  5 03:46 61000745
+	Feb  5 03:24 60103675
+	Feb  5 03:01 59206605
+	Feb  5 02:39 58309535
+	Feb  5 02:17 57412465 = 64*897070-15
+	Feb  5 01:54 56515399 = 63*897070-11
+	Feb  5 01:32 55618329
+	Feb  5 01:10 54721259
+	Feb  5 00:47 53824189
+	Feb  5 00:25 52927119
+	Feb  5 00:03 52030049
+	Feb  4 23:40 51132979
+	Feb  4 23:18 50235909 = 56*897070-11
+	Feb  4 22:56 49338840 = 55*897070-10
+	Feb  4 22:33 48441770
+	Feb  4 22:11 47544700
+	Feb  4 21:49 46647630
+	Feb  4 21:26 45750560
+	Feb  4 21:04 44853490
+	Feb  4 20:42 43956420
+	Feb  4 20:19 43059350 = 48*897070-10
+	Feb  4 19:57 42162282 = 47*897070-8
+	Feb  4 19:35 41265212
+	Feb  4 19:12 40368142
+	Feb  4 18:50 39471072
+	Feb  4 18:28 38574002
+	Feb  4 18:05 37676932
+	Feb  4 17:43 36779862
+	Feb  4 17:21 35882792 = 40*897070-8
+	Feb  4 16:58 34985723 = 39*897070-7
+	Feb  4 16:36 34088653
+	Feb  4 16:14 33191583
+	Feb  4 15:51 32294513
+	Feb  4 15:29 31397443
+	Feb  4 15:07 30500373
+	Feb  4 14:44 29603303
+	Feb  4 14:22 28706233 = 32*897070-7
+	Feb  4 14:00 27809166 = 31*897070-4
+	Feb  4 13:38 26912096
+	Feb  4 13:15 26015026
+	Feb  4 12:53 25117956
+	Feb  4 12:31 24220886
+	Feb  4 12:08 23323816
+	Feb  4 11:46 22426746
+	Feb  4 11:24 21529676 = 24*897070-4
+	Feb  4 11:01 20632607 = 23*897070-3
+	Feb  4 10:39 19735537
+	Feb  4 10:16 18838467
+	Feb  4 09:54 17941397
+	Feb  4 09:32 17044327
+	Feb  4 09:09 16147257
+	Feb  4 08:47 15250187
+	Feb  4 08:25 14353117 = 16*897070-3
+	Feb  4 08:02 13456049 = 15*897070-1
+	Feb  4 07:40 12558979
+	Feb  4 07:18 11661909
+	Feb  4 06:55 10764839
+	Feb  4 06:33 9867769
+	Feb  4 06:10 8970699
+	Feb  4 05:48 8073629
+	Feb  4 05:26 7176559 = 8*897070-1
+	Feb  4 05:03 6279490 = 7*897070
+	Feb  4 04:41 5382420
+	Feb  4 04:19 4485350
+	Feb  4 03:56 3588280
+	Feb  4 03:34 2691210
+	Feb  4 03:12 1794140
+	Feb  4 02:49 897070
+
+Highlights from later posts:
+
+o Define topK to be the first multiple of 2^power > exponent p.
+
+o #105: George suggests reducing storage-of-intermediate-residues by making the security hashes non-intermediate-data-dependent. Mihai:
+
+I thought about that too, but I think it doesn't work. The core idea of the "Shamir heuristic", which allows to transform the interactive proof into an non-interactive one, requires that the author *can not* change any bit of the result without also changing the "challenge values" (in our case, the hashes).
+
+If the hashes are fixed ahead of time (including fixed "per exponent" as you propose), this kind of attack becomes possible:
+
+The verification is:
+(A^h * M)^q == M^h * B. (where q=2^k, but that's not important)
+
+If "h" is fixed, the attacker can satisfy the equality by using B:= (A^h)^q * M^(q-h),
+which represents a cheat. (this line of attack does not work if "h" is backward-dependent on B)
+[EWM: If OTOH the prover simply sends (alleged) raw PRP intremediates, verifier can use whatever h he likes, prover has 0 knowledge.]
+The proof is like a chain of links. The whole chain is secure because each link is secure. The structure of a link is the classic "(A^h * M)^q == M^h * B". [EWM: h = random small exponent for 'link' == iteration subinterval, in question]
+
+The assumption is that the link above verifies simultaneously the two indepenedent statements: A^q == M *and* M^q == B. Now of course there is more "liberty", or degrees of freedom, in the two statements vs. the compound one (probably in the "linear combinations" sense). The equivalence only holds if the first statement is verified for *multiple* values of h. Afterwards *multiple* is relaxed to "one random value of h", which is in turn relaxed to the hash in the Shamir heuristic setup.
+
+Let's see if we extremely limit the range of "h", let's say we always have h==1. Then the implication above obviously does not hold anymore:
+	(A*M)^q == M*B does not imply (A^q == M && M^q == B)
+[EWM: (A*M)^q = A^q * M^q == M * B; malicious prover needs to pick some M,B such that A^q * M^(q-1) == B.
+Obvious choice is M == 1, and B == A^q (mod N) ... but that needs q mod-squarings, how does that save the fake-prover work? (But can't assume malicious prover wants to save work; might just be someone wanting to undermine the project).
+Q: How does "random exponent" h > 1 insure agains this sort of thing? (A^h * M)^q == A^(h*q) * M^q == M^h * B, now prover must show B such that B == A^(h*q) * M^(q-h), given some data-dependent hashing scheme used to select h, is that a significant hurdle? Mihai notes above: 'If "h" is fixed, the attacker can satisfy the equality by using B:= (A^h)^q * M^(q-h), which represents a cheat. (this line of attack does not work if "h" is backward-dependent on B)'.
+
+But same line of attack does not work if prover has no knowledge of which h-value(s) verifier will use.
+============================================
+2/14: What about extreme case r = 1? Then have
+	x' = x.v = x.x^2^(T/2) = x^[1 + 2^(T/2)]	[*]		(Ensures that initial seed matches alleged one, e.g. x = 3)
+and
+	v' = v.y = [x^2^(T/2)].y = x^[2^(T/2)].y = x^[2^(T/2) + 2^T] = x^[1 + 2^(T/2)]^2^(T/2) = x'^2^(T/2),	[**]
+Q: How hard is it for malicious prover to fake this via some cheaply-constructed v and y?
+A: Prover just needs to pick some v,y such that x.v == v.y (mod N)
+]
+If h has values from a small set (i.e. fewer bits), then there is trouble at the step that equivalates "holds for multiple values of h" with "holds for one random value of h", because this equivalence fails at a rate of 1/#h. (thinking of it this way: the attacker can easily manufacture matching fake data for *one* specific value of h. His cheat is detected with a rate of 1/#h (where #h is the cardinality of the set(h)).
+===================================
+

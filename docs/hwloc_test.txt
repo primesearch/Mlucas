@@ -1,0 +1,742 @@
+On KNL, lstopo installed at /usr/bin/lstopo-no-graphics, added this to end of .bashrc:
+
+	alias lstopo='lstopo-no-graphics'
+
+Then 'lstopo knl_topo.svg' generates handy topo-graphic.
+
+1/11/2022:
+EWM: Output of hwloc_test on my 68c272t KNL - note that the internal HW-core-numbering skips Core#14-17 and 28-29,
+and thus runs from Core#0-73: 74-6 = 68 HW cores, as advertised. However, the HW PU# entries run contiguously from
+0-271, these apparently map to the Core indices in /proc/cpuinfo.
+
+*** Objects at level 0
+Index 0: Machine
+*** Objects at level 1
+Index 0: Package
+*** Objects at level 2
+Index 0: L2
+...
+Index 33: L2
+*** Objects at level 3
+Index 0: L1d
+...
+Index 67: L1d
+*** Objects at level 4
+Index 0: Core
+...
+Index 67: Core
+*** Objects at level 5
+Index 0: PU
+...
+Index 271: PU
+*** Printing overall tree
+Machine #0 (L#0)
+  Package #0 (L#0)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #0 (L#0)
+          PU #0 (L#0)	<**** PU# = processing unit (a.k.a. logical processor or "thread"). L# = (topo)Logical index
+          PU #68 (L#1)	<**** When Mlucas built w/hwloc support, use L# data and hwloc-here for thread binding!
+          PU #136 (L#2)
+          PU #204 (L#3)
+      L1d (32KB)
+        Core #1 (L#1)
+          PU #1 (L#4)
+          PU #69 (L#5)
+          PU #137 (L#6)
+          PU #205 (L#7)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #2 (L#2)
+          PU #2 (L#8)
+          PU #70 (L#9)
+          PU #138 (L#10)
+          PU #206 (L#11)
+      L1d (32KB)
+        Core #3 (L#3)
+          PU #3 (L#12)
+          PU #71 (L#13)
+          PU #139 (L#14)
+          PU #207 (L#15)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #4 (L#4)
+          PU #4 (L#16)
+          PU #72 (L#17)
+          PU #140 (L#18)
+          PU #208 (L#19)
+      L1d (32KB)
+        Core #5 (L#5)
+          PU #5 (L#20)
+          PU #73 (L#21)
+          PU #141 (L#22)
+          PU #209 (L#23)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #6 (L#6)
+          PU #6 (L#24)
+          PU #74 (L#25)
+          PU #142 (L#26)
+          PU #210 (L#27)
+      L1d (32KB)
+        Core #7 (L#7)
+          PU #7 (L#28)
+          PU #75 (L#29)
+          PU #143 (L#30)
+          PU #211 (L#31)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #8 (L#8)
+          PU #8 (L#32)
+          PU #76 (L#33)
+          PU #144 (L#34)
+          PU #212 (L#35)
+      L1d (32KB)
+        Core #9 (L#9)
+          PU #9 (L#36)
+          PU #77 (L#37)
+          PU #145 (L#38)
+          PU #213 (L#39)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #10 (L#10)
+          PU #10 (L#40)
+          PU #78 (L#41)
+          PU #146 (L#42)
+          PU #214 (L#43)
+      L1d (32KB)
+        Core #11 (L#11)
+          PU #11 (L#44)
+          PU #79 (L#45)
+          PU #147 (L#46)
+          PU #215 (L#47)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #12 (L#12)
+          PU #12 (L#48)
+          PU #80 (L#49)
+          PU #148 (L#50)
+          PU #216 (L#51)
+      L1d (32KB)
+        Core #13 (L#13)
+          PU #13 (L#52)
+          PU #81 (L#53)
+          PU #149 (L#54)
+          PU #217 (L#55)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #18 (L#14)
+          PU #14 (L#56)
+          PU #82 (L#57)
+          PU #150 (L#58)
+          PU #218 (L#59)
+      L1d (32KB)
+        Core #19 (L#15)
+          PU #15 (L#60)
+          PU #83 (L#61)
+          PU #151 (L#62)
+          PU #219 (L#63)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #20 (L#16)
+          PU #16 (L#64)
+          PU #84 (L#65)
+          PU #152 (L#66)
+          PU #220 (L#67)
+      L1d (32KB)
+        Core #21 (L#17)
+          PU #17 (L#68)
+          PU #85 (L#69)
+          PU #153 (L#70)
+          PU #221 (L#71)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #22 (L#18)
+          PU #18 (L#72)
+          PU #86 (L#73)
+          PU #154 (L#74)
+          PU #222 (L#75)
+      L1d (32KB)
+        Core #23 (L#19)
+          PU #19 (L#76)
+          PU #87 (L#77)
+          PU #155 (L#78)
+          PU #223 (L#79)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #24 (L#20)
+          PU #20 (L#80)
+          PU #88 (L#81)
+          PU #156 (L#82)
+          PU #224 (L#83)
+      L1d (32KB)
+        Core #25 (L#21)
+          PU #21 (L#84)
+          PU #89 (L#85)
+          PU #157 (L#86)
+          PU #225 (L#87)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #26 (L#22)
+          PU #22 (L#88)
+          PU #90 (L#89)
+          PU #158 (L#90)
+          PU #226 (L#91)
+      L1d (32KB)
+        Core #27 (L#23)
+          PU #23 (L#92)
+          PU #91 (L#93)
+          PU #159 (L#94)
+          PU #227 (L#95)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #30 (L#24)
+          PU #24 (L#96)
+          PU #92 (L#97)
+          PU #160 (L#98)
+          PU #228 (L#99)
+      L1d (32KB)
+        Core #31 (L#25)
+          PU #25 (L#100)
+          PU #93 (L#101)
+          PU #161 (L#102)
+          PU #229 (L#103)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #32 (L#26)
+          PU #26 (L#104)
+          PU #94 (L#105)
+          PU #162 (L#106)
+          PU #230 (L#107)
+      L1d (32KB)
+        Core #33 (L#27)
+          PU #27 (L#108)
+          PU #95 (L#109)
+          PU #163 (L#110)
+          PU #231 (L#111)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #34 (L#28)
+          PU #28 (L#112)
+          PU #96 (L#113)
+          PU #164 (L#114)
+          PU #232 (L#115)
+      L1d (32KB)
+        Core #35 (L#29)
+          PU #29 (L#116)
+          PU #97 (L#117)
+          PU #165 (L#118)
+          PU #233 (L#119)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #36 (L#30)
+          PU #30 (L#120)
+          PU #98 (L#121)
+          PU #166 (L#122)
+          PU #234 (L#123)
+      L1d (32KB)
+        Core #37 (L#31)
+          PU #31 (L#124)
+          PU #99 (L#125)
+          PU #167 (L#126)
+          PU #235 (L#127)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #38 (L#32)
+          PU #32 (L#128)
+          PU #100 (L#129)
+          PU #168 (L#130)
+          PU #236 (L#131)
+      L1d (32KB)
+        Core #39 (L#33)
+          PU #33 (L#132)
+          PU #101 (L#133)
+          PU #169 (L#134)
+          PU #237 (L#135)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #40 (L#34)
+          PU #34 (L#136)
+          PU #102 (L#137)
+          PU #170 (L#138)
+          PU #238 (L#139)
+      L1d (32KB)
+        Core #41 (L#35)
+          PU #35 (L#140)
+          PU #103 (L#141)
+          PU #171 (L#142)
+          PU #239 (L#143)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #42 (L#36)
+          PU #36 (L#144)
+          PU #104 (L#145)
+          PU #172 (L#146)
+          PU #240 (L#147)
+      L1d (32KB)
+        Core #43 (L#37)
+          PU #37 (L#148)
+          PU #105 (L#149)
+          PU #173 (L#150)
+          PU #241 (L#151)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #44 (L#38)
+          PU #38 (L#152)
+          PU #106 (L#153)
+          PU #174 (L#154)
+          PU #242 (L#155)
+      L1d (32KB)
+        Core #45 (L#39)
+          PU #39 (L#156)
+          PU #107 (L#157)
+          PU #175 (L#158)
+          PU #243 (L#159)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #46 (L#40)
+          PU #40 (L#160)
+          PU #108 (L#161)
+          PU #176 (L#162)
+          PU #244 (L#163)
+      L1d (32KB)
+        Core #47 (L#41)
+          PU #41 (L#164)
+          PU #109 (L#165)
+          PU #177 (L#166)
+          PU #245 (L#167)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #48 (L#42)
+          PU #42 (L#168)
+          PU #110 (L#169)
+          PU #178 (L#170)
+          PU #246 (L#171)
+      L1d (32KB)
+        Core #49 (L#43)
+          PU #43 (L#172)
+          PU #111 (L#173)
+          PU #179 (L#174)
+          PU #247 (L#175)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #50 (L#44)
+          PU #44 (L#176)
+          PU #112 (L#177)
+          PU #180 (L#178)
+          PU #248 (L#179)
+      L1d (32KB)
+        Core #51 (L#45)
+          PU #45 (L#180)
+          PU #113 (L#181)
+          PU #181 (L#182)
+          PU #249 (L#183)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #52 (L#46)
+          PU #46 (L#184)
+          PU #114 (L#185)
+          PU #182 (L#186)
+          PU #250 (L#187)
+      L1d (32KB)
+        Core #53 (L#47)
+          PU #47 (L#188)
+          PU #115 (L#189)
+          PU #183 (L#190)
+          PU #251 (L#191)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #54 (L#48)
+          PU #48 (L#192)
+          PU #116 (L#193)
+          PU #184 (L#194)
+          PU #252 (L#195)
+      L1d (32KB)
+        Core #55 (L#49)
+          PU #49 (L#196)
+          PU #117 (L#197)
+          PU #185 (L#198)
+          PU #253 (L#199)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #56 (L#50)
+          PU #50 (L#200)
+          PU #118 (L#201)
+          PU #186 (L#202)
+          PU #254 (L#203)
+      L1d (32KB)
+        Core #57 (L#51)
+          PU #51 (L#204)
+          PU #119 (L#205)
+          PU #187 (L#206)
+          PU #255 (L#207)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #58 (L#52)
+          PU #52 (L#208)
+          PU #120 (L#209)
+          PU #188 (L#210)
+          PU #256 (L#211)
+      L1d (32KB)
+        Core #59 (L#53)
+          PU #53 (L#212)
+          PU #121 (L#213)
+          PU #189 (L#214)
+          PU #257 (L#215)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #60 (L#54)
+          PU #54 (L#216)
+          PU #122 (L#217)
+          PU #190 (L#218)
+          PU #258 (L#219)
+      L1d (32KB)
+        Core #61 (L#55)
+          PU #55 (L#220)
+          PU #123 (L#221)
+          PU #191 (L#222)
+          PU #259 (L#223)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #62 (L#56)
+          PU #56 (L#224)
+          PU #124 (L#225)
+          PU #192 (L#226)
+          PU #260 (L#227)
+      L1d (32KB)
+        Core #63 (L#57)
+          PU #57 (L#228)
+          PU #125 (L#229)
+          PU #193 (L#230)
+          PU #261 (L#231)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #64 (L#58)
+          PU #58 (L#232)
+          PU #126 (L#233)
+          PU #194 (L#234)
+          PU #262 (L#235)
+      L1d (32KB)
+        Core #65 (L#59)
+          PU #59 (L#236)
+          PU #127 (L#237)
+          PU #195 (L#238)
+          PU #263 (L#239)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #66 (L#60)
+          PU #60 (L#240)
+          PU #128 (L#241)
+          PU #196 (L#242)
+          PU #264 (L#243)
+      L1d (32KB)
+        Core #67 (L#61)
+          PU #61 (L#244)
+          PU #129 (L#245)
+          PU #197 (L#246)
+          PU #265 (L#247)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #68 (L#62)
+          PU #62 (L#248)
+          PU #130 (L#249)
+          PU #198 (L#250)
+          PU #266 (L#251)
+      L1d (32KB)
+        Core #69 (L#63)
+          PU #63 (L#252)
+          PU #131 (L#253)
+          PU #199 (L#254)
+          PU #267 (L#255)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #70 (L#64)
+          PU #64 (L#256)
+          PU #132 (L#257)
+          PU #200 (L#258)
+          PU #268 (L#259)
+      L1d (32KB)
+        Core #71 (L#65)
+          PU #65 (L#260)
+          PU #133 (L#261)
+          PU #201 (L#262)
+          PU #269 (L#263)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #72 (L#66)
+          PU #66 (L#264)
+          PU #134 (L#265)
+          PU #202 (L#266)
+          PU #270 (L#267)
+      L1d (32KB)
+        Core #73 (L#67)
+          PU #67 (L#268)
+          PU #135 (L#269)
+          PU #203 (L#270)
+          PU #271 (L#271)
+*** 1 package(s)
+*** Logical processor 0 has 2 caches totaling 1056KB
+
+On my 4c4t Haswell, have L3 cache at level 2, thus L2/L1d/Core/PU get pushed down to levels 3-6, get this:
+
+*** Objects at level 0
+Index 0: Machine
+*** Objects at level 1
+Index 0: Package
+*** Objects at level 2
+Index 0: L3
+*** Objects at level 3
+Index 0: L2
+Index 1: L2
+Index 2: L2
+Index 3: L2
+*** Objects at level 4
+Index 0: L1d
+Index 1: L1d
+Index 2: L1d
+Index 3: L1d
+*** Objects at level 5
+Index 0: Core
+Index 1: Core
+Index 2: Core
+Index 3: Core
+*** Objects at level 6
+Index 0: PU
+Index 1: PU
+Index 2: PU
+Index 3: PU
+*** Printing overall tree
+Machine#0(7839MB)
+  Package#0
+    L3(6144KB)
+      L2(256KB)
+        L1d(32KB)
+          Core#0
+            PU#0
+      L2(256KB)
+        L1d(32KB)
+          Core#1
+            PU#1
+      L2(256KB)
+        L1d(32KB)
+          Core#2
+            PU#2
+      L2(256KB)
+        L1d(32KB)
+          Core#3
+            PU#3
+*** 1 package(s)
+*** Logical processor 0 has 3 caches totaling 6432KB
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0000555555555b09 in main () at hwloc_test.c:112
+112		m = hwloc_alloc_membind(topology, size, obj->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET);
+void *hwloc_alloc_membind(hwloc_topology_t topology, size_t len, hwloc_const_bitmap_t set, hwloc_membind_policy_t policy, int flags) __hwloc_attribute_malloc;
+
+============================
+1/12:
+After fixing above crash by wrapping 2 version of the needed call in a "hwloc v1 or v2?" prepro-flag  and adding logical-index printing:
+KNL:
+
+*** Printing overall tree
+Machine #0 (L#0)
+  Package #0 (L#0)
+    L2 (1024KB)
+      L1d (32KB)
+        Core #0 (L#0)
+          PU #0 (L#0)
+          PU #68 (L#1)
+          PU #136 (L#2)
+          PU #204 (L#3)
+...
+      L1d (32KB)
+        Core #73 (L#67)
+          PU #67 (L#268)
+          PU #135 (L#269)
+          PU #203 (L#270)
+          PU #271 (L#271)
+
+Haswell (4c4t):
+
+*** Printing overall tree
+Machine #0 (L#0)(7839MB)
+  Package #0 (L#0)
+    L3 (6144KB)
+      L2 (256KB)
+        L1d (32KB)
+          Core #0 (L#0)
+            PU #0 (L#0)
+      L2 (256KB)
+        L1d (32KB)
+          Core #1 (L#1)
+            PU #1 (L#1)
+      L2 (256KB)
+        L1d (32KB)
+          Core #2 (L#2)
+            PU #2 (L#2)
+      L2 (256KB)
+        L1d (32KB)
+          Core #3 (L#3)
+            PU #3 (L#3)
+
+Added per-level summary prints to my test code, here are those:
+Haswell (4c4t):
+	HWLOC Version = 1.11.6
+	Topology depth = 7
+	There are 1 objects at level 0, all of type [1] = "Machine", pidx_range [0-0], lidx_range [0-0]
+	There are 1 objects at level 1, all of type [3] = "Package", pidx_range [0-0], lidx_range [0-0]
+	There are 1 objects at level 2, all of type [4] = "L3 (6144KB)", pidx_range [-1--1], lidx_range [0-0]
+	There are 4 objects at level 3, all of type [4] = "L2 (256KB)", pidx_range [-1--1], lidx_range [0-3]
+	There are 4 objects at level 4, all of type [4] = "L1d (32KB)", pidx_range [-1--1], lidx_range [0-3]
+	There are 4 objects at level 5, all of type [5] = "Core", pidx_range [0-3], lidx_range [0-3]
+	There are 4 objects at level 6, all of type [6] = "PU", pidx_range [0-3], lidx_range [0-3]
+KNL (68c272t):
+	HWLOC Version = 2.1.0
+	Topology depth = 6
+	There are 1 objects at level 0, all of type [0] = "Machine", pidx_range [0-0], lidx_range [0-0]
+	There are 1 objects at level 1, all of type [1] = "Package", pidx_range [0-0], lidx_range [0-0]
+	There are 34 objects at level 2, all of type [5] = "L2 (1024KB)", pidx_range [-1--1], lidx_range [0-33]
+	There are 68 objects at level 3, all of type [4] = "L1d (32KB)", pidx_range [-1--1], lidx_range [0-67]
+	There are 68 objects at level 4, all of type [2] = "Core", pidx_range [0-73], lidx_range [0-67]
+	There are 272 objects at level 5, all of type [3] = "PU", pidx_range [0-271], lidx_range [0-271]
+
+Notice the 'Core' pidx range on the KNL does not correspond to the core count - the full topology-tree listing shows that the internal HW-core-numbering skips Core#14-17 and 28-29, and thus runs from Core#0-73: 74-6 = 68 HW cores, as advertised. However, the HW PU# entries run contiguously from 0-271, these apparently map to the Core indices in /proc/cpuinfo. (I suspect the missing Core physical indices (i.e. corresponding obj->os_index entries) may be a die-yield thing, perhaps all KNL dies are etched with the same maximum number cores, but in binning the usable core count is set to e.g. 64?68/72/etc, depending on post-lithography testing.)
+
+So e.g. if one has a hyperthreaded CPU with >= 4 cores and wants to run 8 threads on the lowest-indexed 4 cores, one would loop over the first 4 Core objects = objects at level (Topology depth - 2), which should have logical (core) indices 0-3, and bind a thread to the first 2 children of each, or loop over the first 8 PU objects at level (Topology depth - 1), which should have logical PU-indices 0-7, and bind a thread to those. When you switched to using hwloc, did you replace pthread-style affinity calls with hwloc thread-to-PU bindings?
+
+[Less important in thread-binding context:]
+Q: How to get system-memory info? E.g. this info output by 'lstopo' on my KNL:
+
+	Machine (204GB total)
+	  Package L#0
+		NUMANode L#0 (P#0 188GB)
+		NUMANode(MCDRAM) L#1 (P#1 16GB)
+
+Q: How to get Socket info, e.g. to warn user if multithreaded job is running across > 1 socket?
+A: The hwloc "Package" objects refer to the chips which get plugged into motherboard sockets, so
+for a given set of logical PUs which get bound to a given multithreaded Mlucas instance, should
+traverse back up the topo-tree and warn if they are children of > 1 Package object.
+
+=========================
+Prime95 source, appearances of hwloc, focusing on highlights:
+
+MacBook:p95v307b9.source ewmayer$ grep -c hwloc *c *h
+common.h:1
+	common.h:24:#include "hwloc.h"		// hwloc library
+commonb.h:2
+	88-90:
+	/* The hwloc library numbers cores from 0 to HW_NUM_CORES-1.  But we do not necessarily assign cores in that order. */
+	/* With the introduction of Alder Lake, we first assign compute/performance cores.  Then assign efficiency cores. */
+	/* This routine maps "prime95 core numbers" into "hwloc core numbers", returning the index into the HW_CORES array */
+commonc.h:12
+	commonc.h:35:/* Hopefully, hwloc has no limitations regarding setting affinity.  Due to */
+	commonc.h:245:extern hwloc_topology_t hwloc_topology;	/* Hardware topology */
+	...
+==>	commonc.h:257:extern int OS_CAN_SET_AFFINITY;		/* hwloc supports setting CPU affinity (known exception is Apple) */
+	commonc.h:258:void topology_print_children (hwloc_obj_t obj, int);
+commonb.c:40
+	302:/* The hwloc library numbers cores from 0 to HW_NUM_CORES-1.  But we do not necessarily assign cores in that order. */
+	304:/* This routine maps "prime95 core numbers" into "hwloc core numbers", returning the index into the HW_CORES array (this array index */
+	305:/* is the same as the hwloc library's core number).  This routine allows us to apply different ranking criteria for future architectures. */
+	306:uint32_t get_ranked_core (		/* Return hwloc core number (index into HW_CORES array) */
+	381:/* Internal routine to map base prime95 core number + aux_thread_num into the hwloc core number to set affinity to */
+	388:	// Without hyperthreading.  Aux-thread-num is same as core # since we are running one thread per core.  Map to hwloc core numbering.
+	390:	// With hyperthreading.  Use every thread on each core.  Map to hwloc core numbering.
+	392:	uint32_t hwloc_core = 0;
+	395:		hwloc_core = get_ranked_core (core);
+	396:		total_threads += HW_CORES[hwloc_core].num_threads;
+	399:	return (hwloc_core);
+	509:/* so we leave CPU #0 unused (hoping hwloc assigns CPU numbers the same way the OS does). */
+	513:			// Map prime95 core number and auxiliary thread number to hwloc core number
+	522:			// Map prime95 core number and auxiliary thread number to hwloc core number
+	596:		hwloc_obj_t obj;
+	597:		num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
+	598:		if (num_cores < 1) num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+	605:		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);			/* Get proper core */
+	606:		if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* Get proper core */
+==>	608:			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to all logical CPUs in the core */
+	611:				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+	617:				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+	623:			sprintf (buf, "Error getting hwloc object for core #%d.  Affinity not set.\n", core+1);
+	633:		hwloc_obj_t obj;
+	634:		num_logical_CPUs = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+	640:		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, logical_CPU);	/* Get proper logical CPU */
+==>	642:			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to one logical CPU */
+	645:				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+	651:				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+	663:		hwloc_obj_t obj;
+	664:		hwloc_bitmap_t cpuset;
+	667:		cpuset = hwloc_bitmap_alloc ();
+	675:				obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, start++);
+	676:				if (obj) hwloc_bitmap_or (cpuset, cpuset, obj->cpuset);
+==>	680:		if (hwloc_set_cpubind (hwloc_topology, cpuset, HWLOC_CPUBIND_THREAD)) {	/* Set affinity to specified logical CPUs */
+	683:			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+	689:			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+	693:		hwloc_bitmap_free (cpuset);
+	10021:		writeResultsBench ("Machine topology as determined by hwloc library:\n");
+	10022:		topology_print_children (hwloc_get_root_obj (hwloc_topology), 0);
+commonc.c:58
+	97:hwloc_topology_t hwloc_topology;	/* Hardware topology */
+	98:uint32_t CPU_TOTAL_L1_CACHE_SIZE = 0;	/* Sum of all the L1 caches in KB as determined by hwloc */
+	99:uint32_t CPU_TOTAL_L2_CACHE_SIZE = 0;	/* Sum of all the L2 caches in KB as determined by hwloc */
+	100:uint32_t CPU_TOTAL_L3_CACHE_SIZE = 0;	/* Sum of all the L3 caches in KB as determined by hwloc */
+	101:uint32_t CPU_TOTAL_L4_CACHE_SIZE = 0;	/* Sum of all the L4 caches in KB as determined by hwloc */
+	102:uint32_t CPU_NUM_L1_CACHES = 0;		/* Number of L1 caches as determined by hwloc */
+	103:uint32_t CPU_NUM_L2_CACHES = 0;		/* Number of L2 caches as determined by hwloc */
+	104:uint32_t CPU_NUM_L3_CACHES = 0;		/* Number of L3 caches as determined by hwloc */
+	105:uint32_t CPU_NUM_L4_CACHES = 0;		/* Number of L4 caches as determined by hwloc */
+	109:int	OS_CAN_SET_AFFINITY = 1;	/* hwloc supports setting CPU affinity (known exception is Apple) */
+	365:uint32_t calc_threading_nodes_for_cpuset (hwloc_bitmap_t cpuset)
+	371:	num_cores = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, cpuset, HWLOC_OBJ_CORE);
+	373:	num_objs = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, cpuset, HWLOC_OBJ_PACKAGE);
+	376:	num_objs = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, cpuset, HWLOC_OBJ_NUMANODE);
+	379:	num_objs = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, cpuset, HWLOC_OBJ_L4CACHE);
+	381:	num_objs = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, cpuset, HWLOC_OBJ_L3CACHE);
+	383:	num_objs = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, cpuset, HWLOC_OBJ_L2CACHE);
+	401:/* New in version 29!  Use hwloc info to determine HW_NUM_CORES and HW_NUM_THREADS.  Also get number of NUMA nodes */
+	405:	HW_NUM_CORES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
+	406:	if (HW_NUM_CORES < 1) HW_NUM_CORES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+	408:	HW_NUM_THREADS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+	410:	HW_NUM_NUMA_NODES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_NUMANODE);
+	413:/* Allow overriding the hwloc generated values for number of physical processors and NUMA nodes. */
+	431:		hwloc_obj_t obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);		/* Get core obj */
+	432:		if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* The above failed for someone use plan B */
+	433:		if (obj != NULL) num_threads = hwloc_get_nbobjs_inside_cpuset_by_type (hwloc_topology, obj->cpuset, HWLOC_OBJ_PU);
+	443:/* Overwrite cpuid's linesize and associativity with hwloc's */
+	452:	for (depth = 0; depth < hwloc_topology_get_depth (hwloc_topology); depth++) {
+	453:		for (i = 0; i < (int) hwloc_get_nbobjs_by_depth (hwloc_topology, depth); i++) {
+	454:			hwloc_obj_t obj;
+	457:			obj = hwloc_get_obj_by_depth (hwloc_topology, depth, i);
+	470:				inclusive = hwloc_obj_get_info_by_name (obj, "Inclusive");
+	478:				inclusive = hwloc_obj_get_info_by_name (obj, "Inclusive");
+	484:				inclusive = hwloc_obj_get_info_by_name (obj, "Inclusive");
+	490:/* Overwrite the cache info calculated via CPUID as hwloc's info is more detailed and I believe more reliable. */
+	497:/* If hwloc could not figure out the cache sizes, use the cache sizes as determined by CPUID. */
+	508:	int cpu_kinds = hwloc_cpukinds_get_nr (hwloc_topology, 0);
+	517:	hwloc_bitmap_t cpuset = hwloc_bitmap_alloc ();
+	521:		struct hwloc_info_s *infos;
+	525:		if (hwloc_cpukinds_get_info (hwloc_topology, i, cpuset, &efficiency, &num_infos, &infos, 0) < 0) continue;
+	528:			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+	547:			hwloc_obj_t obj;
+	548:			obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);			/* Get proper core */
+	549:			if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* Get proper core */
+	550:			if (obj != NULL && hwloc_bitmap_isincluded (obj->cpuset, cpuset))
+	554:	hwloc_bitmap_free (cpuset);
+	759:/* Print the machine topology as discovered by hwloc library */
+	762:	hwloc_obj_t obj,
+	768:	hwloc_obj_type_snprintf (type, sizeof(type), obj, 0);
+	772:	hwloc_obj_attr_snprintf (attr, sizeof(attr), obj, ", ", 1 /* verbose */);
+	774:		hwloc_bitmap_snprintf (cpuset, sizeof(cpuset), obj->cpuset);
+	1206:/* Determine the hardware topology using the hwloc library.  This library is much more */
+	1209:	hwloc_topology_init (&hwloc_topology);
+	1210:	hwloc_topology_load (hwloc_topology);
+	1215:		const struct hwloc_topology_support *support;
+	1217:		support = hwloc_topology_get_support (hwloc_topology);
+	1396:/* Guess a good default value for number of workers based on NUMA / cache information from hwloc */
+	1459:/* If we did not find any settings, use hwloc's information to give us a good default setting. */
+
+Related: OS_CAN_SET_AFFINITY
+
+=========================
+
+

@@ -1,0 +1,319 @@
+Data from forumite Magellan3s re. his AlderLake - looks like run under WSL:
+
+(base) magallanes@Magellan:/mnt/c/Users/Jesus$ lscpu -ap
+# The following is the parsable format, which can be fed to other
+# programs. Each different item in every column has an unique ID
+# starting from zero.
+# CPU,Core,Socket,Node,,L1d,L1i,L2,L3
+0,0,0,,,0,0,0,0
+1,0,0,,,0,0,0,0
+2,1,0,,,1,1,1,0
+3,1,0,,,1,1,1,0
+4,2,0,,,2,2,2,0
+5,2,0,,,2,2,2,0
+6,3,0,,,3,3,3,0
+7,3,0,,,3,3,3,0
+8,4,0,,,4,4,4,0
+9,4,0,,,4,4,4,0
+10,5,0,,,5,5,5,0
+11,5,0,,,5,5,5,0
+12,6,0,,,6,6,6,0
+13,6,0,,,6,6,6,0
+14,7,0,,,7,7,7,0
+15,7,0,,,7,7,7,0
+
+(base) magallanes@Magellan:/mnt/c/Users/Jesus$ lscpu
+Architecture: x86_64
+CPU op-mode(s): 32-bit, 64-bit
+Byte Order: Little Endian
+Address sizes: 46 bits physical, 48 bits virtual
+CPU(s): 16
+On-line CPU(s) list: 0-15
+Thread(s) per core: 2
+Core(s) per socket: 8
+Socket(s): 1
+Vendor ID: GenuineIntel
+CPU family: 6
+Model: 151
+Model name: 12th Gen Intel(R) Core(TM) i9-12900K
+Stepping: 2
+CPU MHz: 3187.197
+BogoMIPS: 6374.39
+Hypervisor vendor: Microsoft
+Virtualization type: full
+L1d cache: 384 KiB
+L1i cache: 256 KiB
+L2 cache: 10 MiB
+L3 cache: 30 MiB
+Vulnerability Itlb multihit: Not affected
+Vulnerability L1tf: Not affected
+Vulnerability Mds: Not affected
+Vulnerability Meltdown: Not affected
+Vulnerability Spec store bypass: Mitigation; Speculative Store Bypass disabled via prctl and seccomp
+Vulnerability Spectre v1: Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2: Mitigation; Enhanced IBRS, IBPB conditional, RSB filling
+Vulnerability Srbds: Not affected
+Vulnerability Tsx async abort: Not affected
+Flags: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush
+mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nop
+l xtopology tsc_reliable nonstop_tsc cpuid pni pclmulqdq ssse3 fma cx16 pcid ss
+e4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnow
+prefetch invpcid_single ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase bmi1 avx2 s
+mep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt cl
+wb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx512_bf16
+avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg av
+x512_vpopcntdq rdpid fsrm avx512_vp2intersect flush_l1d arch_capabilities[/quote]
+
+Here are the Mlucas benchmarks using your script:
+
+[CODE]#  Workers/Runs  Threads  -cpu arguments
+1  8             1        0 1 2 3 4 5 6 7
+2  4             2        0:1 2:3 4:5 6:7
+3  2             4        0:3 4:7
+4  1             8        0:7
+5  8             2        0,8 1,9 2,10 3,11 4,12 5,13 6,14 7,15
+6  4             4        0:1,8:9 2:3,10:11 4:5,12:13 6:7,14:15
+7  2             8        0:3,8:11 4:7,12:15
+8  1             16       0:7,8:15
+[Wed 30 Mar 2022 04:30:15 PM CDT]
+Timings for 2048K FFT length (8 cores, 1 threads, 8 workers): 11.60, 11.60, 11.59, 11.62, 11.61, 11.61, 11.52, 11.46 ms.  Throughput: 691.188 iter/sec.
+Timings for 2304K FFT length (8 cores, 1 threads, 8 workers): 13.87, 13.86, 14.02, 14.06, 13.79, 13.78, 14.00, 13.93 ms.  Throughput: 574.974 iter/sec.
+Timings for 2560K FFT length (8 cores, 1 threads, 8 workers): 15.16, 15.15, 15.33, 15.36, 15.09, 15.10, 15.19, 15.11 ms.  Throughput: 526.862 iter/sec.
+Timings for 2816K FFT length (8 cores, 1 threads, 8 workers): 16.54, 16.54, 16.91, 16.97, 16.80, 16.83, 16.92, 16.83 ms.  Throughput: 476.423 iter/sec.
+Timings for 3072K FFT length (8 cores, 1 threads, 8 workers): 18.29, 18.29, 17.66, 17.72, 17.93, 17.97, 17.64, 17.52 ms.  Throughput: 447.597 iter/sec.
+Timings for 3328K FFT length (8 cores, 1 threads, 8 workers): 20.31, 20.31, 19.78, 19.83, 20.07, 20.07, 19.90, 19.79 ms.  Throughput: 399.879 iter/sec.
+Timings for 3584K FFT length (8 cores, 1 threads, 8 workers): 21.72, 21.72, 21.29, 21.34, 21.30, 21.30, 20.85, 20.74 ms.  Throughput: 375.995 iter/sec.
+Timings for 3840K FFT length (8 cores, 1 threads, 8 workers): 24.07, 24.07, 23.75, 23.64, 24.01, 24.02, 23.40, 23.25 ms.  Throughput: 336.513 iter/sec.
+Timings for 4096K FFT length (8 cores, 1 threads, 8 workers): 26.17, 26.16, 25.12, 25.17, 27.00, 27.00, 26.34, 26.16 ms.  Throughput: 306.227 iter/sec.
+Timings for 4608K FFT length (8 cores, 1 threads, 8 workers): 28.97, 28.95, 30.98, 31.07, 29.04, 29.04, 28.97, 28.79 ms.  Throughput: 271.653 iter/sec.
+Timings for 5120K FFT length (8 cores, 1 threads, 8 workers): 33.16, 33.16, 33.12, 33.23, 33.18, 33.18, 31.79, 31.64 ms.  Throughput: 243.938 iter/sec.
+Timings for 5632K FFT length (8 cores, 1 threads, 8 workers): 37.44, 37.42, 36.37, 36.53, 36.35, 36.38, 37.03, 36.78 ms.  Throughput: 217.510 iter/sec.
+Timings for 6144K FFT length (8 cores, 1 threads, 8 workers): 40.02, 40.02, 40.43, 40.56, 39.55, 39.56, 39.55, 39.28 ms.  Throughput: 200.671 iter/sec.
+Timings for 6656K FFT length (8 cores, 1 threads, 8 workers): 43.31, 43.39, 42.53, 42.69, 42.70, 42.68, 42.65, 42.38 ms.  Throughput: 186.964 iter/sec.
+Timings for 7168K FFT length (8 cores, 1 threads, 8 workers): 45.94, 45.94, 46.40, 46.57, 45.77, 45.69, 45.88, 45.60 ms.  Throughput: 174.018 iter/sec.
+Timings for 7680K FFT length (8 cores, 1 threads, 8 workers): 50.70, 50.65, 50.77, 50.81, 51.05, 51.04, 50.69, 50.36 ms.  Throughput: 157.611 iter/sec.
+[Wed 30 Mar 2022 04:37:51 PM CDT]
+Timings for 2048K FFT length (8 cores, 2 threads, 4 workers):  5.84,  5.85,  5.83,  5.82 ms.  Throughput: 685.374 iter/sec.
+Timings for 2304K FFT length (8 cores, 2 threads, 4 workers):  7.14,  7.14,  7.12,  7.12 ms.  Throughput: 561.188 iter/sec.
+Timings for 2560K FFT length (8 cores, 2 threads, 4 workers):  7.76,  7.76,  7.76,  7.74 ms.  Throughput: 515.846 iter/sec.
+Timings for 2816K FFT length (8 cores, 2 threads, 4 workers):  8.51,  8.54,  8.51,  8.50 ms.  Throughput: 469.871 iter/sec.
+Timings for 3072K FFT length (8 cores, 2 threads, 4 workers):  9.01,  9.02,  9.01,  9.00 ms.  Throughput: 443.952 iter/sec.
+Timings for 3328K FFT length (8 cores, 2 threads, 4 workers): 10.45, 10.55, 10.51, 10.44 ms.  Throughput: 381.423 iter/sec.
+Timings for 3584K FFT length (8 cores, 2 threads, 4 workers): 10.71, 10.68, 10.65, 10.64 ms.  Throughput: 374.859 iter/sec.
+Timings for 3840K FFT length (8 cores, 2 threads, 4 workers): 11.93, 11.96, 11.96, 11.93 ms.  Throughput: 334.967 iter/sec.
+Timings for 4096K FFT length (8 cores, 2 threads, 4 workers): 13.00, 13.05, 13.01, 13.00 ms.  Throughput: 307.315 iter/sec.
+Timings for 4608K FFT length (8 cores, 2 threads, 4 workers): 14.70, 14.67, 14.66, 14.67 ms.  Throughput: 272.559 iter/sec.
+Timings for 5120K FFT length (8 cores, 2 threads, 4 workers): 15.75, 15.73, 15.75, 15.85 ms.  Throughput: 253.697 iter/sec.
+Timings for 5632K FFT length (8 cores, 2 threads, 4 workers): 18.25, 18.23, 18.25, 18.23 ms.  Throughput: 219.271 iter/sec.
+Timings for 6144K FFT length (8 cores, 2 threads, 4 workers): 19.62, 19.54, 19.56, 19.54 ms.  Throughput: 204.442 iter/sec.
+Timings for 6656K FFT length (8 cores, 2 threads, 4 workers): 21.30, 21.28, 21.28, 21.27 ms.  Throughput: 187.937 iter/sec.
+Timings for 7168K FFT length (8 cores, 2 threads, 4 workers): 22.50, 22.50, 22.46, 22.46 ms.  Throughput: 177.926 iter/sec.
+Timings for 7680K FFT length (8 cores, 2 threads, 4 workers): 25.58, 25.52, 25.51, 25.50 ms.  Throughput: 156.686 iter/sec.
+[Wed 30 Mar 2022 04:41:37 PM CDT]
+Timings for 2048K FFT length (8 cores, 4 threads, 2 workers):  3.06,  3.06 ms.  Throughput: 653.381 iter/sec.
+Timings for 2304K FFT length (8 cores, 4 threads, 2 workers):  3.52,  3.52 ms.  Throughput: 568.182 iter/sec.
+Timings for 2560K FFT length (8 cores, 4 threads, 2 workers):  3.68,  4.11 ms.  Throughput: 515.123 iter/sec.
+Timings for 2816K FFT length (8 cores, 4 threads, 2 workers):  4.50,  4.51 ms.  Throughput: 444.199 iter/sec.
+Timings for 3072K FFT length (8 cores, 4 threads, 2 workers):  4.60,  4.59 ms.  Throughput: 435.541 iter/sec.
+Timings for 3328K FFT length (8 cores, 4 threads, 2 workers):  5.34,  5.33 ms.  Throughput: 374.813 iter/sec.
+Timings for 3584K FFT length (8 cores, 4 threads, 2 workers):  5.39,  5.39 ms.  Throughput: 370.954 iter/sec.
+Timings for 3840K FFT length (8 cores, 4 threads, 2 workers):  6.27,  6.26 ms.  Throughput: 319.183 iter/sec.
+Timings for 4096K FFT length (8 cores, 4 threads, 2 workers):  6.66,  6.68 ms.  Throughput: 299.873 iter/sec.
+Timings for 4608K FFT length (8 cores, 4 threads, 2 workers):  7.46,  7.45 ms.  Throughput: 268.420 iter/sec.
+Timings for 5120K FFT length (8 cores, 4 threads, 2 workers):  8.11,  8.10 ms.  Throughput: 246.731 iter/sec.
+Timings for 5632K FFT length (8 cores, 4 threads, 2 workers):  9.42,  9.44 ms.  Throughput: 212.100 iter/sec.
+Timings for 6144K FFT length (8 cores, 4 threads, 2 workers): 10.04, 10.04 ms.  Throughput: 199.134 iter/sec.
+Timings for 6656K FFT length (8 cores, 4 threads, 2 workers): 10.97, 11.01 ms.  Throughput: 182.001 iter/sec.
+Timings for 7168K FFT length (8 cores, 4 threads, 2 workers): 11.65, 11.63 ms.  Throughput: 171.829 iter/sec.
+Timings for 7680K FFT length (8 cores, 4 threads, 2 workers): 12.98, 12.98 ms.  Throughput: 154.095 iter/sec.
+[Wed 30 Mar 2022 04:43:34 PM CDT]
+Timings for 2048K FFT length (8 cores, 8 threads, 1 workers):  1.55 ms.  Throughput: 645.995 iter/sec.
+Timings for 2304K FFT length (8 cores, 8 threads, 1 workers):  1.89 ms.  Throughput: 528.262 iter/sec.
+Timings for 2560K FFT length (8 cores, 8 threads, 1 workers):  2.19 ms.  Throughput: 455.581 iter/sec.
+Timings for 2816K FFT length (8 cores, 8 threads, 1 workers):  2.21 ms.  Throughput: 452.080 iter/sec.
+Timings for 3072K FFT length (8 cores, 8 threads, 1 workers):  2.32 ms.  Throughput: 431.220 iter/sec.
+Timings for 3328K FFT length (8 cores, 8 threads, 1 workers):  2.53 ms.  Throughput: 394.789 iter/sec.
+Timings for 3584K FFT length (8 cores, 8 threads, 1 workers):  2.83 ms.  Throughput: 352.983 iter/sec.
+Timings for 3840K FFT length (8 cores, 8 threads, 1 workers):  3.10 ms.  Throughput: 322.789 iter/sec.
+Timings for 4096K FFT length (8 cores, 8 threads, 1 workers):  3.31 ms.  Throughput: 302.480 iter/sec.
+Timings for 4608K FFT length (8 cores, 8 threads, 1 workers):  3.99 ms.  Throughput: 250.627 iter/sec.
+Timings for 5120K FFT length (8 cores, 8 threads, 1 workers):  4.10 ms.  Throughput: 243.665 iter/sec.
+Timings for 5632K FFT length (8 cores, 8 threads, 1 workers):  4.75 ms.  Throughput: 210.349 iter/sec.
+Timings for 6144K FFT length (8 cores, 8 threads, 1 workers):  5.12 ms.  Throughput: 195.389 iter/sec.
+Timings for 6656K FFT length (8 cores, 8 threads, 1 workers):  5.69 ms.  Throughput: 175.809 iter/sec.
+Timings for 7168K FFT length (8 cores, 8 threads, 1 workers):  6.03 ms.  Throughput: 165.782 iter/sec.
+Timings for 7680K FFT length (8 cores, 8 threads, 1 workers):  6.67 ms.  Throughput: 149.948 iter/sec.
+[Wed 30 Mar 2022 04:44:36 PM CDT]
+Timings for 2048K FFT length (8 cores, 2 threads, 8 workers):  9.08,  9.07,  9.07,  9.10,  9.07,  9.10,  9.19,  8.99 ms.  Throughput: 880.709 iter/sec.
+Timings for 2304K FFT length (8 cores, 2 threads, 8 workers):  9.57,  9.57,  9.67,  9.60,  9.46,  9.60,  9.74,  9.68 ms.  Throughput: 832.460 iter/sec.
+Timings for 2560K FFT length (8 cores, 2 threads, 8 workers): 10.58, 10.62, 10.55, 10.59, 10.64, 10.60, 10.69, 10.59 ms.  Throughput: 754.176 iter/sec.
+Timings for 2816K FFT length (8 cores, 2 threads, 8 workers): 13.30, 13.37, 13.44, 13.48, 13.42, 13.47, 13.51, 13.32 ms.  Throughput: 596.414 iter/sec.
+Timings for 3072K FFT length (8 cores, 2 threads, 8 workers): 14.39, 14.26, 14.35, 14.37, 14.36, 14.37, 14.48, 14.14 ms.  Throughput: 557.933 iter/sec.
+Timings for 3328K FFT length (8 cores, 2 threads, 8 workers): 15.94, 15.99, 15.99, 15.97, 15.92, 15.84, 16.09, 15.82 ms.  Throughput: 501.707 iter/sec.
+Timings for 3584K FFT length (8 cores, 2 threads, 8 workers): 16.94, 16.86, 16.99, 16.92, 17.00, 16.98, 17.07, 16.81 ms.  Throughput: 472.139 iter/sec.
+Timings for 3840K FFT length (8 cores, 2 threads, 8 workers): 18.60, 18.61, 18.58, 18.57, 18.63, 18.48, 18.74, 18.52 ms.  Throughput: 430.282 iter/sec.
+Timings for 4096K FFT length (8 cores, 2 threads, 8 workers): 19.25, 19.41, 19.44, 19.35, 19.37, 19.38, 19.53, 19.40 ms.  Throughput: 412.553 iter/sec.
+Timings for 4608K FFT length (8 cores, 2 threads, 8 workers): 20.85, 20.73, 20.84, 20.75, 20.84, 20.66, 21.02, 20.77 ms.  Throughput: 384.465 iter/sec.
+Timings for 5120K FFT length (8 cores, 2 threads, 8 workers): 23.02, 23.07, 22.93, 23.09, 22.84, 23.05, 23.25, 22.70 ms.  Throughput: 347.918 iter/sec.
+Timings for 5632K FFT length (8 cores, 2 threads, 8 workers): 25.69, 25.55, 25.77, 25.70, 25.81, 25.69, 25.97, 25.48 ms.  Throughput: 311.180 iter/sec.
+Timings for 6144K FFT length (8 cores, 2 threads, 8 workers): 28.01, 28.00, 27.82, 28.01, 28.21, 28.09, 28.34, 27.95 ms.  Throughput: 285.170 iter/sec.
+Timings for 6656K FFT length (8 cores, 2 threads, 8 workers): 30.38, 30.50, 30.45, 30.48, 30.61, 30.41, 30.80, 30.54 ms.  Throughput: 262.121 iter/sec.
+Timings for 7168K FFT length (8 cores, 2 threads, 8 workers): 32.78, 32.60, 32.57, 32.86, 32.68, 32.67, 33.07, 32.62 ms.  Throughput: 244.421 iter/sec.
+Timings for 7680K FFT length (8 cores, 2 threads, 8 workers): 35.53, 35.44, 35.48, 35.59, 35.55, 35.56, 35.95, 35.59 ms.  Throughput: 224.810 iter/sec.
+[Wed 30 Mar 2022 04:50:07 PM CDT]
+Timings for 2048K FFT length (8 cores, 4 threads, 4 workers):  4.24,  4.24,  4.26,  4.27 ms.  Throughput: 940.798 iter/sec.
+Timings for 2304K FFT length (8 cores, 4 threads, 4 workers):  4.60,  4.62,  4.62,  4.83 ms.  Throughput: 857.643 iter/sec.
+Timings for 2560K FFT length (8 cores, 4 threads, 4 workers):  5.64,  5.62,  5.63,  5.65 ms.  Throughput: 710.041 iter/sec.
+Timings for 2816K FFT length (8 cores, 4 threads, 4 workers):  5.98,  5.93,  5.96,  5.97 ms.  Throughput: 671.174 iter/sec.
+Timings for 3072K FFT length (8 cores, 4 threads, 4 workers):  7.06,  7.09,  7.11,  7.13 ms.  Throughput: 563.447 iter/sec.
+Timings for 3328K FFT length (8 cores, 4 threads, 4 workers):  7.09,  7.16,  7.15,  7.15 ms.  Throughput: 560.252 iter/sec.
+Timings for 3584K FFT length (8 cores, 4 threads, 4 workers):  8.40,  8.50,  8.50,  8.49 ms.  Throughput: 472.211 iter/sec.
+Timings for 3840K FFT length (8 cores, 4 threads, 4 workers):  8.32,  8.42,  8.46,  8.40 ms.  Throughput: 476.307 iter/sec.
+Timings for 4096K FFT length (8 cores, 4 threads, 4 workers):  9.91,  9.92,  9.93,  9.93 ms.  Throughput: 403.094 iter/sec.
+Timings for 4608K FFT length (8 cores, 4 threads, 4 workers): 10.52, 10.52, 10.56, 10.62 ms.  Throughput: 378.973 iter/sec.
+Timings for 5120K FFT length (8 cores, 4 threads, 4 workers): 11.68, 11.62, 11.68, 11.69 ms.  Throughput: 342.857 iter/sec.
+Timings for 5632K FFT length (8 cores, 4 threads, 4 workers): 12.91, 13.03, 13.01, 13.05 ms.  Throughput: 307.733 iter/sec.
+Timings for 6144K FFT length (8 cores, 4 threads, 4 workers): 14.40, 14.40, 14.48, 14.43 ms.  Throughput: 277.264 iter/sec.
+Timings for 6656K FFT length (8 cores, 4 threads, 4 workers): 15.70, 15.71, 15.74, 15.81 ms.  Throughput: 254.131 iter/sec.
+Timings for 7168K FFT length (8 cores, 4 threads, 4 workers): 16.75, 16.77, 16.81, 16.82 ms.  Throughput: 238.273 iter/sec.
+Timings for 7680K FFT length (8 cores, 4 threads, 4 workers): 18.32, 18.39, 18.32, 18.61 ms.  Throughput: 217.277 iter/sec.
+[Wed 30 Mar 2022 04:52:53 PM CDT]
+Timings for 2048K FFT length (8 cores, 8 threads, 2 workers):  1.70,  1.72 ms.  Throughput: 1,167.590 iter/sec.
+Timings for 2304K FFT length (8 cores, 8 threads, 2 workers):  2.16,  2.17 ms.  Throughput: 924.864 iter/sec.
+Timings for 2560K FFT length (8 cores, 8 threads, 2 workers):  2.34,  2.38 ms.  Throughput: 847.355 iter/sec.
+Timings for 2816K FFT length (8 cores, 8 threads, 2 workers):  2.72,  2.74 ms.  Throughput: 733.279 iter/sec.
+Timings for 3072K FFT length (8 cores, 8 threads, 2 workers):  3.06,  3.06 ms.  Throughput: 653.275 iter/sec.
+Timings for 3328K FFT length (8 cores, 8 threads, 2 workers):  3.39,  3.43 ms.  Throughput: 586.011 iter/sec.
+Timings for 3584K FFT length (8 cores, 8 threads, 2 workers):  3.60,  3.66 ms.  Throughput: 551.458 iter/sec.
+Timings for 3840K FFT length (8 cores, 8 threads, 2 workers):  4.34,  4.32 ms.  Throughput: 462.055 iter/sec.
+Timings for 4096K FFT length (8 cores, 8 threads, 2 workers):  4.60,  4.54 ms.  Throughput: 437.513 iter/sec.
+Timings for 4608K FFT length (8 cores, 8 threads, 2 workers):  5.13,  5.07 ms.  Throughput: 392.135 iter/sec.
+Timings for 5120K FFT length (8 cores, 8 threads, 2 workers):  5.54,  5.58 ms.  Throughput: 359.620 iter/sec.
+Timings for 5632K FFT length (8 cores, 8 threads, 2 workers):  6.34,  6.35 ms.  Throughput: 315.209 iter/sec.
+Timings for 6144K FFT length (8 cores, 8 threads, 2 workers):  6.93,  6.92 ms.  Throughput: 288.642 iter/sec.
+Timings for 6656K FFT length (8 cores, 8 threads, 2 workers):  7.63,  7.62 ms.  Throughput: 262.244 iter/sec.
+Timings for 7168K FFT length (8 cores, 8 threads, 2 workers):  8.17,  8.18 ms.  Throughput: 244.589 iter/sec.
+Timings for 7680K FFT length (8 cores, 8 threads, 2 workers):  9.04,  9.04 ms.  Throughput: 221.276 iter/sec.
+
+[Wed 30 Mar 2022 04:54:13 PM CDT]
+Timings for 2048K FFT length (8 cores, 16 threads, 1 workers):  2.27 ms.  Throughput: 441.306 iter/sec.
+Timings for 2304K FFT length (8 cores, 16 threads, 1 workers):  2.82 ms.  Throughput: 354.233 iter/sec.
+Timings for 2560K FFT length (8 cores, 16 threads, 1 workers):  2.55 ms.  Throughput: 391.696 iter/sec.
+Timings for 2816K FFT length (8 cores, 16 threads, 1 workers):  3.82 ms.  Throughput: 261.849 iter/sec.
+Timings for 3072K FFT length (8 cores, 16 threads, 1 workers):  3.03 ms.  Throughput: 330.579 iter/sec.
+Timings for 3328K FFT length (8 cores, 16 threads, 1 workers):  3.39 ms.  Throughput: 295.072 iter/sec.
+Timings for 3584K FFT length (8 cores, 16 threads, 1 workers):  2.64 ms.  Throughput: 379.363 iter/sec.
+Timings for 3840K FFT length (8 cores, 16 threads, 1 workers):  3.42 ms.  Throughput: 292.654 iter/sec.
+Timings for 4096K FFT length (8 cores, 16 threads, 1 workers):  2.87 ms.  Throughput: 348.554 iter/sec.
+Timings for 4608K FFT length (8 cores, 16 threads, 1 workers):  3.26 ms.  Throughput: 307.031 iter/sec.
+Timings for 5120K FFT length (8 cores, 16 threads, 1 workers):  3.00 ms.  Throughput: 333.111 iter/sec.
+Timings for 5632K FFT length (8 cores, 16 threads, 1 workers):  3.45 ms.  Throughput: 289.436 iter/sec.
+Timings for 6144K FFT length (8 cores, 16 threads, 1 workers):  3.66 ms.  Throughput: 273.000 iter/sec.
+Timings for 6656K FFT length (8 cores, 16 threads, 1 workers):  3.92 ms.  Throughput: 254.777 iter/sec.
+Timings for 7168K FFT length (8 cores, 16 threads, 1 workers):  4.18 ms.  Throughput: 239.406 iter/sec.
+Timings for 7680K FFT length (8 cores, 16 threads, 1 workers):  4.59 ms.  Throughput: 218.007 iter/sec.
+
+	Adjusted msec/iter times (ms/iter) vs Actual iters/sec total throughput (iter/s) for each combination
+FFT     #1                #2                #3                #4                #5                #6                #7                  #8
+length  ms/iter  iter/s   ms/iter  iter/s   ms/iter  iter/s   ms/iter  iter/s   ms/iter  iter/s   ms/iter  iter/s   ms/iter  iter/s     ms/iter  iter/s
+2048K   5.88     691.188  10.44    685.374  11.16    653.381  12.4     645.995  3.16     880.709  5.58     940.798  6.2      1,167.590  15.04    441.306
+2304K   7.08     574.974  12.18    561.188  12.96    568.182  15.12    528.262  3.68     832.460  6.48     857.643  7.56     924.864    21.2     354.233
+2560K   7.52     526.862  13.3     515.846  14.2     515.123  15.84    455.581  4.06     754.176  7.08     710.041  7.88     847.355    18.56    391.696
+2816K   8.66     476.423  15.3     469.871  16.28    444.199  17.76    452.080  4.67     596.414  8.28     671.174  8.88     733.279    24.24    261.849
+3072K   8.88     447.597  16.26    443.952  17.32    435.541  18.56    431.220  4.78     557.933  8.58     563.447  9.28     653.275    21.12    330.579
+3328K   9.98     399.879  17.74    381.423  19.16    374.813  20.32    394.789  5.31     501.707  9.54     560.252  10.12    586.011    25.44    295.072
+3584K   10.23    375.995  19.08    374.859  19.68    370.954  22.64    352.983  5.33     472.139  9.86     472.211  11.36    551.458    21.28    379.363
+3840K   11.49    336.513  21.5     334.967  22.96    319.183  24.8     322.789  5.86     430.282  11.44    476.307  12.36    462.055    23.84    292.654
+4096K   11.65    306.227  22.62    307.315  23.6     299.873  26       302.480  6.14     412.553  11.74    403.094  13.12    437.513    18.64    348.554
+4608K   14.61    271.653  25.76    272.559  27.04    268.420  29.76    250.627  7.55     384.465  13.62    378.973  14.88    392.135    26.32    307.031
+5120K   15.72    243.938  28.32    253.697  29.68    246.731  32.88    243.665  8.4      347.918  14.9     342.857  16.52    359.620    24       333.111
+5632K   18.65    217.510  32.84    219.271  35.04    212.100  38.24    210.349  9.91     311.180  17.56    307.733  19.12    315.209    27.2     289.436
+6144K   20.45    200.671  35.46    204.442  37.6     199.134  40.8     195.389  10.92    285.170  18.78    277.264  20.48    288.642    29.04    273.000
+6656K   21.95    186.964  38.82    187.937  40.92    182.001  45.04    175.809  11.81    262.121  20.52    254.131  22.6     262.244    30.72    254.777
+7168K   23.45    174.018  41.02    177.926  43.2     171.829  47.68    165.782  12.85    244.421  21.62    238.273  23.88    244.589    32.4     239.406
+7680K   26.63    157.611  46.44    156.686  48.56    154.095  53.52    149.948  14.01    224.810  24.36    217.277  26.8     221.276    36.4     218.007
+
+Fastest combination
+#  Workers/Runs  Threads  First -cpu argument
+7  2             8        0:3,8:11
+
+Mean ± σ std dev faster  #  Workers/Runs  Threads  First -cpu argument
+1.479 ± 0.085 (47.9%)    1  8             1        0
+1.483 ± 0.101 (48.3%)    2  4             2        0:1
+1.520 ± 0.101 (52.0%)    3  2             4        0:3
+1.559 ± 0.129 (55.9%)    4  1             8        0:7
+1.093 ± 0.095 (9.3%)     5  8             2        0,8
+1.079 ± 0.072 (7.9%)     6  4             4        0:1,8:9
+1.627 ± 0.624 (62.7%)    8  1             16       0:7,8:15
+
+The benchmark summary table was written to the 'bench.txt' file
+
+Registering computer with PrimeNet
+
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,138]  DEBUG: update “local.ini” with workfile=worktodo.ini
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with resultsfile=results.txt
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with username=Magellan3s
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with WorkPreference=153
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with GetMinExponent=0
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with GetMaxExponent=0
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with gpuowl=False
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with WorkerThreads=2
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with num_cache=0
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with DaysOfWork=3.0
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with no_report_100m=False
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with ComputerID=Magellan
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with cpu_model=12th Gen Intel(R) Core(TM) i9-12900K
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with features=
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with CpuSpeed=1000
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with memory=64019
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with L1=8
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with L2=512
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with L3=0
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with NumCores=8
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with CpuNumHyperthreads=2
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: update “local.ini” with CPUHours=24
+primenet.py: <module>:	[MainThread 2022-03-30 16:55:10,139]  DEBUG: write local.ini
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,139]  INFO: Updating computer information on the server
+connectionpool.py: _new_conn:	[MainThread 2022-03-30 16:55:10,140]  DEBUG: Starting new HTTP connection (1): v5.mersenne.org:80
+connectionpool.py: _make_request:	[MainThread 2022-03-30 16:55:10,289]  DEBUG: http://v5.mersenne.org:80 "GET /v5server/?px=GIMPS&v=0.95&t=uc&g=5b84ce69efc2465ea4373cf9db18a39a&hg=c581f6cb9c03994e3967c771e1694edc&wg=&a=Linux64%2CMlucas%2Cv20.1&c=12th+Gen+Intel%28R%29+Core%28TM%29+i9-12900K&f=&L1=8&L2=512&np=8&hp=2&m=64019&s=1000&h=24&r=0&u=Magellan3s&cn=Magellan&ss=19191919&sh=ABCDABCDABCDABCDABCDABCDABCDABCD HTTP/1.1" 200 128
+primenet.py: program_options:	[MainThread 2022-03-30 16:55:10,291]  INFO: Exchanging program options with server
+connectionpool.py: _make_request:	[MainThread 2022-03-30 16:55:10,349]  DEBUG: http://v5.mersenne.org:80 "GET /v5server/?px=GIMPS&v=0.95&t=po&g=5b84ce69efc2465ea4373cf9db18a39a&c=&w=153&nw=2&DaysOfWork=3&DayMemory=57617&NightMemory=57617&ss=19191919&sh=ABCDABCDABCDABCDABCDABCDABCDABCD HTTP/1.1" 200 77
+primenet.py: merge_config_and_options:	[MainThread 2022-03-30 16:55:10,350]  DEBUG: update “local.ini” with username=Magellan3s
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,351]  INFO: GUID 5b84ce69efc2465ea4373cf9db18a39a correctly registered with the following features:
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,351]  INFO: Username: Magellan3s
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,351]  INFO: Computer name: Magellan
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,351]  INFO: CPU model: 12th Gen Intel(R) Core(TM) i9-12900K
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,351]  INFO: CPU features:
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,351]  INFO: CPU L1 Cache size: 8 KIB
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: CPU L2 Cache size: 512 KiB
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: CPU cores: 8
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: CPU threads per core: 2
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: CPU frequency/speed: 1,000 MHz
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: Total RAM: 64,019 MiB
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: To change these values, please rerun the script with different options or edit the “local.ini” file
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: You can see the result in this page:
+primenet.py: register_instance:	[MainThread 2022-03-30 16:55:10,352]  INFO: https://www.mersenne.org/editcpu/?g=5b84ce69efc2465ea4373cf9db18a39a
+
+Worker/CPU Core 1: (-cpu argument: 0:3,8:11)
+	Starting PrimeNet
+
+nohup: redirecting stderr to stdout
+
+	Starting Mlucas
+
+nohup: appending output to 'nohup.out'
+
+Worker/CPU Core 2: (-cpu argument: 4:7,12:15)
+	Starting PrimeNet
+
+nohup: redirecting stderr to stdout
+
+	Starting Mlucas
+
+nohup: appending output to 'nohup.out'
+
+Run this command for it to start if the computer has not been used in the specified idle time and stop it when someone uses the computer:
+
+crontab -l | { cat; echo "* * * * * '/home/jesus/mlucas_v20.1.1/obj'/Mlucas.sh"; } | crontab -
+
+To edit the crontab, run "crontab -e"[/code]

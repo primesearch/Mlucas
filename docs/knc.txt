@@ -1,0 +1,528 @@
+Dec 2021: *** Xeon Phi (1st-gen) code stuff: ***
+- Radix-768 may be broken (get ROE)
+
+How to emulate vinsertf128 ?
+- Starting with (low->high) v0 = [a,b,0,...,0] and v1 = [c,d,0,...,0], to get [a,b,c,d,0,0,0,0], vaddpd v1{badc},v0
+- To load (512-bit aligned) 128-bit chunk into any slot of zmm: vmovaps with needed opmask (corr. 4-bit quartet set)
+
+- To put stuff into upper 128-bit slots, use vpermf32x4
+
+AVX-512 instructions unavailable in IMCI-512:
+o XORPD(use VPXOR[D|Q] instead),MOVHPD,MOVLPD,PADDQ,PCMPQ
+o radix-16 tangent-DIF: twiddles-precomputation needs VRCP14PD (but k10m has VRCP23PS, 16-way SP reciprocal to full 23-bit precision). On k1om: use non-tangent version simply to avoid major recode effort
+o PREFETCHT*
+o CMOV - replace with equivalent conditional-branch (I use mostly where branch should be easily predictable, 2 addresses whose relative magnitudes indicate "is modulus Mersenne or Fermat"?
+o VMOVUP[D|S] - In our case the address will at least be 0x10-byte-aligned, so emulate using 2 aligned loads and a VALIGND: 'VALIGND imm8,src1,src2,dest' means 'doubleword shift [src1,src2] rightward, with low (imm8) dwords of src2 shifted in at the high end of src1'
+	compute (address % 0x40) using & (address & 0x3f)
+***BUT*** the address-masking computation is in GPR, whereas VALIGND only takes a shiftcount via an IMM8! Ugh...
+o Unaligned-loads also afflict our 8-way carry macros, e.g. AVX_cmplx_carry_fast_errcheck_X8 - wherever the AVX-512 version loads an 8 x int32 into a YMM, need an 0x20-offset unaligned-load emulation in IMCI-512, using jumps. More ugh.
+
+o 8x8 doubles-transpose: There are no VUNPCK or VSHUF instructions, replace with available alternatives, including double-quartet swizzling.
+o VGATHERDPD is supported, but crippled by "must repeat instruction until all elements load (all k-flag bits cleared)" restriction. Similar for scatter-store.
+
+Carry macros:
+o Again replace 8x8 doubles-transpose wrappers with k1om analog
+o Delete 'w' suffixes on opmask-manipulation instructions
+o Opmask-register shift (kshift*) unavailable! Replace these pairs:
+	kshiftrw 8,k1,k3	kshiftrw 8,k2,k4
+with
+	kconcatl k1,k2,gpr	// k1 into gpr[0:15], k2 into gpr[16:31]
+	shr 8,gpr
+	kextract 0,gpr,k1
+	kextract 1,gpr,k2
+o Replace vrndscalepd with vrndfxpntpd (hope that is not terribly slow, if so use rnd_const add/sub sequence instead)
+o Replace vmaxpd with vgmaxpd
+o vpbroadcastq: AVX512 only has from-GPR-to-zmm; IMCI512 only has mem64-to-zmm
+o vpermq: IMCI512 lacks, must replace with - ugh - 3-op sequence:
+	"vmovaps	%%zmm0%{cdab%},%%zmm0	\n\t"/* zmm0 = 01 00 03 02 05 04 07 06 */\
+	"vmovaps	%%zmm0%{badc%},%%zmm0	\n\t"/* zmm0 = 03 02 01 00 07 06 05 04 */\
+	"vpermf32x4	$78, %%zmm0,%%zmm0		\n\t"/* zmm0 = 07 06 05 04 03 02 01 00 (Note vpermf32x4 allows no src-swizzle) */\
+Thankfully, only 4 of these in _X16 cy-macro, 2 in _X8.
+
+Here are the available shuffle instructions:
+--------------------------------------------
+o Can use swizzle to permute 2 double-quartets in a zmm as 0123,1032,2301,1203	<*** but not all-four-reverse 3210! ***
+To get 3210, need 2 swizzles: {cdab} and {badc}, in either order.
+
+o VBLENDMPD src1,src2,dest - element-by-element blending, output k-mask is *not* used as a write-mask for this instruction.
+	Instead, the mask is used as an element selector: every element of the destination is conditionally selected  between first
+	source or second source using the value of the related mask bit (1 for src1, 0 for second source ). [This is counterintuitive,
+	but follows from the k-as-write-mask convention, where no-mask defaults to 11111111, meaning "every element gets written".]
+Example (left-to-right elt-order convention):
+	src1 = 10 11 12 13 14 15 16 17
+	src2 = 00 01 02 03 04 05 06 07
+Apply {cdab} swizzle to src1, that is w.r.to R-L ordering convention, e.g. corr. to L-R permute of 0123 -> 1032:
+	src1 = 11 10 13 12 15 14 17 16
+	src2 = 00 01 02 03 04 05 06 07
+Then, VBLENDMPD src1{cdab},src2,dest{0b10101010}, with k-mask again being R-L convenion, gives result
+	dest = 00 10 02 12 04 14 06 16
+
+o VPERMF32X4 imm8,src,dest - Shuffle vector double-quadwords (128-bit sub elements of 512-bit block):
+imm8 is broken into four 2-bit subfields, each of which selects a 128-bit block of src to write to corr. field of dest
+Example:
+	imm8 = 78 = 0x4e = 0b.01.00.11.10, reading bitpairs R-L we have src-subblocks 02 = 2, 11 = 3, 00 = 0, 01 = 1
+which means taking the LHS operand below and permuting 128-bit subblocks 0123 ==> 2301 as shown:
+	  0     1     2     3        2      3     4     5
+	00 01|02 03|04 05|06 07 ==> 04 05|06 07|00 01|02 03, i.e. amounts to swapping 256-bit lo|hi halves.
+
+UPSHOT:
+o Can use swizzle to permute double-quartets within zmm, but not completely arbitrarily
+o Use VBLENDMPD for element-by-element blending of 2 source vectors; specifically:
+	VBLENDMPD with src1 {cdab}-swizzled can be used to emulate AVX-512 VUNPCK[H|L]PD, use for 2x2 sub-transposes
+o Use VPERMF32X4 for arbitrary shuffle of 128-bit subblocks of zmm
+Start wth 4x4 transpose:
+00 01 02 03    00 10 20 30
+10 11 12 13 => 01 11 21 31
+20 21 22 23    02 12 22 32
+30 31 32 33    03 13 23 33
+Do via 2 steps - first, layer of 2x2 sub-transposes:
+00 01 02 03    00 10 02 12	zmm0
+10 11 12 13 => 01 11 03 13	zmm1
+20 21 22 23    20 30 22 32	zmm2
+30 31 32 33    21 31 23 33	zmm3
+o Use {badc} swizzle to permute the resulting double-quartets as src1 for a second layer of VBLENDMPD:
+	src1:					src2:
+zmm0{badc}:02 12 00 10    00 10 02 12
+zmm1{badc}:03 13 01 11    01 11 03 13
+zmm2{badc}:22 32 20 30    20 30 22 32
+zmm3{badc}:23 33 21 31    21 31 23 33
+Want:
+00 10 20 30 = vblendmpd zmm2{badc},zmm0{0b11001100}
+01 11 21 31 = vblendmpd zmm3{badc},zmm1{0b11001100}
+02 12 22 32 = vblendmpd zmm0{badc},zmm2{0b00110011}
+03 13 23 33 = vblendmpd zmm1{badc},zmm3{0b00110011}
+Q: Can we use VALIGND to swap 256-bit halves of zmm pairs?
+A: Yes we can: 'VALIGND imm8,src1,src2,dest' means 'doubleword shift [src1,src2] rightward, with low (imm8) dwords of src2 shifted in at the high end of src1'
+				"vmovaps	0x000(%%rax),%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 */\
+				"vmovaps	0x040(%%rax),%%zmm1	\n\t"/* zmm1 = 10 11 12 13 14 15 16 17 */\
+				"vmovaps	0x080(%%rax),%%zmm2	\n\t"/* zmm2 = 20 21 22 23 24 25 26 27 */\
+				"vmovaps	0x0c0(%%rax),%%zmm3	\n\t"/* zmm3 = 30 31 32 33 34 35 36 37 */\
+				"vmovaps	0x100(%%rax),%%zmm4	\n\t"/* zmm4 = 40 41 42 43 44 45 46 47 */\
+				"vmovaps	0x140(%%rax),%%zmm5	\n\t"/* zmm5 = 50 51 52 53 54 55 56 57 */\
+				"vmovaps	0x180(%%rax),%%zmm6	\n\t"/* zmm6 = 60 61 62 63 64 65 66 67 */\
+				"vmovaps	0x1c0(%%rax),%%zmm7	\n\t"/* zmm7 = 70 71 72 73 74 75 76 77 */\
+/* GDB on KNC has a bug: when try to 'p $zmm*.v8_double' with reg-index * > 7, get garbage ... used 'vmovaps zmm8,zmm6' to read out zmm8 result via copy in zmm6 */\
+"vmovapd	%%zmm0%{cdab%},%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 ==> {1, 0, 3, 2, 5, 4, 7, 6} */\
+"vpermf32x4	$78,%%zmm0,%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 ==> 04 05 06 07 00 01 02 03 */\
+Use
+				"vblendmpd		%%zmm1%cdab%,%%zmm0,%%zmm8%%%k1%	\n\t"/* zmm8 = 00 10 02 12 04 14 06 16 */\
+				"vblendmpd		%%zmm0%cdab%,%%zmm1,%%zmm1%%%k2%	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+				"vblendmpd		%%zmm3%cdab%,%%zmm2,%%zmm0%%%k1%	\n\t"/* zmm0 = 20 30 22 32 24 34 26 36 */\
+				"vblendmpd		%%zmm2%cdab%,%%zmm3,%%zmm3%%%k2%	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+				"vblendmpd		%%zmm5%cdab%,%%zmm4,%%zmm2%%%k1%	\n\t"/* zmm2 = 40 50 42 52 44 54 46 56 */\
+				"vblendmpd		%%zmm4%cdab%,%%zmm5,%%zmm5%%%k2%	\n\t"/* zmm5 = 41 51 43 53 45 55 47 57 */\
+				"vblendmpd		%%zmm7%cdab%,%%zmm6,%%zmm4%%%k1%	\n\t"/* zmm4 = 60 70 62 72 64 74 66 76 */\
+				"vblendmpd		%%zmm6%cdab%,%%zmm7,%%zmm7%%%k2%	\n\t"/* zmm7 = 61 71 63 73 65 75 67 77 */\
+
+o VBROADCASTF64X4 - 32 bytes at memory address mt are broadcast to a float64 vector
+o
+	/* Transpose uses regs0-7 for data, reg8 for temp: */\
+	/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices - */\
+	/* indices in comments at right are [row,col] pairs, i.e. octal version of linear array indices: */
+	"vunpcklpd		%%zmm1,%%zmm0,%%zmm8	\n\t"/* zmm8 = 00 10 02 12 04 14 06 16 */\
+	"vunpckhpd		%%zmm1,%%zmm0,%%zmm1	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+	"vunpcklpd		%%zmm3,%%zmm2,%%zmm0	\n\t"/* zmm0 = 20 30 22 32 24 34 26 36 */\
+	"vunpckhpd		%%zmm3,%%zmm2,%%zmm3	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+	"vunpcklpd		%%zmm5,%%zmm4,%%zmm2	\n\t"/* zmm2 = 40 50 42 52 44 54 46 56 */\
+	"vunpckhpd		%%zmm5,%%zmm4,%%zmm5	\n\t"/* zmm5 = 41 51 43 53 45 55 47 57 */\
+	"vunpcklpd		%%zmm7,%%zmm6,%%zmm4	\n\t"/* zmm4 = 60 70 62 72 64 74 66 76 */\
+	"vunpckhpd		%%zmm7,%%zmm6,%%zmm7	\n\t"/* zmm7 = 61 71 63 73 65 75 67 77 */\
+/**** Getting rid of reg-index-nicifying copies here means Outputs not in 0-7 but in 8,1,0,3,2,5,4,7, with 6 now free ****/\
+	/* [2] 1st layer of VSHUFF64x2, 2 outputs each with trailing index pairs [0,4],[1,5],[2,6],[3,7]. */\
+	/* Note the imm8 values expressed in terms of 2-bit index subfields again read right-to-left */\
+	/* (as for the SHUFPS imm8 values in the AVX 8x8 float code) are 221 = (3,1,3,1) and 136 = (2,0,2,0): */\
+	"vshuff64x2	$136,%%zmm0,%%zmm8,%%zmm6	\n\t"/* zmm6 = 00 10 04 14 20 30 24 34 */\
+	"vshuff64x2	$221,%%zmm0,%%zmm8,%%zmm0	\n\t"/* zmm0 = 02 12 06 16 22 32 26 36 */\
+	"vshuff64x2	$136,%%zmm3,%%zmm1,%%zmm8	\n\t"/* zmm8 = 01 11 05 15 21 31 25 35 */\
+	"vshuff64x2	$221,%%zmm3,%%zmm1,%%zmm3	\n\t"/* zmm3 = 03 13 07 17 23 33 27 37 */\
+	"vshuff64x2	$136,%%zmm4,%%zmm2,%%zmm1	\n\t"/* zmm1 = 40 50 44 54 60 70 64 74 */\
+	"vshuff64x2	$221,%%zmm4,%%zmm2,%%zmm4	\n\t"/* zmm4 = 42 52 46 56 62 72 66 76 */\
+	"vshuff64x2	$136,%%zmm7,%%zmm5,%%zmm2	\n\t"/* zmm2 = 41 51 45 55 61 71 65 75 */\
+	"vshuff64x2	$221,%%zmm7,%%zmm5,%%zmm7	\n\t"/* zmm7 = 43 53 47 57 63 73 67 77 */\
+/**** Getting rid of reg-index-nicifying copies here means Outputs 8,1,2,5 -> 6,8,1,2, with 5 now free ***/\
+	/* [3] Last step in 2nd layer of VSHUFF64x2, now combining reg-pairs sharing same trailing index pairs. */\
+	/* Output register indices reflect trailing index of data contained therein: */\
+	"vshuff64x2	$136,%%zmm1,%%zmm6,%%zmm5	\n\t"/* zmm5 = 00 10 20 30 40 50 60 70 [row 0 of transpose-matrix] */\
+	"vshuff64x2	$221,%%zmm1,%%zmm6,%%zmm1	\n\t"/* zmm1 = 04 14 24 34 44 54 64 74 [row 4 of transpose-matrix] */\
+	"vshuff64x2	$136,%%zmm2,%%zmm8,%%zmm6	\n\t"/* zmm6 = 01 11 21 31 41 51 61 71 [row 1 of transpose-matrix] */\
+	"vshuff64x2	$221,%%zmm2,%%zmm8,%%zmm2	\n\t"/* zmm2 = 05 15 25 35 45 55 65 75 [row 5 of transpose-matrix] */\
+	"vshuff64x2	$136,%%zmm4,%%zmm0,%%zmm8	\n\t"/* zmm8 = 02 12 22 32 42 52 62 72 [row 2 of transpose-matrix] */\
+	"vshuff64x2	$221,%%zmm4,%%zmm0,%%zmm4	\n\t"/* zmm4 = 06 16 26 36 46 56 66 76 [row 6 of transpose-matrix] */\
+	"vshuff64x2	$136,%%zmm7,%%zmm3,%%zmm0	\n\t"/* zmm0 = 03 13 23 33 43 53 63 73 [row 3 of transpose-matrix] */\
+	"vshuff64x2	$221,%%zmm7,%%zmm3,%%zmm7	\n\t"/* zmm7 = 07 17 27 37 47 57 67 77 [row 7 of transpose-matrix] */\
+
+==============================
+  #ifdef USE_IMCI512	// 1st-gen Xeon Phi - VPBROADCASTQ is only from mem64, use alternate 2.0 x 8 - generation code:
+
+	#define SSE2_RADIX_05_DFT_0TWIDDLE(Xi0,Xi1,Xi2,Xi3,Xi4, Xcc1, Xo0,Xo1,Xo2,Xo3,Xo4)\
+	{\
+	__asm__ volatile (\
+		"movl	$0xaaaa,%%eax			\n\t	kmov	%%eax,%%k1	\n\t"/* k1 = 0b1010101010101010 */\
+		"vpsbbd %%zmm31,%%k1,%%zmm31	\n\t"/* zmm31 = 0xffffffff00000000 x 8 */\
+		"vpslld $31,%%zmm31,%%zmm31		\n\t"/* zmm31 = 0x8000000000000000 x 8 */\
+		"vpsrld  $1,%%zmm31,%%zmm31		\n\t"/* zmm31 = 0x4000000000000000 x 8 = 2.0 x 8 */\
+
+  #else	// AVX-512:
+
+  #endif	// (IMCI512 or AVX512?) toggle
+This 1-thread-per-core runset gives avg 5:45min => 345ms/iter per job, vs single-4-thread-job-only's 132ms/iter:
+./Mlucas -fft 2M -iters 1000 -cpu 000 -radset 32,8,16,16,16 >& junk00.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 004 -radset 32,8,16,16,16 >& junk01.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 008 -radset 32,8,16,16,16 >& junk02.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 012 -radset 32,8,16,16,16 >& junk03.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 016 -radset 32,8,16,16,16 >& junk04.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 020 -radset 32,8,16,16,16 >& junk05.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 024 -radset 32,8,16,16,16 >& junk06.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 028 -radset 32,8,16,16,16 >& junk07.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 032 -radset 32,8,16,16,16 >& junk08.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 036 -radset 32,8,16,16,16 >& junk09.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 040 -radset 32,8,16,16,16 >& junk10.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 044 -radset 32,8,16,16,16 >& junk11.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 048 -radset 32,8,16,16,16 >& junk12.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 052 -radset 32,8,16,16,16 >& junk13.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 056 -radset 32,8,16,16,16 >& junk14.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 060 -radset 32,8,16,16,16 >& junk15.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 064 -radset 32,8,16,16,16 >& junk16.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 068 -radset 32,8,16,16,16 >& junk17.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 072 -radset 32,8,16,16,16 >& junk18.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 076 -radset 32,8,16,16,16 >& junk19.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 080 -radset 32,8,16,16,16 >& junk20.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 084 -radset 32,8,16,16,16 >& junk21.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 088 -radset 32,8,16,16,16 >& junk22.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 092 -radset 32,8,16,16,16 >& junk23.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 096 -radset 32,8,16,16,16 >& junk24.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 100 -radset 32,8,16,16,16 >& junk25.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 104 -radset 32,8,16,16,16 >& junk26.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 108 -radset 32,8,16,16,16 >& junk27.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 112 -radset 32,8,16,16,16 >& junk28.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 116 -radset 32,8,16,16,16 >& junk29.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 120 -radset 32,8,16,16,16 >& junk30.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 124 -radset 32,8,16,16,16 >& junk31.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 128 -radset 32,8,16,16,16 >& junk32.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 132 -radset 32,8,16,16,16 >& junk33.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 136 -radset 32,8,16,16,16 >& junk34.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 140 -radset 32,8,16,16,16 >& junk35.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 144 -radset 32,8,16,16,16 >& junk36.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 148 -radset 32,8,16,16,16 >& junk37.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 152 -radset 32,8,16,16,16 >& junk38.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 156 -radset 32,8,16,16,16 >& junk39.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 160 -radset 32,8,16,16,16 >& junk40.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 164 -radset 32,8,16,16,16 >& junk41.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 168 -radset 32,8,16,16,16 >& junk42.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 172 -radset 32,8,16,16,16 >& junk43.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 176 -radset 32,8,16,16,16 >& junk44.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 180 -radset 32,8,16,16,16 >& junk45.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 184 -radset 32,8,16,16,16 >& junk46.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 188 -radset 32,8,16,16,16 >& junk47.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 192 -radset 32,8,16,16,16 >& junk48.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 196 -radset 32,8,16,16,16 >& junk49.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 200 -radset 32,8,16,16,16 >& junk50.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 204 -radset 32,8,16,16,16 >& junk51.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 208 -radset 32,8,16,16,16 >& junk52.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 212 -radset 32,8,16,16,16 >& junk53.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 216 -radset 32,8,16,16,16 >& junk54.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 220 -radset 32,8,16,16,16 >& junk55.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 224 -radset 32,8,16,16,16 >& junk56.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 228 -radset 32,8,16,16,16 >& junk57.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 232 -radset 32,8,16,16,16 >& junk58.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 236 -radset 32,8,16,16,16 >& junk59.txt &
+./Mlucas -fft 2M -iters 1000 -cpu 240 -radset 32,8,16,16,16 >& junk60.txt &
+
+This 2-threads-per-core runset gives avg ??min => ??ms/iter per job, vs single-4-thread-job-only's 132ms/iter:
+./Mlucas -fft 2M -iters 1000 -cpu 0,241 -radset 32,8,16,16,16 &>junk00.txt
+./Mlucas -fft 2M -iters 1000 -cpu 001:002 -radset 32,8,16,16,16 &>junk01.txt
+./Mlucas -fft 2M -iters 1000 -cpu 005:006 -radset 32,8,16,16,16 &>junk02.txt
+./Mlucas -fft 2M -iters 1000 -cpu 009:010 -radset 32,8,16,16,16 &>junk03.txt
+./Mlucas -fft 2M -iters 1000 -cpu 013:014 -radset 32,8,16,16,16 &>junk04.txt
+./Mlucas -fft 2M -iters 1000 -cpu 017:018 -radset 32,8,16,16,16 &>junk05.txt
+./Mlucas -fft 2M -iters 1000 -cpu 021:022 -radset 32,8,16,16,16 &>junk06.txt
+./Mlucas -fft 2M -iters 1000 -cpu 025:026 -radset 32,8,16,16,16 &>junk07.txt
+./Mlucas -fft 2M -iters 1000 -cpu 029:030 -radset 32,8,16,16,16 &>junk08.txt
+./Mlucas -fft 2M -iters 1000 -cpu 033:034 -radset 32,8,16,16,16 &>junk09.txt
+./Mlucas -fft 2M -iters 1000 -cpu 037:038 -radset 32,8,16,16,16 &>junk10.txt
+./Mlucas -fft 2M -iters 1000 -cpu 041:042 -radset 32,8,16,16,16 &>junk11.txt
+./Mlucas -fft 2M -iters 1000 -cpu 045:046 -radset 32,8,16,16,16 &>junk12.txt
+./Mlucas -fft 2M -iters 1000 -cpu 049:050 -radset 32,8,16,16,16 &>junk13.txt
+./Mlucas -fft 2M -iters 1000 -cpu 053:054 -radset 32,8,16,16,16 &>junk14.txt
+./Mlucas -fft 2M -iters 1000 -cpu 057:058 -radset 32,8,16,16,16 &>junk15.txt
+./Mlucas -fft 2M -iters 1000 -cpu 061:062 -radset 32,8,16,16,16 &>junk16.txt
+./Mlucas -fft 2M -iters 1000 -cpu 065:066 -radset 32,8,16,16,16 &>junk17.txt
+./Mlucas -fft 2M -iters 1000 -cpu 069:070 -radset 32,8,16,16,16 &>junk18.txt
+./Mlucas -fft 2M -iters 1000 -cpu 073:074 -radset 32,8,16,16,16 &>junk19.txt
+./Mlucas -fft 2M -iters 1000 -cpu 077:078 -radset 32,8,16,16,16 &>junk20.txt
+./Mlucas -fft 2M -iters 1000 -cpu 081:082 -radset 32,8,16,16,16 &>junk21.txt
+./Mlucas -fft 2M -iters 1000 -cpu 085:086 -radset 32,8,16,16,16 &>junk22.txt
+./Mlucas -fft 2M -iters 1000 -cpu 089:090 -radset 32,8,16,16,16 &>junk23.txt
+./Mlucas -fft 2M -iters 1000 -cpu 093:094 -radset 32,8,16,16,16 &>junk24.txt
+./Mlucas -fft 2M -iters 1000 -cpu 097:098 -radset 32,8,16,16,16 &>junk25.txt
+./Mlucas -fft 2M -iters 1000 -cpu 101:102 -radset 32,8,16,16,16 &>junk26.txt
+./Mlucas -fft 2M -iters 1000 -cpu 105:106 -radset 32,8,16,16,16 &>junk27.txt
+./Mlucas -fft 2M -iters 1000 -cpu 109:110 -radset 32,8,16,16,16 &>junk28.txt
+./Mlucas -fft 2M -iters 1000 -cpu 113:114 -radset 32,8,16,16,16 &>junk29.txt
+./Mlucas -fft 2M -iters 1000 -cpu 117:118 -radset 32,8,16,16,16 &>junk30.txt
+./Mlucas -fft 2M -iters 1000 -cpu 121:122 -radset 32,8,16,16,16 &>junk31.txt
+./Mlucas -fft 2M -iters 1000 -cpu 125:126 -radset 32,8,16,16,16 &>junk32.txt
+./Mlucas -fft 2M -iters 1000 -cpu 129:130 -radset 32,8,16,16,16 &>junk33.txt
+./Mlucas -fft 2M -iters 1000 -cpu 133:134 -radset 32,8,16,16,16 &>junk34.txt
+./Mlucas -fft 2M -iters 1000 -cpu 137:138 -radset 32,8,16,16,16 &>junk35.txt
+./Mlucas -fft 2M -iters 1000 -cpu 141:142 -radset 32,8,16,16,16 &>junk36.txt
+./Mlucas -fft 2M -iters 1000 -cpu 145:146 -radset 32,8,16,16,16 &>junk37.txt
+./Mlucas -fft 2M -iters 1000 -cpu 149:150 -radset 32,8,16,16,16 &>junk38.txt
+./Mlucas -fft 2M -iters 1000 -cpu 153:154 -radset 32,8,16,16,16 &>junk39.txt
+./Mlucas -fft 2M -iters 1000 -cpu 157:158 -radset 32,8,16,16,16 &>junk40.txt
+./Mlucas -fft 2M -iters 1000 -cpu 161:162 -radset 32,8,16,16,16 &>junk41.txt
+./Mlucas -fft 2M -iters 1000 -cpu 165:166 -radset 32,8,16,16,16 &>junk42.txt
+./Mlucas -fft 2M -iters 1000 -cpu 169:170 -radset 32,8,16,16,16 &>junk43.txt
+./Mlucas -fft 2M -iters 1000 -cpu 173:174 -radset 32,8,16,16,16 &>junk44.txt
+./Mlucas -fft 2M -iters 1000 -cpu 177:178 -radset 32,8,16,16,16 &>junk45.txt
+./Mlucas -fft 2M -iters 1000 -cpu 181:182 -radset 32,8,16,16,16 &>junk46.txt
+./Mlucas -fft 2M -iters 1000 -cpu 185:186 -radset 32,8,16,16,16 &>junk47.txt
+./Mlucas -fft 2M -iters 1000 -cpu 189:190 -radset 32,8,16,16,16 &>junk48.txt
+./Mlucas -fft 2M -iters 1000 -cpu 193:194 -radset 32,8,16,16,16 &>junk49.txt
+./Mlucas -fft 2M -iters 1000 -cpu 197:198 -radset 32,8,16,16,16 &>junk50.txt
+./Mlucas -fft 2M -iters 1000 -cpu 201:202 -radset 32,8,16,16,16 &>junk51.txt
+./Mlucas -fft 2M -iters 1000 -cpu 205:206 -radset 32,8,16,16,16 &>junk52.txt
+./Mlucas -fft 2M -iters 1000 -cpu 209:210 -radset 32,8,16,16,16 &>junk53.txt
+./Mlucas -fft 2M -iters 1000 -cpu 213:214 -radset 32,8,16,16,16 &>junk54.txt
+./Mlucas -fft 2M -iters 1000 -cpu 217:218 -radset 32,8,16,16,16 &>junk55.txt
+./Mlucas -fft 2M -iters 1000 -cpu 221:222 -radset 32,8,16,16,16 &>junk56.txt
+./Mlucas -fft 2M -iters 1000 -cpu 225:226 -radset 32,8,16,16,16 &>junk57.txt
+./Mlucas -fft 2M -iters 1000 -cpu 229:230 -radset 32,8,16,16,16 &>junk58.txt
+./Mlucas -fft 2M -iters 1000 -cpu 233:234 -radset 32,8,16,16,16 &>junk59.txt
+./Mlucas -fft 2M -iters 1000 -cpu 237:238 -radset 32,8,16,16,16 &>junk60.txt
+
+This 4-threads-per-core runset gives avg 36min => 216ms/iter per job, vs 1-job-only's 132ms/iter:
+./Mlucas -fft 2M -iters 10000 -cpu 000:003 -radset 32,8,16,16,16 >& junk00.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 004:007 -radset 32,8,16,16,16 >& junk01.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 008:011 -radset 32,8,16,16,16 >& junk02.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 012:015 -radset 32,8,16,16,16 >& junk03.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 016:019 -radset 32,8,16,16,16 >& junk04.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 020:023 -radset 32,8,16,16,16 >& junk05.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 024:027 -radset 32,8,16,16,16 >& junk06.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 028:031 -radset 32,8,16,16,16 >& junk07.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 032:035 -radset 32,8,16,16,16 >& junk08.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 036:039 -radset 32,8,16,16,16 >& junk09.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 040:043 -radset 32,8,16,16,16 >& junk10.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 044:047 -radset 32,8,16,16,16 >& junk11.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 048:051 -radset 32,8,16,16,16 >& junk12.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 052:055 -radset 32,8,16,16,16 >& junk13.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 056:059 -radset 32,8,16,16,16 >& junk14.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 060:063 -radset 32,8,16,16,16 >& junk15.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 064:067 -radset 32,8,16,16,16 >& junk16.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 068:071 -radset 32,8,16,16,16 >& junk17.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 072:075 -radset 32,8,16,16,16 >& junk18.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 076:079 -radset 32,8,16,16,16 >& junk19.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 080:083 -radset 32,8,16,16,16 >& junk20.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 084:087 -radset 32,8,16,16,16 >& junk21.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 088:091 -radset 32,8,16,16,16 >& junk22.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 092:095 -radset 32,8,16,16,16 >& junk23.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 096:099 -radset 32,8,16,16,16 >& junk24.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 100:103 -radset 32,8,16,16,16 >& junk25.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 104:107 -radset 32,8,16,16,16 >& junk26.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 108:111 -radset 32,8,16,16,16 >& junk27.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 112:115 -radset 32,8,16,16,16 >& junk28.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 116:119 -radset 32,8,16,16,16 >& junk29.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 120:123 -radset 32,8,16,16,16 >& junk30.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 124:127 -radset 32,8,16,16,16 >& junk31.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 128:131 -radset 32,8,16,16,16 >& junk32.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 132:135 -radset 32,8,16,16,16 >& junk33.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 136:139 -radset 32,8,16,16,16 >& junk34.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 140:143 -radset 32,8,16,16,16 >& junk35.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 144:147 -radset 32,8,16,16,16 >& junk36.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 148:151 -radset 32,8,16,16,16 >& junk37.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 152:155 -radset 32,8,16,16,16 >& junk38.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 156:159 -radset 32,8,16,16,16 >& junk39.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 160:163 -radset 32,8,16,16,16 >& junk40.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 164:167 -radset 32,8,16,16,16 >& junk41.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 168:171 -radset 32,8,16,16,16 >& junk42.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 172:175 -radset 32,8,16,16,16 >& junk43.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 176:179 -radset 32,8,16,16,16 >& junk44.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 180:183 -radset 32,8,16,16,16 >& junk45.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 184:187 -radset 32,8,16,16,16 >& junk46.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 188:191 -radset 32,8,16,16,16 >& junk47.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 192:195 -radset 32,8,16,16,16 >& junk48.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 196:199 -radset 32,8,16,16,16 >& junk49.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 200:203 -radset 32,8,16,16,16 >& junk50.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 204:207 -radset 32,8,16,16,16 >& junk51.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 208:211 -radset 32,8,16,16,16 >& junk52.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 212:215 -radset 32,8,16,16,16 >& junk53.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 216:219 -radset 32,8,16,16,16 >& junk54.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 220:223 -radset 32,8,16,16,16 >& junk55.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 224:227 -radset 32,8,16,16,16 >& junk56.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 228:231 -radset 32,8,16,16,16 >& junk57.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 232:235 -radset 32,8,16,16,16 >& junk58.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 236:239 -radset 32,8,16,16,16 >& junk59.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 240:243 -radset 32,8,16,16,16 >& junk60.txt &
+
+This 4-threads-per-core runset gives avg 37.3min => 224ms/iter per job, vs 1-job-only's 132ms/iter:
+./Mlucas -fft 2M -iters 10000 -cpu 0,241:243 -radset 32,8,16,16,16 >& junk60.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 001:004 -radset 32,8,16,16,16 >& junk01.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 005:008 -radset 32,8,16,16,16 >& junk02.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 009:012 -radset 32,8,16,16,16 >& junk03.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 013:016 -radset 32,8,16,16,16 >& junk04.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 017:020 -radset 32,8,16,16,16 >& junk05.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 021:024 -radset 32,8,16,16,16 >& junk06.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 025:028 -radset 32,8,16,16,16 >& junk07.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 029:032 -radset 32,8,16,16,16 >& junk08.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 033:036 -radset 32,8,16,16,16 >& junk09.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 037:040 -radset 32,8,16,16,16 >& junk10.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 041:044 -radset 32,8,16,16,16 >& junk11.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 045:048 -radset 32,8,16,16,16 >& junk12.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 049:052 -radset 32,8,16,16,16 >& junk13.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 053:056 -radset 32,8,16,16,16 >& junk14.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 057:060 -radset 32,8,16,16,16 >& junk15.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 061:064 -radset 32,8,16,16,16 >& junk16.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 065:068 -radset 32,8,16,16,16 >& junk17.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 069:072 -radset 32,8,16,16,16 >& junk18.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 073:076 -radset 32,8,16,16,16 >& junk19.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 077:080 -radset 32,8,16,16,16 >& junk20.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 081:084 -radset 32,8,16,16,16 >& junk21.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 085:088 -radset 32,8,16,16,16 >& junk22.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 089:092 -radset 32,8,16,16,16 >& junk23.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 093:096 -radset 32,8,16,16,16 >& junk24.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 097:100 -radset 32,8,16,16,16 >& junk25.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 101:104 -radset 32,8,16,16,16 >& junk26.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 105:108 -radset 32,8,16,16,16 >& junk27.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 109:112 -radset 32,8,16,16,16 >& junk28.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 113:116 -radset 32,8,16,16,16 >& junk29.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 117:120 -radset 32,8,16,16,16 >& junk30.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 121:124 -radset 32,8,16,16,16 >& junk31.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 125:128 -radset 32,8,16,16,16 >& junk32.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 129:132 -radset 32,8,16,16,16 >& junk33.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 133:136 -radset 32,8,16,16,16 >& junk34.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 137:140 -radset 32,8,16,16,16 >& junk35.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 141:144 -radset 32,8,16,16,16 >& junk36.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 145:148 -radset 32,8,16,16,16 >& junk37.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 149:152 -radset 32,8,16,16,16 >& junk38.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 153:156 -radset 32,8,16,16,16 >& junk39.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 157:160 -radset 32,8,16,16,16 >& junk40.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 161:164 -radset 32,8,16,16,16 >& junk41.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 165:168 -radset 32,8,16,16,16 >& junk42.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 169:172 -radset 32,8,16,16,16 >& junk43.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 173:176 -radset 32,8,16,16,16 >& junk44.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 177:180 -radset 32,8,16,16,16 >& junk45.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 181:184 -radset 32,8,16,16,16 >& junk46.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 185:188 -radset 32,8,16,16,16 >& junk47.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 189:192 -radset 32,8,16,16,16 >& junk48.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 193:196 -radset 32,8,16,16,16 >& junk49.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 197:200 -radset 32,8,16,16,16 >& junk50.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 201:204 -radset 32,8,16,16,16 >& junk51.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 205:208 -radset 32,8,16,16,16 >& junk52.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 209:212 -radset 32,8,16,16,16 >& junk53.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 213:216 -radset 32,8,16,16,16 >& junk54.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 217:220 -radset 32,8,16,16,16 >& junk55.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 221:224 -radset 32,8,16,16,16 >& junk56.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 225:228 -radset 32,8,16,16,16 >& junk57.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 229:232 -radset 32,8,16,16,16 >& junk58.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 233:236 -radset 32,8,16,16,16 >& junk59.txt &
+./Mlucas -fft 2M -iters 10000 -cpu 237:240 -radset 32,8,16,16,16 >& junk60.txt &
+
+=======================================
+25. Dec 2021: For fused _X4x2 version of AVX_cmplx_carry_fast_errcheck_X4() macro, first need avx-512 implementation, then k1om:
+Examine data layout ...
+have the following double-octets at various base-address offsets (examine real parts):
+	rax			0a,1a,2a,3a|0b,1b,2b,3b
+	rax+0x080	4a,5a,6a,7a|4b,5b,6b,7b
+	rax+0x100	8a,9a,Aa,Ba|8b,9b,Ab,Bb
+	rax+0x180	Ca,Da,Ea,Fa|Cb,Db,Eb,Fb
+Need the two 4x4 submatrices transposed:
+	0,4,8,C,
+	1,5,9,D,
+	2,6,A,E,
+	3,7,B,F,
+_X4 version uses 4 vinsertf128 and 4 vshufpd to do single 4x4 transpose - latnncy (cycles), thruput (/cycle) numbers are:
+vinsertf128: Note, works only on ymm-sized data chunks!
+		Form:			Sky-X:	KNL:	Comments:
+	imm8,m128,ymm,ymm	5, 2	 7, 1	Skylake-X thruput is 2x for mem-operand form! (But latency higher)
+	imm8,xmm ,ymm,ymm	3, 1	3-6,1
+vshufpd:
+		Form:			Sky-X:	KNL:	Comments:
+	i,m,v,v	& i,v,v,v	1, 1	4-7,.5	Really slow on KNL!
+vunpck: same numbers.
+vshuff64x2:
+		Form:			Sky-X:	KNL:	Comments:
+	i,m,v,v	& i,v,v,v	3, 1	4-7,.5	Really slow on KNL!
+vpermtpd,vpermt2pd: same numbers.
+
+The alternative is to use vperm2f128 in place of the vinsertf128, but like vinsertf128, it works only on ymm-sized data chunks.
+Fof full-zmm-width vectors, replace f128 stuff with vshuff64x2 ... on Skylake-X that has same numbers as vinsertf128.
+
+Start with - using [row|col] indexing:
+	zmm0 = 00 01 02 03 04 05 06 07
+	zmm1 = 10 11 12 13 14 15 16 17
+	zmm2 = 20 21 22 23 24 25 26 27
+	zmm3 = 30 31 32 33 34 35 36 37
+/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices; in order
+to highlight the ensuing step 2, use [], want to swap [] pairs in lo,hi halves of zmm4,zmm0 and zmm1,zmm3: */\
+	"vunpcklpd		%%zmm1,%%zmm0,%%zmm4	\n\t"/* zmm4 = 00 10[02 12]04 14[06 16]*/\
+	"vunpckhpd		%%zmm1,%%zmm0,%%zmm1	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+	"vunpcklpd		%%zmm3,%%zmm2,%%zmm0	\n\t"/* zmm0 =[20 30]22 32[24 34]26 36 */\
+	"vunpckhpd		%%zmm3,%%zmm2,%%zmm3	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+vshuff64x2, 512-bit Version: "Moves two of the four 128-bit packed single-precision floating-point
+values from the first source operand (second operand) into the low 256-bit of each double qword of
+the destination operand (first operand); moves two of the four packed 128-bit floating-point values
+from the second source operand (third operand) into the high 256-bit of the destination operand.
+The selector operand (third operand) determines which values are moved to the destination operand."
+Want slightly different layer of these than in 2nd pass of 8x8 transpose algorithm - want these
+combinations of 128-bit double-pair subfields:
+	zmm4.0,zmm0.0,zmm4.2,zmm0.2
+	zmm1.0,zmm3.0,zmm1.2,zmm3.2
+	zmm4.1,zmm0.1,zmm4.3,zmm0.3
+	zmm1.1,zmm3.1,zmm1.3,zmm3.3
+/* [2] Layer of VSHUFF64x2; the imm4 values expressed in terms of 2-bit index subfields read right-to-left
+in order of increasing significance are (2,2,0,0) = 10100000_2 = 160 and (3,3,1,1) = 11110101_2 = 245: */\
+	"vshuff64x2	$160,%%zmm0,%%zmm4,%%zmm2	\n\t"/* zmm2 = 00 10 20 30 04 14 24 34 */\
+	"vshuff64x2	$245,%%zmm0,%%zmm4,%%zmm0	\n\t"/* zmm0 = 02 12 22 32 06 16 26 36 */\
+	"vshuff64x2	$160,%%zmm3,%%zmm1,%%zmm4	\n\t"/* zmm4 = 01 11 21 31 05 15 25 35 */\
+	"vshuff64x2	$245,%%zmm3,%%zmm1,%%zmm3	\n\t"/* zmm3 = 03 13 23 33 07 17 27 37 */\
+NO! vshuff64x2 only takes 2 elts from src1 for dest.lo256 and 2 from src2 for dest.hi256.
+In the above, 'vshuff64x2 src1,src2,dest' with imm8 = (2,2,0,0) yields src1.0,src1.0,src2.2,src2.2 .
+
+Use vpermt2pd src1,sr2,dest to permute 128-bit chunks of zmm-pairs?
+Permutes 16-bit/32-bit/64-bit values in dest and src1 using indices in src2 to select elements from dest and src1.
+The selected elements are written to the destination operand (dest) according to the writemask k1.
+The src2 operand contains input indices to select elements from the two input tables in src1 and dest.
+id = 2;
+for j = 0-7 {
+	i = j*64
+	off = 64*src2[i:i+id]	// bits 0:2 of 64-bit src2[j] are starting-bit index into src1)
+	if(src2[i+id+1])		// bit 3 of src2[j] selects between 64-bit src1[off+63:off] and dest[off+63:off]
+		dest[i:i+63] =  src1[off+63:off]
+	else
+		dest[i:i+63] =  dest[off+63:off]
+}
+Illustrate indexing on src1 = zmm4, dest = zmm0, here are needed 4-bit entries of src2 indexing-vector, low to high:
+j	idx_2:	0x:	element	value
+--	------	---	-------	-----
+0	0b1000	0x8	zmm4.0	00
+1	0b1001	0x9	zmm4.1	10
+2	0b0000	0x0	zmm0.0	20
+3	0b0001	0x1	zmm0.1	30
+4	0b1100	0xc	zmm4.4	04
+5	0b1101	0xd	zmm4.5	14
+6	0b0100	0x4	zmm0.4	24
+7	0b0101	0x5	zmm0.5	34
+Need to make copy of zmm0 before doing above, because now use same 2 src-operands to swap the other 128-bit pairs:
+j	idx_2:	0x:	element	value
+--	------	---	-------	-----
+0	0b1010	0xa	zmm4.2	00
+1	0b1011	0xb	zmm4.3	10
+2	0b0010	0x2	zmm0.2	20
+3	0b0011	0x3	zmm0.3	30
+4	0b1110	0xe	zmm4.4	04
+5	0b1111	0xf	zmm4.5	14
+6	0b0110	0x6	zmm0.4	24
+7	0b0121	0x7	zmm0.5	34
+"movq	$0x05040d0c01000908,%%rbx	\n\t"/* 64-bit register w/byte offsets 0x[8,9,0,1,c,d,4,5], bytes numbered left-to-right */\
+"movq	$0x07060f0e03020b0a,%%rcx	\n\t"/* 64-bit register w/byte offsets 0x[a,b,2,3,e,f,6,7], bytes numbered left-to-right */\
+"vmovq		%%rbx,%%xmm8 		\n\t"/* Copy byte pattern in rbx to low qword (64 bits) of xmm8 [NB: avx-512 only supports MOVQ to/from 128-bit vector regs] */\
+"vmovq		%%rcx,%%xmm9 		\n\t"/* Copy byte pattern in rcx to low qword (64 bits) of xmm9 */\
+"vpmovzxbq	%%xmm8,%%zmm8		\n\t"/* vector-index offsets: zmm8 = 0x[8,9,0,1,c,d,4,5] in 64-bit form in 8 qwords */\
+"vpmovzxbq	%%xmm9,%%zmm9		\n\t"/* vector-index offsets: zmm9 = 0x[a,b,2,3,e,f,6,7] in 64-bit form in 8 qwords */\
+
+vblendmpd src1,src2,dest: Performs an element-by-element blending between float64/float32 elements
+in src1 and src2 using an opmask register as select control. The blended result is written to the
+destination register. The opmask register is not used as a writemask for this instruction. Instead,
+the mask is used as an element selector: every element of the destination is conditionally selected
+between src2 or src1 using the value of the related mask bit (0 for src2, 1 for src1).
+=======================================

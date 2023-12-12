@@ -1,0 +1,337 @@
+* Number Theory doodles *
+
+========================
+Oct 2018: Prime number theorem:
+
+Q: Can we recast prod(1 - 1/p) in terms of prod(1/p)?
+(1-1/2).(1-1/3) = 1 - 1/2 - 1/3 + 1/(2.3),
+
+(1-1/2).(1-1/3).(1-1/5) = (1 - 1/2 - 1/3 + 1/(2.3)).(1-1/5)
+ = (1 - 1/2 - 1/3 + 1/(2.3)) - (1/5).(1 - 1/2 - 1/3 + 1/(2.3)),
+ = (1 - 1/2 - 1/3 - 1/5 + 1/(2.3) + 1/(2.5) + 1/(3.5) - 1/(2.3.5))
+ = (1 - 1/2 - 1/3 - 1/5) + (2+3+5 - 1)/(2.3.5)
+
+(1-1/2).(1-1/3).(1-1/5).(1-1/7) = (1 - 1/2 - 1/3 - 1/5 + (2+3+5 - 1)/(2.3.5)).(1-1/7)
+ = (1 - 1/2 - 1/3 - 1/5 + 9/(2.3.5)) - (1/7).(1 - 1/2 - 1/3 - 1/5 + 9/(2.3.5))
+ = (1 - 1/2 - 1/3 - 1/5 - 1/7 + 9/(2.3.5) + 1/(2.7) + 1/(3.7) + 1/(5.7)) - 9/(2.3.5.7))
+ = (1 - 1/2 - 1/3 - 1/5 - 1/7) + (9.7 + 3.5 + 2.5 + 2.3 - 9)/(2.3.5.7)
+ = (1 - 1/2 - 1/3 - 1/5 - 1/7) + 85/(2.3.5.7), don't see any obvious formula for the numerator on the collected ()/prod(p) term emerging.
+
+Compare prod(1 - 1/p) for all p <= x to 1/ln(x) for various values of x:
+x	1/ln(x)	prod(1 - 1/p), p <= x
+---	-------	---------------------
+10	.434	.229
+1e2	.217	.120
+1e3
+Why do the 1/ln(x) values appear to be roughly half the prod(1 - 1/p) ones? Ah, because a sieve using
+primes <= x will eliminate all composites <= x^2 ... thus we need to shift the col3 values down 1 row,
+or replace col2 with 1/ln(x^2).
+
+x 1/ln(x^2)	prod(1 - 1/p), p <= x				diff between successive ratios:
+---	-------	---------------------				--------------------
+10	.217	.229, ratio	1.05261032822584945551
+1e2	.109	.120		1.10816319790808099095
+1e3 .072	.081		1.11857645280714055621	.01041325489905956526
+1e4	.054	.061		1.12153748192272468945	.00296102911558413324
+1e5	.043	.049		1.12257741883710935036	.00103993691438466091
+1e6	.0362	.0406		1.12287524336634907079	.00029782452923972043
+1e7	.0310	.0348		1.12290821950447073539	.00003297613812166460
+1e8	[bc suffers mem-corruption when push limits this high]
+
+Code:
+[assumes nt-utils code in bc_samp.txt has been run:]
+define psieve_prod(n) {
+	auto np,narr,p,prod;
+	narr = 0; prod = 0.5;
+	np = 0; p = primes0[np];
+	while(p <= n) {
+		prod *= (1-1/p);
+		if(++np == bc_dim_max) {
+			print "At odd prime #",narr*bc_dim_max + np," = ",p,"\n";
+			np = 0;	narr += 1;
+		}
+		if(narr == 0)
+			p = primes0[np];
+		if(narr == 1)
+			p = primes1[np];
+		if(narr == 2)
+			p = primes2[np];
+		if(narr == 3)
+			p = primes3[np];
+		if(narr == 4)
+			p = primes4[np];
+		if(narr == 5)
+			p = primes5[np];
+		if(narr == 6)
+			p = primes6[np];
+		if(narr == 7)
+			p = primes7[np];
+		if(narr == 8)
+			p = primes8[np];
+		if(narr == 9)
+			p = primes9[np];
+		if(narr == 10)
+			p = primes10[np];
+		if(p == 0 || narr >= narr_max) {
+			print "Requested pmax exceeds small-primes-table limit.\n";
+			return prod;
+		}
+	}
+	print "Sieve product = ",prod,"\n";
+	return prod;
+}
+Then e.g.
+psieve_prod(10^2)*l(10^4)
+psieve_prod(10^3)*l(10^6)
+psieve_prod(10^4)*l(10^8)
+psieve_prod(10^5)*l(10^10)
+psieve_prod(10^6)*l(10^12)
+psieve_prod(10^7)*l(10^14)
+
+C-code version:
+		1/ln(p^2)			prod(1-1/p)			qfprod				ratio			diff
+10	 4.605170185988092	0.228571428571429	0.228571428571429	1.052610328225850	---
+1e2	 9.210340371976184	0.120317290474935	0.120317290474935	1.108163197908081	.055552869682231
+1e3	13.815510557964274	0.080965263506843	0.080965263506842	1.118576452807142	.010413254899061
+1e4	18.420680743952367	0.060884692455838	0.060884692455838	1.121537481922724	.002961029115582
+1e5	23.025850929940457	0.048752917851015	0.048752917851015	1.122577418837106	.001039936914382
+1e6	27.631021115928547	0.040638210171649	0.040638210171648	1.122875243366364	.000297824529258
+1e7	32.236191301916641	0.034833774529618	0.034833774529617	1.122908219504567	.000032976138203
+1e8	36.841361487904734	0.030479721610591	0.030479721610587	1.122914441906328	.000006222401761
+1e9	41.446531673892821	0.027093154869880	0.027093154869871	1.122917301459791	.000002859553463
+
+Note: 2*gamma = 2*0.577216... = 1.154432..., so ratio does not appear to be converging to that value.
+Ah - the ratio prod(1 - 1/p)/(1/ln(x^2)) = ln(x^2)*prod(1 - 1/p) is more or less the same one in Mertens' third theorem:
+
+	lim(n --> oo) ln(n)*prod(1 - 1/p) = exp(-gamma). [M3]
+
+My ln(x^2) = 2*ln(x) is just 2 times the ln(n) in the above formula, thus the desired asymptotic constant in my above tabulations is 2*exp(-gamma) = 2*exp(-0.577215664901532...) = 2*0.561459483566885653... = 1.122918967133771306... .
+
+Note: Interestingly (https://en.wikipedia.org/wiki/Mertens%27_theorems) notes that Robin (1983) proved that the difference of the 2 quantities appearing in [M3],
+
+	ln(n)*prod(1 - 1/p) - exp(-gamma)
+
+changes sign infintely often, though no lower bound on the first such sign change is known.
+
+Q: How to prove [M3]?
+
+ln(prod(1 - 1/p)) = sum(ln(1 - 1/p)); use that for small x, ln(1-x) ~= -x, i.e. for p >> 1, ln(1 - 1/p) ~= -1/p,
+	--> ~= -sum(1/p), which sum by Mertens' second theorem is O(-ln(ln(n)) - M), where M is the Meissel-Mertens constant, M =  . Reexponentiating we get
+prod(1 - 1/p) = O(exp(-M)/ln(n)), where exp(-M) = 0.76989802124443540... , but we don't expect this to equal the true asymptotoic constant (which by [M3] = exp(-gamma) = 0.561459483566885653...) due to our use of small-argument asymptotics to approximate ln(prod(1 - 1/p)).
+========================
+
+========================
+
+Oct 2018: Sophie-Germain prime chains:
+
+2,5,11,23,47 - this exceeds length-3 only bc 5 is prime ... any other seq including term == 1 (mod 5) has max len 3
+
+89,179,359,719,1439,2879 - next term 5759 = 13.443 . All seq terms == 2 (mod 3) and == 4 (mod 5), thus no terms div-by-3 or 5; seq terms == 5,4,2,5,4,2,... (mod 7) thus no terms div-by-7. Terms == 1,3,7,4,9,8,6,2,5,0 (mod 11), thus hit div-by-13 before div-by-11 term appears. Terms == 11,10,8,4,9,6,0 (mod 13).
+
+Long-sequence notes:
+
+o terms *must* all == 9 (mod 10), bc 1,3,7 (mod 10) yields 5 (mod 10) after the 7, thus div-by-5 except for the special 2,5,... case
+
+o terms must == 10 (mod 11) bc all other (mod 11) values appear in the above length-10 repeat-sequence for 89,... .
+
+o for (mod 13) we have a bit more flexibility: 12 and 1,3,7 (mod 13) repeat sans 0, all other possibles appear in 2,5,11,10,8,4,9,6,0 .
+
+o for (mod 17): 1,3,7,15,14,12,8,0; n-mod must == 16 or come from non-0-containing seq 2,5,11,6,13,10,4,9
+
+o for (mod 19): 1,3,7,15,12,6,13,8,17,16,14,10,2,5,11,4,9,0, so require n == -1 (mod 19)
+
+o for (mod 23): 1,3,7,15,8,17,12,2,5,11,0; n-mod must == 22 or come from non-0-containing seq 4,9,19,16,10,21,20,18,14,6,13
+
+o for (mod 29): 1,3,7,15,2,5,11,23,18,8,17,6,13,27,26,24,20,12,25,22,16,4,9,19,10,21,14,0, so require n == -1 (mod 29)
+
+So perhaps we should focus on seqs where starting term == -1 modulo all of our small primes, since by definition that will repeat with length-1 ... no, tried that using a version of the simple bc-script below, much too restrictive once small prime bound gets up around 20 or more.
+
+Following setup guarantess candidates == 2 (mod 3) and == 4 (mod 5) - doing PRP check last gives huge speedup:
+
+define sgtry(n) {
+	auto i,m,nn,np;
+	while(1) {
+		m = n%7;
+		if(m==2 || m==4 || m==5 || m==6) {
+			m = n%11;
+			if(m==10) {
+				m = n%13;
+				if(m==1 || m==3 || m==7 || m==12) {
+					m = n%17;
+					if(m==2 || m==4 || m==5 || m==6 || m==9 || m==10 || m==11 || m==13 || m==16) {
+						if(isprp(n) && !isprp((n-1)/2)) {
+							nn = n;	np = 0;	p[np++] = n;
+							while(isprp(nn)) {
+								if(n != nn) p[np++] = nn;
+								nn = 2*nn + 1;
+							}
+							if(np >= 7) {
+								i = 0;
+								while(i < np) {
+									print p[i++],",";
+								}
+								print "\n";
+							}
+						}
+					}
+				}
+			}
+		}
+		n += 30;
+	}
+}
+
+Some 10-long-and-greater prime-seqs with small-p limit = 17, using C-code version of above for speed:
+
+// Quick-n-dirty code to find longish Cunningham chains of type 1, i.e. iterated Sophie-Germain prime sequences:
+void sgtry(uint64 n) {
+	uint32 i,np;
+	uint64 m,nn,p[20];
+	while(1) {
+		m = n%7;
+		if(m==2 || m==4 || m==5 || m==6) {
+			m = n%11;
+			if(m==10) {
+				m = n%13;
+				if(m==1 || m==3 || m==7 || m==12) {
+					m = n%17;
+					if(m==2 || m==4 || m==5 || m==6 || m==9 || m==10 || m==11 || m==13 || m==16) {
+						if(isPRP64(n) && !isPRP64((n-1)>>1)) {
+							nn = n;	np = 0;	p[np++] = n;
+							while(isPRP64(nn)) {
+								if(n != nn) p[np++] = nn;
+								nn = 2*nn + 1;
+							}
+							if(np >= 10) {
+								printf("n = %2u: %llu\n",np,p[0]);
+							}
+						}
+					}
+				}
+			}
+		}
+		n += 30;
+	}
+}
+
+n = 10: 26089808579
+n = 10: 65639153579
+n = 10: 372339715439
+n = 10: 551652886619
+n = 12: 554688278429
+n = 10: 570901515029
+n = 10: 624758088239
+n = 11: 665043081119
+n = 10: 721438465439
+n = 10: 1243541923469
+n = 10: 1341807015119
+n = 10: 2027840556719
+n = 10: 2452499778299
+n = 10: 2486906850119
+n = 10: 2834226458909
+n = 10: 3495773443139
+n = 10: 3717568843559
+n = 10: 3919801172429
+n = 10: 4228633787069
+n = 10: 4315740820379
+n = 10: 4389398045009
+n = 10: 4709436287819
+n = 11: 5213499728579
+n = 10: 5496251895419
+n = 11: 6424044070289
+n = 10: 7623279613949
+n = 10: 8838316190549
+n = 10: 9505936294139
+n = 10: 10772441777789
+n = 10: 11302644104729
+n = 10: 11707877151959
+n = 10: 11708681148449
+n = 10: 11972892193679
+n = 10: 12609972512279
+n = 11: 12789808055309
+n = 10: 13386666065189
+n = 11: 13683070370969
+n = 10: 13882835304029
+n = 10: 13989859828229
+n = 10: 14323581832559
+n = 10: 14500669167269
+n = 11: 14825643660959
+n = 10: 15641742059789
+n = 10: 15659189070359
+n = 10: 15691843754729
+n = 10: 15813479035199
+n = 10: 15895760068319
+n = 10: 15940867526429
+n = 10: 16970999277209
+n = 10: 17071617771779
+n = 10: 17157972539399
+n = 12: 17287267757759
+n = 10: 17893428384809
+n = 10: 18039175669349
+n = 10: 18818895033509
+n = 10: 19474796532179
+n = 10: 19569217251869
+n = 10: 20520567857789
+n = 10: 20529464949839
+n = 10: 21558623508839
+n = 10: 21809654194019
+n = 10: 22926634745849
+n = 10: 23082002534579
+n = 10: 23402453476379
+n = 11: 24261403126949
+n = 10: 24459838671839
+n = 10: 26233376852099
+n = 10: 26434455817769
+n = 10: 26795072755439
+n = 10: 27760874521379
+n = 10: 28192373727209
+n = 10: 28527868857179
+n = 10: 28765387228709
+n = 10: 28806256783589
+n = 10: 29128869357719
+n = 10: 29493942670169
+n = 10: 29939865347369
+n = 10: 31165778101589
+n = 10: 32745153140699
+n = 10: 32938312995719
+n = 10: 33766333308839
+n = 10: 33891724443719
+n = 10: 35057265942269
+n = 10: 35524924331159
+n = 10: 35533935350759
+n = 10: 37107231168149
+n = 10: 37352394691589
+n = 10: 38080040230649
+n = 10: 38219664881969
+n = 10: 38436288228029
+n = 11: 38439335052689
+n = 10: 38579202626249
+n = 10: 40333519006769
+n = 11: 41635511926139
+n = 10: 42013193856479
+n = 10: 42322657258859
+n = 10: 42604905773429
+
+basic stats: sample size = 367, no. of len [7,8,9,10] = [301,53,11,2]
+
+					m = n%19;
+					if(m==18) {
+						m = n%23;
+						if(m==4 || m==9 || m==19 || m==16 || m==10 || m==21 || m==20 || m==18 || m==14 || m==6 || m==13) {
+							m = n%29;
+							if(m==28) {
+								print "n = ",n,"\n";
+							}
+						}
+					}
+
+	m = n%?;
+	if(m == ? || m == ? || m == ? || m == ?) {
+	m = n%?;
+	if(m == ? || m == ? || m == ? || m == ?) {
+	m = n%?;
+	if(m == ? || m == ? || m == ? || m == ?) {
+
+n=2*n+1;isprp(n)
+trialdiv(n,10^6)
+

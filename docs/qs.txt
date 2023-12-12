@@ -1,0 +1,35 @@
+A p-1 run found the following 53-digit composite factor of M(109228331), which factors into p25*p29:
+q = 67043584777242522312784510096836476580550779917618449 = 3258278300321182416433937 * 20576383782390150543028926977
+The prime factors themselves have p-1 factorizations
+p25-1 = p*2^4.11.113.305611.4907867
+p29-1 = p*2^9.577.20929.28687.1062073, which is why a p-1 run to B1 = 10^6 and B2 > 10^6 found them both in stage 2.
+
+For such composite factors of M(p) = q1.q2
+= (2.k1.p+1).(2.k2.p+1) = 4.k1.k2.p^2 + 2.(k1+k2).p + 1 = (2.k1.k2.p + k1 + k2).2.p + 1 = 2.p.F + 1,
+where F := (2.k1.k2.p + k1 + k2) = 306896499120006339347913821446363016297258904 ... Need to find k1,k2!
+Seems we could do better than e.g. ECM or QS on (n-1), since we have that k1,k2 must satisfy F == k1 + k2 (mod p).
+
+If k1,k2 < p, things are easy: F/2p = k1.k2, i.e. quotient Q = k1.k2, remainder R = k1 + k2, can just brute-force loop over all k1 <= sqrt(Q) which divide Q, compute k2 = Q/k1, see if R = k1+k2. Will this work in the general case where k1,k2 may be quite a bit larger than 2p? For the above example, k1 = 14914987121432728, k2 = 94189774731567355648. The true 2.k1.k2.p = 306896499120006339347913727241673297608470528,
+whereas   q/2p = 306896499120006339347913821446363016297258904; difference too large to make the above idea workable.
+
+Know F == (k1+k2) mod 2p; in our case (k1+k2) == 98326026 mod 2p, useless because requires a priori knowledge of k1,k2.
+
+5/23/21: Can at least do p-1 with S1 seed = p on n ... wait:
+[We open our next scene with a hand slapping the owner's forehead, accompanied by the utterance "doh!"]
+
+Re above: In fact it seems silly to use powerful general-modulus factoring machinery like ECM or QS on such (p-1)-found factor-product composites. Here's why: say we have some product of prime factors F = f1*f2*...*fn discovered by running p-1 to stage bounds b1 and b2 on an input Mersenne M(p) (or other bigum modulus with factors of a known form, allowing p-1 to be 'seeded' with a component of same). BY DEFINITION, each prime factor f1-fn will be b1/b2-smooth, in the sense than fj = 2*p*C + 1, where C is a composite all of whose prime factors are <= b1, save possibly one outlier-prime factor > b1 and <= b2. Thus if we again run p-1 to bounds b1/b2, but now with arithmetic modulo the relatively tiny factor product F, we are guaranteed to resolve all the prime factors f1-fn - the only trick is that we will need to do multiple GCDs along the way in order to capture the individual prime factors f1,...,fn, rather than have this secondary p-1 run modulo F again produce the same composite GCD = F which the original p-1 run mod M(p) did. Again, though, since in the followup p-1 run we are working mod F, all the arithmetic is trivially cheap, including the needed GCDs.
+
+====================================
+
+Use above example composite to work through the basics of ECM:
+[to-do!]
+
+====================================
+
+Use above example composite to work through the basics of ECM and the Quadratic Sieve factorization algorithm.
+Wikipedia:
+
+"The algorithm attempts to set up a congruence of squares modulo n (the integer to be factorized), which often leads to a factorization of n. The algorithm works in two phases: the data collection phase, where it collects information that may lead to a congruence of squares; and the data processing phase, where it puts all the data it has collected into a matrix and solves it to obtain a congruence of squares. The data collection phase can be easily parallelized to many processors, but the data processing phase requires large amounts of memory, and is difficult to parallelize efficiently over many nodes or if the processing nodes do not each have enough memory to store the whole matrix. The block Wiedemann algorithm can be used in the case of a few systems each capable of holding the matrix.
+
+"The naive approach to finding a congruence of squares is to pick a random number, square it, and hope the least non-negative remainder modulo n is a perfect square (in the integers). For example, 802 mod 5959 is 441, which is 212. This approach finds a congruence of squares only rarely for large n, but when it does find one, more often than not, the congruence is nontrivial and the factorization is complete. This is roughly the basis of Fermat's factorization method."
+

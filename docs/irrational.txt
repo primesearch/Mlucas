@@ -1,0 +1,61 @@
+24 Feb 2022
+Prove irrationality of sqrt(2) via N-R iteration formula?
+
+Let f(x) = x^(-2) − c, applying N-R (dx = -f/f' = (c - 1/x^2)/(-2/x^3) = x.(1-cx^2)/2) to this yields a second-order iterative formula for the reciprocal square-root of the computationally efficient kind we seek, with a per-iteration cost of 1 ADD and 4 MUL:
+	x_n+1 = x*(3 - c*x^2)/2
+Fixed point(s) x* of the iteration given by dx = x*.(1-cx*^2)/2) = 0, with solutions x* = +- 1/sqrt(c) .
+Assume x* rational, i.e. x* = 1/sqrt(c) = p/q. In terms of p and q our iteration is
+	x_n+1 = (p/q)*(3 - c*(p/q)^2)/2 = p.(3.q^2 - 2.p^2)/(2.q^3), i.e. p' = p*(3*q^2 - 2*p^2), q' = (2*q^3)
+Example: c = 2, x0 = 1, x_n+1 = x_n*(3 - 2*x_n^2)/2 ... if x_n = p/q, have
+bc:
+p=q=1
+p *= (3*q^2-2*p^2); q = (2*q^3); g = gcd(p,q); p /= g; q /= g; print "gcd = ",g,": p = ",p,", q = ",q,"\n"
+n	x_n = p/q												factorization of p,q
+0	1
+1	1/2
+2	5/8														5,2^3
+3	355/512													5.71,2^9
+4	94852805/134217728										5.23.71.11617,2^27
+5	1709678476417571835487555/2417851639229258349412352		5.23.71.5741.8837.11617.355280903,2^81
+6	p = 5.23.71.3023.5741.8837.11617.27509.355280903.70298580191725636724693742124090124808533, q = 2^243
+...
+We observe that for each iteration, gcd(p',q') = 2. Also:
+	o Once p has a given odd factor, subsequent iterations merely add more odd factors to p
+	[Q: Are said odd factors all distinct, i.e. is p squarefree?]
+	o q = 2^, with k tripling on each iteration
+Q: Is there a similar trend for other initial choices of p,q?
+p0 = 4, q0 = 5:
+n	x_n = p/q
+0	4/5
+1	86/125
+2	43.32083/5^9
+3	43.32083.308933.24722741/2.5^27
+4	43.1987.32083.197947.308933.5926127.24722741.51537769.1848407118139843/2^3.5^81; so, more observations:
+	o Any power of 2 in p is reduced by 1 each iteration until p odd, q = 2.odd
+	o Each distinct prime in the factorization of q has its power tripled each iteration
+	o Assuming p0,q0 in reduced form (gcd(p,q) = 1), again we have gcd(p,q) = 2 each iteration.
+
+Without loss of generality we can consider the initial iterate within the basin of monotone convergence and its p0,q0 reduced, i.e. gcd(p0,q0) = 1, thus p0=q0=1 or p0,q0 have opposite parity, and:
+1: p0=q0=1 yields next-iterate p = 1, q = 2, thus of form [2] below.
+2: For p0 odd, q0 even: both 2.p^2 and 3.q^2 even and numerator p*(3*q^2 - 2*p^2) = 2*odd, thus gcd(p',q') = 2
+3: For p0 even, q0 odd: 2.p^2 even and 3.q^2 odd; p*(3*q^2 - 2*p^2) even, denominator 2.q^3 = 2*odd, thus gcd(p',q') = 2
+In case [3] the unreduced numerator is divisible by 2^k with k > 1; since (3*q^2 - 2*p^2) odd, said power of 2 is the same as contained in the input value p0, and the ensuing division by the gcd = 2 reduces it by 1, thus after k further iterations we fall into pattern [2] and remain there (e.g. p0,q0 = 4,5 give p = 86,1379569,... and q = 125,1953125,...; p0,q0 = 8,9 give p = 460,269358290,41100860142614334318305635,... and q = 729,387420489,58149737003040059690390169,...).
+Thus after a finite number of iterations we inevitably settle into pattern [2] and remain there, thus the iteration converges in the sense that p/q approaches a limit but p,q never do because their gcd remains fixed at 2. QED
+*** Not quite - need to show that (or if) gcd cannot include an odd prime ***
+For q0 = 2 that is easy - denominator = 2.q^3, if it starts as a power of 2 it stays there.
+
+Now try c = 3: Iterative-update is p = p.(3.q^2 - c.p^2) = 3.p.(q^2 - p^2), q = (2.q^3).
+Again use p0 = 1, q0 = 2:
+n	x_n = p/q
+1	3^2/2^4
+2	3^3.5^2.7/2^13
+3	3^4.5^2.7.3467.12917/2^40
+Denominator = 2^k, k = (3.n+1); if p0 odd, numerator = odd.odd.(even-odd) always odd, hence sqrt(3) irrational.
+
+Now try a (rational)^2, c = 9/16, yielding p = 3.p.(16.q^2 - 3.p^2), q = (2^5.q^3), same initial guess:
+n	x_n = p/q
+0	1/2
+1	3.61/2^8
+2	3^2.61.107.1511/2^25
+... this clearly converges -> 4/3, but here's the rub: p/q can converge in the sense of the limit as n -> oo, but p and q converge only in this same sense, i.e. there's no reason to expect gcd(p,q) to magically hit a nonzero value such that the resuling gcd-reduced p = 4 and q = 3 in a finite number of steps..
+

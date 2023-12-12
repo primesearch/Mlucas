@@ -1,0 +1,3508 @@
+Nov 2021: PM with tdulcet's makemake.sh-script changes needed to allow Mfactor builds:
+
+https://www.mersenneforum.org/private.php?do=showpm&pmid=173425
+
+=============================
+
+Aug 2020: Updated ||-int64-build notes:
+
+clang -c -Os get*c
+clang -c -Os imul_macro.c mi64.c qfloat.c rng_isaac.c two*c types.c
+clang -c -Os -DUSE_THREADS twopmodq96.c
+clang -c -Os -DUSE_THREADS -DFACTOR_STANDALONE -DTRYQ=4 -DTF_CLASSES=4620 -DP2WORD factor.c
+clang -c -Os -DUSE_THREADS threadpool.c util.c
+clang -o Mfactor-base-2w-tfc-mt *o -lm -lpthread
+./Mfactor-base-2w-tfc-mt -m 2147483647 -bmin 67 -bmax 68 -nthread 16
+
+Here is the minimal-fileset needed for the build:
+M*h align.h carry*.h dft_macro.h f2psp*h fac*h float_intrin.h imul*h masterdefs.h mi64.h platform.h prefetch.h qfloat.h rng_isaac.h threadpool.h two*h types.h util.h
+factor.c getRealTime.c get_cpuid.c get_fft_radices.c get_fp_rnd_const.c imul_macro.c mi64.c qfloat.c rng_isaac.c threadpool.c two*c types.c util.c
+
+
+
+Oct 2018: On x86_64 (Core2Duo):
+
+cd ~/mlucas/src/obj_mfac
+INT64:
+clang -c -Os ../get*c && rm get_preferred_fft_radix.o
+clang -c -Os ../imul_macro.c ../mi64.c ../qfloat.c ../rng_isaac.c ../two*c ../types.c ../util.c
+clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c
+clang -o Mfactor *o -lm
+MULTITHREAD:
+clang -c -Os -DUSE_THREADS -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c
+clang -c -Os -DUSE_THREADS ../threadpool.c ../util.c
+
+SSE2:
+clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 -DUSE_FLOAT -DUSE_SSE2 ../factor.c ../twopmodq80.c
+
+*** Haswell: ***
+gcc -c -Os ../src/get*c && rm get_preferred_fft_radix.o
+gcc -c -Os ../src/imul_macro.c ../src/mi64.c ../src/qfloat.c ../src/rng_isaac.c ../src/two*c ../src/types.c ../src/util.c
+gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=4 ../src/factor.c
+gcc -o Mfactor *o -lm -lrt
+
+AVX:
+gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=8 -DUSE_FLOAT -DUSE_AVX ../src/factor.c ../src/twopmodq80.c && gcc -o Mfactor *o -lm -lrt && time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
+TRYQ=4, Int64: 44 sec
+TRYQ=8:  58 sec
+TRYQ=16: 48 sec
+
+AVX2 - build of factor.c needs AVX-only, not AVX2:
+gcc -c -Os -DUSE_AVX2 ../src/twopmodq80.c
+gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=8 -DUSE_FLOAT -DUSE_AVX ../src/factor.c && gcc -o Mfactor *o -lm -lrt && time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
+TRYQ=8:  58 sec [For 8-way modexp there is no specialized avx2-code, i.e. we get same as avx build]
+TRYQ=16: 36 sec
+
+So my SIMD modpow code doesn't manage to beat my Int64-code until we get to use AVX2 (i.e. FMA) and 16-way ... not impressive.
+
+==========================
+Dec 2019: Nvidia CUDA build on Haswell/gtx430:
+
+C sources need to be soft-linked to cu-suffixed aliases:
+ewmayer@derek:~/Mlucas/src$ ll *cu
+lrwxrwxrwx 1 ewmayer ewmayer     8 Jul 21  2014 factor.cu -> factor.c
+lrwxrwxrwx 1 ewmayer ewmayer    11 Jul 21  2014 get_cpuid.cu -> get_cpuid.c
+lrwxrwxrwx 1 ewmayer ewmayer    18 Jul 21  2014 get_fp_rnd_const.cu -> get_fp_rnd_const.c
+-rw-r--r-- 1 ewmayer ewmayer  7039 Oct 12  2015 gpu_iface.cu
+-rwxr-xr-x 1 ewmayer ewmayer 63353 Oct 15  2015 gpu_sieve.cu
+lrwxrwxrwx 1 ewmayer ewmayer    12 Jul 21  2014 imul_macro.cu -> imul_macro.c
+lrwxrwxrwx 1 ewmayer ewmayer     6 Jul 21  2014 mi64.cu -> mi64.c
+lrwxrwxrwx 1 ewmayer ewmayer     8 Jul 21  2014 qfloat.cu -> qfloat.c
+lrwxrwxrwx 1 ewmayer ewmayer    11 Jul 21  2014 rng_isaac.cu -> rng_isaac.c
+lrwxrwxrwx 1 ewmayer ewmayer    16 Jul 21  2014 twopmodq128_96.cu -> twopmodq128_96.c
+lrwxrwxrwx 1 ewmayer ewmayer    13 Jul 21  2014 twopmodq128.cu -> twopmodq128.c
+lrwxrwxrwx 1 ewmayer ewmayer    13 Jul 21  2014 twopmodq160.cu -> twopmodq160.c
+lrwxrwxrwx 1 ewmayer ewmayer    13 Jul 21  2014 twopmodq192.cu -> twopmodq192.c
+lrwxrwxrwx 1 ewmayer ewmayer    13 Jul 21  2014 twopmodq256.cu -> twopmodq256.c
+lrwxrwxrwx 1 ewmayer ewmayer    17 Jul 21  2014 twopmodq64_test.cu -> twopmodq64_test.c
+lrwxrwxrwx 1 ewmayer ewmayer    12 Jul 21  2014 twopmodq80.cu -> twopmodq80.c
+lrwxrwxrwx 1 ewmayer ewmayer    12 Jul 21  2014 twopmodq96.cu -> twopmodq96.c
+lrwxrwxrwx 1 ewmayer ewmayer    10 Jul 21  2014 twopmodq.cu -> twopmodq.c
+lrwxrwxrwx 1 ewmayer ewmayer     7 Jul 21  2014 types.cu -> types.c
+lrwxrwxrwx 1 ewmayer ewmayer     6 Jul 21  2014 util.cu -> util.c
+
+nvcc -c -O3 -arch=sm_20 util.cu
+
+platform.h:346:3: warning: #warning CUDA: Device-code compile pass
+platform.h:1032:3: warning: #warning OS_NAME "Linux"
+platform.h:1097:4: warning: #warning Compiling in 64-bit mode
+platform.h:1346:3: warning: #warning CPU_NAME "nVidia"
+platform.h:1364:3: warning: #warning CPU_SUBTYPE_NAME "Unknown CPU subtype"
+platform.h:1376:3: warning: #warning COMPILER_NAME "nVidia C++ (for GPU)"
+util.cu:2477:2: warning: #warning USE_FMADD enabled in util.c!
+...
+util.cu(2719): error: identifier "dptr1" is undefined
+util.cu(2719): error: identifier "dptr2" is undefined
+util.cu(2720): error: identifier "dptr3" is undefined
+util.cu(2720): error: identifier "crnd50" is undefined
+util.cu(2720): error: identifier "dptr4" is undefined
+util.cu(2720): error: identifier "prod1_adj" is undefined	<*** inside avx2-only test_mul50x50() function ***
+...
+util.cu(3272): warning: a __device__ function("ith_set_bit32") redeclared without __device__, hence treated as a __host__ __device__ function
+util.cu(3296): warning: a __device__ function("ith_set_bit64") redeclared without __device__, hence treated as a __host__ __device__ function
+...
+21 errors detected in the compilation of "/tmp/tmpxft_00001e99_00000000-6_util.cpp1.ii".
+
+mi64.c:
+
+mi64.cu(231): warning: a __device__ function("mi64_brev") redeclared without __device__, hence treated as a __host__ __device__ function		<** __device__ not getting applied to #if 1'ed version of function ... delete #if 0'ed version**
+mi64.cu(259): warning: a host variable "randcnt" cannot be directly read in a device function	<*** rng_isaac_rand()***
+mi64.cu(414): error: identifier "u" is undefined	<*** local-alloc in mi64_shlc wrapped in #ifndef __CUDA_ARCH__ ***
+mi64.cu(521): warning: a __device__ function("mi64_shl_short") redeclared without __device__, hence treated as a __host__ __device__ function
+mi64.cu(873): error: asm constraint letter 'm' is not allowed inside a __device__/__global__ function <*** USE_AVX2 ***
+
+==========================
+2-word exponents:
+
+clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 -DP2WORD ../factor.c
+clang -o Mfactor_p2word *o -lm
+
+5506720553412961 has factor with k = 46126737231. Default (TF_CLASSES = 60) finds on pass 12 of 16, pass with k%60 = 51.
+TF_CLASSES = 4620 finds on pass 245 of 960, pass with k%4620 = 1191.
+
+clang -c -O3 -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c && clang -o Mfactor *o -lm
+./Mfactor -m 5506720553412961 -bmax 90 -passmin 12 -passmax 12
+	...
+	M(5506720553412961) has 1 factors in range k = [0, 112410217920], passes 12-12
+	Performed 280209091 trial divides
+	Clocks = 00:05:30.445
+
+[Do 1/16th of full range of pases to get comparable div-count and timings]
+clang -c -O3 -DTF_CLASSES=4620 -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c && clang -o Mfactor *o -lm
+./Mfactor -m 5506720553412961 -bmax 90 -passmin 240 -passmax 299
+	...
+	M(5506720553412961) has 1 factors in range k = [0, 112916643840], passes 240-299
+	Performed 281468824 trial divides
+	Clocks = 00:05:27.874
+
+==========================
+3-word exponents:
+
+clang -c -O0 -g3 -ggdb -DFACTOR_STANDALONE -DTRYQ=4 -DP3WORD ../factor.c ../util.c
+clang -o Mfactor_p3word *o -lm
+
+==========================
+Key Notes:
+
+***Use HP PA-RISC/HPUX compiler to debug header files! ***
+
+binary
+cd Mfactor
+
+put factor.c
+put get_fp_rnd_const.c
+put imul_macro.c
+put imul50_macro.c
+put mi64.c
+put qfloat.c
+put rng_isaac.c
+put twopmodq.c
+put twopmodq80.c
+put twopmodq96.c
+put twopmodq128.c
+put twopmodq128_96.c
+put twopmodq160.c
+put twopmodq192.c
+put twopmodq256.c
+put types.c
+put util.c
+
+put factor.h
+put float_intrin.h
+put imul50_macro.h
+put imul_macro.h
+put masterdefs.h
+put Mdata.h
+put mi64.h
+put platform.h
+put qfloat.h
+put rng_isaac.h
+put types.h
+put util.h
+
+==================================
+
+Quick 78-bit factor tests:
+
+Mfactor.exe -m  7818977 -bmin 74.401984  -bmax 74.401985
+Mfactor.exe -m  8678947 -bmin 76.397712  -bmax 76.397713
+Mfactor.exe -m  8722339 -bmin 76.8579778 -bmax 76.857978
+Mfactor.exe -m 15190393 -bmin 77.7599552 -bmax 77.75995521
+
+==================================
+
+PPC G5, Apple C:
+
+ssh to 83.143.57.198 (note: no ftp access)
+
+***TO SHOW ALL PREDEFINES: ***
+
+touch foo.h; cc -dM foo.h	<== doesn't work on G5...
+...instead use:
+echo '' | gcc -dM -E -m64 -mcpu=970 -
+
+The full list of resulting predefines is appended below - the key ones for the Mlucas platform.h file are: __ppc64__ (CPU architecture), __GNUC__ (compiler) and __APPLE__ (OS code):
+
+#define __DBL_MIN_EXP__ (-1021)
+#define __FLT_MIN__ 1.17549435e-38F
+#define __VEC__ 10206
+#define __CHAR_BIT__ 8
+#define __WCHAR_MAX__ 2147483647
+#define __DBL_DENORM_MIN__ 4.9406564584124654e-324
+#define __ALTIVEC__ 1
+#define __FLT_EVAL_METHOD__ 0
+#define pixel pixel
+#define bool bool
+#define __DBL_MIN_10_EXP__ (-307)
+#define __FINITE_MATH_ONLY__ 0
+#define __GNUC_PATCHLEVEL__ 1
+#define __SHRT_MAX__ 32767
+#define __LDBL_MAX__ 1.79769313486231580793728971405301e+308L
+#define __APPLE_CC__ 5247
+#define __LDBL_MAX_EXP__ 1024
+#define __SCHAR_MAX__ 127
+#define vector vector
+#define __USER_LABEL_PREFIX__ _
+#define __STDC_HOSTED__ 1
+#define __LDBL_HAS_INFINITY__ 1
+#define __DBL_DIG__ 15
+#define __FLT_EPSILON__ 1.19209290e-7F
+#define __LDBL_MIN__ 2.00416836000897277799610805135016e-292L
+#define __strong
+#define __APPLE__ 1
+#define __DECIMAL_DIG__ 33
+#define __LDBL_HAS_QUIET_NAN__ 1
+#define __DYNAMIC__ 1
+#define __GNUC__ 4
+#define __DBL_MAX__ 1.7976931348623157e+308
+#define __DBL_HAS_INFINITY__ 1
+#define __weak
+#define __DBL_MAX_EXP__ 1024
+#define __LONG_LONG_MAX__ 9223372036854775807LL
+#define __GXX_ABI_VERSION 1002
+#define __FLT_MIN_EXP__ (-125)
+#define __DBL_MIN__ 2.2250738585072014e-308
+#define __LP64__ 1
+#define __DBL_HAS_QUIET_NAN__ 1
+#define __pixel __attribute__((altivec(pixel__))) unsigned short
+#define __REGISTER_PREFIX__
+#define __ppc64__ 1
+#define __NO_INLINE__ 1
+#define _ARCH_PPC 1
+#define __FLT_MANT_DIG__ 24
+#define __VERSION__ "4.0.1 (Apple Computer, Inc. build 5247)"
+#define __BIG_ENDIAN__ 1
+#define __UINTMAX_TYPE__ long unsigned int
+#define __SIZE_TYPE__ long unsigned int
+#define __FLT_RADIX__ 2
+#define __LDBL_EPSILON__ 4.94065645841246544176568792868221e-324L
+#define __NATURAL_ALIGNMENT__ 1
+#define __vector __attribute__((altivec(vector__)))
+#define __FLT_HAS_QUIET_NAN__ 1
+#define __bool __attribute__((altivec(bool__))) unsigned
+#define __FLT_MAX_10_EXP__ 38
+#define __LONG_MAX__ 9223372036854775807L
+#define __FLT_HAS_INFINITY__ 1
+#define _BIG_ENDIAN 1
+#define __LDBL_MANT_DIG__ 106
+#define __WCHAR_TYPE__ int
+#define __FLT_DIG__ 6
+#define __INT_MAX__ 2147483647
+#define __LONG_DOUBLE_128__ 1
+#define __FLT_MAX_EXP__ 128
+#define __DBL_MANT_DIG__ 53
+#define __WINT_TYPE__ int
+#define __LDBL_MIN_EXP__ (-968)
+#define __MACH__ 1
+#define __LDBL_MAX_10_EXP__ 308
+#define __DBL_EPSILON__ 2.2204460492503131e-16
+#define _LP64 1
+#define __INTMAX_MAX__ 9223372036854775807L
+#define __FLT_DENORM_MIN__ 1.40129846e-45F
+#define __PIC__ 1
+#define __FLT_MAX__ 3.40282347e+38F
+#define __FLT_MIN_10_EXP__ (-37)
+#define __INTMAX_TYPE__ long int
+#define __GNUC_MINOR__ 0
+#define __DBL_MAX_10_EXP__ 308
+#define __LDBL_DENORM_MIN__ 4.94065645841246544176568792868221e-324L
+#define __PTRDIFF_TYPE__ long int
+#define _ARCH_PPC64 1
+#define __LDBL_MIN_10_EXP__ (-291)
+#define _Bool _Bool
+#define __LDBL_DIG__ 31
+#define __POWERPC__ 1
+
+
+found ppc_intrinsics.h in:
+
+/usr/include/gcc/darwin/default
+
+...but that didn't work on the G5, since its contents wrapped in #if defined(__ppc__),
+and __ppc__ isn't defined on the G5! (__ppc64__ and __POWERPC__ are).
+Manually patched that and just added the resulting ppc_intrinsics.h file to the source tree.
+
+cd ~/Mfactor
+cc -c -Wall -O3 -m64 -mcpu=970 get_fp_rnd_const.c
+cc -c -Wall -O3 -m64 -mcpu=970 imul_macro.c
+cc -c -Wall -O3 -m64 -mcpu=970 imul50_macro.c
+cc -c -Wall -O3 -m64 -mcpu=970 mi64.c
+cc -c -Wall -O3 -m64 -mcpu=970 qfloat.c
+cc -c -Wall -O3 -m64 -mcpu=970 rng_isaac.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq80.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq96.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq128.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq128_96.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq160.c
+cc -c -Wall -O3 -m64 -mcpu=970 twopmodq192.c
+cc -c -Wall -O3 -m64 -mcpu=970 types.c
+cc -c -Wall -O3 -m64 -mcpu=970 util.c
+
+cc -c -Wall -O3 -m64 -mcpu=970 -DFACTOR_STANDALONE -DTRYQ=4 factor.c
+
+cc -c -Wall -O3 -m64 -mcpu=970 -DFACTOR_STANDALONE -DFMADD_YES -DTRYQ=4 factor.c
+
+cc -c -Wall -O3 -m64 -mcpu=970 -DFACTOR_STANDALONE -DUSE_FLOAT -DTRYQ=4 factor.c
+cc -o Mfactor -m64 -mcpu=970 factor.o get_fp_rnd_const.o imul_macro.o imul50_macro.o util.o types.o mi64.o qfloat.o rng_isaac.o twopmodq*.o -lm
+rm t214*
+time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
+
+02/01/06: Pure-integer version, TRYQ = 4, NUM_SIEVING_PRIME = 50000:	281 sec
+
+          USE_FLOAT,            TRYQ = 2,        "         "       :	635 sec
+          USE_FLOAT,            TRYQ = 4,        "         "       :	585 sec
+
+03/02/06: FMADD_DOUBLE_WIDE   , TRYQ = 1, NUM_SIEVING_PRIME = 50000:   1281 sec	<=== ***ouch! that's terrible...
+                  "                "             "         "       :   1270 sec	Macro-ized fmadd/fsel no better
+                  "             TRYQ = 2,        "         "       :    804 sec	<*** better, but still lags generic-float
+                  "             TRYQ = 4,        "         "       :    734 sec
+
+
+time ./Mfactor -m 16219289 -bmax 63.0 -passmin 2 -passmax 2
+
+
+==================================
+
+PENTIUM 3/LINUX, gcc:
+
+spe140:
+gcc version 3.3.5 (Debian 1:3.3.5-13)
+
+cd ~/src/C/IA32_P3
+cc -c -Wall -O3 ../get_fp_rnd_const.c
+cc -c -Wall -O3 ../imul_macro.c
+cc -c -Wall -O3 ../mi64.c
+cc -c -Wall -O3 ../qfloat.c
+cc -c -Wall -O3 ../rng_isaac.c
+cc -c -Wall -O3 ../twopmodq.c
+cc -c -Wall -O3 ../twopmodq80.c
+cc -c -Wall -O3 ../twopmodq96.c
+cc -c -Wall -O3 ../twopmodq128.c
+cc -c -Wall -O3 ../twopmodq128_96.c
+cc -c -Wall -O3 ../twopmodq160.c
+cc -c -Wall -O3 ../twopmodq192.c
+cc -c -Wall -O3 ../types.c
+cc -c -Wall -O3 ../util.c
+
+cc -c -Wall -O3 -DFACTOR_STANDALONE -DUSE_FLOAT -DTRYQ=2 -DNUM_SIEVING_PRIME=100000 ../factor.c
+rm -f Mfactor
+cc -o Mfactor factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o rng_isaac.o twopmodq*.o -lm
+rm t214*
+time Mfactor -m 2147483647 -bmax 68 -passmin 15
+
+Pure-integer version, TRYQ = 4, NUM_SIEVING_PRIME = 50000:
+...
+Performed 180794470 trial divides
+3469.330u
+
+Using USE_FLOAT, TRYQ=2:
+...
+1512.260u	<*** Still nearly 2x slower than opteron in per/cycle terms!
+
+01/24/06: Same as above, but with NUM_SIEVING_PRIME = 100000 :
+...
+Performed 171253887 trial divides
+1431.010u
+
+==================================
+
+AMD OPTERON/LINUX, gcc:
+
+***TO SHOW ALL PREDEFINES: ***
+
+touch foo.h; cpp -dM foo.h
+
+spe189.testdrive.hp.com excerpt:
+
+#define __x86_64 1
+#define __x86_64__ 1
+#define __amd64 1
+#define __amd64__ 1
+#define __k8 1
+#define __k8__ 1
+
+#define linux 1
+#define __linux 1
+#define __linux__ 1
+#define __gnu_linux__ 1
+
+#define __unix 1
+#define __unix__ 1
+#define __GNUC__ 3
+#define __MMX__ 1
+#define __SSE2_MATH__ 1
+#define __LONG_LONG_MAX__ 9223372036854775807LL
+#define __LP64__ 1
+#define __VERSION__ "3.4.3 20050227 (Red Hat 3.4.3-22.1)"
+#define unix 1
+#define __SIZE_TYPE__ long unsigned int
+#define __ELF__ 1
+#define __FLT_RADIX__ 2
+#define __SSE_MATH__ 1
+#define __LONG_MAX__ 9223372036854775807L
+#define __INT_MAX__ 2147483647
+#define __SSE__ 1
+#define _LP64 1
+#define __tune_k8__ 1
+#define __SSE2__ 1
+
+**************************
+td179> cd ~/src/C/OPTERON
+Directory: /house/ewm/src/C/OPTERON
+td179> cc -c -Wall -O3 ../imul_macro.c
+td179> cc -c -Wall -O3 ../util.c
+../util.c: In function `set_fpu_params':
+../util.c:224: error: `FPUCTRL' undeclared (first use in this function)
+../util.c:224: error: (Each undeclared identifier is reported only once
+../util.c:224: error: for each function it appears in.)
+../util.c:195: warning: unused variable `FPU_64CHOP'
+../util.c: In function `check_nbits_in_types':
+../util.c:295: warning: unused variable `RND_C'
+../util.c:295: warning: unused variable `RND_D'
+../util.c: In function `WARN':
+../util.c:460: warning: zero-length printf format string
+td179> cc -c -Wall -O3 ../types.c
+td179> cc -c -Wall -O3 ../mi64.c
+../mi64.c: In function `mi64_add_scalar':
+../mi64.c:356: warning: left-hand operand of comma expression has no effect
+../mi64.c: In function `mi64_sub_scalar':
+../mi64.c:373: warning: left-hand operand of comma expression has no effect
+td179> cc -c -Wall -O3 ../qfloat.c
+../qfloat.c: In function `qtest':
+../qfloat.c:172: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:172: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:178: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:178: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:184: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:184: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:190: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:190: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:196: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:196: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:202: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:202: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:208: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:208: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:214: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:214: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c: In function `qfdbl':
+../qfloat.c:567: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c: In function `dbl_to_q':
+../qfloat.c:576: warning: dereferencing type-punned pointer will break strict-aliasing rules
+../qfloat.c:1295:13: missing terminating ' character
+td179> cc -c -Wall -O3 ../twopmodq*.c
+../twopmodq80.c: In function `twopmodq78_3WORD_DOUBLE':
+../twopmodq80.c:843: warning: right shift count >= width of type
+../twopmodq80.c:843: warning: left shift count is negative
+../twopmodq80.c:843: warning: right shift count >= width of type
+../twopmodq80.c:843: warning: left shift count is negative
+../twopmodq80.c:843: warning: right shift count >= width of type
+../twopmodq80.c:843: warning: right shift count is negative
+../twopmodq80.c:700: warning: unused variable `hi'
+../twopmodq80.c: In function `twopmodq78_3WORD_DOUBLE_q2':
+../twopmodq80.c:1095: warning: right shift count >= width of type
+../twopmodq80.c:1095: warning: left shift count is negative
+../twopmodq80.c:1095: warning: right shift count >= width of type
+../twopmodq80.c:1095: warning: left shift count is negative
+../twopmodq80.c:1095: warning: right shift count >= width of type
+../twopmodq80.c:1095: warning: right shift count is negative
+../twopmodq80.c:1096: warning: right shift count >= width of type
+../twopmodq80.c:1096: warning: left shift count is negative
+../twopmodq80.c:1096: warning: right shift count >= width of type
+../twopmodq80.c:1096: warning: left shift count is negative
+../twopmodq80.c:1096: warning: right shift count >= width of type
+../twopmodq80.c:1096: warning: right shift count is negative
+../twopmodq80.c:993: warning: unused variable `hi0'
+../twopmodq80.c:993: warning: unused variable `hi1'
+td179>
+td179> cd ~/src/C/OPTERON
+Directory: /house/ewm/src/C/OPTERON
+td179> cc -c -Wall -O3 -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c
+../factor.c:417:39: warning: integer constant is so large that it is unsigned
+../factor.c: In function `main':
+../factor.c:417: warning: this decimal constant is unsigned only in ISO C90
+../factor.c:417:69: warning: integer constant is so large that it is unsigned
+../factor.c:417: warning: this decimal constant is unsigned only in ISO C90
+../factor.c:435:17: warning: integer constant is so large that it is unsigned
+../factor.c:435: warning: this decimal constant is unsigned only in ISO C90
+../factor.c:435:47: warning: integer constant is so large that it is unsigned
+../factor.c:435: warning: this decimal constant is unsigned only in ISO C90
+../factor.c:435:77: warning: integer constant is so large that it is unsigned
+../factor.c:435: warning: this decimal constant is unsigned only in ISO C90
+../factor.c:284: warning: unused variable `PWORDS'
+../factor.c:310: warning: unused variable `q128_4'
+../factor.c:310: warning: unused variable `q128_5'
+../factor.c:310: warning: unused variable `q128_6'
+../factor.c:310: warning: unused variable `q128_7'
+../factor.c:321: warning: unused variable `two64mod3'
+../factor.c:321: warning: unused variable `two64mod5'
+../factor.c:321: warning: unused variable `two64mod7'
+../factor.c:321: warning: unused variable `two64mod11'
+../factor.c:321: warning: unused variable `two64mod13'
+../factor.c:321: warning: unused variable `two64mod17'
+../factor.c:321: warning: unused variable `two64mod19'
+../factor.c:322: warning: unused variable `two64mod60'
+../factor.c:323: warning: unused variable `kmod60'
+../factor.c:326: warning: unused variable `q_mod_currp'
+../factor.c:2958: warning: label `QUIT' defined but not used
+../factor.c: In function `test_fac':
+../factor.c:3563: warning: unused variable `fac128'
+../factor.c:3625: warning: unused variable `fac128x2'
+../factor.c:3682: warning: unused variable `fac160'
+../factor.c:3712: warning: unused variable `fac192'
+../factor.c:3722: warning: unused variable `pinv64'
+../factor.c:3722: warning: unused variable `two_p64'
+../factor.c:3722: warning: unused variable `x64'
+../factor.c:3723: warning: unused variable `two_p128'
+../factor.c:3724: warning: unused variable `p192'
+../factor.c:3724: warning: unused variable `pinv192'
+../factor.c:3724: warning: unused variable `two_p192'
+../factor.c:3724: warning: unused variable `q192'
+../factor.c:3724: warning: unused variable `x192'
+../factor.c:3724: warning: unused variable `res192'
+../factor.c:3727: warning: unused variable `ten31'
+../factor.c:3731: warning: unused variable `i2'
+../factor.c:3731: warning: unused variable `i3'
+../factor.c:3734: warning: unused variable `lo64'
+../factor.c:3734: warning: unused variable `tmp64'
+../factor.c:3735: warning: unused variable `cbuf3'
+../factor.c:3735: warning: unused variable `cbuf4'
+../factor.c:3735: warning: unused variable `cbuf5'
+td179> rm -f Mfactor_opteron
+**************************
+
+spe189:
+cd ~/src/C/OPTERON
+cc -c -Wall -O3 ../get_fp_rnd_const.c
+cc -c -Wall -O3 ../imul_macro.c
+cc -c -Wall -O3 ../mi64.c
+cc -c -Wall -O3 ../qfloat.c
+cc -c -Wall -O3 ../rng_isaac.c
+cc -c -Wall -O3 ../twopmodq*.c
+cc -c -Wall -O3 ../types.c
+cc -c -Wall -O3 ../util.c
+
+cd ~/src/C/OPTERON
+cc -c -Wall -O3 -DFACTOR_STANDALONE -DP4WORD -DTRYQ=1 -DNUM_SIEVING_PRIME=2000000 ../factor.c
+rm -f Mfactor4_opteron
+cc -static -o Mfactor4_opteron factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o rng_isaac.o twopmodq*.o -lm
+rm t3082533446850352619311881710100031378387528865875332083814206171
+time Mfactor4_opteron -m 3082533446850352619311881710100031378387528865875332083814206171 -kmax 1000000000
+
+cd ~/src/C/OPTERON
+cc -c -Wall -O3 -DFACTOR_STANDALONE -DTRYQ=4 -DNUM_SIEVING_PRIME=100000 ../factor.c
+rm -f Mfactor_opteron
+cc -static -o Mfactor_opteron factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o twopmodq*.o -lm
+rm t214*
+time Mfactor_opteron -m 2147483647 -bmax 68 -passmin 15
+
+***RELEASE:***
+cd ~/src/C/OPTERON
+cc -static -o Mfactor_amd64 -Wall -O3 -DFACTOR_STANDALONE -DTRYQ=4 -DNUM_SIEVING_PRIME=100000 -lm
+rm Mfactor_amd64.gz
+cp Mfactor_opteron Mfactor_amd64
+gzip Mfactor_amd64
+
+Mfactor_opteron -m 3321933023 -bmax 64
+Mfactor_opteron -m 3321933023 -bmin 64 -bmax 70 &
+
+sleep  6300; Mfactor_opteron -m  -bmax 70 &
+sleep 12600; Mfactor_opteron -m  -bmax 70 &
+sleep 18900; Mfactor_opteron -m  -bmax 70 &
+sleep 25200; Mfactor_opteron -m  -bmax 70 &
+sleep 31500; Mfactor_opteron -m  -bmax 70 &
+sleep 37800; Mfactor_opteron -m  -bmax 70 &
+sleep 44100; Mfactor_opteron -m  -bmax 70 &
+
+
+M3321932839 has a factor: 43654296769583327
+M3321932839 has a factor: 19026915132358097
+
+M3321932869 no factor to 2^70
+
+M3321932891 has a factor: 6643865783
+
+M3321932893 has a factor: 23610192897989839
+
+M3321932897 has a factor: 26575463177
+M3321932897 has a factor: 8557299142673
+
+M3321932899 no factor to 2^70
+
+M3321932909 no factor to 2^70
+
+M3321932953 has a factor: 3538514344509922201
+
+M3321932969 no factor to 2^70
+
+M3321933007 no factor to 2^70
+
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+p+=2;isprime(p)
+
+rm -f t16*
+Mfactor_opteron -m 16219289 -bmax 63.0 -passmin 2 -passmax 2
+
+***Build of 7/25/2005:***
+
+max sieving prime = 611957
+Time to set up sieve = 00:00:00.070
+pass = 2.................................................
+Count = 268435456: Current q = 3300539488494676777, checksum1 = 9F8C41ED14E0BA48 INFO: This q is composite
+.................................................
+Count = 536870912: Current q = 6607152581962114177, checksum1 = AE590313C2063B80 INFO: This q is composite
+.............M16219289 has a factor: 7464112771264190017. Program: E2.8x
+.........................
+M16219289 has 1 factors in [1.000000e+00, 9.223379e+18], passes 2-2
+Performed 749170342 trial divides
+checksum1 = 9EEA3D231B14F336
+Clocks = 00:02:15.969	<=== Holy Crap! That's amazing for a first-time build...
+
+TRYQ = 4	2:31
+TRYQ = 8	2:19
+
+***65-96-bit test:***
+
+cd ~/src/C/OPTERON
+cc -c -Wall -O3 -DFACTOR_STANDALONE -DUSE_FLOAT -DTRYQ=2 -DNUM_SIEVING_PRIME=50000 ../factor.c
+rm -f Mfactor_opteron
+cc -o Mfactor_opteron factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o twopmodq*.o -lm
+rm t214*
+time Mfactor_opteron -m 2147483647 -bmax 68 -passmin 15
+
+TRYQ=4
+NUM_SIEVING_PRIME = 50000
+max sieving prime = 611957
+Time to set up sieve = 00:00:00.070
+pass = 15............................M2147483647 has a factor: 242557615644693265201. Program: E2.8x
+.....
+M2147483647 has 1 factors in [1.000000e+00, 2.951798e+20], passes 15-15
+Performed 180794470 trial divides
+checksum1 = 98D0079B804CA626
+Clocks = 00:02:33.969
+154.173u	<*** 173 sec using TRYQ=8
+		<*** 154*2.2*10^9/180794470 ~= 1900 cycles per q, ~75 cycles/modmul
+
+TRYQ = 4
+NUM_SIEVING_PRIME = 100000
+max sieving prime = 1299721
+...
+Performed 171253887 trial divides
+Clocks = 00:02:28.419
+148.871u	<*** THE WINNAH...
+
+
+TRYQ=4
+NUM_SIEVING_PRIME = 5000000
+max sieving prime = 86028157
+Performed 132344809 trial divides
+Clocks = 00:03:51.860
+322.557u	<*** Ouch! Definitely much too large a NUM_SIEVING_PRIME value!
+
+rm -f t16*
+Mfactor_opteron -m 16804847 -kmin 3567992300000000000 -kmax 3567992400000000000 -passmin 0 -passmax 0
+
+max sieving prime = 611957
+...
+M16804847 has a factor: 119919132363290562264099497. Program: E2.8x
+...
+Performed 263375577 trial divides
+checksum1 = C2B1224345C67E91
+Clocks = 00:02:56.370
+
+max sieving prime = 7368791
+...
+Performed 221836942 trial divides
+checksum1 = 69E578CB98E08246
+Clocks = 00:02:39.900
+
+
+
+***BUG***: tried cranking up NUM_SIEVING_PRIME even higher, to 5000000, got:
+
+ERROR: eGCD called with zero input: x = 0, y = 16804847
+ERROR: At line 471 of file ../util.c
+
+NOTE: the above error does not occur with p = 2^31-1.
+
+*************
+
+cd ~/src/C/OPTERON
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 -DPIPELINE_MUL192 ../factor.c
+rm -f Mfactor3_opteron
+cc -o Mfactor3_opteron *.o -lm
+rm -f t17*
+time Mfactor3_opteron -m 170141183460469231731687303715884105727 -kmax 10000000000 -passmin 15
+
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 -DPIPELINE_MUL192   ../factor.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4                     ../factor.c
+
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8 -DPIPELINE_MUL192   ../factor.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8                     ../factor.c
+
+TRYQ = 4, pipelined:	3:13
+TRYQ = 4, nopipe/exact	3:14
+
+TRYQ = 8, pipelined:	3:13
+TRYQ = 8, nopipe/exact	3:13
+
+
+==========================
+
+Alpha, TruUnix:
+
+***8/05: GCD code:***
+
+binary
+cd ~/src/C
+mput *.h
+
+put br.c
+put get_fft_radices.c
+put imul_macro.c
+put mi64.c
+put pairFFT_mul.c
+put qfloat.c
+put radix8_dif_dit_pass.c
+put radix8_ditN_cy_dif1.c
+put radix16_dif_dit_pass.c
+put radix16_ditN_cy_dif1.c
+put radix16_pairFFT_mul.c
+put radix32_dif_dit_pass.c
+put radix32_ditN_cy_dif1.c
+put types.c
+put util.c
+put gcd_lehmer.c
+
+cd ~/src/C
+cc -c -w0 -O5 -DGCD_STANDALONE br.c
+cc -c -w0 -O5 -DGCD_STANDALONE get_fft_radices.c
+cc -c -w0 -O5 -DGCD_STANDALONE imul_macro.c
+cc -c -w0 -O5 -DGCD_STANDALONE mi64.c
+cc -c -w0 -O5 -DGCD_STANDALONE pairFFT_mul.c
+cc -c -w0 -O5 -DGCD_STANDALONE qfloat.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix8_dif_dit_pass.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix8_ditN_cy_dif1.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix16_dif_dit_pass.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix16_ditN_cy_dif1.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix16_pairFFT_mul.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix32_dif_dit_pass.c
+cc -c -w0 -O5 -DGCD_STANDALONE radix32_ditN_cy_dif1.c
+cc -c -w0 -O5 -DGCD_STANDALONE types.c
+cc -c -w0 -O5 -DGCD_STANDALONE util.c
+
+cc -c -w0 -O5 -DGCD_STANDALONE gcd_lehmer.c
+rm -f gcd_lehmer
+
+cc -c -w0 -O5 -DGCD_STANDALONE qfloat.c
+cc -o gcd_lehmer -non_shared br.o get_fft_radices.o imul_macro.o mi64.o pairFFT_mul.o qfloat.o radix8_dif_dit_pass.o radix8_ditN_cy_dif1.o radix16_dif_dit_pass.o radix16_ditN_cy_dif1.o radix16_pairFFT_mul.o radix32_dif_dit_pass.o radix32_ditN_cy_dif1.o types.o util.o gcd_lehmer.o -lm
+time gcd_lehmer
+
+Performing GCD self-test #1...
+GCD finished in 10 passes.
+GCD = 1
+
+Performing GCD self-test #2...
+GCD finished in 11 passes.
+GCD = 16357897499336320021
+
+Performing GCD self-test #3...
+GCD finished in 54 passes.
+GCD = 46189291499145878679976776583847887293
+
+Performing GCD self-test #4...
+GCD finished in 536 passes.
+GCD = 3383279502884197169399375105820974944592307816406286208998
+
+Performing GCD self-test #5a...
+GCD finished in 450 passes.
+GCD = 1734072082042172647364731231822850071
+
+Performing GCD self-test #7...
+PASS 1024: lenA = 33437, lenB = 33437, k1,k2 = 0,1
+PASS 2048: lenA = 32445, lenB = 32445, k1,k2 = 0,1
+PASS 3072: lenA = 31453, lenB = 31453, k1,k2 = 0,1
+PASS 4096: lenA = 30462, lenB = 30462, k1,k2 = 0,1
+PASS 5120: lenA = 29470, lenB = 29470, k1,k2 = 0,1
+PASS 6144: lenA = 28477, lenB = 28477, k1,k2 = 0,1
+PASS 7168: lenA = 27487, lenB = 27487, k1,k2 = 0,1
+PASS 8192: lenA = 26495, lenB = 26495, k1,k2 = 0,1
+PASS 9216: lenA = 25502, lenB = 25502, k1,k2 = 1,0
+PASS 10240: lenA = 24511, lenB = 24511, k1,k2 = 0,1
+PASS 11264: lenA = 23518, lenB = 23518, k1,k2 = 0,1
+PASS 12288: lenA = 22525, lenB = 22525, k1,k2 = 0,1
+PASS 13312: lenA = 21534, lenB = 21534, k1,k2 = 0,1
+PASS 14336: lenA = 20541, lenB = 20541, k1,k2 = 0,1
+PASS 15360: lenA = 19548, lenB = 19548, k1,k2 = 0,1
+PASS 16384: lenA = 18556, lenB = 18556, k1,k2 = 0,1
+PASS 17408: lenA = 17564, lenB = 17564, k1,k2 = 0,1
+PASS 18432: lenA = 16572, lenB = 16572, k1,k2 = 0,1
+PASS 19456: lenA = 15580, lenB = 15580, k1,k2 = 1,0
+PASS 20480: lenA = 14587, lenB = 14587, k1,k2 = 1,0
+PASS 21504: lenA = 13594, lenB = 13594, k1,k2 = 0,1
+PASS 22528: lenA = 12601, lenB = 12601, k1,k2 = 0,1
+PASS 23552: lenA = 11609, lenB = 11609, k1,k2 = 0,1
+PASS 24576: lenA = 10617, lenB = 10617, k1,k2 = 0,1
+PASS 25600: lenA = 9624, lenB = 9623, k1,k2 = 0,1
+PASS 26624: lenA = 8631, lenB = 8631, k1,k2 = 0,1
+PASS 27648: lenA = 7638, lenB = 7638, k1,k2 = 0,1
+PASS 28672: lenA = 6647, lenB = 6647, k1,k2 = 1,0
+PASS 29696: lenA = 5655, lenB = 5655, k1,k2 = 0,1
+PASS 30720: lenA = 4660, lenB = 4660, k1,k2 = 0,1
+PASS 31744: lenA = 3668, lenB = 3668, k1,k2 = 1,0
+PASS 32768: lenA = 2675, lenB = 2675, k1,k2 = 0,1
+PASS 33792: lenA = 1682, lenB = 1682, k1,k2 = 0,1
+PASS 34816: lenA = 690, lenB = 690, k1,k2 = 0,1
+GCD finished in 35528 passes.
+GCD = 87722769297534671
+19.03u 0.00s 0:19 99% 0+8k 0+0io 0pf+0w	<***Pretty quick, but O(n^2) kills us - p ~32M
+						would need 200x as long, i.e. ~ 1 hour!
+*** Factoring Code: ***
+spe208:
+cd ~/src/C
+cc -c -O5 get_fp_rnd_const.c
+cc -c -O5 imul_macro.c
+cc -c -O5 mi64.c
+cc -c -O5 qfloat.c
+cc -c -O5 rng_isaac.c
+cc -c -O5 twopmodq.c
+cc -c -O5 twopmodq80.c
+cc -c -O5 twopmodq96.c
+cc -c -O5 twopmodq128.c
+cc -c -O5 twopmodq128_96.c
+cc -c -O5 twopmodq160.c
+cc -c -O5 twopmodq192.c
+cc -c -O5 twopmodq256.c
+cc -c -O5 types.c
+cc -c -O5 util.c
+
+***ALL-INT:***
+cd ~/src/C
+cc -c -O5 -DFACTOR_STANDALONE -DNUM_SIEVING_PRIME=100000 factor.c
+rm -f Mfactor
+cc -o Mfactor -non_shared factor.o get_fp_rnd_const.o imul_macro.o mi64.o qfloat.o rng_isaac.o twopmodq*.o types.o util.o -lm
+
+rm t214*
+time Mfactor -m 2147483647 -bmax 68 -passmin 15
+
+***FLOATING:***
+cd ~/src/C
+cc -c -O5 -DFACTOR_STANDALONE -DNUM_SIEVING_PRIME=100000 -DUSE_FLOAT factor.c
+rm -f Mfactor
+cc -o Mfactor -non_shared factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o twopmodq*.o -lm
+
+rm t214*
+time Mfactor -m 2147483647 -bmax 68 -passmin 15
+
+		Alpha				  x86	 ia64	opteron
+	--------------------------------	-------	------	-------
+60-bit:	   5 s in 64-bit all-int mode		  180 s	   4 s
+	  91 s in 78-bit floating mode - ack!	  450 s		<*** much closer on x86...
+	  89 s <===== branchless FP version ====> 350 s
+	  58 s <===== FP, TRYQ=2 ===============> 360 s	  29 s
+
+68-bit:	 251 s in 96-bit all-int mode		10400 s	 190 s	154 s
+	1400 s in 78-bit floating mode		 5700 s		808 s <*** GCC sucks!
+	 875 s <===== FP, TRYQ=2 ===========>     ??? s	 436 s	538 s
+
+rm t162*
+Mfactor -m 16219289 -bmax 63.0 -passmin 2 -passmax 2
+
+***7/01/2005: Compare timings using the 3 possible settings of USE_128x96:
+
+Value	Time
+0	3:56
+1	3:57
+2	4:00	No significant difference on ev6.
+
+***6/13/2005: fixed stupidity where fflush(NULL) was getting called
+on every ASSERT call, whether the condition in question failed or not:
+
+searching in the interval k=[0, 284333649600], i.e. q=[1.000000e+00, 9.223379e+18]
+each of  1 (p mod 60) passes will consist of                17405 intervals of length 272272
+max sieving prime = 611957
+Time to set up sieve = 00:00:00.116
+pass = 2............................................................................................
+...................M16219289 has a factor: 7464112771264190017. Program: E2.8x
+.........................
+M16219289 has 1 factors in [1.000000e+00, 9.223379e+18]
+Performed 749170342 trial divides
+Clocks = 00:04:01.040
+spe208.testdrive.hp.com>
+
+...which translates to ~3840 sec and ~11986725472 TDs for a full 16-pass run.
+
+***5/20: setting NOBRANCH == 1 in masterdefs.h had no appreciable effect on timings.
+Somewhat surprsingly, the 64-bit version of twopmodq runs just as fast as 63-bit.
+
+
+Compare with PLM's code:
+
+cd ~/PLM*
+as ALPHAtryq.s -o ALPHAtryq.o
+rm -f PLMfactor
+cc -o PLMfactor -O4 Mfactor.c ALPHAtryq.o -lm
+time PLMfactor 16219289 0 9223372036854775807
+
+# p = 16219289.  Searching q in [1, 9223372036836251957]
+# The isieve loop in tryp sieves an interval of length
+#    8035881768714240 = 8.036e+15  in NSIEVE = 96 pieces.
+# It will need 1147.77 passes to search from 1 to 9223372036836251957.
+# 34567-th sieving prime is 409639.  25593 are below SIEVE_LENGTH_BITS/2,
+# 8974 more below SIEVE_LENGTH_BITS, 0 above.
+# 12346768200 values of q tried out of 64990497509 sieved.
+#  81.00% of potential q's (mod 840*p) were eliminated by sieving.
+M( 16219289 )U: 9223372036836251957  # spe208.testdrive.hp.com  @  Thu May 19 17:07:20 2005
+2171.05u 0.01s 36:12 99% 0+13k 0+1io 0pf+0w
+
+That's ~1.8x as fast ... within a factor of 2, not too bad.
+
+
+***
+
+M(M31) to 2^70:
+
+rm t214*
+time Mfactor -m 2147483647 -bmax 70 -passmin 15
+
+M2147483647 has 3 factors in [1.000000e+00, 1.180592e+21]
+Performed 11570073588 trial divides
+Clocks = 05:09:14.791
+18530.21u 25.72s 5:09:47 99% 0+31k 0+2io 0pf+0w
+
+Build of 6/13/2005:
+
+searching in the interval k=[0, 274891256640], i.e. q=[1.000000e+00, 1.180649e+21]
+each of  1 (p mod 60) passes will consist of 16827 intervals of length 272272
+max sieving prime = 611957
+Time to set up sieve = 00:00:00.116
+pass = 0............................................................................................
+........................................
+M2147483647 has 0 factors in [1.000000e+00, 1.180649e+21]
+Performed 723162021 trial divides	<== ~1200 cycles/q; ~50 cycles/modmul
+Clocks = 00:14:13.349
+
+...which translates to ~13700 sec for the full 16 passes, ~30% faster than above.
+
+
+M((M31 + 2)/3) to 2^70:
+
+rm t71*
+time Mfactor
+715827883
+70
+0
+15
+
+M715827883 has 0 factors in [1.000000e+00, 1.180592e+21]
+Performed 34710221488 trial divides
+Clocks = 14:03:38.058
+50563.47u 57.03s 14:11:43 99% 0+31k 0+0io 0pf+0w
+
+************128-BIT:************
+
+cc -c -O5 -DFACTOR_STANDALONE -DP2WORD factor.c
+rm -f Mfactor2
+cc -o Mfactor2 -non_shared factor.o imul_macro.o util.o types.o mi64.o -lm
+
+M(M61) to 2^100:
+
+M(2305843009213693951) has 0 factors in [1.000000e+00, 1.267651e+30]
+Performed 9760741617 trial divides
+Clocks = 09:54:56.638
+35698.57u 7.46s 9:57:47 99% 0+71k 0+1io 0pf+0w
+
+***Build of 6/13/2005:
+
+cd ~/src/C
+cc -c -O5 -DFACTOR_STANDALONE -DP2WORD factor.c
+rm -f Mfactor2
+cc -o Mfactor2 -non_shared factor.o imul_macro.o util.o types.o mi64.o -lm
+rm t23*
+time Mfactor2 -m 2305843009213693951 -bmax  98 -passmin 15
+...
+M2305843009213693951 has 0 factors in [1.000000e+00, 3.169469e+29], passes 15-15
+Performed 152528410 trial divides
+Clocks = 00:09:10.494	<== 7/19: dbg_assert-less code gets 7:56, ~60 cycles/modmul
+
+7/19: try the 192-bit code:
+rm t23*
+time Mfactor3 -m 2305843009213693951 -bmax 98 -passmin 15
+...
+Performed 145680250 trial divides
+Clocks = 00:13:53.883
+
+
+M(M89) to 2^128:
+
+rm t61*
+time Mfactor2
+618970019642690137449562111
+128
+0
+15
+
+M(618970019642690137449562111) has 0 factors in [1.000000e+00, 3.402824e+38]
+Performed 9759801696 trial divides
+Clocks = 14:35:06.782
+52488.76u 28.08s 14:38:32 99% 0+71k 0+0io 0pf+0w
+
+M((M61 + 2)/3) to 2^100:
+
+rm t76*
+time Mfactor2
+768614336404564651
+100
+12
+15
+{done}
+
+************192-BIT:************
+
+***Build of 7/17/2005:
+
+cd
+cc -c imul_macro.c util.c types.c mi64.c twopmodq*.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 factor.c
+rm -f Mfactor3
+cc -o Mfactor3 -non_shared factor.o imul_macro.o util.o types.o mi64.o twopmodq*.o -lm
+rm t17*
+time Mfactor3 -m 170141183460469231731687303715884105727 -kmax 10000000000 -passmin 15
+
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 -DPIPELINE_MUL192   factor.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 -DUSE_FAST_UMULH192 factor.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4                     factor.c
+
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8 -DPIPELINE_MUL192   factor.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8 -DUSE_FAST_UMULH192 factor.c
+cc -c -O5 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8                     factor.c
+
+TRYQ = 4, pipelined:	4:58
+TRYQ = 4, nopipe/approx	4:01	<== small gain not worth it...
+TRYQ = 4, nopipe/exact	4:10	<== ***THE WINNER...***	~90 cycles/modmul
+				(7/21: 4:24 with MUL192 bugfix)
+
+TRYQ = 8, pipelined:	5:43, ugh!
+TRYQ = 8, nopipe/approx	4:15
+TRYQ = 8, nopipe/exact	4:20
+
+
+***7/17: p = (M127+2)/3:
+
+rm t17*
+time Mfactor3 -m 56713727820156410577229101238628035243 -kmax 10000000000 -passmin 15
+
+
+***pre-2005 code:
+
+M(M107) to 2^146:
+
+rm t16*
+time Mfactor3
+162259276829213363391578010288127
+146
+0
+15
+
+max sieving prime = 15485867
+Time to set up sieve = 00:00:01.799
+pass = 14...........................................................................................
+.........................................
+pass = 15...........................................................................................
+.........................................
+M(162259276829213363391578010288127) has 0 factors in [1.000000e+00, 8.920298e+43]
+Performed 1165273507 trial divides
+Clocks = 03:22:45.430
+
+M(M127) to 2^166:
+
+rm t17*
+time Mfactor3
+170141183460469231731687303715884105727
+166
+12
+15
+
+Time to set up sieve = 00:00:01.716
+pass = 12...........................................................................................
+.........................................
+pass = 13...........................................................................................
+.........................................
+pass = 14...........................................................................................
+.........................................
+pass = 15...........................................................................................
+.........................................
+M(170141183460469231731687303715884105727) has 0 factors in [1.000000e+00, 9.353610e+49]
+Performed 2330528403 trial divides
+Clocks = 07:58:07.419
+
+
+M((M127 + 2)/3) to 2^166:
+
+rm t56*
+time Mfactor3
+56713727820156410577229101238628035243
+166
+15
+15
+
+************256-BIT:************
+
+cd src/C
+grep -c 'has a fac' res* */res*
+
+                                                  vvvvvvv
+cc -c -O5 -DFACTOR_STANDALONE -DNUM_SIEVING_PRIME=2000000 -DP4WORD -DTRYQ=1 factor.c
+rm -f Mfactor4
+cc -o Mfactor4 -non_shared factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o rng_isaac.o twopmodq*.o -lm
+
+
+1.0GHz Alpha needs 1350s to test 36M factor candidates, which translates to ~37500 cycles per q, ~150 cycles/modmul.
+                  (1207s; 35965709 TDs with NUM_SIEVING_PRIME=  500000 rather than 100000)
+                  (1268s; 34354736 TDs with NUM_SIEVING_PRIME= 1000000)
+                  (1142s; 32884957 TDs with NUM_SIEVING_PRIME= 2000000)	<<<*** SWEET SPOT ***
+                  (1174s; 31000519 TDs with NUM_SIEVING_PRIME= 5000000)
+
+1.4GHz IA64  needs 1030s to test 36M factor candidates, which translates to ~45800 cycles per q, ~180 cycles/modmul.
+                   (950s with NUM_SIEVING_PRIME=  500000 rather than 100000)
+
+2.2GHz AMD64 needs 1033s with NUM_SIEVING_PRIME=2000000,which translates to ~69100 cycles per q, ~275 cycles/modmul.
+
+cd ~/src/C
+ll Mfactor4*
+
+10310291616152881384379099042317473363948045759314931405297634757
+12160287649628674460477464915995054973742562690104903778198683593
+1216028764962867446047746491599505497374256269010490377819868359
+13282306647093844609550582231725359408128481117450284102701938521
+14121478057345510500801908699603302763478708108175450119307141223
+1419521238281530911407907386025152274299581807247162591668545133
+1538420568533862186725233402830871123282789212507712629463229563
+15956258658655705526904965209858033850722426482939728584783163057
+1602632750529834918740786680881833851022833450850486082503930213
+
+spe208:
+cd ~/src/C
+sleep 22000; cd ~/src/C && nice Mfactor4 -m 1618416348475651699981161410100299607838690929160302884002691041  -kmax 100000000000 &
+sleep 22000; cd ~/src/C && nice Mfactor4 -m 18611738193261179310511854807446237996274956735188575272489122793 -kmax 100000000000 &
+sleep 22000; cd ~/src/C && nice Mfactor4 -m 2053292819182618612586732157919841484882916447060957527069572209  -kmax 100000000000 &
+sleep 22000; cd ~/src/C && nice Mfactor4 -m 2186117381932611793105118548074462379962749567351885752724891227  -kmax 100000000000 &
+
+spe177:
+sleep 18000; cd ~/src/C && nice Mfactor4_ia64_linux -m 2186561967337862362561252163208628692221032748892186543648022967  -kmax 100000000000 &
+sleep 18000; cd ~/src/C && nice Mfactor4_ia64_linux -m 22072225828488648158456028506016842739452267467678895252138522549 -kmax 100000000000 &
+
+spe179,189,190:
+sleep 18000; cd ~/src/C && nice Mfactor4_opteron -m 22308253344685035261931188171010003137838752886587533208381420617 -kmax 100000000000 &
+sleep 18000; cd ~/src/C && nice Mfactor4_opteron -m 2292191393391856803449039820595510022635353619204199474553859381  -kmax 100000000000 &
+sleep 18000; cd ~/src/C && nice Mfactor4_opteron -m 23166636528619326686336062735676303544776280350450777235547105859 -kmax 100000000000 &
+
+2327839449753824372058353114771199260638133467768796959703098339
+24247014121478057345510500801908699603302763478708108175450119307
+25063904975008656271095359194658975141310348227693062474353632569
+2562690104903778198683593814657412680492564879855614537234786733
+2590709154814165498594616371802709819943099244889575712828905923
+26063813346776879695970309833913077109870408591337464144282277263
+2609275249603579964692565049368183609003238092934595889706953653
+2624334418930396864262434107732269780280731891544110104468232527
+2665408530614344431858676975145661406800700237877659134401712749
+2749567351885752724891227938183011949129833673362440656643086021
+27741559918559252459539594310499725246808459872736446958486538367
+2799344037420073105785390621983874478084784896833214457138687519
+28017350671274858322287183520935396572512108357915136988209144421
+28680920874760917824938589009714909675985261365549781893129784821
+2882446257591633303910722538374218214088350865739177150968288747
+2979866223717215916077166925474873898665494945011465406284336639
+3082533446850352619311881710100031378387528865875332083814206171
+3090669203767192203322909433467685142214477379393751703443661991
+31378517860904070866711496558343434769338578171138645587367812301
+32046927906821207388377814233562823608963208068222468012248261177
+3281609631859502445945534690830264252230825334468503526193118817
+34078330336254232783944975382437205835311477119926063813346776879
+34918740786680881833851022833450850486082503930213321971551843063
+35473573952311342716610213596953623144295248493718711014576540359
+368540664319395097901906996395524530054505806855019567302292191
+3724587006606315588174881520920962829254091715364367892590360011
+37462343645428584447952658678210511413547357395231134271661021359
+37799140373404328752628889639958794757291746426357455254079091451
+38437909904231747336394804575931493140529763475748119356709110137
+38621867252334028308711232827892125077126294632295639898989358211
+3872931748723320837601123029911367938627089438799362016295154133
+4088350865739177150968288747826569959957449066175834413752239709
+4004152970028783076670944474560134556417254370906979396122571429
+41310348227693062474353632569160781547818115284366795706110861533
+41927056387293174872332083760112302991136793862708943879936201629
+4163484756516999811614101002996078386909291603028840026910414079
+42296617119637792133757511495950156604963186294726547364252308177
+4201995611212902196086403441815981362977477130996051870721134999
+4297828564750320319869151402870808599048010941214722131794764777
+42117067982148086513282306647093844609550582231725359408128481117
+42055798293680435220277098429423253302257634180703947699415979159
+4306354550076682829493041377655279397517546139539846833936383047
+4501193071412233908663938339529425786905076431006383519834389341
+4551050080190869960330276347870810817545011930714122339086639383
+47762416862518983569485562099219222184272550254256887671790494601
+47221317947647772622414254854540332157185306142288137585043063321
+4889218654364802296780705765615144632046927906821207388377814233
+48633173464965145390579626856100550810665879699816357473638405257
+4991198818347977535663698074265425278625518184175746728909777727
+4940603402166544375589004563288225054525564056448246515187547119
+4945423682886061340841486377670096120715124914043027253860764823
+5076069479451096596094025228879710893145669136867228748940560101
+5155748572424541506959508295331168617278558890750983817546374649
+52374623436454285844479526586782105114135473573952311342716610213
+53576164773794675200490757155527819653621323926406160136358155907
+5470696574745855033232334210730154594051655379068662733379958511
+5509792592309907965473761255176567513575178296664547791745011299
+5570552690496520985803385072242648293972858478316305777756068887
+5635792122103334669749923563025494780249011419521238281530911407
+5669234603486104543266482133936072602491412737245870066063155881
+5669136867228748940560101503308617928680920874760917824938589009
+5741849468438523323907394143334547762416862518983569485562099219
+570658748822569815793678976697422057505968344086973502014102067
+58512761785838292041974844236080071930457618932349229279650198751
+5850430633217518297986622371721591607716692547487389866549494501
+58784778720192771528073176790770715721344473060570073349243693113
+5993978054193414473774418426312986080998886874132604721569516239
+6029016187667952406163425225771954291629919306455377991403734043
+60943702770539217176293176752384674818467669405132000568127145263
+60285060168427394522674676788952521385225499546667278239864565961
+61190625454337213153595845068772460290161876679524061634252257719
+62201349671518819097303811980049734072396103685406643193950979019
+62735676303544776280350450777235547105859548702790814356240145171
+62749567351885752724891227938183011949129833673362440656643086021
+6314965897940924323789690706977942236250822168895738379862300159
+6321329330898570642046752590709154814165498594616371802709819943
+6402474964732639141992726042699227967823547816360093417216412199
+64043523117600665101241200659755851276178583829204197484423608007
+6582548892648802545661017296702664076559042909945681506526530537
+6672782398645659611635488623057745649803559363456817432411251507
+67812301458768712660348913909562009939361031029161615288138437909
+6722796619885782794848855834397518744545512965634434803966420557
+69882091444210067510334671103141267111369908658516398315019701651
+6908302642522308253344685035261931188171010003137838752886587533
+7095890455635792122103334669749923563025494780249011419521238281
+71311179042978285647503203198691514028708085990480109412147221317
+74944592307816406286208998628034825342117067982148086513282306647
+7631763594218731251471205329281918261861258673215791984148488291
+77771038638773431772075456545322077709212019051660962804909263601
+77156914359977001296160894416948685558484063534220722258284886481
+7781423356282360896320806822246801224826117718589638140918390367
+7833033625423278394497538243720583531147711992606381334677687969
+7869050764310063835198343893415961318543475464955697810382930971
+8021092764579310657922955249887275846101264836999892256959688159
+81530911407907386025152274299581807247162591668545133312394804947
+82224680122482611771858963814091839036736722208883215137556003727
+8221688957383798623001593776471651228935786015881617557829735233
+8307220126901475466847653576164773794675200490757155527819653621
+83011949129833673362440656643086021394946395224737190702179860943
+84259069491293313677028989152104752162056966024058038150193511253
+8475648233786783165271201909145648566923460348610454326648213393
+84259069491293313677028989152104752162056966024058038150193511253
+85102283345085048608250393021332197155184306354550076682829493041
+86426243410773226978028073189154411010446823252716201052652272111
+90915280173506712748583222871835209353965725121083579151369882091
+91456485669234603486104543266482133936072602491412737245870066063
+9360072305587631763594218731251471205329281918261861258673215791
+9405601015033086179286809208747609178249385890097149096759852613
+9409243237896907069779422362508221688957383798623001593776471651
+94510965960940252288797108931456691368672287489405601015033086179
+9501566049631862947265473642523081770367515906735023507283540567
+95636437191728746776465757396241389086583264599581339047802759009
+96892589235420199561121290219608640344181598136297747713099605187
+9781893129784821682998948722658804857564014270477555132379641451
+9729971208443357326548938239119325974636673058360414281388303203
+98757141595781119635833005940873068121602876496286744604774649159
+9852613655497818931297848216829989487226588048575640142704775551
+9924586315030286182974555706749838505494588586926995690927210797
+
+results.txt:M10310291616152881384379099042317473363948045759314931405297634757 has 0 factors in [1.000000e+00, 2.064979e+74], passes 0-15
+results.txt:M1216028764962867446047746491599505497374256269010490377819868359 has 0 factors in [1.000000e+00, 2.435502e+73], passes 0-15
+***results.txt:M12160287649628674460477464915995054973742562690104903778198683593 has 0 factors in [1.000000e+00, 2.435502e+74], passes 0-15
+results.txt:M13282306647093844609550582231725359408128481117450284102701938521 has 0 factors in [1.000000e+00, 2.660224e+74], passes 0-15
+results.txt:M14121478057345510500801908699603302763478708108175450119307141223 has 0 factors in [1.000000e+00, 2.828296e+74], passes 0-15
+results.txt:M1419521238281530911407907386025152274299581807247162591668545133 has 0 factors in [1.000000e+00, 2.843064e+73], passes 0-15
+results.txt:M1538420568533862186725233402830871123282789212507712629463229563 has 0 factors in [1.000000e+00, 3.081199e+73], passes 0-15
+results.txt:M15956258658655705526904965209858033850722426482939728584783163057 has 0 factors in [1.000000e+00, 3.195772e+74], passes 0-15
+results.txt:M1602632750529834918740786680881833851022833450850486082503930213 has 0 factors in [1.000000e+00, 3.209805e+73], passes 0-15
+results.txt:M1618416348475651699981161410100299607838690929160302884002691041 has 0 factors in [1.000000e+00, 3.241417e+73], passes 0-15
+results.txt:M18611738193261179310511854807446237996274956735188575272489122793 has 0 factors in [1.000000e+00, 3.727620e+74], passes 0-15
+
+results.txt:M2053292819182618612586732157919841484882916447060957527069572209 has 0 factors in [1.000000e+00, 4.112402e+73], passes 0-15
+results.txt:M2186117381932611793105118548074462379962749567351885752724891227 has 0 factors in [1.000000e+00, 4.378428e+73], passes 0-15
+results.txt:M2186561967337862362561252163208628692221032748892186543648022967 has 0 factors in [1.000000e+00, 4.379318e+73], passes 0-15
+results.txt:M22072225828488648158456028506016842739452267467678895252138522549 has 0 factors in [1.000000e+00, 4.420698e+74], passes 0-15
+results.txt:M2292191393391856803449039820595510022635353619204199474553859381 has 0 factors in [1.000000e+00, 4.590876e+73], passes 0-15
+results.txt:M23166636528619326686336062735676303544776280350450777235547105859 has 0 factors in [1.000000e+00, 4.639890e+74], passes 0-15
+results.txt:M2327839449753824372058353114771199260638133467768796959703098339 has 0 factors in [1.000000e+00, 4.662273e+73], passes 0-15
+results.txt:M24247014121478057345510500801908699603302763478708108175450119307 has 0 factors in [1.000000e+00, 4.856272e+74], passes 0-15
+results.txt:M25063904975008656271095359194658975141310348227693062474353632569 has 0 factors in [1.000000e+00, 5.019881e+74], passes 0-15
+results.txt:M2590709154814165498594616371802709819943099244889575712828905923 has 0 factors in [1.000000e+00, 5.188757e+73], passes 0-15
+results.txt:M2562690104903778198683593814657412680492564879855614537234786733 has 0 factors in [1.000000e+00, 5.132640e+73], passes 0-15
+results.txt:M2609275249603579964692565049368183609003238092934595889706953653 has 0 factors in [1.000000e+00, 5.225942e+73], passes 0-15
+results.txt:M2665408530614344431858676975145661406800700237877659134401712749 has 0 factors in [1.000000e+00, 5.338368e+73], passes 0-15
+results.txt:M26063813346776879695970309833913077109870408591337464144282277263 has 0 factors in [1.000000e+00, 5.220146e+74], passes 0-15
+results.txt:M2624334418930396864262434107732269780280731891544110104468232527 has 0 factors in [1.000000e+00, 5.256103e+73], passes 0-15
+results.txt:M27741559918559252459539594310499725246808459872736446958486538367 has 0 factors in [1.000000e+00, 5.556171e+74], passes 0-15
+results.txt:M2749567351885752724891227938183011949129833673362440656643086021 has 0 factors in [1.000000e+00, 5.506924e+73], passes 0-15
+results.txt:M2799344037420073105785390621983874478084784896833214457138687519 has 0 factors in [1.000000e+00, 5.606618e+73], passes 0-15
+results.txt:M28017350671274858322287183520935396572512108357915136988209144421 has 0 factors in [1.000000e+00, 5.611407e+74], passes 0-15
+results.txt:M2882446257591633303910722538374218214088350865739177150968288747 has 0 factors in [1.000000e+00, 5.773058e+73], passes 0-15
+results.txt:M28680920874760917824938589009714909675985261365549781893129784821 has 0 factors in [1.000000e+00, 5.744309e+74], passes 0-15
+results.txt:M2979866223717215916077166925474873898665494945011465406284336639 has 0 factors in [1.000000e+00, 5.968174e+73], passes 0-15
+
+results.txt:M3090669203767192203322909433467685142214477379393751703443661991 has 0 factors in [1.000000e+00, 6.190094e+73], passes 0-15
+results.txt:M31378517860904070866711496558343434769338578171138645587367812301 has 0 factors in [1.000000e+00, 6.284593e+74], passes 0-15
+results.txt:M3281609631859502445945534690830264252230825334468503526193118817 has 0 factors in [1.000000e+00, 6.572516e+73], passes 0-15
+results.txt:M34078330336254232783944975382437205835311477119926063813346776879 has 0 factors in [1.000000e+00, 6.825320e+74], passes 0-15
+results.txt:M34918740786680881833851022833450850486082503930213321971551843063 has 0 factors in [1.000000e+00, 6.993640e+74], passes 0-15
+results.txt:M35473573952311342716610213596953623144295248493718711014576540359 has 0 factors in [1.000000e+00, 7.104764e+74], passes 0-15
+results.txt:M368540664319395097901906996395524530054505806855019567302292191 has 0 factors in [1.000000e+00, 7.381253e+72], passes 0-15
+results.txt:M3724587006606315588174881520920962829254091715364367892590360011 has 0 factors in [1.000000e+00, 7.459725e+73], passes 0-15
+results.txt:M37462343645428584447952658678210511413547357395231134271661021359 has 0 factors in [1.000000e+00, 7.503081e+74], passes 0-15
+results.txt:M37799140373404328752628889639958794757291746426357455254079091451 has 0 factors in [1.000000e+00, 7.570536e+74], passes 0-15
+results.txt:M38437909904231747336394804575931493140529763475748119356709110137 has 0 factors in [1.000000e+00, 7.698471e+74], passes 0-15
+results.txt:M38621867252334028308711232827892125077126294632295639898989358211 has 0 factors in [1.000000e+00, 7.735314e+74], passes 0-15
+results.txt:M3872931748723320837601123029911367938627089438799362016295154133 has 0 factors in [1.000000e+00, 7.756835e+73], passes 0-15
+
+results.txt:M4004152970028783076670944474560134556417254370906979396122571429 has 0 factors in [1.000000e+00, 8.019649e+73], passes 0-15
+results.txt:M4088350865739177150968288747826569959957449066175834413752239709 has 1 factors in [1.000000e+00, 8.188283e+73], passes 0-15
+results.txt:M41310348227693062474353632569160781547818115284366795706110861533 has 0 factors in [1.000000e+00, 8.273772e+74], passes 0-15
+results.txt:M4163484756516999811614101002996078386909291603028840026910414079 has 0 factors in [1.000000e+00, 8.338764e+73], passes 0-15
+results.txt:M41927056387293174872332083760112302991136793862708943879936201629 has 1 factors in [1.000000e+00, 8.397289e+74], passes 0-15
+results.txt:M4201995611212902196086403441815981362977477130996051870721134999 has 0 factors in [1.000000e+00, 8.415895e+73], passes 0-15
+results.txt:M42055798293680435220277098429423253302257634180703947699415979159 has 0 factors in [1.000000e+00, 8.423073e+74], passes 0-15
+results.txt:M42117067982148086513282306647093844609550582231725359408128481117 has 0 factors in [1.000000e+00, 8.435345e+74], passes 0-15
+results.txt:M42296617119637792133757511495950156604963186294726547364252308177 has 0 factors in [1.000000e+00, 8.471305e+74], passes 0-15
+results.txt:M4297828564750320319869151402870808599048010941214722131794764777 has 0 factors in [1.000000e+00, 8.607832e+73], passes 0-15
+results.txt:M4306354550076682829493041377655279397517546139539846833936383047 has 0 factors in [1.000000e+00, 8.624908e+73], passes 0-15
+results.txt:M4501193071412233908663938339529425786905076431006383519834389341 has 0 factors in [1.000000e+00, 9.015137e+73], passes 0-15
+results.txt:M4551050080190869960330276347870810817545011930714122339086639383 has 0 factors in [1.000000e+00, 9.114993e+73], passes 0-15
+results.txt:M47221317947647772622414254854540332157185306142288137585043063321 has 0 factors in [1.000000e+00, 9.457641e+74], passes 0-15
+results.txt:M47762416862518983569485562099219222184272550254256887671790494601 has 0 factors in [1.000000e+00, 9.566014e+74], passes 0-15
+results.txt:M48633173464965145390579626856100550810665879699816357473638405257 has 0 factors in [1.000000e+00, 9.740412e+74], passes 0-15
+results.txt:M4889218654364802296780705765615144632046927906821207388377814233 has 0 factors in [1.000000e+00, 9.792288e+73], passes 0-15
+results.txt:M4940603402166544375589004563288225054525564056448246515187547119 has 0 factors in [1.000000e+00, 9.895203e+73], passes 0-15
+results.txt:M4945423682886061340841486377670096120715124914043027253860764823 has 0 factors in [1.000000e+00, 9.904857e+73], passes 0-15
+results.txt:M4991198818347977535663698074265425278625518184175746728909777727 has 0 factors in [1.000000e+00, 9.996537e+73], passes 0-15
+
+results.txt:M5076069479451096596094025228879710893145669136867228748940560101 has 0 factors in [1.000000e+00, 1.016652e+74], passes 0-15
+results.txt:M5155748572424541506959508295331168617278558890750983817546374649 has 0 factors in [1.000000e+00, 1.032610e+74], passes 0-15
+results.txt:M52374623436454285844479526586782105114135473573952311342716610213 has 0 factors in [1.000000e+00, 1.048976e+75], passes 0-15
+results.txt:M53576164773794675200490757155527819653621323926406160136358155907 has 0 factors in [1.000000e+00, 1.073041e+75], passes 0-15
+results.txt:M5470696574745855033232334210730154594051655379068662733379958511 has 0 factors in [1.000000e+00, 1.095689e+74], passes 0-15
+results.txt:M54973742562690104903778198683593814657412680492564879855614537234786733 has 1 factors in [1.000000e+00, 1.113605e+80], passes 0-15
+results.txt:M5570552690496520985803385072242648293972858478316305777756068887 has 0 factors in [1.000000e+00, 1.115689e+74], passes 0-15
+results.txt:M5509792592309907965473761255176567513575178296664547791745011299 has 1 factors in [1.000000e+00, 1.103519e+74], passes 0-15
+results.txt:M5669136867228748940560101503308617928680920874760917824938589009 has 0 factors in [1.000000e+00, 1.135433e+74], passes 0-15
+results.txt:M5669234603486104543266482133936072602491412737245870066063155881 has 0 factors in [1.000000e+00, 1.135453e+74], passes 0-15
+results.txt:M5635792122103334669749923563025494780249011419521238281530911407 has 0 factors in [1.000000e+00, 1.128755e+74], passes 0-15
+results.txt:M5741849468438523323907394143334547762416862518983569485562099219 has 0 factors in [1.000000e+00, 1.149996e+74], passes 0-15
+results.txt:M5850430633217518297986622371721591607716692547487389866549494501 has 0 factors in [1.000000e+00, 1.171743e+74], passes 0-15
+results.txt:M58512761785838292041974844236080071930457618932349229279650198751 has 0 factors in [1.000000e+00, 1.171913e+75], passes 0-15
+results.txt:M5892354201995611212902196086403441815981362977477130996051870721134999 has 0 factors in [1.000000e+00, 1.193616e+79], passes 0-15
+results.txt:M58784778720192771528073176790770715721344473060570073349243693113 has 0 factors in [1.000000e+00, 1.177361e+75], passes 0-15
+results.txt:M5993978054193414473774418426312986080998886874132604721569516239 has 0 factors in [1.000000e+00, 1.200494e+74], passes 0-15
+
+results.txt:M6029016187667952406163425225771954291629919306455377991403734043 has 0 factors in [1.000000e+00, 1.207511e+74], passes 0-15
+results.txt:M60285060168427394522674676788952521385225499546667278239864565961 has 0 factors in [1.000000e+00, 1.207409e+75], passes 0-15
+results.txt:M60943702770539217176293176752384674818467669405132000568127145263 has 0 factors in [1.000000e+00, 1.220600e+75], passes 0-15
+results.txt:M61190625454337213153595845068772460290161876679524061634252257719 has 0 factors in [1.000000e+00, 1.225546e+75], passes 0-15
+results.txt:M62201349671518819097303811980049734072396103685406643193950979019 has 0 factors in [1.000000e+00, 1.245789e+75], passes 0-15
+results.txt:M62735676303544776280350450777235547105859548702790814356240145171 has 1 factors in [1.000000e+00, 1.256491e+75], passes 0-15
+results.txt:M62749567351885752724891227938183011949129833673362440656643086021 has 1 factors in [1.000000e+00, 1.256769e+75], passes 0-15
+results.txt:M6314965897940924323789690706977942236250822168895738379862300159 has 0 factors in [1.000000e+00, 1.264782e+74], passes 0-15
+results.txt:M6321329330898570642046752590709154814165498594616371802709819943 has 0 factors in [1.000000e+00, 1.266057e+74], passes 0-15
+results.txt:M6402474964732639141992726042699227967823547816360093417216412199 has 1 factors in [1.000000e+00, 1.282309e+74], passes 0-15
+results.txt:M64043523117600665101241200659755851276178583829204197484423608007 has 0 factors in [1.000000e+00, 1.282685e+75], passes 0-15
+results.txt:M6582548892648802545661017296702664076559042909945681506526530537 has 0 factors in [1.000000e+00, 1.318375e+74], passes 0-15
+results.txt:M6672782398645659611635488623057745649803559363456817432411251507 has 0 factors in [1.000000e+00, 1.336447e+74], passes 0-15
+results.txt:M67812301458768712660348913909562009939361031029161615288138437909 has 0 factors in [1.000000e+00, 1.358167e+75], passes 0-15
+results.txt:M6722796619885782794848855834397518744545512965634434803966420557 has 0 factors in [1.000000e+00, 1.346464e+74], passes 0-15
+results.txt:M6908302642522308253344685035261931188171010003137838752886587533 has 0 factors in [1.000000e+00, 1.383618e+74], passes 0-15
+results.txt:M69882091444210067510334671103141267111369908658516398315019701651 has 0 factors in [1.000000e+00, 1.399621e+75], passes 0-15
+
+results.txt:M7095890455635792122103334669749923563025494780249011419521238281 has 1 factors in [1.000000e+00, 1.421188e+74], passes 0-15
+results.txt:M71311179042978285647503203198691514028708085990480109412147221317 has 0 factors in [1.000000e+00, 1.428244e+75], passes 0-15
+results.txt:M74944592307816406286208998628034825342117067982148086513282306647 has 0 factors in [1.000000e+00, 1.501015e+75], passes0-15
+results.txt:M7631763594218731251471205329281918261861258673215791984148488291 has 0 factors in [1.000000e+00, 1.528515e+74], passes 0-15
+results.txt:M77771038638773431772075456545322077709212019051660962804909263601 has 0 factors in [1.000000e+00, 1.557624e+75], passes 0-15
+results.txt:M77156914359977001296160894416948685558484063534220722258284886481 has 0 factors in [1.000000e+00, 1.545324e+75], passes 0-15
+results.txt:M7781423356282360896320806822246801224826117718589638140918390367 has 0 factors in [1.000000e+00, 1.558489e+74], passes 0-15
+results.txt:M7833033625423278394497538243720583531147711992606381334677687969 has 0 factors in [1.000000e+00, 1.568826e+74], passes 0-15
+results.txt:M7869050764310063835198343893415961318543475464955697810382930971 has 0 factors in [1.000000e+00, 1.576039e+74], passes 0-15
+
+results.txt:M8021092764579310657922955249887275846101264836999892256959688159 has 0 factors in [1.000000e+00, 1.606491e+74], passes 0-15
+results.txt:M81530911407907386025152274299581807247162591668545133312394804947 has 0 factors in [1.000000e+00, 1.632928e+75], passes 0-15
+results.txt:M82224680122482611771858963814091839036736722208883215137556003727 has 0 factors in [1.000000e+00, 1.646823e+75], passes 0-15
+results.txt:M83011949129833673362440656643086021394946395224737190702179860943 has 1 factors in [1.000000e+00, 1.662591e+75], passes 0-15
+results.txt:M8307220126901475466847653576164773794675200490757155527819653621 has 0 factors in [1.000000e+00, 1.663797e+74], passes 0-15
+results.txt:M8475648233786783165271201909145648566923460348610454326648213393 has 0 factors in [1.000000e+00, 1.697531e+74], passes 0-15
+results.txt:M84259069491293313677028989152104752162056966024058038150193511253 has 0 factors in [1.000000e+00, 1.687568e+75], passes 0-15
+results.txt:M85102283345085048608250393021332197155184306354550076682829493041 has 1 factors in [1.000000e+00, 1.704456e+75], passes 0-15
+results.txt:M86426243410773226978028073189154411010446823252716201052652272111 has 0 factors in [1.000000e+00, 1.730973e+75], passes 0-15
+
+results.txt:M90915280173506712748583222871835209353965725121083579151369882091 has 0 factors in [1.000000e+00, 1.820881e+75], passes 0-15
+results.txt:M91456485669234603486104543266482133936072602491412737245870066063 has 0 factors in [1.000000e+00, 1.831721e+75], passes 0-15
+results.txt:M9360072305587631763594218731251471205329281918261861258673215791 has 0 factors in [1.000000e+00, 1.874666e+74], passes 0-15
+results.txt:M9409243237896907069779422362508221688957383798623001593776471651 has 0 factors in [1.000000e+00, 1.884514e+74], passes 0-15
+results.txt:M9405601015033086179286809208747609178249385890097149096759852613 has 0 factors in [1.000000e+00, 1.883785e+74], passes 0-15
+results.txt:M95636437191728746776465757396241389086583264599581339047802759009 has 0 factors in [1.000000e+00, 1.915438e+75], passes 0-15
+results.txt:M9501566049631862947265473642523081770367515906735023507283540567 has 0 factors in [1.000000e+00, 1.903005e+74], passes 0-15
+results.txt:M96892589235420199561121290219608640344181598136297747713099605187 has 0 factors in [1.000000e+00, 1.940597e+75], passes 0-15
+results.txt:M9781893129784821682998948722658804857564014270477555132379641451 has 0 factors in [1.000000e+00, 1.959150e+74], passes 0-15
+results.txt:M98757141595781119635833005940873068121602876496286744604774649159 has 0 factors in [1.000000e+00, 1.977940e+75], passes 0-15
+results.txt:M9852613655497818931297848216829989487226588048575640142704775551 has 0 factors in [1.000000e+00, 1.973314e+74], passes 0-15
+results.txt:M9924586315030286182974555706749838505494588586926995690927210797 has 0 factors in [1.000000e+00, 1.987729e+74], passes 0-15
+
+
+==================================
+
+IA64/LINUX, INTEL COMPILER:
+
+spe177:
+icc -S -fverbose-asm -O3 -mcpu=itanium2 -DFACTOR_STANDALONE ../factor.c
+
+icc -c -O3 ../imul50_macro.c	<== imul50_macro.c(116): error: asm statements not supported in this environment
+				     MUL50x50(a,b,0,*lo,*hi);
+				     ^
+
+cd ~/src/C/IA64_LINUX
+icc -c -O3 ../get_fp_rnd_const.c
+icc -c -O3 ../imul_macro.c
+icc -c -O3 ../mi64.c
+icc -c -O3 ../qfloat.c
+icc -c -O3 ../rng_isaac.c
+icc -c -O3 ../twopmodq.c
+icc -c -O3 ../twopmodq80.c
+icc -c -O3 ../twopmodq96.c
+icc -c -O3 ../twopmodq128.c
+icc -c -O3 ../twopmodq128_96.c
+icc -c -O3 ../twopmodq160.c
+icc -c -O3 ../twopmodq192.c
+icc -c -O3 ../twopmodq256.c
+icc -c -O3 ../types.c
+icc -c -O3 ../util.c
+
+cd ~/src/C/IA64_LINUX
+icc -c -O3 -DFACTOR_STANDALONE -DNUM_SIEVING_PRIME=500000 -DP4WORD -DTRYQ=1 ../factor.c
+rm -f Mfactor4_ia64_linux
+icc -o Mfactor4_ia64_linux -static factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o rng_isaac.o twopmodq*.o -lm
+
+cd ~/src/C/IA64_LINUX
+icc -c -O3 -DFACTOR_STANDALONE -DNUM_SIEVING_PRIME=100000 -DTRYQ=4 ../factor.c
+rm -f Mfactor_ia64_linux
+icc -o Mfactor_ia64_linux -static factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o qfloat.o rng_isaac.o twopmodq*.o -lm
+rm t214*
+time Mfactor_ia64_linux -m 2147483647 -bmax 68 -passmin 15
+
+
+***7/01/2005: Compare timings using the 3 possible settings of USE_128x96:
+
+Value	Time
+0	3:06.4
+1	3:06.9
+2	3:06.7
+
+***6/13/2005:
+...
+Performed 749170342 trial divides
+Clocks = 00:03:04.359	<== STILL FASTER THAN 1GHz EV6, EVEN SANS MADD-BASED MULS
+spe177.testdrive.hp.com>
+
+
+************128-BIT:************
+
+cd ~/src/C/IA64_LINUX
+icc -c -O3 -DFACTOR_STANDALONE -DP2WORD ../factor.c
+rm -f Mfactor2_ia64_linux
+icc -o Mfactor2_ia64_linux -static factor.o imul_macro.o util.o types.o mi64.o -lm
+rm t23*
+time Mfactor2_ia64_linux -m 2305843009213693951 -bmax 98 -passmin 15
+...
+M2305843009213693951 has 0 factors in [1.000000e+00, 3.169469e+29], passes 15-15
+Performed 152528410 trial divides
+Clocks = 00:05:24.430	<== 7/19: dbg_assert-less code gets 4:49, ~56 cycles/modmul
+
+7/19: try the 192-bit code:
+rm t23*
+time Mfactor3_ia64_linux -m 2305843009213693951 -bmax  98 -passmin 15
+...
+Performed 145680250 trial divides
+Clocks = 00:11:33.081	<== Much bigger performance hit going to 192-bit than on Alpha.
+
+************192-BIT:************
+
+cd ~/src/C/IA64_LINUX
+icc -c -Wcheck -Wp64 -O3 -ipo +FDO ../imul_macro.c ../util.c ../types.c ../mi64.c ../twopmodq*.c
+icc -c -O3 -ipo +FDO -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4   ../factor.c
+rm -f Mfactor3_ia64_linux
+icc -o Mfactor3_ia64_linux -static factor.o imul_macro.o util.o types.o mi64.o twopmodq*.o -lm
+cd ~/src/C/IA64_LINUX
+rm t17*
+time Mfactor3_ia64_linux -m 170141183460469231731687303715884105727 -kmax 10000000000 -passmin 15
+
+icc -c -O3 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 -DPIPELINE_MUL192   ../factor.c
+icc -c -O3 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4 -DUSE_FAST_UMULH192 ../factor.c
+icc -c -O3 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=4                     ../factor.c
+
+icc -c -O3 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8 -DPIPELINE_MUL192   ../factor.c
+icc -c -O3 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8 -DUSE_FAST_UMULH192 ../factor.c
+icc -c -O3 -DFACTOR_STANDALONE -DP3WORD -DTRYQ=8                     ../factor.c
+
+TRYQ = 4, pipelined:	2:26
+TRYQ = 4, nopipe/approx	2:22	<== small gain not worth it...
+TRYQ = 4, nopipe/exact	2:26	<== ***THE WINNER...***	(7/21: 2:40 with MUL192 bugfix)
+
+TRYQ = 8, pipelined:	3:44, ugh!
+TRYQ = 8, nopipe/approx	2:59
+TRYQ = 8, nopipe/exact	3:26
+
+
+***7/17: p = (M127+2)/3:
+
+rm t56*
+time Mfactor3_ia64_linux -m 56713727820156410577229101238628035243 -kmax 10000000000 -passmin 15
+
+==================================
+
+IA64/HPUX, HP C COMPILER:
+
+spe176: Use -w to suppress warning messages. +Ofast barfed with my small test code, but +O4 +Onolimit +Oaggressive ran OK. OTOH, with the full Mfactor code, +O4 +Onolimit +Oaggressive barfed, as well, as did +O4 +Onolimit and +O2. The only way I could get the full-blown code to run was to turn compiler optimizations down all the way to +O1.
+
+Additionally invoking +DD64 -ext -fpeval=extended -fpwidetypes didn't solve the problem, so it doesn't appear to be due to some missing 64-bit-related compiler flag.
+
+Try:
+
++DD64
+-ext
+-fpeval=extended
+-fpwidetypes
++DS{blended|itanium|itanium2|native}
+
+
+spe176:
+cd ~/src/C/IA64_HPUX
+cc -c +Ofast -w ../get_fp_rnd_const.c
+cc -c +Ofast -w ../imul_macro.c
+cc -c +Ofast -w ../util.c
+cc -c +Ofast -w ../types.c
+cc -c +Ofast -w ../mi64.c
+cc -c +Ofast -w ../twopmodq*.c
+
+***Best optimization I could get it to build successfully with was +O1***
+cc -c +Ofast -w -DFACTOR_STANDALONE ../factor.c
+cc -o Mfactor_ia64_hpux factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o twopmodq*.o -lm
+Mfactor_ia64_hpux -m 16219289 -bmax 63.0 -passmin 2 -passmax 2
+
+***modify:***
+spe176> Mfactor_ia64_hpux -m 16219289 -bmax 63.0 -passmin 2 -passmax 2
+Mfactor self-tests:
+Testing 63-bit factors...
+Testing 64-bit factors...
+Testing 65-bit factors...
+Testing 96-bit factors...
+Factoring self-tests completed successfully.
+searching in the interval k=[0, 284333649600], i.e. q=[1.000000e+00, 9.223379e+18]
+each of  1 (p mod 60) passes will consist of 17405 intervals of length 272272
+max sieving prime = 611957
+Time to set up sieve = 00:00:00.130
+pass = 2............................................................................................
+...................M16219289 has a factor: 7464112771264190017. Program: E2.8x
+.........................
+M16219289 has 1 factors in [1.000000e+00, 9.223379e+18], passes 2-2
+Performed 749170342 trial divides
+Clocks = 00:11:29.799	<=== At least 2x slower than it should be
+
+*************
+
+************192-BIT:************
+
+cc -c +Ofast -w -DFACTOR_STANDALONE -DP3WORD ../factor.c
+cc -o Mfactor3_ia64_hpux factor.o imul_macro.o util.o types.o mi64.o -lm
+
+rm t*1*
+time Mfactor3_ia64_hpux -m 56713727820156410577229101238628035243 -kmax 10000000000 -passmin 15
+
+==================================
+
+HP PA-RISC/HPUX:
+
+spe191:
+
+***DEBUG***
+cd ~/src/C/HPPA_OBJS
+cc -c +O0 ../get_fp_rnd_const.c
+cc -c +O0 ../imul_macro.c
+cc -c +O0 ../util.c
+cc -c +O0 ../types.c
+cc -c +O0 ../mi64.c
+cc -c +O0 -DFACTOR_STANDALONE ../factor.c
+cc -o Mfactor_hppa_hpux factor.o get_fp_rnd_const.o imul_macro.o util.o types.o mi64.o -lm
+
+***RELEASE***
+cd ~/src/C/HPPA_OBJS
+cc -c +O3 +Odataprefetch +DA2.0 ../get_fp_rnd_const.c
+cc -c +O3 +Odataprefetch +DA2.0 ../imul_macro.c
+cc -c +O3 +Odataprefetch +DA2.0 ../util.c
+cc -c +O3 +Odataprefetch +DA2.0 ../types.c
+cc -c +O3 +Odataprefetch +DA2.0 ../mi64.c
+cc -c +O3 +Odataprefetch +DA2.0 -DFACTOR_STANDALONE ../factor.c
+cc -o Mfactor_hppa_hpux factor.o imul_macro.o util.o types.o mi64.o -lm
+
+cc -c +O3 +Odataprefetch +DA2.0 -DFACTOR_STANDALONE -DP2WORD ../factor.c
+cc -o Mfactor2_hppa_hpux factor.o imul_macro.o util.o types.o mi64.o -lm
+
+cc -c +O3 +Odataprefetch +DA2.0 -DFACTOR_STANDALONE -DP3WORD ../factor.c
+cc -o Mfactor3_hppa_hpux factor.o imul_macro.o util.o types.o mi64.o -lm
+
+Mfactor_hppa_hpux -m 16219289 -bmax 63.0 -passmin 2 -passmax 2
+
+
+================================
+
+10/21/2005:
+
+Debug of 78-bit floating-point-based modular powering using the Montgomery modmul:
+
+b=2^64;	c=2^78;
+
+p = 16219289;
+q = 7464112771264190017;
+
+qinv=q;
+qinv=qinv*(2-qinv*q)%c
+
+After 5 iterations, get
+qinv = 99840271002475801246145 .
+
+In binary form:
+p = 111101110111110010011001
+
+p+78 =
+111101	(= 61; these handled in preprocessing via 2^(77-61) = 2^16)
+110111110011100111
+
+lead7 = 1111011_2 = 123 > 77, so use leading 6 bits = 61.
+
+Now replace every 1 in the remaining bitset with the following sequence,
+and every 0 with the same sequence supplemented with an added doubling at the end:
+x=2^16;
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+
+yielding the following sequence of x-values:
+
+428595903568604386
+3991505429408151740
+5373660760813016279
+5312560407463093496
+3100588513049848011
+376340439619481789
+7219008137643435547
+6255210984209179402
+7048488590885682816
+289943524358927399
+2620048925221260569
+6632151673762839886
+6369162129602407866
+4855840949846478757
+6777225284476837250
+7361779503516636705
+4079648043091847966
+3732056385632095009
+
+...and a final doubling prior to return yields the desired 2^(-p) == 1 mod q.
+
+================================
+
+7/21/2005:
+
+Debug of 192-bit modular powering using the Montgomery modmul:
+
+b=2^64; c=b^3;
+
+q = 172373531123700763557494472747373520137774506644273
+ INFO: This q is composite
+
+BZZZT! According to PARI, this q is prime...let's manually check the base-2 PRP results:
+
+p=q-1;
+x=2;
+x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=x^2%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=(2*x^2)%q;x=(2*x^2)%q;x=x^2%q;x=x^2%q;x=x^2%q;x=x^2%q
+
+In base-2^64 form:
+q.d2=506560280167; q.d1=18446744073709551615; q.d0=18446743060588991281;
+
+In binary form:
+p =
+11101011111000101011000011101100110011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110001010000011101010011110001001100110000
+
+p+192 =
+1110101	(= 117; these handled in preprocessing via 2^(191-117) = 2^74)
+1111000101011000011101100110011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110001010000011101010011110001001111110000
+Now replace every 1 in the remaining bitset with the following sequence,
+and every 0 with the same sequence supplemented with an added doubling at the end:
+x=2^74;
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;x=2*x%q
+
+
+
+lead8 = 11101011_2 = 255-16-4 = 235, > 191, so use leading 7 bits = 127-8-2 = 117.
+
+qinv=q;
+qinv=qinv*(2-qinv*q)%c
+
+After 6 iterations, get
+qinv = 5389907005959158074024246200944660929356535165653256988113
+
+mont_mul(x,y) = mult_hi(x,y) - mult_high(q, mult_lo( mult_lo(x,y), qinv ))
+
+Letting
+s = x^2;	sqr_lohi(x)
+t = (s-s%c)/c	sqr_hi(x)
+s = s%c		sqr_lo(x)
+u = s*qinv%c	mult_lo( mult_lo(x,y), qinv )
+v = q*u
+v = (v-v%c)/c	mult_high(q, mult_lo( mult_lo(x,y), qinv ))
+x = (t-v)%q	mont_mul(x,y), nonnegative form.
+
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*qinv%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q;
+{if corr. bit of ~(p+192) is 1)}
+x = 2*x%q;
+
+Get the following sequence of x-values during the 2^(-p) mod q powering. ~(p + 128)=
+1000100101011111001000111 in binary,
+get the following left-to-right bit sequence (In practice we'd process the leftmost 7 bits
+( = 68) in one fell swoop by initializing the powering with 2^(127-68) = 2^59) :
+
+~bit		x						current power:
+------		------------------------			--------
+~1 = 0								192 - (  1*2-0)
+~1 = 0								192 - (  2*2-0)
+~1 = 0								192 - (  4*2-0)
+~0 = 1								192 - (  8*2-1)
+~1 = 0								192 - ( 15*2-0)
+~0 = 1								192 - ( 30*2-1)
+~1 = 0								192 - ( 59*2-0)
+<***START HERE, 2^(192-118) = 2^(+74)***
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~0 = 1
+~1 = 0
+~0 = 1
+~1 = 0
+~0 = 1
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~0 = 1
+~0 = 1
+~1 = 0
+~1 = 0
+~1 = 0
+~0 = 1
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~0 = 1
+~1 = 0
+~0 = 1
+~1 = 0
+~0 = 1
+~0 = 1
+~0 = 1
+~0 = 1
+~0 = 1
+~1 = 0
+~1 = 0
+~1 = 0
+~0 = 1
+~1 = 0
+~0 = 1
+~1 = 0
+~0 = 1
+~0 = 1
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~0 = 1
+~1 = 0
+~0 = 1
+~0 = 1
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~1 = 0
+~0 = 1
+~0 = 1
+~0 = 1
+~0 = 1
+
+and a final doubling prior to return yields the desired 2^(-p) == 1 mod q.
+
+twopmodq192:
+p = 172373531123700763557494472747373520137774506644272
+p+= 172373531123700763557494472747373520137774506644464
+lead8 = 117
+q    = 172373531123700763557494472747373520137774506644273
+qinv = 5389907005959158074024246200944660929356535165653256988113
+j = start_index - 1 = 159
+zshift  = 148
+lo = 3748101329133443412341838685483284486168728607958428024832
+q*lo/2^192 = 102925440489514149882118828992708701475977579937880
+x = 102925440489514149882118828992708701475977579937880
+x0= 69448090634186613675375643754664818661796926706393
+x = 108157690086374304254374376072189379759784156192572
+x = 3094457926346479272004570384077469421086731568987
+x = 64936323945205452190446767356918432287334892605719
+x = 65477964372857003741231388143749025506893515377188	2x= 130955928745714007482462776287498051013787030754376
+x = 132174239231194246158392569683091410125714156548663	2x= 91974947338687728759290666618809300113653806453053
+x = 87522845390358114981731496801294565810950627086899	2x= 2672159657015466405968520855215611484126747529525
+x = 27031557745120108099800841367298228919426334135249
+x = 52856001743931008737677364296037408919612830169137	2x= 105712003487862017475354728592074817839225660338274
+x = 113744133120496313069708955573510278100422812692268
+x = 8091008119094212616686246581954149952523961085526	2x= 16182016238188425233372493163908299905047922171052
+x = 130291747196425320917374823398919331619255666650167
+x = 139690118769141568955874466186089137253883585601889
+x = 16060096700755974317633020542093041645366051864228	2x= 32120193401511948635266041084186083290732103728456
+x = 155205960312645294232140331152795632002471706993121	2x= 138038389501589824906786189558217743867168907341969
+x = 45749533792612759452439802895705866524338497989470	2x= 91499067585225518904879605791411733048676995978940
+x = 92602392996095023555078987630021110974602568725506	2x= 12831254868489283552663502512668701811430630806739
+x = 153074936432066529265751381260891748640562489921491
+x = 156915520407134711824479154303181950343384673849701
+x = 112092725896024032876107201195324977100712939325546
+x = 107245845491954886257318547530584938208924429651088	2x= 42118159860209008957142622313796356280074352657903
+x = 142124673988435116360176577432339953414487237381018
+x = 89624006148310385581089264858923546468488596458156
+x = 51466507093121068959858080967775454982576245238060	2x= 102933014186242137919716161935550909965152490476120
+x = 168839487295567082930753233820138876368394514177946	2x= 165305443467433402304011994892904232599014521711619
+x = 30299719601123674825360120629262426528259816848938
+x = 73380587627898947761410535178729134949423462937154
+x = 47930565840305867636009506701661337463634742493224	2x= 95861131680611735272019013403322674927269484986448
+x = 106716222423556554586272521500024437092685906033427	2x= 41058913723412345615050570252675354047597305422581
+x = 145218861808769241379522604987192131660415895700915
+x = 69153559960408308304910593582586161061780919286339
+x = 31129800921178742259149101874079141703825896069489
+x = 60599395362772625441338594278995688008986020255961
+x = 154367646360781158597842520246723112996276167986719
+x = 111545994549377989802796259765968385834103066463759
+x = 7071685864619508202188394024228348081033519301897
+x = 125060003394870248220623590153971683436570676061151
+x = 22266417662245245930672847956425100939725404643297
+x = 51174925402628018960978276415105511456241330832848
+x = 64349350886753840665194481163403918580142189595626
+x = 129620814627943337460668557675317222790538343264515
+x = 73912673592171246423402095231243256586187300454507
+x = 129411221566305633497586873718137841698801357518678
+x = 103008781845708758175886695879388597296559959027649
+x = 425185525807229513437377285415195898312760202511
+x = 145743774869197473112363836813716478837796059696613
+x = 65090937273345561574114703083711981021457532471769
+x = 11359772539813461130465397481116025073069569020381
+x = 33273148686877249031583870080924966807720607206424
+x = 157461512253766135036517612689005614454721472654431
+x = 132227608055639297211992120433241271706724392932259
+x = 170028875074090523535148232087460286947105784737525
+x = 121079871151064501455373849753159723737720428737938
+x = 143172044267107545039002591937199767754947106715828
+x = 108492416684024107327474974684332460524372075123935
+x = 5030160118793714664843549927247786601518801296651
+x = 48009687223765428843854580921929622522476575511258
+x = 89518708073107699334400352931051875108697746605255
+x = 89605682810845662812196443021712471802476222172783
+x = 51429245543109584863700980786539089223138388553401
+x = 35002207437240931594453384016650914016653591177325
+x = 100096106240615154604506934215201286175356501332393
+x = 43599944853216498559616485052063499830759221748357
+x = 162596683921563365139630017959935239228690732318011
+x = 62407340850168798462057200535910260629408271277089
+x = 3781291644620573600850050556924564392223839796242
+x = 59009077111743362363583102149995975263142512025797
+x = 44456173078575219379303405580139459733101704857832
+x = 50398065885084396772993839756801467396688947490943
+x = 162333540219218763677867892309530271426582552258917
+x = 29015408225342460906496487908855115995143126188793
+x = 71076709417235560613443221818140919868163850439606
+x = 58336758658465542694796167124374918246956276114238
+x = 60105889502825861527911390676319350382711330357469
+x = 31127839363055579460439634439585830619283473921630
+x = 128731810918741420116529597634144423021868841936117
+x = 98541494978938829354775100032900964189989591336319
+x = 116404387653693041037938321038712257066602630222533
+x = 97045717995556028625326398990084042328774758074928
+x = 117992978358335708192567868818842296562551721721974
+x = 114690272789276455829074853943524839329847908068060
+x = 140399690059237536594568793100672740415774567803301
+x = 157031003904727878369224403479159464467969796833936
+x = 7047807627073018915768152868387731348683745875536
+x = 138438897151119249793586617386269813514661179500624
+x = 13629331053817106107674049945832962589599820181861
+x = 41234055304823179438662359317308715245208562078956
+x = 100510528504623809144850103224595707845119764096153
+x = 60178738013122431359384442254918927146005051667356
+x = 94710477596648703106656614536683470322430795051307
+x = 140859178853726792639935550291070769589604493270657
+x = 84220946686430309005151295076396647810821024294192
+x = 36460730821234622525903326794291306250056158226342
+x = 66205098729604141853500478176479371593597212676465
+x = 36689322586316361806133018304113985430109506970996
+x = 93299443032562426138253480561555213233907927496956
+x = 18823484647761817979643270519652089684461983075530
+x = 122353159545761422084955604192141954371211057851901
+x = 73538090668055919564875519050608024229528251286142
+x = 89393942575806866235432550343709906167633126062495
+x = 135775686661152666356475405896782060843524906147553
+x = 37225087279086273138584967972628973845596637471093
+x = 2461468488638523099963759412436772158266402249455
+x = 162890440067509937712962363719923024078304460160352
+x = 148381575814615454591762524886994924615189703188287
+x = 100203799177459448225248657557694614736163651756400
+x = 57258698323233842752772435978668674470905058135846
+x = 74975293629972208572597223462585448881986351135170
+x = 65306977969465352905350503179808709633791335741877
+x = 69171968209123017819776941727217291531058366602663
+x = 24412359291223443532928709010486259804479566437137
+x = 124578825682869759041299367280580832884540599936556
+x = 134738997495074101720228764349453765150611856889531
+x = 160254582850781397717544004876200326486222740770547
+x = 22881994014163556720462172383736845306446514934558
+x = 164843909386134424404103263056231452505673925750279
+x = 168481925204523736624746069905242299986777623020147
+x = 152388401067507018055290638011801995499044172468106
+x = 64971498870215292548296233563649812989657523213982
+x = 125545698914391540490241799932447625243654751098073
+x = 167560979400342632410239762942175231538118614243684	2x= 162748427676984501262985053136976942938462721843095
+x = 170741912524428208993798217791169943968525818425720	2x= 169110293925155654430101962834966367799277130207167
+x = 29445873346916849640046090310663490947514957498344	2x= 58891746693833699280092180621326981895029914996688
+x = 37335209892639368714865740188707015229732675669102
+x = 51965892723583719631221132971857188296559268057302	2x= 103931785447167439262442265943714376593118536114604
+x = 95088298101132248144126634237317632991423747497181
+x = 40947529782998660645507728619088551587330858637118	2x= 81895059565997321291015457238177103174661717274236
+x = 45793696320266785076186477540101269761817430185775	2x= 91587392640533570152372955080202539523634860371550
+x = 89000047061914950052013238178301632531393909182720	2x= 5626563000129136546532003609229744925013311721167
+x = 61546122337593903127397279594687838078184382574450	2x= 123092244675187806254794559189375676156368765148900
+x = 75694121794914905941006163292110717074554461923322	2x= 151388243589829811882012326584221434149108923846644
+x = 78231904095187075780645046298021135199101759898133
+x = 12338553307149007632039982028424060567526587262435
+x = 164799959535401203662432919702892204208788669929540
+x = 43791919404948499709806327532721888264474101605713	2x= 87583838809896999419612655065443776528948203211426
+x = 126230821275462424283606276466906105019939767460265
+x = 115539254263364008125685587701106393069506785971686	2x= 58704977403027252693876702654839266001239065299099
+x = 33039281318546150715457572718957288992328563864976
+x = 22287323974508975278962530684993519240400306094627	2x= 44574647949017950557925061369987038480800612189254
+x = 120976495926656651977077158756284999440818198786746	2x= 69579460729612540396659844765196478743861890929219
+x = 111027284927526048968669914317316067358820120441038
+x = 126431800351752391095690560999868796094079905416777
+x = 34946685891039708178645668456243084910862035813809
+x = 80867238147210342521673665097789401099623171224929
+x = 146817382145726024721199343353204302327175064561685	2x= 121261233167751285884904213959035084516575622479097
+x = 5329487387446082343177917208766268943832831696595	2x= 10658974774892164686355834417532537887665663393190
+x = 10129017804941240416746490217068375899621305997307	2x= 20258035609882480833492980434136751799242611994614
+x = 63256065503295853489589259507142875721410013018764
+x = 113007938684192849110968251289353878268548464444122	2x= 53642346244684934664442029831334236399322422243971
+x = 124555938779939735720161643116842484240592346386014	2x= 76738346436178707882828813486311448343410186127755
+x = 23846224392998778408749969753112821636992227695395
+x = 108508242675652467181030700772805858421049102091121
+x = 72536741743100465279039566951641149559103418764231
+x = 12122006306001490320068371713855809566461435749194
+x = 72111849338686526974006557505659099234510401293616
+x = 124948943029165597446912259668078723175895448636670
+
+x = 93536104789177786765035829293842113257979682750464	2x= 14698678454654809972577185840310706378184858856655
+x = 5575186299632655785383948014906164086046720		2x= 11150372599265311570767896029812328172093440
+              BZZZZZZZZZZZZZZTTTT!!! Result should be:      11150372599265311570767859136324180752990208
+              Erroneous 2x-value is precisely 2^2^64 too large - looks like a carry-related error.
+
+Further debug shows that during this pass thru the modmul loop, the MUL_HIGH_EXACT192(q,lo,lo); call gives
+
+lo = {d0=18446743060588996025 d1=2732981910992325182 d2=506560263885 }, d1 should = ...183, dropped carry!
+
+x = 96933416514171532617366467943406513075093159578633	2x= 21493301904642301677238463139439506012411812512993
+x = 128768664488169616730825264899393391323016033097412	2x= 85163797852638469904156057051413262508257559550551
+Final x = 170327595705276939808312114102826525016515119101102
+Final x-q=6277101733340745345411965674025307771555360323204646969725
+
+=================
+
+5/14/2005:
+
+Debug of 128-bit modular powering using the Montgomery modmul:
+
+b=2^64; c=b^2;
+q=9523705169798429639*18338048883043493801 = 174646170951457640114055927345831167839
+
+qinv:
+
+z=q;
+z=z*(2-z*q)%c
+
+After 5 iterations, get
+z = 880286294755237308491547270981932191 .
+
+mont_mul(x,y) = mult_hi(x,y) - mult_high(q, mult_lo( mult_lo(x,y), qinv ))
+
+Letting
+s = x^2;	sqr_lohi(x)
+t = (s-s%c)/c	sqr_hi(x)
+s = s%c		sqr_lo(x)
+u = s*z%c	mult_lo( mult_lo(x,y), qinv )
+v = q*u
+v = (v-v%c)/c	mult_high(q, mult_lo( mult_lo(x,y), qinv ))
+x = (t-v)%q	mont_mul(x,y), nonnegative form.
+
+s = x^2;t = (s-s%c)/c;s = s%c;u = s*z%c;v = q*u;v = (v-v%c)/c;x=(t-v)%q
+{if corr. bit of ~(p+128) is 1)}
+x = 2*x%q;
+
+For p = 293043963016907, q = 174646170951457640114055927345831167839,
+we get the following sequence of x-values during the 2^(-p) mod q powering.
+Starting with ~(p + 128) = 1000010101000010110011101010100011011011101001011 in binary,
+get the following left-to-right bit sequence (In practice we'd process the leftmost 7 bits
+( = 66) in one fell swoop by initializing the powering with 2^(127-66) = 2^61) :
+
+~bit	x						current power:
+---	------------------------			--------
+~1 = 0							128 - (                1*2-0)
+~0 = 1							128 - (                2*2-1)
+~0 = 1							128 - (                3*2-1)
+~0 = 1							128 - (                5*2-1)
+~0 = 1							128 - (                9*2-1)
+~1 = 0							128 - (               17*2-0)
+~0 = 1							128 - (               34*2-1)<***START HERE, 2^(128-67) = 2^(+61)***
+~1 = 0		90051931896845345683810087537694195917	128 - (               67*2-0)
+~0 = 1	2 x	91885265283974958012469510202999337097	128 - (              134*2-1)
+~1 = 0		66948355193553655455720733845504252111	128 - (              267*2-0)
+~0 = 1	2 x	121651497028925089710533772282335004081	128 - (              534*2-1)
+~0 = 1	2 x	85479924254141490693058154201281036614	128 - (             1067*2-1)
+~0 = 1	2 x	68398884550521921046024703869339346291	128 - (             2133*2-1)
+~0 = 1	2 x	2785615416787520754905907860615874904	128 - (             4265*2-1)
+~1 = 0		63449000737272845232763968993624878630	128 - (             8529*2-0)
+~0 = 1	2 x	170671053407243036424140319037729980188	128 - (            17058*2-1)
+~1 = 0		67580054042726905405454095020574912807	128 - (            34115*2-0)
+~1 = 0		26359273157023997082653110651492082173	128 - (            68230*2-0)
+~0 = 1	2 x	150142495290340710906767027686720941951	128 - (           136460*2-1)
+~0 = 1	2 x	107431201535089106780392303198477365079	128 - (           272919*2-1)
+~1 = 0		103083229557340107028900518958412232825	128 - (           545837*2-0)
+~1 = 0		73553914546819704152156883847163292473	128 - (          1091674*2-0)
+~1 = 0		34261293852985651172379012136337301658	128 - (          2183348*2-0)
+~0 = 1	2 x	66265950443485562109748073355856101646	128 - (          4366696*2-1)
+~1 = 0		93533067931394302255423885004494542243	128 - (          8733391*2-0)
+~0 = 1	2 x	19653109883655715591814063927090220177	128 - (         17466782*2-1)
+~1 = 0		74557785586872822215433979417103454009	128 - (         34933563*2-0)
+~0 = 1	2 x	163781157655776656570768781314388631336	128 - (         69867126*2-1)
+~1 = 0		104720350442295171893446039894689266654	128 - (        139734251*2-0)
+~0 = 1	2 x	95015802336295559423540660361900647887	128 - (        279468502*2-1)
+~0 = 1	2 x	65071734444230727945054064262279147234	128 - (        558937003*2-1)
+~0 = 1	2 x	8749448077409136219468125344622519577	128 - (       1117874005*2-1)
+~1 = 0		21657774815176567181578484167501000282	128 - (       2235748009*2-0)
+~1 = 0		89161146161176108751736084675024028719	128 - (       4471496018*2-0)
+~0 = 1	2 x	56898048175403497538525061074023702032	128 - (       8942992036*2-1)
+~1 = 0		138920591497881570664394520960240932400	128 - (      17885984071*2-0)
+~1 = 0		27528866350160411184406357419431619971	128 - (      35771968142*2-0)
+~0 = 1	2 x	6209849217758368181611527430573375939	128 - (      71543936284*2-1)
+~1 = 0		162915665433432997978363623740720526068	128 - (     143087872567*2-0)
+~1 = 0		163474544039467816695067869763774613876	128 - (     286175745134*2-0)
+~1 = 0		36631385581879277646350960550362798024	128 - (     572351490268*2-0)
+~0 = 1	2 x	167353051945209824043078772285326886464	128 - (    1144702980536*2-1)
+~1 = 0		36624609373097049562483620114995543444	128 - (    2289405961071*2-0)
+~0 = 1	2 x	123413144894240427721923653368646835993	128 - (    4578811922142*2-1)
+~0 = 1	2 x	143666025900808252521823186771939451991	128 - (    9157623844283*2-1)
+~1 = 0		3386873108774282283077842257648244921	128 - (   18315247688565*2-0)
+~0 = 1	2 x	69516007582551485552626027693115455466	128 - (   36630495377130*2-1)
+~1 = 0		63209289948244949832359035795816899458	128 - (   73260990754259*2-0)
+~1 = 0		87323085475728820057027963672915583920	128 - (  146521981508518*2-0)
+
+...yielding a power on loop exit of 2^(128-293043963017036) = 2^(-293043963016908),
+and a final doubling prior to return yields the desired 2^(-293043963016907) == 1 mod q.
+
+==============================
+
+Hi Ernst,
+
+On Mon, 24 Feb 2003 10:37 -0800, Ernst W. Mayer wrote:
+
+>
+> Before you start burning serious runtime, I'd like to ask Klaus if x86 is
+> similar to PPC in using 32-bit integer math to emulate 64-bit. If so, we
+> stand to gain a factor of 2 or better by writing similar ASM macros for x86.
+>
+
+
+I have almost no knowledge about x86 asm, so you better interpret
+the results yourself.
+
+The disassembly is quite long, so I attached the complete files.
+These were compiled with the stock gcc 3.2 from Redhat 8.0.
+
+I wouldn't give to much on the variable names in the comments,
+they were automatically generated with -fverbose-asm.
+-fverbose-asm also writes the enabled options at the top of
+the disassembly, which is what I was actually interested in.
+
+The two attached versions only differ in the -march option:
+(gcc -O3 -march=[46]86 -fverbose-asm -S uint64.c)
+
+
+ Klaus
+
+
+
+#include <stdio.h>
+
+typedef unsigned long uint32;
+typedef unsigned long long uint64;
+
+uint64 uadd64(uint64 a, uint64 b)
+{
+    return (a + b);
+}
+
+uint64 usqr64(uint64 a)
+{
+    return (a * a);
+}
+
+uint64 umul64(uint64 a, uint64 b)
+{
+    return (a * b);
+}
+
+
+
+.file	"uint64.c"
+# GNU C version 3.2 20020903 (Red Hat Linux 8.0 3.2-7) (i386-redhat-linux)
+#	compiled by GNU C version 3.2 20020903 (Red Hat Linux 8.0 3.2-7).
+# options passed:  -lang-c -D__GNUC__=3 -D__GNUC_MINOR__=2
+# -D__GNUC_PATCHLEVEL__=0 -D__GXX_ABI_VERSION=102 -D__ELF__ -Dunix
+# -D__gnu_linux__ -Dlinux -D__ELF__ -D__unix__ -D__gnu_linux__ -D__linux__
+# -D__unix -D__linux -Asystem=posix -D__OPTIMIZE__ -D__STDC_HOSTED__=1
+# -Acpu=i386 -Amachine=i386 -Di386 -D__i386 -D__i386__ -D__i486 -D__i486__
+# -D__tune_i486__ -march=i486 -O3 -Wall -fverbose-asm
+# options enabled:  -fdefer-pop -foptimize-sibling-calls -fcse-follow-jumps
+# -fcse-skip-blocks -fexpensive-optimizations -fthread-jumps
+# -fstrength-reduce -fpeephole -fforce-mem -ffunction-cse
+# -fkeep-static-consts -fcaller-saves -fpcc-struct-return -fgcse -fgcse-lm
+# -fgcse-sm -frerun-cse-after-loop -frerun-loop-opt
+# -fdelete-null-pointer-checks -fschedule-insns2 -fsched-interblock
+# -fsched-spec -fbranch-count-reg -freorder-blocks -frename-registers
+# -fcprop-registers -fcommon -fverbose-asm -fgnu-linker -fregmove
+# -foptimize-register-move -fargument-alias -fstrict-aliasing
+# -fmerge-constants -fident -fpeephole2 -fguess-branch-probability
+# -fmath-errno -ftrapping-math -m80387 -mhard-float -mno-soft-float
+# -mieee-fp -mfp-ret-in-387 -mcpu=i486 -march=i486
+
+	.text
+	.align 2
+	.p2align 4,,15
+.globl uadd64
+	.type	uadd64,@function
+uadd64:
+	pushl	%ebp
+	movl	%esp, %ebp
+	movl	8(%ebp), %eax	#  a
+	addl	16(%ebp), %eax	#  b
+	movl	12(%ebp), %edx	#  a
+	adcl	20(%ebp), %edx	#  b
+	popl	%ebp
+	ret
+.Lfe1:
+	.size	uadd64,.Lfe1-uadd64
+	.align 2
+	.p2align 4,,15
+.globl usqr64
+	.type	usqr64,@function
+usqr64:
+	pushl	%ebp
+	movl	%esp, %ebp
+	pushl	%edi
+	movl	8(%ebp), %ecx	#  a,  a
+	pushl	%esi
+	pushl	%ebx
+	movl	%ecx, %eax
+	movl	12(%ebp), %ebx	#  a
+	mull	%ecx	#  a
+	imull	%ecx, %ebx	#  a
+	leal	(%edx,%ebx,2), %edi
+	movl	%eax, %esi
+	popl	%ebx
+	movl	%esi, %eax
+	popl	%esi
+	movl	%edi, %edx
+	popl	%edi
+	popl	%ebp
+	ret
+.Lfe2:
+	.size	usqr64,.Lfe2-usqr64
+	.align 2
+	.p2align 4,,15
+.globl umul64
+	.type	umul64,@function
+umul64:
+	pushl	%ebp
+	movl	%esp, %ebp
+	pushl	%edi
+	pushl	%esi
+	pushl	%ebx
+	subl	$12, %esp
+	movl	16(%ebp), %ebx	#  b,  b
+	movl	8(%ebp), %eax	#  a
+	mull	%ebx	#  b
+	movl	%eax, -24(%ebp)
+	movl	20(%ebp), %ecx	#  b
+	movl	8(%ebp), %eax	#  a
+	imull	%ecx, %eax
+	movl	%edx, %esi
+	imull	12(%ebp), %ebx	#  a
+	addl	%eax, %esi
+	leal	(%ebx,%esi), %eax
+	movl	%eax, -20(%ebp)
+	movl	-20(%ebp), %edx
+	movl	-24(%ebp), %eax
+	addl	$12, %esp
+	popl	%ebx
+	popl	%esi
+	popl	%edi
+	popl	%ebp
+	ret
+.Lfe3:
+	.size	umul64,.Lfe3-umul64
+	.ident	"GCC: (GNU) 3.2 20020903 (Red Hat Linux 8.0 3.2-7)"
+
+
+
+.file	"uint64.c"
+# GNU C version 3.2 20020903 (Red Hat Linux 8.0 3.2-7) (i386-redhat-linux)
+#	compiled by GNU C version 3.2 20020903 (Red Hat Linux 8.0 3.2-7).
+# options passed:  -lang-c -D__GNUC__=3 -D__GNUC_MINOR__=2
+# -D__GNUC_PATCHLEVEL__=0 -D__GXX_ABI_VERSION=102 -D__ELF__ -Dunix
+# -D__gnu_linux__ -Dlinux -D__ELF__ -D__unix__ -D__gnu_linux__ -D__linux__
+# -D__unix -D__linux -Asystem=posix -D__OPTIMIZE__ -D__STDC_HOSTED__=1
+# -Acpu=i386 -Amachine=i386 -Di386 -D__i386 -D__i386__ -D__i686 -D__i686__
+# -D__pentiumpro -D__pentiumpro__ -D__tune_i686__ -D__tune_pentiumpro__
+# -march=i686 -O3 -Wall -fverbose-asm
+# options enabled:  -fdefer-pop -foptimize-sibling-calls -fcse-follow-jumps
+# -fcse-skip-blocks -fexpensive-optimizations -fthread-jumps
+# -fstrength-reduce -fpeephole -fforce-mem -ffunction-cse
+# -fkeep-static-consts -fcaller-saves -fpcc-struct-return -fgcse -fgcse-lm
+# -fgcse-sm -frerun-cse-after-loop -frerun-loop-opt
+# -fdelete-null-pointer-checks -fschedule-insns2 -fsched-interblock
+# -fsched-spec -fbranch-count-reg -freorder-blocks -frename-registers
+# -fcprop-registers -fcommon -fverbose-asm -fgnu-linker -fregmove
+# -foptimize-register-move -fargument-alias -fstrict-aliasing
+# -fmerge-constants -fident -fpeephole2 -fguess-branch-probability
+# -fmath-errno -ftrapping-math -m80387 -mhard-float -mno-soft-float
+# -mieee-fp -mfp-ret-in-387 -mcpu=i686 -march=i686
+
+	.text
+	.align 2
+	.p2align 4,,15
+.globl uadd64
+	.type	uadd64,@function
+uadd64:
+	pushl	%ebp
+	movl	%esp, %ebp
+	movl	8(%ebp), %eax	#  a
+	addl	16(%ebp), %eax	#  b
+	movl	12(%ebp), %edx	#  a
+	adcl	20(%ebp), %edx	#  b
+	popl	%ebp
+	ret
+.Lfe1:
+	.size	uadd64,.Lfe1-uadd64
+	.align 2
+	.p2align 4,,15
+.globl usqr64
+	.type	usqr64,@function
+usqr64:
+	pushl	%ebp
+	movl	%esp, %ebp
+	subl	$12, %esp
+	movl	%ebx, (%esp)
+	movl	8(%ebp), %ecx	#  a,  a
+	movl	12(%ebp), %ebx	#  a
+	movl	%esi, 4(%esp)
+	movl	%ecx, %eax
+	imull	%ecx, %ebx	#  a
+	mull	%ecx	#  a
+	movl	%edi, 8(%esp)
+	movl	%eax, %esi
+	leal	(%edx,%ebx,2), %edi
+	movl	%esi, %eax
+	movl	%edi, %edx
+	movl	(%esp), %ebx
+	movl	4(%esp), %esi
+	movl	8(%esp), %edi
+	movl	%ebp, %esp
+	popl	%ebp
+	ret
+.Lfe2:
+	.size	usqr64,.Lfe2-usqr64
+	.align 2
+	.p2align 4,,15
+.globl umul64
+	.type	umul64,@function
+umul64:
+	pushl	%ebp
+	movl	%esp, %ebp
+	subl	$24, %esp
+	movl	%ebx, -12(%ebp)
+	movl	8(%ebp), %eax	#  a
+	movl	16(%ebp), %ebx	#  b,  b
+	movl	%esi, -8(%ebp)
+	movl	20(%ebp), %ecx	#  b
+	movl	%edi, -4(%ebp)
+	movl	-4(%ebp), %edi
+	mull	%ebx	#  b
+	movl	%edx, %esi
+	movl	%eax, -24(%ebp)
+	movl	8(%ebp), %eax	#  a
+	imull	%ecx, %eax
+	addl	%eax, %esi
+	movl	12(%ebp), %eax	#  a
+	imull	%eax, %ebx
+	leal	(%ebx,%esi), %eax
+	movl	-8(%ebp), %esi
+	movl	-12(%ebp), %ebx
+	movl	%eax, -20(%ebp)
+	movl	-24(%ebp), %eax
+	movl	-20(%ebp), %edx
+	movl	%ebp, %esp
+	popl	%ebp
+	ret
+.Lfe3:
+	.size	umul64,.Lfe3-umul64
+	.ident	"GCC: (GNU) 3.2 20020903 (Red Hat Linux 8.0 3.2-7)"
+
+
+
+Here is what really needs to happen: a+b can only overflow if at least one of
+a and b is >= 2^31, i.e. has a leading-order ones bit. We can do (a|b) to see
+if this is the case. If a+b does overflow, the returned result will be 2^32 less than
+the exact value. If both a and b are >= 2^31+2^30, the mod-2^32 sum will still
+have a leading ones bit, so we can't check for overflow by comparing the leading
+bit of (a+b) with that of (a|b).
+
+Leading 2 bits:						range								leading bits:
+a	b		a			b		a+b (exact)			a+b (mod 2^32)		a+b (mod 2^32)
+--	--	-----------------	-----------------	---------------------------	-----------------	--------------
+10	10	[2^31, 2^31+2^30)	same			[2^32     , 2^32+2^31     )	[   0,      2^31     )	00 or 01
+10	11	[2^31, 2^31+2^30)	[2^31+2^30, 2^32)	[2^32+2^30, 2^32+2^31+2^30)	[2^30,      2^31+2^30)	01 or 11
+11	11
+
+Upshot:
+
+-leading bit of (a|b) tells us whether overflow on add will occur;
+
+==========================
+
+Try a 64-bit modular mul x*y mod q using the Montgomery method:
+
+b=2^64
+x = 13249961062380153450
+y = 10447693773953311561
+q = 12534907793359469251
+x*y%q
+12233507277445547676	<== exact result
+
+qinv:
+
+z=q
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+After 5 iterations, get
+z = -13756373761696102933 == 4690370312013448683 mod b
+
+mont_mul(x,y) = mult_hi(x,y) - mult_high(q, mult_lo( mult_lo(x,y), qinv ))
+
+Letting
+s = x*y%b = 12943643865132668474	mult_lo(x,y)
+t = x*y/b =  7504388587135367461	mult_hi(x,y)
+u = s*z%b =  9494749023160437054	mult_lo( mult_lo(x,y), qinv )
+v = q*u/b =  6451859637171865630	mult_high(q, mult_lo( mult_lo(x,y), qinv ))
+t-v = mont_mul(x,y) = 1052528949963501831, do a mod-q multiply by 2^64 to get the desired result.
+
+
+Try a 65-bit modular mul x*y mod q using the Montgomery method, noting that
+if z = qinv mod 2^64, then 2*z should = qinv mod 2^65.
+
+b=2^65
+x=23249961062380153450
+y=30447693773953311561
+q=36478705470926195517
+x*y%q
+14795872881318400266	<== exact result
+
+qinv:
+
+z=q
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+z=z*(2-z*q)%b
+z
+After 5 iterations, get
+z = -2088846574373231595 == 34804641573045871637 mod b
+s = x*y%b = 16395704761236428346
+t = x*y/b = 19187876512381523022
+u = s*z%b = 30981651867069020866
+v = q*u/b = 30633334233554789118
+t-v = mont_mul(x,y) = -11445457721173266096 == 25033247749752929421 mod q,
+do a mod-q multiply by b to get 14795872881318400266, as desired.
+
+Note: if left z negative above, get t-v = 25033247749752929420, which is one less than it should be.
+
+
+NOTE: in this example, qinv mod 2^64 = qinv mod 2^65. Can we do all the lower-half arithmetic mod 2^64?
+b=2^64
+z = -2088846574373231595 (same as before) == 16357897499336320021 mod b
+
+s = x*y%b = 16395704761236428346
+t = x*y/b = 38375753024763046044	<== double what we got before!
+u = s*z%b = 12534907793359469250
+v = q*u/b = 24787962996183382719
+t-v = 13587790028579663325, and (t-v)*b%q = 14795872881318400266, which is the correct result!
+
+Could this be used to speed up factoring when candidates are slightly larger than the computer wordsize?
+
+===========================
+
+4/09/05: using Montgomery modmul to test divisibility and find remainder:
+
+Example: x = 2^128-1 = 340282366920938463463374607431768211455
+                     = 3.5.17.257.641.65537.274177.6700417.67280421310721
+
+Note: x = (2^1+1)*(2^2+1)*(2^4+1)*(2^8+1)*(2^16+1)*(2^32+1)*(2^64+1)
+where the leftmost 5 terms are just the first 5 Fermat numbers/primes, and
+
+(2^32+1) = 641.6700417
+(2^64+1) = 274177.67280421310721
+
+Use mont_mul to test divisibility by the largest factor, q = 67280421310721.
+Seek x % q. Equivalently, first find x/q (remainderless div), then calculate x - q*(x/q).
+
+Find qinv modulo a convenient power of 2, say base = 2^64: Newtonian iteration gives
+
+qinv == 274177 mod 2^64, which is also the 3rd-largest factor of x - of course, since
+by construction q = (2^64+1)/274177, so q*274177 == 1 mod 2^64, i.e. 274177 == qinv mod 2^64.
+
+Try a less-special 128-bit composite: construct
+
+x   =  46189291499145878679976776583847887293 =
+p*q = 16357897499336320021*2823669209384634633
+
+Now qinv == 1530757420103374137, and
+  x*qinv == 16357897499336320021 = p, which is the desired result.
+
+Writing x in base-2^64 form as x = hi*base + lo, with
+
+lo = 14921004030550884797
+hi =  2503926509447010181 ,
+
+and we note that lo*qinv also == 16357897499336320021 mod 2^64, i.e. to get the quotient
+we only need to do a mod-2^64 mul of the lowest digit of the multiword representation
+of x with qinv. That makes sense, since in this case the quotient < 2^64. But that only
+works if the remainder is zero to begin with, i.e. before we can be sure that lo*qinv%b
+is the desired quotient we first have to find the remainder. To efficiently find the
+remainder we first need to save the HIGH half of q*qinv, which normally gets discarded:
+
+q*qinv = 234315203643075920*2^64 + 1 .
+
+The full-length product is
+
+x*qinv = 70704600691635255599159897629056704084480547548187141141
+       = 207782146725407112*2^128 + 14861973749341501328*2^64 + 16357897499336320021 .
+
+= p*q*qinv = p*(234315203643075920*2^64 + 0x00000000000000001) := p*(qqi_hi*2^64 + qqi_lo),
+where by construction qqi_lo = 1.
+
+so if x < 2^128 (i.e. x occupies precisely 2 64-bit words) and q divides x,
+the high part of x*qinv (i.e. x*qinv/2^64) will be divisible by qinv, and the low part
+(x*qinv mod 2^64) will = p. Indeed, we find that the high 128 bits of the product,
+
+x*qinv/2^64 = 207782146725407112*2^64 + 14861973749341501328 == 0 mod 234315203643075920, and moreover
+
+(207782146725407112*2^64 + 14861973749341501328)/234315203643075920 = 16357897499336320021, the quotient p.
+
+However, since we seek a fast way to find x mod q and now we see that we need to do
+a mod on an x-sized number (the high 128 bits of x*qinv) relative to the modulus qqi_hi,
+have we actually saved ourself any work by doing things this way?
+
+One thing to notice is that for q < 2^64 and FOR ARBITRARY-LENGHTH X, we only need to
+test the upper 128 bits of x*qinv for divisibility by qqi_hi, i.e. instead of having to
+do expensive mod operations every step of the way as we parse the 64-bit digits of X,
+we do fast integer muls on all the digits and slow 64-bit mods only on the top 2 digits
+of x*qinv - that's a big savings for large x. Let's try a larger example to illustrate:
+
+Let q := 16357897499336320021 and x = q*(leading 200 digits of Pi):
+
+q = 16357897499336320021;
+x = q*31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679821480865132823066470938446095505822317253594081284811174502841027019385211055596446229489549303819;
+
+In base-2^64 form, x is (digit significance now increases left to right):
+
+x = (
+2396872678875983079
+569243013472631044
+8319077722129503883
+3454161542508190288
+6338709468662548935
+124549394900295025
+10138857382701895842
+16823953468566815981
+10198782079890850
+1364543725191775957
+13364449491040580350
+6106050
+);
+
+The quotient x/q is, in base-2^64 form:
+
+x/q = (
+8986945791685025803
+12811539220903885821
+10686492323145888365
+9220675463839206484
+5265768173574684037
+8044214744489248320
+6275449485982242433
+781121613274475615
+17724727419795439662
+2746982618889471837
+6885772
+);
+
+For this q, qinv = 18031961397216643901 mod 2^64, and
+
+q*qinv = 15990083402742365620*2^64 + 1, i.e. qqi_hi = 15990083402742365620.
+
+The Montgomery-style product is
+
+x*qinv = (
+8986945791685025803
+16065493070772921017
+234167914499905811
+12699637590659428667
+13368045256109372013
+5322426819917605987
+12436732733345295667
+5210903946062271204
+16933750726305965154
+2958872653353893710
+6694841789170924451
+11923232893200461432
+5968753
+);
+
+The low digit of course agrees with that of the quotient x/q, but note that in this case
+
+(11923232893200461432 + 5968753*base) % 15990083402742365620 is nonzero.
+
+[Maybe we need to take strictly the upper 128 bits of x*qinv, whether those happen to be aligned with
+a 64-bit word boundary or not: try taking the upper 3 nonzero words of x*qinv and right-shifting the
+result one bit at a time until the result is hopefully divisible by qqi_hi:
+
+y = 6694841789170924451 + 11923232893200461432*base + 5968753*base^2
+y=y/2; y%qqi_hi (repeat as many times as needed)
+
+No, that's not it - the problem is that in general it's x*qinv-x/q that is divisible
+by qqi_hi, and we have the identity (x*qinv-x/q)/qqi_hi/base = x/q.]
+
+To fix the other digits (beyond the lowest) up,
+we need to calculate qqi_hi*(next-lowest-exact-digit-of-x/q) as we calculate the exact
+digits, starting with the lowest, in this case 8986945791685025803. Let's illustrate this
+in tabular form, so in each column the leftmost entry will have the stuff to its right
+subtracted from it (including any needed borrows from next-higher digit). Note that we
+must calculate the corrected a,b,c... in strictly sequential order:
+
+	x*qinv digit		Subtract:				Yielding:		Normalized:
+------------------------	--------------------------------------	-------------------	--------------------
+a = 8986945791685025803		-0			-0		8986945791685025803	8986945791685025803
+b = 16065493070772921017	-(a*qqi_hi).lo		-0		12811539220903885821	12811539220903885821
+c = 234167914499905811		-(b*qqi_hi).lo		-(a*qqi_hi).hi	-7760251750563663251	10686492323145888365
+d = 12699637590659428667	-(c*qqi_hi).lo		-(b*qqi_hi).hi	-9226068609870345131	9220675463839206484
+e = 13368045256109372013	-(d*qqi_hi).lo		-(c*qqi_hi).hi	5265768173574684038	5265768173574684037
+f = 5322426819917605987		-(e*qqi_hi).lo		-(d*qqi_hi).hi	8044214744489248320	8044214744489248320
+g = 12436732733345295667	-(f*qqi_hi).lo		-(e*qqi_hi).hi	6275449485982242433	6275449485982242433
+h = 5210903946062271204		-(g*qqi_hi).lo		-(f*qqi_hi).hi	-17665622460435076001	781121613274475615
+i = 16933750726305965154	-(h*qqi_hi).lo		-(g*qqi_hi).hi	-722016653914111953	17724727419795439662
+j = 2958872653353893710		-(i*qqi_hi).lo		-(h*qqi_hi).hi	2746982618889471838	2746982618889471837
+k = 6694841789170924451		-(j*qqi_hi).lo		-(i*qqi_hi).hi	6885772			6885772
+l = 11923232893200461432	-(k*qqi_hi).lo		-(j*qqi_hi).hi
+m = 5968753			-(l*qqi_hi).lo		-(k*qqi_hi).hi
+n = 0				-(m*qqi_hi).lo		-(l*qqi_hi).hi
+o = 0				-(n*qqi_hi).lo		-(m*qqi_hi).hi
+
+Which is exactly the desired x/q. Note that the one drawback is the data dependence -
+we need to get the corrected version of b before proceeding to correct c, and so forth.
+Due to the typically large latency of integer mul, hiding the latency is crucial to
+maximizing performance, but the above algorithm's data dependencies make it nontrivial
+to parallelize in order to exploit pipelining and hide the latencies that way. If high
+performance is important, we'd want to e.g. break the vector into equal-sized chunks
+and process those in parallel, then do an O(1) wraparound step to fix up the end of
+the chunks.
+
+The asymptotic operation count is (assuming 2 MUL instructions to generate a double-word
+integer product) 4*N integer MUL. This is equivalent to one base-2^64 Montgomery modmul
+(mont_mul) per input, but note that mont_mul needs one double-wide product (DMULTU),
+one MULQ and one UMULH, and the latter involves doing a DMULTU and discarding the low
+64 bits of the product on many platforms, i.e. often wastes a MUL. Here we do two
+double-wide DMULTU products per input word (one in the x*qinv computation, one in
+the correction step), so nothing is ever wasted.
+
+One last detail that needs to be taken care of: as we've just seen, in the case where
+q divides x the algorithm returns the quotient x/q. When q does not divide x, we'd
+like to return both the quotient (i.e. floor(x/q)) and remainder x%q. Let's see what
+the above algorithm returns for the same x, but for q = 2823669209384634633: for this case the exact
+ mod is x%q = 1505919900629096364 and the quotient is
+
+(x-x%q)/q = (
+3355679399109071139
+17520674333857964470
+1535257125759178325
+11876517409550164882
+8469168952596910817
+4310923540887223060
+13957819594417624482
+7994470191201904166
+4076611708047921098
+695791974567966572
+39890209
+)
+
+The Newtonian inversion:
+
+qinv=q;
+qinv=qinv*(2-q*qinv)%base
+
+gives (after several iterations of the second step) qinv = 1530757420103374137 and
+
+qqi_hi = (q*qinv-1)/base = 234315203643075920 . The product x*qinv now leads to
+
+	x*qinv digit		Subtract:				Yielding:		Normalized:
+------------------------	--------------------------------------	-------------------	--------------------
+a = 10842371008025506415	-0			-0
+b = 8936882704166648403		-(a*qqi_hi).lo		-0
+c = 5848859763192304678		-(b*qqi_hi).lo		-(a*qqi_hi).hi
+d = 3704086161175707844		-(c*qqi_hi).lo		-(b*qqi_hi).hi
+e = 9520827118093303643		-(d*qqi_hi).lo		-(c*qqi_hi).hi
+f = 4252916818729361166		-(e*qqi_hi).lo		-(d*qqi_hi).hi
+g = 7547660979689859993		-(f*qqi_hi).lo		-(e*qqi_hi).hi
+h = 6421269986677080660		-(g*qqi_hi).lo		-(f*qqi_hi).hi
+i = 13303975715160647281	-(h*qqi_hi).lo		-(g*qqi_hi).hi
+j = 8740159020152555891		-(i*qqi_hi).lo		-(h*qqi_hi).hi
+k = 13743126063757932326	-(j*qqi_hi).lo		-(i*qqi_hi).hi
+l = 9465609724042704528		-(k*qqi_hi).lo		-(j*qqi_hi).hi
+m = 506695			-(l*qqi_hi).lo		-(k*qqi_hi).hi
+n = 0				-(m*qqi_hi).lo		-(l*qqi_hi).hi
+o = 0				-(n*qqi_hi).lo		-(m*qqi_hi).hi
+
+which gives
+
+-391246796814519133
+-10791642975638070316
+-12751656421140972482
+1869504639809872177
+-10975544732798503468
+-9358826413473377468
+-6932996315585464311
+11063998601842739676
+7336072590583602118
+-476774694215135619
+-1347864188212253183
+-12315917368526951577
+-3853376310128245327
+-17907557944787198557...	<== doesn't terminate with 0!
+
+Looks like the methid is only suitable for doing short-division once we've established
+divisibility. How much does that cost? A good way to do the mod-q computation seems to
+be to do a series of mont_muls on the digits of x, working left to right. Each mont_mul
+yields (digit/2^64) mod q, i.e. is ready to be added to the next-lower digit. The only
+true (i.e. expensive) mod-q reductions that are needed are when we reach the low digit.
+Let's try some examples:
+
+Ex 0:
+-----
+x = 13249961062380153450
+y = 10447693773953311561
+q = 12534907793359469251
+x*y%q
+12233507277445547676	<== exact result
+
+qinv=q;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base
+xy = x*y;
+xyhi=(xy-xy%base)/base
+xylo= xy%base
+mulq=(xylo*qinv)%base
+umulh=q*mulq; umulh=(umulh-umulh%base)/base
+z = xyhi - umulh
+z*base%q
+
+Gives z = 1052528949963501831 and z*base%q = 12233507277445547676, as desired.
+Now turn to the case where we don't have a mod product of 2 64-bit inputs, but
+desire a mod of a single 128-bit input:
+
+Ex 1:
+-----
+x = 314159265358979323846264338327950288
+  = 17463089541855990736 + base*17030607900432772
+
+modulo q = 2823669209384634633, qinv == 1530757420103374137 (modulo base 2^64) .
+Now
+mont_mul(x,q) = xhi - UMULH(q, MULQ(xlo,qinv))
+
+PARI code:
+
+base=2^64;
+x = 314159265358979323846264338327950288
+q = 2823669209384634633;
+qinv=q;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base;
+qinv=qinv*(2-q*qinv)%base
+
+x=17030607900432772;
+xhi=(x-x%base)/base
+xlo= x%base
+
+or
+
+xhi=17030607900432772;
+xlo=0;
+mulq=(xlo*qinv)%base;
+umulh=q*mulq; umulh=(umulh-umulh%base)/base;
+z = xhi - umulh
+z*base%q
+
+Gives -218909690374660288. Adding a q to make it nonnegative (note in machine
+arithmetic the negative result would've looked like 2^64-218909690374660288)
+and then multiplying by 2^64 mod q gives the correct result, 1188235027219654586.
+
+NOTE: Unlike the mersenne 2^p mod q code, we need to check if the output
+z is < 0 and add q until it's >= 0 here ***BEFORE*** multiplying by 2^64 mod q!!!
+
+Now this looks good since it seems we can process 128 bits of our input
+at a time, using just 2 integer muls (1 UMULH, one MULQ). For N-word inputs
+that means an asymptotic multiply count of ~N MULs.
+
+Let's try it on a 4-word input:
+
+Ex 2:
+-----
+x = 3141592653589793238462643383279502884197169399375105820974944592307816406
+  = (a,b,c,d) in base-2^64 form, where
+
+a = 12284724842206463958
+b = 16627477517948024329
+c = 10737522299350044616
+d = 500484584450703
+
+modulo q = 2823669209384634633, we have x%q = 300863386616122529 .
+We expect the Montgomery modmul on x to yield
+
+xhi=(x-x%base)/base;
+xlo= x%base;
+mulq=(xlo*qinv)%base;
+umulh=q*mulq; umulh=(umulh-umulh%base)/base;
+z = xhi - umulh
+
+where z%q = 1566105313624778012, and verify that z*base%q = 300863386616122529.
+
+Do a mont_mul on the upper 2 words:
+
+y = d*base + c;
+xhi=(y-y%base)/base;
+xlo= y%base;
+mulq=(xlo*qinv)%base;
+umulh=q*mulq; umulh=(umulh-umulh%base)/base;
+z = xhi - umulh
+
+Gives -126800048608647254. Adding q to make this nonnegative, we get our carry
+into the high word of the next-lower word pair, 2696869160775987379:
+
+Do a mont_mul on the lower 2 words, including the carryin above:
+
+carry = z%q;
+y = carry + b*base + a;
+xhi=(y-y%base)/base
+xlo= y%base
+mulq=(xlo*qinv)%base
+umulh=q*mulq; umulh=(umulh-umulh%base)/base
+z = xhi - umulh
+
+z*base%q
+
+Gives -218909690374660288. BZZZZZZZZZZZZZZTTTTT!!!!!!!!! - Something awry here...
+
+
+
+So in general, to do a divide-by-scalar x/q, we use a 3-step procedure:
+
+1) Use LR mont_mul with O(N) scalar MULs to find x%q;
+2) Subtract x%q from x to get x~, which is divisible by q;
+3) Use RL mont_mul with digit-correction and O(4*N) scalar MULs to find (x-x%q)/q;
+
+
+
+y=a*qqi_hi; a_qqi_hi_lo=y%base; a_qqi_hi_hi=(y-a_qqi_hi_lo)/base; b = b-a_qqi_hi_lo
+y=b*qqi_hi; b_qqi_hi_lo=y%base; b_qqi_hi_hi=(y-b_qqi_hi_lo)/base; c = c-b_qqi_hi_lo-a_qqi_hi_hi
+y=c*qqi_hi; c_qqi_hi_lo=y%base; c_qqi_hi_hi=(y-c_qqi_hi_lo)/base; d = d-c_qqi_hi_lo-b_qqi_hi_hi
+y=d*qqi_hi; d_qqi_hi_lo=y%base; d_qqi_hi_hi=(y-d_qqi_hi_lo)/base; e = e-d_qqi_hi_lo-c_qqi_hi_hi
+y=e*qqi_hi; e_qqi_hi_lo=y%base; e_qqi_hi_hi=(y-e_qqi_hi_lo)/base; f = f-e_qqi_hi_lo-d_qqi_hi_hi
+y=f*qqi_hi; f_qqi_hi_lo=y%base; f_qqi_hi_hi=(y-f_qqi_hi_lo)/base; g = g-f_qqi_hi_lo-e_qqi_hi_hi
+y=g*qqi_hi; g_qqi_hi_lo=y%base; g_qqi_hi_hi=(y-g_qqi_hi_lo)/base; h = h-g_qqi_hi_lo-f_qqi_hi_hi
+y=h*qqi_hi; h_qqi_hi_lo=y%base; h_qqi_hi_hi=(y-h_qqi_hi_lo)/base; i = i-h_qqi_hi_lo-g_qqi_hi_hi
+y=i*qqi_hi; i_qqi_hi_lo=y%base; i_qqi_hi_hi=(y-i_qqi_hi_lo)/base; j = j-i_qqi_hi_lo-h_qqi_hi_hi
+y=j*qqi_hi; j_qqi_hi_lo=y%base; j_qqi_hi_hi=(y-j_qqi_hi_lo)/base; k = k-j_qqi_hi_lo-i_qqi_hi_hi
+y=k*qqi_hi; k_qqi_hi_lo=y%base; k_qqi_hi_hi=(y-k_qqi_hi_lo)/base; l = l-k_qqi_hi_lo-j_qqi_hi_hi
+y=l*qqi_hi; l_qqi_hi_lo=y%base; l_qqi_hi_hi=(y-l_qqi_hi_lo)/base; m = m-l_qqi_hi_lo-k_qqi_hi_hi
+y=m*qqi_hi; m_qqi_hi_lo=y%base; m_qqi_hi_hi=(y-m_qqi_hi_lo)/base; n = n-m_qqi_hi_lo-l_qqi_hi_hi
+y=n*qqi_hi; n_qqi_hi_lo=y%base; n_qqi_hi_hi=(y-n_qqi_hi_lo)/base; o = o-n_qqi_hi_lo-m_qqi_hi_hi
+
+y=x;
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+a=y%base; y=(y-a)/base; a
+
+???
+To be able to do the mod-qqi_hi step quicker and in digit-by-digit accumulation fashion,
+we could precompute 2^64 % qqi_hi = 2^64 % 234315203643075920 = 170158189549629856 , and then
+
+   207782146725407112*              2^64 + 14861973749341501328 mod qqi_hi
+== 207782146725407112*170158189549629856 + 14861973749341501328 mod qqi_hi
+
+
+qinv*lo =                            1238182605227905523*2^64 + 16357897499336320021
+qinv*hi = 207782146725407112*2^64 + 13623791144113595805
+
+
+  207782146725407112*2^128
+14861973749341501328*2^64
+16357897499336320021
+  234315203643075920
+18446744073709551616
+
+Now the
+===========================
+
+b=2^64
+q= 2580748063118626543+b
+i=q%b
+i=i*(2-q*i)%b
+i
+i=i*(2-q*i)%b
+i
+i=i*(2-q*i)%b
+i
+i=i*(2-q*i)%b
+i
+i=i*(2-q*i)%b
+i
+i=i*(2-q*i)%b
+i
+556433421259005967
+x=2
+y=2
+
+y=2*x
+
+x=17132961371257100793
+
+z=x*y
+l=z%b
+h=z/b
+m=l*i%b
+j=q*m/b
+x=h-j
+
+x=x+q
+
+
+smallword multiply schemes for >64-bit factoring algorithm:
+
+#bits-64:	quick multiply implementation
+---------	-----------------------------
+B = 1:	x & y
+
+B = 2:	(-(x&1))&y + (-((x1)&1))&y
+
+B = 3:	x * y (perhaps short * short?)
+
+14176913  66   F             83890767304219697537
+14180557  67   F            125075925416256368311
+
+NB: 6.3 sec to got up to 60 bits on ev67; 44.5 sec on ev56
+(NB: using strictly #define of all 128-bit MULs gets 5.9 sec on ev67.)
+	 50 sec up to 63 bits
+	102 sec up to 64 bits, i.e. minimal speed penalty
+	481 sec up to 65 bits, BIG speed penalty (nearly 4x as many cycles per modmul)
+
+cc -o factor4_ux -non_shared -O4 factor4_umulh.c -lm
+time factor4_ux
+2147483647
+60
+
+ccc -o factor4 -non_shared -O4 factor4_umulh.c -lm
+time factor4
+2147483647
+60
+
+time Mfactor 2147483647 1 1152921504606846976
+time Mfactor 2147483647 1 9223372036854775807
+
+========================
+
+
+For q 2^64 (but less than, say, 2^96), what is the best mul algorithm?
+If let x = a + b.2^64, y = c + d.2^64, then
+					alpha:		generic/square
+					---------------	---------------
+x*y = a.c	(bits     0:127)	1 mulq, 1 umulh	4 mul	/ 3 mul
++(a.d+b.c).2^64	(	 64:160)	2 mulq, 2 umulh	4 mul	/ 2 mul
++ b.d.2^128	(	128:192)	1 mulq		1 mul	/ 1 mul
+				Total=	4 mulq, 3 umulh	9 mul	/ 6 mul
+
+compare to the opcounts for q<2^64:	1 mulq, 1 umulh	4 mul	/ 3 mul
+
+So we see that the multiply penalty is >= 3 on alpha, but only ~2 using the generic model.
+
+/* 192-bit product of 96-bit inputs x = a + b.2^64, y = c + d.2^64 */
+
+x*y = a.c	(bits     0:127)	1 mulq, 1 umulh	4 mul	/ 3 mul
++(a.d+b.c).2^64	(	 64:160)	2 mulq, 2 umulh	4 mul	/ 2 mul
++ b.d.2^128	(	128:192)	1 mulq		1 mul	/ 1 mul
+
+******* need a fast 5-mul version for operands only slightly > 64 bits *******
+
+#define MUL_LOHI96(a, b, c, d,*lo,*mi,*hi) {
+uint64 ll = (a)*(c); lh = __UMULH(a,c);
+uint64 ml = (a)*(d); mh = __UMULH(a,d);
+uint64 nl = (b)*(c); nh = __UMULH(b,c);
+uint64 hl = (b)*(d);
+/* Build middle 64 bits, adding any carries to upper 64. */
+lh += ml; hl += (lh < ml);	/* ignore the possibility of hl overflowing here. */
+lh += nl; hl += (lh < nl);	/* ignore the possibility of hl overflowing here. */
+/* Build upper 64 bits... */
+hl += mh + nh;
+/* and return. */
+*lo = ll; *mi = ml; *hi = hl;
+}
+
+#define SQR_LOHI96(a, b,*lo,*mi,*hi) {
+uint64 ll = (a)*(a); lh = __UMULH(a,a);
+uint64 ml = (a)*(b); mh = __UMULH(a,b);
+uint64 hl = (b)*(b);
+/* Build middle 64 bits, adding any carries to upper 64. */
+lh += ml; hl += (lh < ml);	/* ignore the possibility of hl overflowing here. */
+lh += ml; hl += (lh < ml);	/* ignore the possibility of hl overflowing here. */
+/* Build upper 64 bits... */
+hl += mh + mh;
+/* and return. */
+*lo = ll; *mi = lh; *hi = hl;
+}
+
+============================
+
+spe144, PLM's code:
+
+as ALPHAtryq.s -o ALPHAtryq.lx.o
+ccc -o Mfactor.lx -O4 Mfactor.c ALPHAtryq.lx.o -lm
+
+============================
+
+Mfactor 13819007 C: 8932838947429937
+Mfactor 13819033 x65;pm1
+Mfactor 13819037 C: 193466519 C: 5018300372329
+Mfactor 13819049 C: 1438322549447401
+Mfactor 13819097 C: 110552777 C: 331658329
+Mfactor 13819111 C: 138191111
+Mfactor 13819121 x65;pm1
+Mfactor 13819133 C: 305106847621932193
+Mfactor 13819171 C: 821853737713
+Mfactor 13819177 C: 33657517649183
+Mfactor 13819187 C: 1137317542351057
+Mfactor 13819189 C: 19841232267287
+Mfactor 13819199 C: 27638399 C: 1022620727
+Mfactor 13819207 C: 4463149260718257353
+Mfactor 13819217 C: 414576511 C: 6248468635856113
+Mfactor 13819231 x65;pm1
+Mfactor 13819243 x65
+Mfactor 13819259 C: 442216289
+Mfactor 13819261 x65
+Mfactor 13819271 C: 27638543 C: 153866195505697
+Mfactor 13819279 C: 1045317902119 C: 38611065527
+Mfactor 13819291 x65
+Mfactor 13819301 C: 6633264481 C: 3640777764257
+Mfactor 13819313 x65
+Mfactor 13819331 C: 27344414392178417
+Mfactor 13819349 C: 53729628913
+Mfactor 13819361 C: 20485341712070297
+Mfactor 13819381 C: 82916287
+Mfactor 13819387 C: 248748967
+Mfactor 13819427 C: 245350106959 C: 4007633831
+Mfactor 13819433 x65
+Mfactor 13819447 C: 113319465401 C: 22344304548679
+Mfactor 13819471 C: 1388580446081
+Mfactor 13819499 C: 827131287507521
+Mfactor 13819513 x65
+Mfactor 13819523 C: 27639047 C: 117521223593
+Mfactor 13819541 C: 1409593183
+Mfactor 13819567 x65
+Mfactor 13819577 C: 2432245553
+Mfactor 13819579 x65
+Mfactor 13819607 C: 110556857
+Mfactor 13819609 x65
+Mfactor 13819627 C: 972888612154351
+Mfactor 13819633 C: 7628437417
+Mfactor 13819639 x65
+Mfactor 13819643 C: 89754601227817
+Mfactor 13819649 C: 19836292559322433
+Mfactor 13819651 C: 663343249 C: 17874380080022047
+Mfactor 13819679 x65
+Mfactor 13819681 x65
+Mfactor 13819693 C: 331672633
+Mfactor 13819717 x65
+Mfactor 13819721 C: 2321713129 C: 20335885730383073
+Mfactor 13819723 x65
+Mfactor 13819753 x65
+Mfactor 13819781 x65
+Mfactor 13819801 C: 995351266511561
+Mfactor 13819811 C: 20486930060353
+Mfactor 13819837 C: 1312995073697 C: 259391817526937 C: 41905836455753
+Mfactor 13819843 x65
+Mfactor 13819847 C: 248757247 C: 341294941513
+Mfactor 13819853 C: 1175761915651633
+Mfactor 13819879 x65
+Mfactor 13819891 x65
+Mfactor 13819901 C: 5163030656924297
+Mfactor 13819903 x65
+Mfactor 13819919 C: 27639839 C: 41791435057
+Mfactor 13819933 x65
+Mfactor 13819943 x65
+Mfactor 13819951 C: 72858781673
+Mfactor 13819957 C: 2321752777
+Mfactor 13819991 C: 36473195087543
+
+704K:
+Mfactor 13799917 C: 745195519 C: 3974376097
+Mfactor 13799921 C: 362661923881
+Mfactor 13799939 2305843009213693952 4611686018427387904
+
+768K:
+Mfactor 15099901 2305843009213693952 4611686018427387904
+Mfactor 15099943 C: 1721393503
+Mfactor 15099967 2305843009213693952 4611686018427387904
+Mfactor 15099971 C: 2083795999
+Mfactor 15099979 C: 271799623 C: 724798993
+
+832K:
+Mfactor 16299901 C: 97799407 C: 15517505753 C: 15002298481193
+Mfactor 16299917 C: 439979063004407
+Mfactor 16299931 C: 162999311 C: 2616236725087
+Mfactor 16299947 C: 11585089530569
+Mfactor 16299971 2305843009213693952 4611686018427387904
+Mfactor 16299973 C: 22265763119
+Mfactor 16299979 C: 5378993071 C: 1120297556671
+
+896K:
+Mfactor 17599927 2305843009213693952 4611686018427387904
+Mfactor 17599931 C: 35199863 C: 503842693499879
+Mfactor 17599951 C: 24701883227521
+Mfactor 17599973 C: 5948368474649
+Mfactor 17599997 C: 6087205362409
+
+960K:
+Mfactor 18899917 C: 1177956226943 C: 110548147121879
+Mfactor 18899929 2305843009213693952 4611686018427387904
+Mfactor 18899939 C: 1398595487 C: 120922603519439
+Mfactor 18899941 C: 113399647 C: 224380099553
+Mfactor 18899977 C: 453599449 C: 39715920268399
+Mfactor 18899981 C: 99338300137 C: 3278940618107177
+Mfactor 18899989 C: 755999561 C: 427744551049
+Mfactor 18899999 C: 604799969 C: 73226496325583
+
+1024K:
+Mfactor 20099903 C: 2411988361 C: 2934585839 C: 78759178516559
+Mfactor 20099939 C: 40199879
+Mfactor 20099941 C: 4746387324377407
+Mfactor 20099977 C: 848500429079
+Mfactor 20099983 2305843009213693952 4611686018427387904
+
+sleep     0; Mfactor -h Mfactor.out 13799939 2305843009213693952 9223372036854775807 &
+sleep  3600; Mfactor -h Mfactor.out 15099901 2305843009213693952 9223372036854775807 &
+sleep  7200; Mfactor -h Mfactor.out 15099967 2305843009213693952 9223372036854775807 &
+sleep 10800; Mfactor -h Mfactor.out 16299971 2305843009213693952 9223372036854775807 &
+sleep 14400; Mfactor -h Mfactor.out 17599927 2305843009213693952 9223372036854775807 &
+sleep 18000; Mfactor -h Mfactor.out 18899929 2305843009213693952 9223372036854775807 &
+sleep 21600; Mfactor -h Mfactor.out 20099983 2305843009213693952 9223372036854775807 &
+
+
+M( 16289947 )C: 22101190112887 C: 4854404207
+
+2^57 =  144115188075855872
+2^58 =  288230376151711744
+2^59 =  576460752303423488
+2^60 = 1152921504606846976
+2^61 = 2305843009213693952
+2^62 = 4611686018427387904
+2^63-= 9223372036854775807
+
+
+gcc -o Mfactor_int32 -O -mv8 -DARITHMETIC_MODEL=ARITHMETIC_INT32 Mfactor.c
+gcc -o Mfactor_float -O -mv8 -DARITHMETIC_MODEL=ARITHMETIC_FP64  Mfactor.c -lm
+cc -o Mfactor_cci32 -fast -DARITHMETIC_MODEL=ARITHMETIC_INT32  Mfactor.c
+cc -o Mfactor_ccflt -fast -DARITHMETIC_MODEL=ARITHMETIC_FP64   Mfactor.c -lm
+
+time ./Mfactor_int32 2202517 0 80000000000000
+time ./Mfactor_float 2202517 0 80000000000000
+time ./Mfactor_cci32 2202517 0 80000000000000
+time ./Mfactor_ccflt 2202517 0 80000000000000
+
+time ./Mfactor_int32 16289947 0 4503599627370496
+time ./Mfactor_float 16289947 0 4503599627370496
+time ./Mfactor_cci32 16289947 0 4503599627370496
+time ./Mfactor_ccflt 16289947 0 9007199254740991
+Alpha:
+time Mfactor 16289947 0 144115188075855872
+

@@ -10,7 +10,7 @@ needs to be familiar with are '-cpu' and (for stage 2 of p-1 work), '-maxalloc'.
 ===============================================================================
 
 Sections:
-[0]	Default mode
+[0]: Default mode
 [1]: Post-build self-testing for various FFT-length ranges
 [2]: FFT-length setting
 [3]: FFT radix-set specification
@@ -391,7 +391,32 @@ to 64 due to MS Windows' "processor group" construct. Effectively though, it is 
 in actuality on a 68-core & x4 HT Xeon Phi 7250 for example, a running Mlucas instance
 and the WSL session in which it runs will occupy at most 16 cores x their 4 hyperthreads,
 or 4 cores x their 4 hyperthreads, depending on which processor group is allocated.
-
+This limitation should not adversely affect most users, since for FFT lengths repreentative
+of the current GIMPS testing wavefront, more than 16 threades per instance is counterproductive
+in terms of throughput: I generally recommend at most 4 physical cores per instance, with 1, 2
+or - if available - 4 threads per core, depending on which threads-per-core number gives the
+best throughput.
+==========================
+For Mlucas v21 and later, it is urged that users install the hwloc freeware library on OSes
+which support it - see the online Mlucas README.html page for how-to. Hwloc maps the hardware
+topology in form of a tree, which makes assigning physical cores and threads on them to a
+multithreaded instance simple in terms of indexing, and obviates the differing logical-core-
+numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
+(Recommended variant of affinity setting:)
+ -core {lo:hi[:threads_per_core]}
+	(All args {+int} here.) Set thread/CPU affinity. This flag and the -cpu and -nthread flags
+	are mutually exclusive! If -core is used, the threadcount is inferred from the numeric-argument
+	triplet which follows as #threads = (hi - lo + 1)*threads_per_core. Here, in terms of ascending
+	complexity:
+	o '-core' not invoked: run 1-threaded with affinity to the first available logical core.
+	o '-core' invoked, only the 'lo' argument of the triplet supplied: "run 1-threaded with
+		affinity to the first available thread (= logical core) on physical processor {lo}."
+	o Both the 'lo' and 'hi' arguments of the triplet are supplied but 'threads_per_core'
+	is omitted: "run 1 thread on each of physical processors 'lo' through 'hi', for a total
+	of (hi - lo + 1) threads."
+	o All three argument are supplied: "run 'threads_per_core' threads on each of physical
+	processors 'lo' through 'hi', for a total of (hi - lo + 1)*threads_per_core threads."
+==========================
  (Obsolescent - not recommended, please use the -cpu flag instead:)
  -nthread {int}
 	For multithread-enabled builds, run with this many threads.
@@ -499,7 +524,9 @@ The ITERS_BETWEEN_CHECKPOINTS value can be customized by adding a "CheckInterval
 line to one's mlucas.ini file, but note that there are constraints on the value related to
 the Gerbicz-checking done for PRP tests. Specifically, the CheckInterval value must be a
 multiple of 1000 and must divide 1 million. Violation of these constraints will trigger an
-assertion-exit if a PRP-test is attempted.
+assertion-exit if a PRP-test is attempted. The only good reason to use a value < 10000 is
+on slow devices where 10000 iterations need substantially more than, say 10 minutes, as
+checkpoints more frequent than a minute or so will cost 1-2% overall throughput.
 
 o RUNNING ON LOW-MEMORY SYSTEMS: The LowMem option provides two supported low-memory run
 modes for low-RAM systems:

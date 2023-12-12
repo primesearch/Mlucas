@@ -1,0 +1,1108 @@
+******************* Have a look at PLM's post here: https://www.mail-archive.com/mersenne@base.com/msg05671.html *********************
+Re: Mersenne: Primitive roots for Galois transforms?
+Peter-Lawrence . Montgomery Sun, 11 Mar 2001 22:17:03 -0800
+
+Jason Stratos Papadopoulos <[EMAIL PROTECTED]> writes
+
+> Hello again. After working out how to do integer FFTs on the Alpha, I'm
+> considering additional code that uses Fast Galois Transforms (FGTs),
+> e.g. for complex integers in GF(p^2) for p a prime congruent to 3 mod
+> 4. Bill Daly mentioned this idea before on the list (end of 1998) but
+> unfortunately didn't give enough details for me to work out the rest.
+> I'm considering a 64-bit version for the Alpha and maybe a 32-bit version
+> using MMX and two primes on the Pentium. As usual, though, I need some
+> pointers with the theory.
+>
+> The first big question is how you find a primitive root for transforms of
+> this type. Richard Crandall gives a closed-form expression when p is a
+> Mersenne prime, but if I'm not using a Mersenne prime for p I would still
+> need primitive roots.
+
+Assuming the prime p is fixed at compile time, you can specify
+a primitive root g (of prder p-1) in the binary.  You can try g = 3, 5, 7, ...
+until you succeed.   You will need the prime factorization of p-1
+when you test whether g is really a primitive root, but that is
+easy for 64-bit values of p.  A symbolic algebra program
+such as Maple can assist you in the calculation.
+
+Later, if you want to do an FFT of length n where n divides p-1,
+your primitive root (of order n) can be g^((p-1)/n) (mod p).
+
+> The next question involves eighth-roots of 1 modulo p. For FFTs in complex
+> numbers, these eighth roots have a special form that need less arithmetic
+> than a complex multiply. Is this also the case in GF(p^2) for general p?
+> Or do you need a special primitive root to get these savings? In
+> principle, an eighth-root of this form could mean a radix-8 FGT is
+> possible that uses no integer multiplies.
+
+Over GF(p^2) the primitive root g will have order p^2 - 1
+rather than p-1.  Again a small search will suffice.
+You raise this to the power (p^2 - 1)/n where n divides p^2 - 1.
+
+If p == 7 (mod 8), then there exists a value sqrt(1/2) in GF(p)
+such that 2*sqrt(1/2)^2 == 1 (mod p).
+The primitive 8th roots of 1 modulo p are
+
+	+- sqrt(1/2) +- i*sqrt(1/2),
+
+just as in the complex case.  You can optimize
+
+	(a + b*i) * (sqrt(1/2) + i*sqrt(1/2))
+to
+	(a - b)*sqrt(1/2) + i*(a + b)*sqrt(1/2)
+
+(with two multiplications modulo p), just as in the complex case.
+
+> Finally, how in blazes do you find a root of two with these strange
+> complex integer things? I managed to answer this halfway by myself for
+> more conventional integer FFTs, but I have no clue where to begin here.
+
+Assume p == 7 (mod 8).  Then 2 is a square mod p, but -1 is not. The two values of sqrt(2)
+will be negatives of each other. Exactly one of these will itself be a square; select that
+value for sqrt(2).  Then choose sqrt(sqrt(2)) to itself be a square.
+Continue until you have the root you want.
+
+In other words, if n is a power of 2, you are looking for a value x mod p such that
+
+	x^((p-1)/2) == 1 (mod p)
+	x^n         == 2 (mod p)
+
+The last argument shows that a common solution exists. The exponents n and (p-1)/2 are coprime.
+If n*n' == 1 (mod (p-1)/2), then x == 2^(n') (mod p).
+
+When n is not a power of 2, such as if p was chosen with p == 1 (mod 105) to allow transforms
+of lengths 3, 5, 7, then you will need to check (when p is chosen at compile time) whether 2
+is an appropriate power.
+
+Ernst Mayer and I exchanged many mailings about using GF(p^2) when p = 2^61 - 1.
+I thought he had implemented it, as part of a mixed integer/complex FFT.
+
+Peter Montgomery
+===================
+EWM: Let's revisit roots of 2 (mod p) with p = 2^61-1, both in the real-mod and the complex (gaussian) mod over GF(p^2) sense:
+
+Square roots are +-2^31 ... multiplicative inverses of these mod-sqrts = +-2^30.
+mod_sqrt(+2^31) = 70368744177664 = 2^((31+61)/2) = 2^46, do analogously whenever power of 2 we wish to take sqrt of is odd.
+mod_sqrt(-2^31) does not exist over the real-integers; it does exist and == +-I*2^46 over GF(p^2).
+
+Sequence of successive positive-square-roots ==
+2^[ 1,31,46,23,42,21,41,51,56,28,14, 7,34,17,39,50,25,43,52,26,13,37,49,55,58,29,45,53,57,59,60,30,15,38,19,40,20,10, 5,33,47,54,27,44,22,11,36,18, 9,35,48,24,12, 6, 3,32,16, 8, 4, 2], which represents the 2^0th through 2^59th roots of 2.
+
+At each power-of-2 level, the roots of that order repeat with period 61, e.g. the 2^59th roots are
+2^[1,2,3,...,60,0,1,2,3,...]
+
+Q: Is this deepest-power-of-2 general in terms of p?
+Try p = 3, q = 2^p-1 = 7: Each row's prim-root power is got from pvs row's one k as (k + is_odd(k)*p)/2 :
+sqrt(2) = 2^k with k = (p+1)/2 = 2, prim-root = 2^2 == 4 (mod q)
+4th roots: k = (1+is_odd(2)*3)/2 = 1, prim-root = 2, thus 2^(0,1/4/1/2,3/4) == 1,2,4,1
+8th roots: k = (1+is_odd(1)*3)/2 = 2, thus hit degeneracy at this level, 2^(p-1) is highest order for unique set of roots. Degeneracy is inevitable since there are only p nozero powers of 2 < 2^p.
+
+Try = p = 5, q = 2^5-1 = 31:
+sqrt(2): k = (p+1)/2 = 3
+4th roots: k = (3+p)/2 = 4, prim-root = 2^4, thus 2^(0,1/4/1/2,3/4) == 1,2^4,2^3,2
+8th roots: k = (4+0)/2 = 2, prim-root = 2^2, thus 2^(0-7)/8 == 2^(0,2,4,6,8,10,12,14) == 2^(0,2,4,1,3,0,2,4), again note degeneracy, there are only p = 5 powers of 2 < 2^p.
+16th roots: k = (2+0)/2 = 1, prim-root = 2, thus 2^(0-15)/16 == 2^(0,1,2,3,4,0,1,2,3,4,0,1,2,3,4,0)
+32nd roots: k = (1+5)/2 = 3, prim-root = 2^3, thus 2^(0-31)/32 == 2^(0,3,1,4,2,...,0,3,1,4,2,0,3).
+
+Compare to IBDWT modulo the prime p = 2^64 - 2^32 + 1, detailed by Nick Craig-Wood [https://www.craig-wood.com/nick/armprime/math/]:
+
+	2 has order 192 mod p (ie 2^192 mod p = 1) so we can have the
+	(p-1)/192 = (2^58 - 2^26) / 3 = 2^26 * 5 * 17 * 257 * 65537 th root of 2.
+	This means that we can do the DWT for lengths up to 2^26 with an optional factor of 5.
+
+In our case, 2 has order 61 mod p so we can have the (p-1)/61 = 2.3^2.5^2.7.11.13.31.41.151.331.1321 real roots (mod p),
+or (p^2-1)/61 = 2^62.3^2.5^2.7.11.13.31.41.151.331.1321 complex roots (mod p^2)?
+
+==============================
+From https://eli.thegreenplace.net/2009/03/07/computing-modular-square-roots-in-python/
+
+Consider the congruence of the form: x^2 == r (mod n) .
+
+r is a quadradic residue (mod n). What is x? In normal arithmetic, this is equivalent to finding the square root of a number. In modular arithmetic, x is the modular square root of r modulo n.
+
+Now, in the general case, this is a very difficult problem to solve. In fact, it's equivalent to integer factorization, because no efficient algorithm is known to find the modular square root modulo a composite number, and if the modulus is composite it has to be factored first.
+
+But when n is prime, an efficient polynomial algorithm exists for computing x. This is the Tonelli-Shanks algorithm.
+
+Computing modular square roots is probably not one of those things you do daily, but I ran into it while solving a Project Euler problem. So I'm posting the Python implementation of the Tonelli-Shanks algorithm here. It is based on the explanation in the paper "Square roots from 1; 24, 51, 10 to Dan Shanks" by Ezra Brown, as I found the Wikipedia algorithm hard to follow.
+
+define legendre_symbol(a, p) {
+	auto ls;
+	ls = modpow_lr(a, (p - 1)/2, p);
+	if(ls == p - 1) {
+		return -1;
+	} else {
+		return ls;
+	}
+}
+
+/*
+For p an odd prime, solves the congruence of the form
+	x^2 = a (mod p)
+And returns x. Note that p - x is also a root.
+
+Returns 0 if no square root exists for this a and p.
+
+Uses Tonelli-Shanks algorithm, except for some simple cases in which the solution is known
+from an identity. Algorithm runs in polynomial time if generalized Riemann hypothesis true.
+*/
+define mod_sqrt(a, p) {
+	auto b,e,g,gs,m,n,r,s,t,x;
+	/* Special cases: */
+	if(a == 0)
+		return 0;
+	if(p == 2)
+		return p;
+	if(legendre_symbol(a, p) != 1)
+		return 0;
+	if(p % 4 == 3)
+		return modpow_lr(a, (p + 1)/4, p);
+
+	/* Partition p-1 to s * 2^e for odd s, i.e. reduce all the powers of 2 from p-1: */
+	s = p - 1;	e = 0;
+	while(!(s % 2)) {
+	 	s /= 2;
+		e += 1;
+	}
+
+	/* Find some 'n' with a legendre symbol n|p = -1; shouldn't take long: */
+	n = 2;
+	while(legendre_symbol(n, p) != -1)
+		n += 1;
+
+	/* Here be dragons! Read "Square roots from 1; 24, 51, 10 to Dan Shanks" by Ezra Brown for more information.
+
+	x is a guess of the square root which is iteratively improved.
+	b is the "fudge factor" - by how much we're off with the current guess.
+	The invariant x^2 = ab (mod p) is maintained throughout the loop.
+	g is used for successive powers of n to update both a and b.
+	r is the exponent - decreases with each update.
+	*/
+	x = modpow_lr(a, (s + 1) / 2, p);
+	b = modpow_lr(a, s, p);
+	g = modpow_lr(n, s, p);
+	r = e;
+	while(1) {
+		t = b;
+		for(m = 0; m < r; m++) {
+			if(t == 1)
+				break;
+			t = modpow_lr(t, 2, p);
+		}
+		if(!m)
+			return x;
+
+		gs = modpow_lr(g, 2^(r-m-1), p);
+		g = (gs * gs) % p;
+		x = (x * gs) % p;
+		b = (b * g) % p;
+		r = m;
+	}
+}
+
+**************************************************************************************************************************************
+Mar 2022: Revisit this:
+Example bc implementation of the FGT(M(p)) basic root-of-desired-order computation for FGT modulo
+a Mersenne prime q = M(p). Inputs are M-prime exponent p, x0,y0 which are the re,im-parts of an (alleged)
+prim-root (i.e. of the full order (q^2-1)) in the field, ord is the desired power of said prime-root, i.e.
+the function computes (x0 + I*y0)^ord (mod q):
+
+/* Multiply Gaussian integers: z = x * y (mod q), where q is an int > 0: */
+define cmul_modq(xr,xi, yr,yi, q) {
+	zr = (xr*yr - xi*yi)%q; zi = (xr*yi + xi*yr)%q;
+}
+@
+/* For Gaussian-integer input z = x + I*y, computes z^pow (mod q) */
+define cpow_modq(x,y, pow, q) {
+	auto i,rm,im,t,tp,nb;
+	if(pow < 0) { print "Error: cpow_modq requires an integer exponent >= 0; user entered pow = ",pow,".\n"; return; }
+	if(q <= 0) { print "Error: cpow_modq requires a modulus q > 0; user entered q = ",q,".\n"; return; }
+	if(pow == 0) { print "(",x," + I*",y,")^",pow," == 1 + I*0 (mod q = ",q,").\n"; return; }
+	nb = bits(pow); tp = reverse(pow,nb);	/* bit-reverse pow */
+	rm = x; im = y;
+	tp /= 2;	/* Rightmost bit (w.r.to BRed power) taken care of by preceding-line init */
+	for(i = 0; i < nb-1; i++) {
+		t = rm; rm = (rm-im)*(rm+im)%q; im = (t+t)*im%q;	/* Squaring is here */
+		if(tp % 2) {	/* If current (rightmost in the BRed power) bit = 1, multiply by (x0,y0): */
+			t = rm; rm = (rm*x - im*y)%q; im = (t*y + im*x)%q;
+		}
+		tp /= 2;
+	}
+	print "(",x," + I*",y,")^",pow," == ",rm," + I*",im," (mod q = ",q,").\n";
+	return;
+}
+@
+/* Check primitivity of candidate primitive root w = x0 + I.y0 over GF(q^2) with q = M(p) a Mersenne prime,
+by verifying if, for all factors f of the group order ord = (q^2-1), w^(ord/f) != 1 (mod q):
+*/
+define is_prim_root_fgt(p,x0,y0,use_stored_factors) {
+	auto i,ihi,ord,q,qhalf,x,y,t;
+	if(!is_prp(p)) { print "Argument p = ",p," is not prime!\n"; return; }
+	q = 2^p-1;	qhalf = q/2;
+	if(!use_stored_factors && !is_prp(q)) { print "Argument q = ",q," = 2^p - 1 is not prime!\n"; return; }
+	ord = q^2 - 1;
+	/* First completely factor ord: */
+	if(!use_stored_factors)
+		i = factorize(ord,pmax,0);	/* ...,0 => no info-printing */
+	/* Check the factor list: */
+	i = 0; t = ord;
+	while(factor[i]) {
+		x = factor[i]; y = factor[i+1];
+	/*	print "Trying ",x,"^",y,"...\n";	*/
+		if(t % (x^y) != 0) {
+			print "Stored factor",x,"^",y," does not divide ord = q^2-1 for q = 2^",p,"-1.\n";
+			return 0;
+		} else {
+			t /= x^y;
+		}
+		i += 2;
+	}
+	if(t > 1) { print "Failed to completely factor ord = q^2-1 with q = 2^",p," - 1;\nUnfactored portion = ",t,"\nProceeding using the known small-prime factors.\n"; }
+	/* Now loop over all prime factors f of ord and see if w^(ord/f) != 1 (mod q) for each f,
+	continuing until w^(ord/f) == 1 for some f, or until have tested all f: */
+	i = 0;
+	while(factor[i]) {
+	/*	print "Testing w^(ord/f) == 1 for f = ",factor[i],"...\n";	*/
+		if(!fgt_root_ord(p,x0,y0,factor[i],0)) {
+			print x0," + I*",y0," is not a primitive root in GF(M(",p,")^2) because a ",factor[i],"-adic power residue.\n";
+			return 0;
+		}
+		i += 2;
+	}
+	print x0," + I*",y0," is a primitive root in GF(M(",p,")^2).\n";
+	/*
+	For any PR found via above, see what the (q+1) = (2^p)th power of it is - should be
+		[a] strictly real;
+		[b] itself a PR over GF(q), i.e. the real-valued multiplicative groupt (mod q).
+	*/
+	x = x0; y = y0;
+	for(i = 0; i < p; i++) {
+		t = (x + y)*(x - y)%q; y = 2*x*y%q; x = t;
+	}
+	x -= q*(abs(x) > qhalf)*sign(x);
+	y -= q*(abs(y) > qhalf)*sign(y);
+	print "(",x0," + I*",y0,")^(2^p) == ",x," + I*",y," (mod q = 2^p-1).\n";
+	/* Now see if x a PR over GF(q) by looping over all *odd* prime factors f of (q-1), which are
+	the same as the factors of (ord) except that 2 appears on3y to the 1st power, and seeing if
+	x^(ord/f) != 1 (mod q) for each f, continuing until x^(ord/f) == 1 for some f: */
+	if(y) {
+		print "This has nonzero imaginary part!\n";
+	} else {
+		i = 0;
+		while(factor[i]) {
+		/*	print "Testing x^(ord/f) == 1 for f = ",factor[i],"...\n";	*/
+			if(modpow_lr(x,(q-1)/factor[i],q) == 1) {
+				print x," is not a primitive root in GF(M(",p,")) because a ",factor[i],"-adic power residue.\n";
+				return 0;
+			}
+			i += 2;
+		}
+		print x," is a primitive root in the real field GF(M(",p,")).\n";
+	}
+	return 1;
+}
+@
+define fgt_root_ord(p,x0,y0,ord,debug) {
+	auto i,nb,zbits,rm,im,rtmp,itmp,pow,q,qhalf,t;
+	if(!is_prp(p)) { print "Argument p = ",p," is not prime!\n"; return 0; }
+	q = 2^p-1;	qhalf = q/2;
+	if(!is_prp(q)) { print "Argument q = ",q," = 2^p - 1 is not prime!\n"; return 0; }
+	zbits = trailz(ord);
+	/* For q = 2^p-1 (both p,q odd prime), maximal order (q^2-1) = 2^(p+1) * (2^(p-1)-1),
+	 allowing power-of-2 roots up to 2^(p+1).
+	First raise result to the [(2^(p-1)-1)/(ord >> trailz(ord))]th power using LR binary powering: */
+	itmp = 2^(p-1) - 1;
+	pow = itmp/(ord/2^zbits);	/* Odd component of the needed power; should have 0 remainder for legal ord values */
+	if(itmp != pow*(ord / 2^zbits)) {
+		if(debug) print "Prim-root-raising power does not divide 2^(p-1)-1!\n"; return 0;
+	}
+	if(debug) print "Computing basic root of order ",ord," from alleged primitive root (",x0," + I*",y0,") in GF(q^2), q = 2^",p,"-1...\n";
+	nb = bits(pow); pow = reverse(pow,nb);	/* bit-reverse pow */
+	rm = x0; im = y0;
+	pow /= 2;	/* Rightmost bit (w.r.to BRed power) taken care of by preceding-line init */
+	for(i = 0; i < nb-1; i++) {
+		t = rm; rm = (rm-im)*(rm+im)%q; im = (t+t)*im%q;	/* Squaring is here */
+		if(pow % 2) {	/* If current (rightmost in the BRed power) bit = 1, multiply by (x0,y0): */
+			t = rm; rm = (rm*x0 - im*y0)%q; im = (t*y0 + im*x0)%q;
+		}
+		pow /= 2;
+	}
+	/* (q^2-1) = 2^(p+1) * (2^(p-1)-1), so need to do [(p+1)-trailz(ord)] squarings: */
+	zbits = (p+1) - zbits;
+	for(i = 0; i < zbits; i++) {
+		t = rm; rm = (rm-im)*(rm+im)%q; im = (t+t)*im%q;
+		rm -= q*(abs(rm) > qhalf)*sign(rm);
+		im -= q*(abs(im) > qhalf)*sign(im);
+		if(i >= zbits-1-3*(debug != 0)) print "Root of order ",ord*2^(zbits-i-1),": z = ",rm," + I*",im,"\n";
+	}
+	return (rm != 1);	/* Return TRUE if root or desired order != 1 (e.g. in context of primitivity-check) */
+}
+@
+/* Standalone routine using factors of ord = q-1 to see whether a 1-1 correspondence between complex
+PRs z = x + I*y over GF(q^2) with q = 2^p-1 prime and PRs x^2 + y^2 = |z|^2 over the real field GF(q), by
+seeing if for some real input x0, PR-ness over GF(q) requires x0 to be [a] the sum of squares x^2 + y^2,
+and [b] the corresponding Gaussian (complex) integer z = x + I*y is a PR over GF(q^2): */
+define is_prim_root_odd(p,x0,use_stored_factors,debug) {
+	auto i,ihi,ord,q,x,y,t;
+	if(!is_prp(p)) { print "Argument p = ",p," is not prime!\n"; return; }
+	q = 2^p-1;
+	if(!use_stored_factors && !is_prp(q)) { print "Argument q = ",q," = 2^p - 1 is not prime!\n"; return; }
+	ord = q - 1;
+	/* First completely factor ord: */
+	if(!use_stored_factors)
+		i = factorize(ord,pmax,0);	/* ...,0 => no info-printing */
+	/* Check the factor list: */
+	i = 0; t = ord;
+	while(factor[i]) {
+		x = factor[i]; y = factor[i+1];
+	/*	print "Trying ",x,"^",y,"...\n";	*/
+		if(t % (x^y) != 0) {
+			print "Stored factor",x,"^",y," does not divide ord = q^2-1 for q = 2^",p,"-1.\n";
+			return 0;
+		} else {
+			t /= x^y;
+		}
+		i += 2;
+	}
+	if(t > 1) { print "Failed to completely factor ord = q^2-1 with q = 2^",p," - 1;\nUnfactored portion = ",t,"\nProceeding using the known small-prime factors.\n"; }
+	i = 0;
+	while(factor[i]) {
+		if(debug) print "Testing x^(ord/f) == 1 for f = ",factor[i],"...\n";
+		if(modpow_lr(x0,(q-1)/factor[i],q) == 1) {
+			if(debug) print x0," is not a primitive root in GF(M(",p,")) because a ",factor[i],"-adic power residue.\n";
+			return 0;
+		}
+		i += 2;
+	}
+	return 1;
+}
+@
+[set p here]
+define check_prs_gf_q(p,xhi) {
+	auto i,j,x,y;
+	print "Checking for primitive roots x0 over GF(M(",p,"))...\n";
+	for(i = 1; i < xhi; i++) {
+		if(is_prim_root_odd(p,i,0)) {
+			print i;
+			j = is_sum_or_diff_squares(i);
+			if(j > 0) {
+				x = sqrt(i - j); y = sqrt(j);
+				is_prim_root_fgt(p,x,y,1);
+			} else  {
+				print "\n";
+			}
+		}
+	}
+}
+@
+/* Determines if x = i^2 +- j^2. If so, returns the square of the smaller component j along with
+the +- sign, so caller can reconstruct the larger component as i = sqrt(x - [return value]). If
+x is not the sum or difference of squares, returns 0: */
+define is_sum_or_diff_squares(x) {
+	auto i,isq,j,jsq;
+	for(i = 1; i < x; i++) {
+		isq = i^2;
+		for(j = 1; j < i; j++) {
+			jsq = j^2;
+			if(x == (isq + jsq)) {
+				print "\t(",x," == ",i,"^2 + ",j,"^2)\n"; return jsq;
+			} else if(x == (isq - jsq)) {
+				print "\t(",x," == ",i,"^2 - ",j,"^2)\n"; return -jsq;
+			}
+		}
+	}
+	return 0;
+}
+@
+/* For given bound n, find all x,y pairs with x >= y such that x^2 + y^2 <= n: */
+define find_square_sums_le_n(n) {
+	auto x,xsq,y,ysq,sum,sqrtn;
+	sqrtn = sqrt(n);
+	for(x = 1; x <= sqrtn; x++) {
+		xsq = x*x;
+		for(y = 1; y <= x; y++) {
+			ysq = y*y; sum = xsq + ysq;
+			if(sum > n) break;
+			print sum," = ",x,"^2 + ",y,"^2\n";
+		}
+	}
+}
+@
+Can use that a PR z = x+I.y over GF(q^2) has (2^p)th power == x^2 + I.y^2 (mod q) to speed the search
+for such PRs, by first checking if r = x^2 + I.y^2 is a PR over the real field GF(q), and applying a few
+additional constraints such complex primitive roots must satisfy - for instance, they must have both x and y
+nonzero and x != y, and due to the 8-fold symmetry property, we can adopt the convention that x > y for our search.
+	For example for p = 61, we find 162 PRs r over GF(q) with r < 1000. Of these, 48 can be written as a sum of squares
+x^2 + y^2 in at least one distinct way ("distinct" again referring to our convention that x > y), compared to 311
+positive integers < 1000 which can be expressed so. Of the 48 r's of the required form, all correspond to precisely
+as many complex PR x + I*y over GF(q^2) as there are distinct x,y such that r = x^2 + y^2. (For the 6 r = x^2 + y^2 below this bound which can be written as both the sum of two equal and two unequal squares, specifically
+r = 50, 200, 338, 450, 578 and 800, none of the sums-of-unequal-squares yield a PR x + I*y over GF(q^2).)
+
+Q: If x + I*y a PR and (x^2 + y^2) can be written as a sum of squares (x'^2 + y'^2) in >= 2 ways, is x' + I*y' a PR in each case?
+A: Yes.
+
+Q: Are there some simple rules (x,y) yielding a PR x + I*y must follow?
+A: x,y nonzero, x != y
+
+x0	x	y
+37*	(37 == 6^2 + 1^2), multiples of 37 = 74*,111,148*,185*,222,259,296*,333*,370*,407,481*,518,555,592*,629,666*,703,740*,777,814,851,888,925,962*,999
+74*	(74 == 7^2 + 5^2)
+148*(148 == 12^2 + 2^2)		gcd(x,y) = 2 [6 + I a PR]
+153*(153 == 12^2 + 3^2)		gcd(x,y) = 3 [4 + I *not* a PR]
+185*(185 == 11^2 + 8^2 == 13^2 + 4^2)
+221*(221 == 11^2 + 10^2)
+229*(229 == 15^2 + 2^2)
+257*(257 == 16^2 + 1^2)
+281*(281 == 16^2 + 5^2)
+290*(290 == 13^2 + 11^2 = 17^2 + 1^2)
+296*(296 == 14^2 + 10^2)	gcd(x,y) = 2 [7 + I*5 a PR]
+306*(306 == 15^2 + 9^2)		gcd(x,y) = 3 [5 + I*3 *not* a PR]
+313*(313 == 13^2 + 12^2)
+333*(333 == 18^2 + 3^2)		gcd(x,y) = 3 [6 + I a PR]
+370*(370 == 17^2 + 9^2 = 19^2 + 3^2)
+373*(373 == 18^2 + 7^2)
+425*(425 == 16^2 + 13^2 = 19^2 + 8^2 = 20^2 + 5^2)	For rightmost sum, gcd(x,y) = 5 [4 + I *not* a P]
+442*(442 == 19^2 + 9^2 = 21^2 + 1^2)
+457*(457 == 21^2 + 4^2)
+458*(458 == 17^2 + 13^2)
+481*(481 == 16^2 + 15^2 = 20^2 + 9^2)
+514*(514 == 17^2 + 15^2)
+541*(541 == 21^2 + 10^2)
+557*(557 == 19^2 + 14^2)
+562*(562 == 21^2 + 11^2)
+580*(580 == 18^2 + 16^2 = 24^2 + 2^2)	gcd(x,y) = 2 [Neither 9 + I*8, 12 + I a PR; both are 61-adic power residues]
+592*(592 == 24^2 + 4^2)		gcd(x,y) = 4 [6 + I a PR]
+612*(612 == 24^2 + 6^2)		gcd(x,y) = 6 [12 + I*3 a PR, but 8 + I*2, 4 + I not]
+626*(626 == 25^2 + 1^2)
+666*(666 == 21^2 + 15^2)	gcd(x,y) = 3 [7 + I*5 a PR]
+673*(673 == 23^2 + 12^2)
+685*(685 == 19^2 + 18^2 = 26^2 + 3^2)
+701*(701 == 26^2 + 5^2)
+740*(740 == 22^2 + 16^2 = 26^2 + 8^2)	gcd(x,y) = 2 [Both 11 + I*8, 13 + I*4 are PR]
+746*(746 == 25^2 + 11^2)
+761*(761 == 20^2 + 19^2)
+773*(773 == 22^2 + 17^2)
+797*(797 == 26^2 + 11^2)
+850*(850 == 25^2 + 15^2 = 27^2 + 11^2 = 29^2 + 3^2)	gcd(x1,y1) = 5 [5 + I*3 *not* a PR]
+857*(857 == 29^2 + 4^2)
+881*(881 == 25^2 + 16^2)
+884*(884 == 22^2 + 20^2 = 28^2 + 10^2)	gcd(x,y) = 2 [Both 11 + I*10, 14 + I*5 are PR]
+905*(905 == 28^2 + 11^2 = 29^2 + 8^2)
+914*(914 == 25^2 + 17^2)
+916*(916 == 30^2 + 4^2)		gcd(x,y) = 2 [15 + I*2 a PR]
+962*(962 == 29^2 + 11^2 = 31^2 + 1^2)
+965*(965 == 26^2 + 17^2 = 31^2 + 2^2)
+985*(985 == 27^2 + 16^2 = 29^2 + 12^2)
+@
+311 n <= 1000 such that n = x^2 + y^2; such n for which x != y indented:
+2 = 1^2 + 1^2
+	5 = 2^2 + 1^2
+8 = 2^2 + 2^2
+	10 = 3^2 + 1^2
+	13 = 3^2 + 2^2
+	17 = 4^2 + 1^2
+18 = 3^2 + 3^2
+	20 = 4^2 + 2^2
+	25 = 4^2 + 3^2
+	26 = 5^2 + 1^2
+	29 = 5^2 + 2^2
+32 = 4^2 + 4^2
+	34 = 5^2 + 3^2
+	37 = 6^2 + 1^2
+	40 = 6^2 + 2^2
+	41 = 5^2 + 4^2
+	45 = 6^2 + 3^2
+50 = 5^2 + 5^2 = 7^2 + 1^2
+	52 = 6^2 + 4^2
+	53 = 7^2 + 2^2
+	58 = 7^2 + 3^2
+	61 = 6^2 + 5^2
+	65 = 7^2 + 4^2 = 8^2 + 1^2
+	68 = 8^2 + 2^2
+72 = 6^2 + 6^2
+	73 = 8^2 + 3^2
+	74 = 7^2 + 5^2
+	80 = 8^2 + 4^2
+	82 = 9^2 + 1^2
+	85 = 7^2 + 6^2 = 9^2 + 2^2
+	89 = 8^2 + 5^2
+	90 = 9^2 + 3^2
+	97 = 9^2 + 4^2
+98 = 7^2 + 7^2
+	100 = 8^2 + 6^2
+	101 = 10^2 + 1^2
+	104 = 10^2 + 2^2
+	106 = 9^2 + 5^2
+	109 = 10^2 + 3^2
+	113 = 8^2 + 7^2
+	116 = 10^2 + 4^2
+	117 = 9^2 + 6^2
+	122 = 11^2 + 1^2
+	125 = 10^2 + 5^2 = 11^2 + 2^2
+128 = 8^2 + 8^2
+	130 = 9^2 + 7^2 = 11^2 + 3^2
+	136 = 10^2 + 6^2
+	137 = 11^2 + 4^2
+	145 = 9^2 + 8^2 = 12^2 + 1^2
+	146 = 11^2 + 5^2
+	148 = 12^2 + 2^2
+	149 = 10^2 + 7^2
+	153 = 12^2 + 3^2
+	157 = 11^2 + 6^2
+	160 = 12^2 + 4^2
+162 = 9^2 + 9^2
+	164 = 10^2 + 8^2
+	169 = 12^2 + 5^2
+	170 = 11^2 + 7^2 = 13^2 + 1^2
+	173 = 13^2 + 2^2
+	178 = 13^2 + 3^2
+	180 = 12^2 + 6^2
+	181 = 10^2 + 9^2
+	185 = 11^2 + 8^2 = 13^2 + 4^2
+	193 = 12^2 + 7^2
+	194 = 13^2 + 5^2
+	197 = 14^2 + 1^2
+200 = 10^2 + 10^2 = 14^2 + 2^2
+	202 = 11^2 + 9^2
+	205 = 13^2 + 6^2 = 14^2 + 3^2
+	208 = 12^2 + 8^2
+	212 = 14^2 + 4^2
+	218 = 13^2 + 7^2
+	221 = 11^2 + 10^2 = 14^2 + 5^2
+	225 = 12^2 + 9^2
+	226 = 15^2 + 1^2
+	229 = 15^2 + 2^2
+	232 = 14^2 + 6^2
+	233 = 13^2 + 8^2
+	234 = 15^2 + 3^2
+	241 = 15^2 + 4^2
+242 = 11^2 + 11^2
+	244 = 12^2 + 10^2
+	245 = 14^2 + 7^2
+	250 = 13^2 + 9^2 = 15^2 + 5^2
+	257 = 16^2 + 1^2
+	260 = 14^2 + 8^2 = 16^2 + 2^2
+	261 = 15^2 + 6^2
+	265 = 12^2 + 11^2 = 16^2 + 3^2
+	269 = 13^2 + 10^2
+	272 = 16^2 + 4^2
+	274 = 15^2 + 7^2
+	277 = 14^2 + 9^2
+	281 = 16^2 + 5^2
+288 = 12^2 + 12^2
+	289 = 15^2 + 8^2
+	290 = 13^2 + 11^2 = 17^2 + 1^2
+	292 = 16^2 + 6^2
+	293 = 17^2 + 2^2
+	296 = 14^2 + 10^2
+	298 = 17^2 + 3^2
+	305 = 16^2 + 7^2 = 17^2 + 4^2
+	306 = 15^2 + 9^2
+	313 = 13^2 + 12^2
+	314 = 17^2 + 5^2
+	317 = 14^2 + 11^2
+	320 = 16^2 + 8^2
+	325 = 15^2 + 10^2 = 17^2 + 6^2 = 18^2 + 1^2
+	328 = 18^2 + 2^2
+	333 = 18^2 + 3^2
+	337 = 16^2 + 9^2
+338 = 13^2 + 13^2 = 17^2 + 7^2
+	340 = 14^2 + 12^2
+	340 = 18^2 + 4^2
+	346 = 15^2 + 11^2
+	349 = 18^2 + 5^2
+	353 = 17^2 + 8^2
+	356 = 16^2 + 10^2
+	360 = 18^2 + 6^2
+	362 = 19^2 + 1^2
+	365 = 14^2 + 13^2
+	365 = 19^2 + 2^2
+	369 = 15^2 + 12^2
+	370 = 17^2 + 9^2 = 19^2 + 3^2
+	373 = 18^2 + 7^2
+	377 = 16^2 + 11^2 = 19^2 + 4^2
+	386 = 19^2 + 5^2
+	388 = 18^2 + 8^2
+	389 = 17^2 + 10^2
+392 = 14^2 + 14^2
+	394 = 15^2 + 13^2
+	397 = 19^2 + 6^2
+	400 = 16^2 + 12^2
+	401 = 20^2 + 1^2
+	404 = 20^2 + 2^2
+	405 = 18^2 + 9^2
+	409 = 20^2 + 3^2
+	410 = 17^2 + 11^2 = 19^2 + 7^2
+	416 = 20^2 + 4^2
+	421 = 15^2 + 14^2
+	424 = 18^2 + 10^2
+	425 = 16^2 + 13^2 = 19^2 + 8^2 = 20^2 + 5^2
+	433 = 17^2 + 12^2
+	436 = 20^2 + 6^2
+	442 = 19^2 + 9^2 = 21^2 + 1^2
+	445 = 18^2 + 11^2 = 21^2 + 2^2
+	449 = 20^2 + 7^2
+450 = 15^2 + 15^2 = 21^2 + 3^2
+	452 = 16^2 + 14^2
+	457 = 21^2 + 4^2
+	458 = 17^2 + 13^2
+	461 = 19^2 + 10^2
+	464 = 20^2 + 8^2
+	466 = 21^2 + 5^2
+	468 = 18^2 + 12^2
+	477 = 21^2 + 6^2
+	481 = 16^2 + 15^2 = 20^2 + 9^2
+	482 = 19^2 + 11^2
+	485 = 17^2 + 14^2 = 22^2 + 1^2
+	488 = 22^2 + 2^2
+	490 = 21^2 + 7^2
+	493 = 18^2 + 13^2 = 22^2 + 3^2
+	500 = 20^2 + 10^2 = 22^2 + 4^2
+	505 = 19^2 + 12^2 = 21^2 + 8^2
+	509 = 22^2 + 5^2
+512 = 16^2 + 16^2
+	514 = 17^2 + 15^2
+	520 = 18^2 + 14^2 = 22^2 + 6^2
+	521 = 20^2 + 11^2
+	522 = 21^2 + 9^2
+	530 = 19^2 + 13^2 = 23^2 + 1^2
+	533 = 22^2 + 7^2 = 23^2 + 2^2
+	538 = 23^2 + 3^2
+	541 = 21^2 + 10^2
+	544 = 20^2 + 12^2
+	545 = 17^2 + 16^2 = 23^2 + 4^2
+	548 = 22^2 + 8^2
+	549 = 18^2 + 15^2
+	554 = 23^2 + 5^2
+	557 = 19^2 + 14^2
+	562 = 21^2 + 11^2
+	565 = 22^2 + 9^2 = 23^2 + 6^2
+	569 = 20^2 + 13^2
+	577 = 24^2 + 1^2
+578 = 17^2 + 17^2 = 23^2 + 7^2
+	580 = 18^2 + 16^2 = 24^2 + 2^2
+	584 = 22^2 + 10^2
+	585 = 21^2 + 12^2 = 24^2 + 3^2
+	586 = 19^2 + 15^2
+	592 = 24^2 + 4^2
+	593 = 23^2 + 8^2
+	596 = 20^2 + 14^2
+	601 = 24^2 + 5^2
+	605 = 22^2 + 11^2
+	610 = 21^2 + 13^2 = 23^2 + 9^2
+	612 = 24^2 + 6^2
+	613 = 18^2 + 17^2
+	617 = 19^2 + 16^2
+	625 = 20^2 + 15^2 = 24^2 + 7^2
+	626 = 25^2 + 1^2
+	628 = 22^2 + 12^2
+	629 = 23^2 + 10^2 = 25^2 + 2^2
+	634 = 25^2 + 3^2
+	637 = 21^2 + 14^2
+	640 = 24^2 + 8^2
+	641 = 25^2 + 4^2
+648 = 18^2 + 18^2
+	650 = 19^2 + 17^2 = 23^2 + 11^2 = 25^2 + 5^2
+	653 = 22^2 + 13^2
+	656 = 20^2 + 16^2
+	657 = 24^2 + 9^2
+	661 = 25^2 + 6^2
+	666 = 21^2 + 15^2
+	673 = 23^2 + 12^2
+	674 = 25^2 + 7^2
+	676 = 24^2 + 10^2
+	677 = 26^2 + 1^2
+	680 = 22^2 + 14^2 = 26^2 + 2^2
+	685 = 19^2 + 18^2 = 26^2 + 3^2
+	689 = 20^2 + 17^2 = 25^2 + 8^2
+	692 = 26^2 + 4^2
+	697 = 21^2 + 16^2 = 24^2 + 11^2
+	698 = 23^2 + 13^2
+	701 = 26^2 + 5^2
+	706 = 25^2 + 9^2
+	709 = 22^2 + 15^2
+	712 = 26^2 + 6^2
+	720 = 24^2 + 12^2
+722 = 19^2 + 19^2
+	724 = 20^2 + 18^2
+	725 = 23^2 + 14^2 = 25^2 + 10^2 = 26^2 + 7^2
+	730 = 21^2 + 17^2 = 27^2 + 1^2
+	733 = 27^2 + 2^2
+	738 = 27^2 + 3^2
+	740 = 22^2 + 16^2 = 26^2 + 8^2
+	745 = 24^2 + 13^2 = 27^2 + 4^2
+	746 = 25^2 + 11^2
+	754 = 23^2 + 15^2 = 27^2 + 5^2
+	757 = 26^2 + 9^2
+	761 = 20^2 + 19^2
+	765 = 21^2 + 18^2 = 27^2 + 6^2
+	769 = 25^2 + 12^2
+	772 = 24^2 + 14^2
+	773 = 22^2 + 17^2
+	776 = 26^2 + 10^2
+	778 = 27^2 + 7^2
+	785 = 23^2 + 16^2 = 28^2 + 1^2
+	788 = 28^2 + 2^2
+	793 = 27^2 + 8^2 = 28^2 + 3^2
+	794 = 25^2 + 13^2
+	797 = 26^2 + 11^2
+800 = 20^2 + 20^2 = 28^2 + 4^2
+	801 = 24^2 + 15^2
+	802 = 21^2 + 19^2
+	808 = 22^2 + 18^2
+	809 = 28^2 + 5^2
+	810 = 27^2 + 9^2
+	818 = 23^2 + 17^2
+	820 = 26^2 + 12^2 = 28^2 + 6^2
+	821 = 25^2 + 14^2
+	829 = 27^2 + 10^2
+	832 = 24^2 + 16^2
+	833 = 28^2 + 7^2
+	841 = 21^2 + 20^2
+	842 = 29^2 + 1^2
+	845 = 22^2 + 19^2 = 26^2 + 13^2 = 29^2 + 2^2
+	848 = 28^2 + 8^2
+	850 = 25^2 + 15^2 = 27^2 + 11^2 = 29^2 + 3^2
+	853 = 23^2 + 18^2
+	857 = 29^2 + 4^2
+	865 = 24^2 + 17^2 = 28^2 + 9^2
+	866 = 29^2 + 5^2
+	872 = 26^2 + 14^2
+	873 = 27^2 + 12^2
+	877 = 29^2 + 6^2
+	881 = 25^2 + 16^2
+882 = 21^2 + 21^2
+	884 = 22^2 + 20^2 = 28^2 + 10^2
+	890 = 23^2 + 19^2 = 29^2 + 7^2
+	898 = 27^2 + 13^2
+	900 = 24^2 + 18^2
+	901 = 26^2 + 15^2 = 30^2 + 1^2
+	904 = 30^2 + 2^2
+	905 = 28^2 + 11^2 = 29^2 + 8^2
+	909 = 30^2 + 3^2
+	914 = 25^2 + 17^2
+	916 = 30^2 + 4^2
+	922 = 29^2 + 9^2
+	925 = 22^2 + 21^2 = 27^2 + 14^2 = 30^2 + 5^2
+	928 = 28^2 + 12^2
+	929 = 23^2 + 20^2
+	932 = 26^2 + 16^2
+	936 = 30^2 + 6^2
+	937 = 24^2 + 19^2
+	941 = 29^2 + 10^2
+	949 = 25^2 + 18^2 = 30^2 + 7^2
+	953 = 28^2 + 13^2
+	954 = 27^2 + 15^2
+	962 = 29^2 + 11^2 = 31^2 + 1^2
+	964 = 30^2 + 8^2
+	965 = 26^2 + 17^2 = 31^2 + 2^2
+968 = 22^2 + 22^2
+	970 = 23^2 + 21^2 = 31^2 + 3^2
+	976 = 24^2 + 20^2
+	977 = 31^2 + 4^2
+	980 = 28^2 + 14^2
+	981 = 30^2 + 9^2
+	985 = 27^2 + 16^2 = 29^2 + 12^2
+	986 = 25^2 + 19^2 = 31^2 + 5^2
+	997 = 31^2 + 6^2
+	1000 = 26^2 + 18^2 = 30^2 + 10^2
+===============================
+*** Try it out to generate all roots of given order from basic root ***
+For p = 61, ord =  = 2^62.3^2.5^2.7.11.13.31.41.61.151.331.1321.
+Here are the small-powers-of-2 roots:
+16:	z16 = -612525257975972978 + I*-22027337052962166, z16^2 = z^8, z16^3 = -22027337052962166 - I*612525257975972978, z16^4 = I, ...
+ 8: z = 1073741824 + I*1073741824, z8^2 = z4 = I, z8^3 = -1073741824 + I*1073741824 [general form: +-1, +-I, (+-1+-I)*2^((p-1)/2)]
+ 4: z = 0 + I*1
+ 2: z = -1 + I*0
+We note that 2^((p-1)/2)*(1 + I) is a primitIve root of order 8, analogously to (1 + I)/sqrt(2) over the real-complex.
+Odd-order roots, in each case start with smallest-magnitude nontrivial one:
+ 3: z = 636260618972345635, -z-1, 1
+ 5: z = 194643636704778390
+ 7: z =  69203453413471971
+ 9: z = 569931187132395942
+11: z =  25693150190086359
+13: z = 267627945881433776
+15: z = 194643636704778390
+
+t = 1; tmin = q; for(i = 1; i < ord; i++) { t = r*t%q; print "i = ",i,": ",t,"\n"; tmin = min(tmin,t); }; print "Min = ",tmin,"\n";
+
+*** Roots of 2: C. PLM's reply to JSP's question copied at top of this file ***
+Sequence of successive positive-square-roots: (2^j)th base-root ==
+j:  0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,10,41,42,43,44,45,46,47,48,49,10,51,52,53,54,55,56,57,58,59
+2^[ 1,31,46,23,42,21,41,51,56,28,14, 7,34,17,39,50,25,43,52,26,13,37,49,55,58,29,45,53,57,59,60,30,15,38,19,40,20,10, 5,33,47,54,27,44,22,11,36,18, 9,35,48,24,12, 6, 3,32,16, 8, 4, 2], which represents the 2^0th through 2^59th roots of 2.
+
+At each power-of-2 level, the roots of that order repeat with period 61, e.g. the 2^60th roots are
+2^[1,2,3,...,60,0,1,2,3,...]
+
+From the 8th-root-of-unity above see that sqrt(2) == +-2^((p+1)/2) (mod q).
+Q: Do higher power-of-2 roots also have a simple form? Using p = 61 as a specific example and using just the positive roots:
+	(p+1)/2 = 31, so again halving that (exponent+1) mod p, 2^(31+61) = +-2^46 are 4th roots of 2.
+	For the 8th root of 2, (16+1) odd, so now need to halve it (mod p), thus 2^39 is an 8th root of 2. Continuing simlarly:
+	Power-of-2 roots of 2 of ascending order 2^j are of form 2^e:
+define pow2roots(base_pow,p,level) {
+	auto i,imax,t;
+	imax = 2^level; t = 0;
+	print "Roots of 2 at level ",level,": ";
+	for(i = 0; i < imax; i++) {
+		t = (t + base_pow)%p; print t,",";
+	}
+	print "\n";
+}
+	j:	roots 2^e, with e = ...; each row's prim-root power is got from pvs row's one k as (k + is_odd(k)*p)/2
+	 0	1
+	 1	31	<*** If exponent e odd, (e+61)/2 gives base-root of sqrt()
+	 2	46,31,16,1
+	 3	23,46,8,31,54,16,39,1
+	 4	42,23,4,46,27,8,50,31,12,54,35,16,58,39,20,1
+	 5	21,42,2,23,44,4,25,46,6,27,48,8,29,50,10,31,52,12,33,54,14,35,56,16,37,58,18,39,60,20,41,1
+	 6	41,21,1,42,22,2,43,23,3,44,24,4,45,25,5,46,26,6,47,27,7,48,28,8,49,29,9,50,30,10,51,31,11,52,32,12,53,33,\
+13,54,34,14,55,35,15,56,36,16,57,37,17,58,38,18,59,39,19,60,40,20,0,41,21,1
+
+Q1: The 64 2^6th roots of 2 illustrate the period-61-repeat property - again, is IBDWT OK with that?
+IOW, do we need *primitive* roots of 2, e.g. 2^j distinct nonzero ones at order 2^j, or will degenerate repeated set of real powers of 2 as here suffice?
+
+A1: By analogy with IBDWT in a complex-FFT setting, we should need just real roots of 2, implying 61-fold degeneracy is OK.
+
+Q2: What about roots of 2 for non-power-of-2 transform lengths N?
+
+A2: We need to find r = 2^x, an Nth real root of 2 (mod 2^p-1), which means solving the congruence N*x == 1 (mod p).
+For transform lengths of form N = odd*2^k, we can look up the needed primitive root of 2 order 2^k, which has form r' = 2^y, via the above procedure, then solve odd*x == y (mod p).
+Example: N = 6 = 3*2^2: our square root is 2^31, thus 3*x == y = 31, giving x = 51. Our complete set of six 6th roots of 2 (mod 2^61-1) thus is 2^[0,51,41,31,21,11,1].
+
+
+For various p, considering prim-root candidates of form n+I, here is the smallest nonnegaive value of n which yields a prim-root, based on the resulting square root (i.e. (n+I)^(q^2-1)/2) being == -1 (mod q), as oppsed to the +1 which indicates our candidtae is a non-primitive root. Note that for the particular case p=61 it appears 4+I is in fact the smallest n-value yielding a primitive-root of the given special form. For p=31 n=2 and 3 are the smallest real parts yielding primitive roots (Note: if x+I*y is a PR, y+I*x is also a PR, so fix Im(z) = 1 and loop over Re(z) = 1,2,...):
+
+p		nmin such that (n+I) is a prim-root:
+----	----	Comments:
+2		2	q^2-1 = 8; r = 1+I is a primitive 8th root, r^0-7 = 1,1+I,-I,1-I,-1,-1-I,I,-1+I .
+			This is the only case where we have a primitive root with |x| = |y|, because every element z = x + I*y
+			with both x and y nonzero and |x| != |y| also maps to one with |x| = |y|, e.g. 2 + I == -1 + I.
+3		2
+5		4
+7		8	[2,3]+I not PRs since both are 3-adic power residue; note for 8+I the 7th root == 32 == 2^(p-2)
+13		4	note for 4+I the 13th root == 8 == 2^(p-10)
+17		5	note for 5+I the 17th root == 512 == 2^(p-8)
+19		4	I+2,3 not PRs since [7,7]-adic power residues, resp; note for 4+I the 19th root == -262143 == -(2^(p-1)-1)
+31		12	I+2,3,8,9 not PRs since [11,11,3,3]-adic power residues; note for 12+I the 31th root == 4096 == 2^(p-19)
+			7+2I, 6+3I are PRs with smaller complex magnitude
+61		6	I+4,12 not PRs since [11,61]th root of unity; note for 6+I the 61th root == 35184372088832 = 2^45 = 2^(p-16)
+89		6	I+5 not PRs since an 23th root of unity; note for 6+I the 89th root == 33554432 == 2^(p-74)
+107		2	Note for 2+I the 107th root == 33554432 == 2^(p-74)
+127		8	I+2,3 not PRs since [73,73]-adic power residues; note for 8+I the 127th root == 2^89 == 2^(p-38)
+521		5	Note for 5+I the 521th root == 2^72 == 2^(p-449)
+607		2	Note for 2+I the 607th root == 2^372 == 2^(p-235)
+1279	2	Note for 2+I the 1279th root == 2^87
+2203	2	Note for 2+I the 2203th root == 2^1208, 1208 = 8.151, 2203-1 = 2.3.377
+2281	10	I+6 not PR since 3-adic power residue, 2281th root == 2^1202
+3217	12	I+6,9,10,11 not PR since [3,3,13,5]-adic power residues, resp.; for 12+2I, 3217th root == 2^1365
+			[7,10]+2I are PRs with smaller complex magnitude
+4253
+4423
+9689
+9941
+@
+Proving that (p)th root always a power of 2 is trivial:
+r = 2^k: r^p = 2^(k.p) == (2^p)^k == 1 (mod q = 2^p-1), and there are precisely p distinct such roots (mod q).
+----------------------------
+Ah -  a little too quick in mailing out the BBC story link - so Tanis *is* the site described in the 2019 New Yorker piece being excavated by Robert DePalma, who is clearly a huge Raiders if the Lost Ark fan. This is BBC giving its "OK, this guy is onto something really big" imprimatur to the find.
+----------------------------
+Useful properties of roots over GF(q^2):
+o 8-fold symmetry: if a + I.b a root of order n, all of ± a ± I.b are roots of order n.
+	a + I.b a root of order n ==> (a+I.b)^n == 1
+	n=2 trivial since (a+I.b)^2 = (a^2-b^2) + 2.I.b == 1 implies a == ±1, b == 0
+	n=3: (a+I.b)^3 = a.(a^2 - 3.b^2) + I.b.(3.a^2 - b^2) == 1; 2 subcases to consider:
+		b = 0: implies a^3 == 1, [e.g. mod 7, 2^3 == 1, -2^3 == -1, huh?]
+		maybe holds for *primitive* roots of order n, which for n > 2 must have b != 0 ?
+	ALSO: not true for e.g. n = 2: -1 (a=-1,b=0) is a sqrt(1), but I (a=0,b=1) is not!
+
+o Odd-order roots strictly real, as are ones of order 2*odd. 4*odds are strictly imaginary - this makes possible
+the construction of efficient short-length DGTs of length 2^k*odd with k <= 2, which can further be effected in
+root-of-unity "twiddle"-less fashion by taking advantage of the coprimality of the power-of-2 and odd-radix
+components and properly permuting the IOs so as do the twiddle-multiplies implicitly.
+
+How to prove? Consider e.g. n = 3 above: 3rd-root of 1 ==> z^3 = (a+I.b)^3 == 1 so either b = 0,
+or 3.a^2 == b^2, subbing into Re(z^3) => z^3 = -8.a^3 == 1 (mod q), is that provably impossible?
+It means 8.a^3 = (2a)^3== -1 (mod q), i.e. that 2a is an 6th root of 1 (mod q).
+Or, z^3 = -8.a^3 == 1 (mod q) means -8.a^3 == -2^p, thus a^3 == 2^(p-3), which is an even power of 2 for p odd.
+E.g. for p = 7, 2^(p-3) = 16, a = 2^6 gives a^3 = 2^18 == 2^4 (mod 2^p-1).
+Gah - not getting us anywhere.
+
+More basically: since q prime, the real multiplicave group GF(q) has order (q-1). Since GF(q^2) has
+ord = q^2-1 = (q+1).(q-1) = 2^p.(q-1), the shared component of the 2 group orders = q-1, thus all odd
+factors of ord and one power of 2 are shared. Since primitive roots of GF(q) are real, any primitive
+root r of the complex group GF(q^2) must have that r^(q+1) = r^(2^p) == x + I*y (mod q) is real, i.e.
+y = 0. Moreover, the result of said powering, x, is by definition a primitive root GF(q), and is just
+the complex magnitude of the corresponding primitive root GF(q^2): x == x0^2 + y0^2 (mod q).
+
+Nice! Can I prove this property from first principles? Try for smallest p for which q^2-1 has an odd component,
+p = 3, q = 2^p-1 = 7, q^2-1 = 48 = 2^4.3. For z = x+I.y a PR over GF(q^2), compute z^2^p == x^2 + y^2 (mod q):
+Ex: z = 2+I is a PR:
+z^2 = (x^2-y^2) + I*2.x.y = 3 + 4I
+x^4 = [(x^2-y^2)^2 - 4.x^2.y^2] + I*4.x.y.(x^2-y^2) = -7 + 24I == 0 + 3I (mod q)
+x^8 = -9 == -2 == 5 == x^2 + y^2 (mod q) .
+How to show the Re-terms always end up canceling out?
+
+Hmm - the above property looks rather akin to a modified Fermat's Little Theorem over GF(q) - for q prime,
+FLT says that if gcd(a,q) = 1, then a^q == a (mod q). Multiplying both sides by a we have a^(q+1) == a^2 (mod q).
+In the present case we are working over the complex quadratic field GF(q^2) with order q^2-1 = (q+1).(q-1), for which the generalization of FLT is just as I surmised, per Riesel: For q a prime in the Gaussian integers and z = x + I*y such that gcd(z,p) = 1 and z not a quadratic residue (mod q) *** clarify this ***, z^(q+1) == z*conj(z) = x^2 + y^2 (mod q).
+@
+Q: It seems every PR over GF(q) of form x^2+y^2 corr. to a PR x+I*y over the full complex quadratic field GF(q^2) -
+is this in fact rigorously true, and if so, is it because the q-1 portion of the factorization of the group order
+of the latter q^2-1 = (q+1)*(q-1) captures one of the p+1 powers of 2, and (q+1) = 2^p captures the rest?
+
+
+----------------------------
+To check primitivity of candidate PR (call it w), need to verify that, for all factors f of the group order ord = (q^2-1), w^(ord/f) != 1 (mod q). For M(p) we have the following factorizations:
+
+p	factorization of ord = q^2-1:
+2	2^3
+3	2^4.3
+5	2^6.3.5
+7	2^8.3^2.7
+13	2^14.3^2.5.7.13
+17	2^18.3.5.17.257
+19	2^20.3^3.7.19.73
+31	2^32.(2^30-1) = 2^32.(2^15+1).(2^15-1) = 2^32.(3^2.11.331).(7.31.151) = 2^32.(3^2.11.331).(7.31.151) = 2^32.3^2.7.11.31.151.331, thus allows FTGs of length odd.2^k with k <= 32 and odd = {3,7,9,11,31,...}
+61	2^62.(2^60-1) = 2^62.(2^30+1).(2^30-1) = 2^62.(5^2.13.41.61.1321).(3^2.11.331).(7.31.151) = 2^62.3^2.5^2.7.11.13.31.41.61.151.331.1321, i.e. same roots as order of M31 but with 30 additional factors of 2 and the additional odd factors of 2^30+1. Allows FTGs of length odd.2^k with k <= 62 and odd = {3,5,7,9,11,13,15,21,25,31,33,35,39,41,45,55,63,65,75,77,91,93,...}, of which the odds < 16 and the smoother ones of the larger coposites (e.g. 21,25,35,45,63) are of practical interest.
+89	2^90.(2^88-1) = 2^90.(2^44+1).(2^22+1).(2^11+1).(2^11-1) = 3.5.17.23.89.353.397.683.2113.2931542417
+107	3.107.6361.69431.20394401.28059810762433
+127	3^3.7^2.19.43.73.127.337.5419.92737.649657.77158673929
+521	2^522.(2^260+1).(2^130+1).(2^65+1).(2^65-1) = 3.5.11.17.31.41.53.131.157.521.1613.2731.8191.42641.51481.61681.409891.858001.5746001.7623851.34110701.308761441.2400573761.65427463921.108140989558681.145295143558111.173308343918874810521923841
+	factorizations of the various pieces:
+	(2^260+1)	17.42641.61681.858001.5746001.308761441.2400573761.65427463921.173308343918874810521923841
+				[NB: algebraic factors 2^a+1 with a=4,20,52]
+				2 larger factors have p-1 = (2^4.3.5.7.13.2995763), (2^8.5.13.28793.361725589517273017)
+	(2^130+1)	5^2.41.53.157.521.1613.51481.34110701.108140989558681
+	(2^65+1)	3.11.131.2731.409891.7623851
+	(2^65-1)	31.8191.145295143558111
+607	2^608.(2^303+1).(2^303-1) = 3^2.7.607.112102729.7432339208719.341117531003194129.845100400152152934331135470251;P53.P58
+	factorizations of the various pieces:
+	(2^303+1) = 3^2.112102729.845100400152152934331135470251.19112684214957755703306290219340140859813072336321619
+				[NB: algebraic factors 2^a+1 with a=3(9),101(3.845100400152152934331135470251)]
+				Penultimate factor has p-1 = (2.5^3.11.31.41.101.251.601.1801.4051.8101.268501)
+	(2^303-1) = 7.607.7432339208719.341117531003194129.P58
+				[NB: algebraic factors 2^a-1 with a=3(7),101(7432339208719.341117531003194129)]
+				Penultimate 2 factors have p-1 = (2.3.101.44029.278557), (2^4.3^2.101.79241.295985357)
+@
+1279: 2^1278-1 has algebraic factors
+	2^639+1 = 3^3.19.5113.17467.102241.56409643.13952598148481.69779014917427.8970948423964301024591994817.203525545766301306933226271929.P85
+	2^639-1 = (2^213-1).(2^426+2^213+1)
+		2^213-1 = (2^71-1).(2^142+2^71+1):
+			2^71-1 = 228479.48544121.212885833
+			2^142+2^71+1 = 7.66457.2849881972114740679.4205268574191396793
+				2 larger factors have p-1 = (2.3.43.71.1637.8387.11331659) and (2^3.3^3.71.4513.10567.5749957), both smooth
+		2^426+2^213+1 = 73.1279.1329628131546931497103420134367.28435302301212461494420074814087.P39
+Thus, the complete factorization consists of 23 distinct primes, and is:
+2^1278-1 = 3^3.7.19.73.1279.5113.17467.66457.102241.228479.48544121.56409643.212885833.13952598148481.69779014917427.2849881972114740679.4205268574191396793.8970948423964301024591994817.203525545766301306933226271929.1329628131546931497103420134367.28435302301212461494420074814087.49090414991300071005690178128198195971609292726517595014627999.P85
+
+2203: 2^2202-1 has algebraic factors
+	2^1101+1 = (2^367+1).(2^734-2^367+1), which 2 pieces factor as
+		2^367+1 = 3.2203.19819.146264881313513.20837062885084633147.460233616861852066165180033789571.1636198597169607245088331633873083979
+		2^734-2^367+1 = 3.28627.79073321945266228838262115990524608069915168947411523193620486700648001.P146
+	2^1101-1 = (2^367-1).(2^734+2^367+1)
+		2^367-1 = 12479.51791041.78138581882953.301311116540899114446723859201.P56
+		2^734+2^367+1 = 7.79273.258977744356523549983.883533090360873723903538281367.P165
+
+2281: 2^2280-1 has algebraic factors
+	2^1140+1 = 17.241.1217.4561.61681.90289.148961.4562284561.9036489073.2451701494075.29034057164920993379000074993.3435950210316335724157758000789490561.C220
+	[See below for separate-algebraic-factor decomposition of the C220]
+	Since 1140 = 2^2.3.5.19, we immediately have the following small algebraic factors:
+	(2^380+1).(2^760-2^380+1), which 2 pieces factor as
+		17.1217.61681.148961.24517014940753.3435950210316335724157758000789490561.153787279330237476887106331233239525756635010497681
+		241.4561.90289.4562284561.9036489073.29034057164920993379000074993.P170
+	2^570+1 = 5^2.13.41.61.229.457.761.1321.54721.131101.160969.185821.247381.525313.3996146881.275415303169.23480412082098913326841
+		Since 570 = 2.3.5.19, we immediately have the following small algebraic factors:
+		(2^190+1).(2^380-2^190+1), which 2 pieces factor as
+			5^2.41.229.457.761.54721.525313.276696631250953741.2416923620660807201
+			13.61.1321.131101.160969.185821.247381.3996146881.275415303169.1457772869697961.23480412082098913326841.64326196787727903551977150861
+		2^114+1 = 5.13.229.457.131101.160969.525313.275415303169
+		2^30+1 = 5^2.13.41.61.1321
+	2^285+1 = (2^95+1).(2^190-2^95+1) = (3.11.2281.174763.3011347479614249131).(3.331.571.1101811.160465489.15653990705896313547269237220041169361)
+	2^285-1 = (2^95-1).(2^190+2^95+1) = (31.191.524287.420778751.30327152671).(7.151.32377.1212847.1491477035689218775711.25349242986637720573561)
+Thus, the complete factorization consists of 56 distinct primes, and is:
+2^2280-1 =
+3^2.5^2.7.11.13.17.31.41.61.151.191.229.241.331.457.571.761.1217.1321.2281.4561.32377.54721.61681.90289.131101.148961.160969.174763.185821.247381.524287.525313.1101811.1212847.160465489.420778751.3996146881.4562284561.9036489073.30327152671.275415303169.24517014940753.1457772869697961.276696631250953741.2416923620660807201.3011347479614249131.1491477035689218775711.23480412082098913326841.25349242986637720573561.29034057164920993379000074993.64326196787727903551977150861.3435950210316335724157758000789490561.15653990705896313547269237220041169361.153787279330237476887106331233239525756635010497681.P170
+
+3217: 2^3216-1 has algebraic factors
+	2^1608+1 =
+	Since 1608 = 2^3.3.67, we immediately have the following small algebraic factors:
+		(2^536+1).(2^1072-2^536+1), which 2 pieces factor as
+		(2^536+1) = 257.4289.311532723090035002320027134588551176448471666435989092897.P99
+		(2^1072-2^536+1) = 97.673.58846369.21402380066017.36360649135813582804156044289.22845623493785363787359045076091739713.P231
+
+	2^1608-1 = (2^804+1).(2^804-1)
+		(2^804+1) = (2^268+1).(2^536-2^268+1)
+			(2^268+1) = 17.75041.333808138537249.P61
+			(2^536-2^268+1) = 241.209898673.6925799047681.29493338799546784993.133304540580175280319733184641.P90
+		(2^804-1) = (2^268-1).(2^536+2^268+1)
+			(2^268-1) = 3.5.269.15152453.7327657.42875177.193707721.2559066073.761838257287.6713103182899.9739278030221
+			(2^536+2^268+1) = 3.7.13.1609.2011.3217.9649.10453.22111.132661.192961.6324667.214473433.175132692529.71848008781.59151549118532676874448563.15704900959651293774270521395753.87449423397425857942678833145441
+The complete factorization is
+2^3216-1 = 3^2.5.7.13.17.97.241.257.269.673.1609.2011.3217.4289.9649.10453.22111.75041.132661.192961.6324667.7327657.15152453.42875177.58846369.193707721.209898673.214473433.2559066073.71848008781.175132692529.761838257287.6713103182899.6925799047681.9739278030221.21402380066017.333808138537249.29493338799546784993.59151549118532676874448563.36360649135813582804156044289.133304540580175280319733184641.15704900959651293774270521395753.87449423397425857942678833145441.22845623493785363787359045076091739713.311532723090035002320027134588551176448471666435989092897.1113767094422199900605896348724787045161997478687751948513969.163309771760986620014536331036091658009630202169109324871656084993557377301963746856626689.655065662598900362767578455116791254630312910908827632908253411351301525671199788835777321465298977.740887329174524327455005745661306728131406389630924979029857723424410009046767537884650900512703207784774794207122435593649368728149684897691507733781127878673273900985500310966336106589083780932968731424118506572640082702736435521.
+
+For a given such factorization consisting of powers of primes p_1 - p_k, the odds of a PR-candidate satisfying the "is no a p-adic power residue" for all the prime factors < p_j but being a p_j-adic power residue scales as O(1/p_j), so even if we fail to completely factor the group order, we can identify "probable PRs" with a high degree of confidence if any remaining unfactored composite has o factors under a reasonably large bound.
+
+============================
+Algebraic factors of 2^n - 1:
+For n even, imemdiately have 2^n - 1 = (2^(n/2) + 1).(2^(n/2) - 1)
+For n having one or more odd factors f, then, letting n' = n/f:
+x^n-1 = (2^n' - 1).(2^(n-n') + 2^(n-2n') + ... + 1)
+Example:
+	x^3-1 = (x-1).(x^2+x+1)
+
+Algebraic factors of 2^n + 1: for n having one or more odd factors f, then, letting n' = n/f:
+x^n+1 = (2^n' + 1).(2^(n-n') - 2^(n-2n') + ... + 1)
+Examples:
+	x^3+1 = (x+1).(x^2-x+1)
+	x^6+1 = (x^2+1).(x^4-x^2+1)
+============================
+/* Runs through precomputed small-primes table and for each entry p_i, checks if 2^p + c == 0 (mod p_i): */
+define factor_pow2_pm_const(n,c) {
+	auto i,narr,nf,np,p,pmax,pp,ndiv;
+	nf = factor[0] = 0;	/* Init #distinct-prime-factors and null-terminated list of pj,ej pairs */
+	if(!c) { factor[0] = 2; factor[1] = n; }
+	/* 2^n+c == 0 ==> 2^n == -c; if c > 0, compare modpow result to p-c: */
+	j = (c > 0);
+	/* Now loop over odd primes <= max: */
+	ndiv = 2^n; np = 0; narr = 0; p = 0; pmax = sqrt(ndiv+c);
+	ndiv += c;	/* Explicit modulus 2^n+c for repeated-divisibility check */
+	while(narr < narr_max && p < pmax) {
+		if(narr == 0)
+			p = abs(primes0[np++]);	/* Cf. comment above def. of find_odd_prime_index(n) */
+		if(narr == 1)
+			p = primes1[np++];
+		if(p == 0 || narr >= narr_max) {
+			print "Reached small-primes-table limit. Largest prime used = ",pp,"\n";
+			factor[2*nf+1] = 0; factor[2*nf+2] = 0; return;
+		}
+		if(np == bc_dim_max) {
+		/*	print "At odd prime #",narr*bc_dim_max + np," = ",p,"\n";	*/
+			np = 0;	narr += 1;
+		}
+		i = 0; pp = p;
+		rem = modpow_lr2(n,p);
+		if(rem == (-c + j*p)) {	/* j = 0 or 1, according to whether c < 0 or > 0 */
+			while(!(ndiv%p)) { i += 1; ndiv/= p; pmax = sqrt(ndiv); }
+			if(i) {
+				print p;
+				if(i > 1) print "^",i;
+				print ".";
+				factor[2*nf] = p; factor[2*nf+1] = i; nf += 1;
+			}
+		}
+	}
+	print "\n";
+}
+@
+4253: p-1 = 4252 = 2^2.1063; 2^4252-1 has algebraic factors
+	2^2126+1 = 5.4253.119057.2351357.6262064969.118640804957.51799226966893295289509.51114358532758153182876066459473.1603777152900827521607976402498110749.C513 [running ecm]
+	2^2126-1 = (2^1063+1).(2^1063-1)
+		2^1063+1 = 3.114584129081.26210488518118323164267329859.1774153315792499512589927510132630538330663588683331991390254645758278991890748315142078623195802744233104331.P172
+		2^1063-1 = 1485761479.P311
+
+4423: 2^@-1 has algebraic factors
+
+9689: 2^@-1 has algebraic factors
+
+9941
+

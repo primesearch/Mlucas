@@ -1,0 +1,211 @@
+Gerbicz check links:
+
+http://mersenneforum.org/showthread.php?t=22510
+
+http://mersenneforum.org/showthread.php?t=22471&page=8
+http://mersenneforum.org/showthread.php?t=22471&page=9
+
+for Pepin powmod chain, in which we compute a^((N-1)/2) mod N:
+
+Let
+L=2000 constant (could even depend on n), and L2=L^2.
+u(t)=a^(2^t) mod N  [0]							i.e. u(0,1,2,3,...) = a^(1,2,4,8,...) mod N; these are just successive Pepin iterates
+d(t)=u(0)*u(L)*u(2*L)*...*u(t*L) mod N  [1]		= a^(2^0)*a^(2^L)*a^(2^(2*L))*a^(2^(3*L))* ... *a^(2^(t*L)) = a^[1+2^L+2^(2*L)+2^(3*L)+...],
+												e.g for L=1 we have a^[1+2+4+8+...]
+with this
+d(t+1)=d(t)*u((t+1)*L) mod N  [2]				cheap; needs just 1 modmul of accumulated checksum (really a 'checkprod') d(t) w/current res
+but
+d(t+1)=u(0)*d(t)^(2^L) mod N  [3]				needs O(lg L) modmuls, still negligible relative to L modmuls of interval-residue-updates
+is also true.
+
+===============================
+********** Gerbicz Check: https://mersenneforum.org/showthread.php?t=22510 **********
+
+N = k*2^n + 1 is a Proth number. If we choose a = quadratic nonresidue modulo N, then a^((N-1)/2) != -1 mod N proves that
+N is composite. (Or conversely, a^((N-1)/2) == -1 mod N indicates N is a probable prime to base a.) In the special case k = 1
+N is a Fermat number, and we can choose a=3 (Pepin), and moreover .
+
+Let
+	L = 2000 constant (could even depend on n), and L2 = L^2.
+[0]	u(k*t) = (A^k)^(2^t) = A^(k*(2^t)) = A^((2^t)*k) = (A^(2^t))^k (mod N)
+[1]	d(t) = u(0)*u(L)*u(2*L)*...*u(t*L) (mod N)	<*** Accumulate product-mod of regularly-spaced intermediate residues ****
+	with this
+[2]	d(t+1) = d(t)*u((t+1)*L) (mod N) 	<*** mod-product of current (latest) chkpt residue with d(t) = accum. value at pvs chkpt
+	but
+[3]	d(t+1) = u(0)*d(t)^(2^L) (mod N)	<*** mod-product of initial seed with (accumulator value at pvs chkpt)^(2^L)
+	is also true.
+
+EWM: EX: L=1000, checkpoints every 1000 squarings. Thus d(1) = u0^2^1001, d(2) = u0^2^1001001, etc.
+Thus d(t  ) = u0^2^(          t*L + (t-1)*L + ... + L + 1)
+Thus d(t+1) = u0^2^((t+1)*L + t*L + (t-1)*L + ... + L + 1) = u((t+1)*L)*d(t),
+but we can also do L squarings of d(t) to get
+	d(t)^(2^L) = u0^2^((t+1)*L + t*L + (t-1)*L + ... + L), and a further modmul by u0 gives d(t+1).
+But, computed this way after each L-iteration subinterval is a no-go since those L squarings of d(t) cost as much as the L squarings to get from u(t*L) to u((t+1)*L), so instead only compute the alternate product [3] at some fixed larger multiple of L, say L^2.
+
+in the standard Proth test (usually for small k), first we compute u(0), then with n-1 iterative squaring we get u(n-1), with this u(n-1)==-1 mod N iff N is prime (for a=quadratic nonresidue).
+
+We store only the last term of the d sequence to use identity [2].
+(when we compute the next term, then two terms are available,
+after a possible check we can delete the last but one term).
+and store u(0)=a^k mod N,
+the last d[z],u[z], where z is divisible by L2.
+
+At each L-th term of the d sequence we check the identity of [3], if this does not hold, then	<*** Ah, here's the key -
+we roll back, notice that it is also possible a computation error of the d						"L-th term of the d sequence"
+sequence, so if we would roll back too much (say 100 times to the same term)					means update d[] via [2] every L squarings
+then we just restart completely the computation.												but only check [3] every L^2 squarings ****
+
+At the last few squarings in u, we also force an error checking computation of [3]
+(in that i when i is divisible by L and i+L>=n, this means only one extra checking of [3].)
+
+This leaves all potential erros in the (at most) last L squarings in u,
+or very unlikely errors earlier in u or d.
+
+The overhead is n/L mulmods in [2] and
+n/L2*L=n/L squaremod in [3] and n/L2 mulmods in [3].
+so over the n-1 mulmods of the Proth test there is approx. n/1000 mulmods, if we count in mulmods everything. So the overhead is 0.1% in time.
+
+And we see why we haven't checked all terms of d, we could do that, but in that case the overhead in the error checking would be n/L*(L+1)>n mulmods, and that is a lot, slightly more time what we spend on the Proth test squarings.
+
+EWM: Flip things around a bit - for a given fixed-length Gerbicz-check interval of squaring count G within which we do k updates of the d-checksum according to [2] (thus L = G/k), what value of k minimizes the total overhead? Said overhead is
+
+[2]: k mulmods of form; assume each mulmod ~= 1.5 squaremod;
+[3]: G/k squaremods to obtain d(t)^(2^L), plus a negligible-cost mulmod by u[0].
+
+Thus the larger k and more frequent the checksum-updating the smaller the squremod cost in [3]; we seek the minimum of the summed cost,
+min_k(1.5*k + G/k), where k ranges from 1 to G, and we assume G >> k.
+
+Let f(k) = (1.5*k + G/k), f' = 1.5 - G/k^2 = 0 gives k = sqrt(G/1.5), which is close enough to the simpler-form Gerbicz-suggested sqrt(G) that we prefer to use the latter. Thus if e.g. we check every G = 10^6 squarings, do a [2]-update of the d-checksum every 1000 squarings.
+
+Ex: n = 2^607-1, Fermat base-3 prp test computes 3^(n-1) == +1 (mod n). The exponent = 111...110 in binary,
+so init LR modpow with x = 3 (leftmost 1s bit), do 605 updates of form x = 3*x^2 % n and a final update x = x^2 % n:
+p = 607; n = 2^p-1;
+i = 0; x = 3;
+while(i < (p-2)) {
+	x = 3*x^2 % n; i = i+1;
+}
+x = x^2 % n
+
+Problem - this is not a sequence of squarings as required by the above form of the Gerbicz check. See what modifications may be needed:
+For Fermat-PRP test of Mersenne number:
+	initial seed = x0 = 3       = x0^(2^1-1)
+	after 1 iter have x1 = x0^3 = x0^(2^2-1)
+	after 2 iter have x2 = x0^7 = x0^(2^3-1)
+	...
+	after n iter have xn = x0^(2^(n+1)-1), etc.
+
+RG: simply replace the standard Fermat-PRP test with one where we add 2 to the computed power and check whether the result == x0^2 (mod n).
+E.g. for n = 2^p-1, instead of the standard base-x0 Fermat PRP test,
+	x0^(n-1) = x0^(2^p-2) == 1 (mod n)
+we check whether
+	x0^(n+1) = x0^(2^p) == x0^2 (mod n).
+That means start with initial seed x0 and do p mod-squarings:
+
+BC script: checksum-updates every 100 iters, check [3] every 1000. Set err_iter = 0 or >= p to disable error-caught testing:
+
+define gerbicz(p,shift) {
+	auto i,j, n,x,b,d, ref_res;
+	ref_res = 10065749596345371765805005116886749594220004214411233819939451998766749371399918687662202339920711114971926912629902903868800948215085418093818398097895228512783394069831423433096417574146217583009680562228561615109426144964226974392205297759954287156959787324961551523996979796559871869809156023234167360848039547184512343987244380070554536610051928106650462336262496297988538929271419;
+	n = 2^p-1;
+	i = 0; s = shift; x = 3*2^s % n; b = x;
+	print "Initial residue u0 = 3 shifted s = ",s," places, u*2^s (mod n) = ",x,"\n";
+	while(i < p) {
+		i = i+1;
+		s = 2*s % p;
+		x = x^2 % n;
+		if(i%100 == 0) {
+			/* Every so often, supplement Gerbicz checksum-update (*= current residue (mod n)) [2] with check [3]: */
+			if(i%1000 == 0) {
+				d = b; j = 0;
+				while(j < 100) {
+					j = j+1;
+					d = d^2 % n;
+				}
+				print "Iteration ",i,": Doing Gerbicz check, current shift count s = ",s,"\n";
+				/* Undo the shift prior to final scalar multiply of d:
+				b = b*2^(p-s) % n;
+				d = d*2^(p-s) % n; */
+				d = 3*d % n;	/* Update needed for Gerbicz check [3] */
+				b = b*x % n;	/* Update Gerbicz checksum of form [2] */
+				if(b == d) {
+					print "i = ",i,": Gerbicz checksums match [2] = [3] = ",b,"\n";
+				} else {
+					print "i = ",i,": Gerbicz checksums mismatch!\n";
+					print "[2] = ",b,"\n";
+					print "[3] = ",d,"\n";
+					if(shift != 0) {
+						j = 0;
+						while(j < p) {
+							j = j+1;
+							if((b*2^j % n) == ref_res) {
+								print "Checksum [2]: b*2^",j," == ref_res\n";
+							}
+						}
+						j = 0;
+						while(j < p) {
+							j = j+1;
+							if((d*2^j % n) == ref_res) {
+								print "Checksum [3]: d*2^",j," == ref_res\n";
+							}
+						}
+					}
+				}
+			} else {	/* Every L iters, do Gerbicz checksum-update of form [2]: */
+				b = b*x % n;
+				print "Iteration ",i,": Updated Gerbicz checksum, current shift count s = ",s,"\n";
+			}
+		}
+	}
+	print "Final residue = ",x,"\n";
+}
+Tested for n = 2^1279-1, looks good ... and introduced mismatches on iters 10,600,970 all caught by iter-1000 check.
+
+*** Notes: ***
+o At each checkpoint, need to store Gerbicz-checksum d[] (really a "checkproduct") accumulator, in addition to current PRP-residue u[].
+
+o *But*, want to *update* said accumulator more frequently, say every 1000 squarimgs. Here's why - we checkpoint every 10^4 or 10^5 iters.
+If we only updated d[] at that rate, then every (say) 10^6 iters when we want to do a G-check [3], we'd need to do 10^4 or 10^5 squarings of d[] in order to get the needed power. Whereas if we update d[] every 1000 iters internally, when it comes time for the less-frequent G-check, only need that many additional squarings to get the needed power. So over 10^6 iters between G-checks we do 1000 added modmuls for our d-updates, but save (10^4-1000) or (10^5-1000) modsquares when it comes time to do a G-check. A good trade.
+
+o How to efficiently compute the checksum updates? Say LL-residue stored in a[], Gerbicz-checksum in b[]. Two case to consider:
+
+	1. We are at a regular 10^[5|6]-iter LL checkpoint. Current LL-residue in a[], previous Gerbicz-checksum in b[], both unweighted, pure-int. To update the latter via [2] b *= a (mod n), fwd-transform a, then feed it as the precomputed-fwd-FFT-vector arg to the mulmod version of mers_mod_square.
+	Q: This leaves a[] in fwd-transformed form ... how to do the next autosquare on it?
+	A: Since are at an LL checkpoint, could recover not-yet-fwd-FFTed version of a[] from the bytewise residue vector ... but seems a waste.
+	A2: Probably best just to make a copy of a[], e.g. c[] = a[], fwd-transform that, then compute b *= c (mod n).
+
+	2. We are at a 1000-iter "sub-checkpoint" where we want to update b[] but no checkpoint-file-writing gets done. That means that a[] is
+	not available in its untransformed state, but coming out of the carry step, with the first fwd-FFT-radix already done. That needs us to
+	again make a copy of a[], e.g. c[] = a[], undo the fwd-FFT-radix pass via a call to radix*_dit_pass1(), then fwd-transform that, then
+	compute b *= c (mod n). But again wasteful, would rather just complete the fwd-FFT of c[] instead of undoing and then immediately
+	redoing the initial fwd-FFT-radix pass of it. But, we do this infrequently enough that we don't care!
+
+*** Still remaining to be done prior to code release: ***
+
+1. New 2-operand modmul code in the real/complex-FFT-wrapper-and-dyadic-square step occurring between the forward and inverse FFTs needs to be SIMD-ized, which means sse2, avx, avx-512 and ARM asimd assembly-code macros need to be written and debugged;
+
+2. Gerbicz-checkproduct write/read and integrity-checking needs to be added to the savefile write/read code;
+
+3. The rollback-on-error handling mechanism needs to be coded up;
+
+4. Said savefile-code needs to play nice with the v18-added premature-checkpoint-on-signal-and-exit handling ... when such a signal is caught we need to update the PRP residue in the savefile but not the Gerbicz checkproduct;
+
+5. Q: How to modify the Gerbicz-check computation to play nice in the context of circularly-shifted PRP residues? Recall the maths:
+
+	Thus d(t  ) = u0^2^(          t*L + (t-1)*L + ... + L + 1)
+	Thus d(t+1) = u0^2^((t+1)*L + t*L + (t-1)*L + ... + L + 1) = u((t+1)*L)*d(t),
+	but we can also do L squarings of d(t) to get
+		d(t)^2^L = u0^2^((t+1)*L + t*L + (t-1)*L + ... + L), and a further modmul by u0 gives d(t+1).
+
+A: Incorporate shifts into my above analysis of the G-check maths - unshifted initial residue = u0, initial shift = s.
+	Thus our shifted initial residue = u0*2^s (mod 2^p-1).
+	On each subsequent modsquare the current-residue shift count gets doubled (mod p).
+	But does anything really change? That simply means our initial seed is a shifted-scalar, and our final modmul by u0
+	in the "we can also" branch would need to be by the same u0*2^s ... but what if we remove the final shift from both d(t)
+	and d(t)^2^L?
+
+6. How to handle dangerous ROE occurring in the Gerbicz checkproduct computation?
+
+Miscellany:
+	o Do we need to store PRP_BASE in savefiles? [Yes]
+	o
+
