@@ -25,15 +25,12 @@
 #ifndef FAC_DEBUG
 	#define FAC_DEBUG	0
 #elif FAC_DEBUG < 0 || FAC_DEBUG > 2
-	#error If FAC_DEBUG def'd it must be assigned a value of 0 (off) or 1 (on).
+	#error If FAC_DEBUG defined it must be assigned a value of 0 (off) or 1 (on).
 #endif
 #if FAC_DEBUG
 	#warning FAC_DEBUG = 1: Enabling dbg-printing.
 	char char_buf[1024], str0[64], str1[64];
 #endif
-
-#undef	PIPELINE_MUL192
-//#define PIPELINE_MUL192
 
 #define MONT_MUL192(__x,__y,__q,__qinv,__z)\
 {\
@@ -57,7 +54,7 @@ uint192 twopmmodq192(uint192 p, uint192 q)
 {
 	 int32 j, pow;	// j needs to be signed because of the LR binary exponentiation
 #if FAC_DEBUG
-	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, q)], "insert the desired deciaml value of debug-modulus here");
+	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 #endif
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 lo64;
@@ -202,7 +199,7 @@ The key 3-operation sequence here is as follows:
 uint192 twopmodq192(uint192 p, uint192 q)
 {
 #if FAC_DEBUG
-	int dbg = 0;//STREQ(&char_buf[convert_uint192_base10_char(char_buf, p)], "0");
+	int dbg = 0;//STREQ(&char_buf[convert_uint192_base10_char(char_buf, q)], "569998349628599779154827250713823");
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
@@ -298,12 +295,12 @@ uint192 twopmodq192(uint192 p, uint192 q)
 				start_index =  64-j-8;
 		}
 
-	#if FAC_DEBUG
-		if(dbg)	printf("lead8 = %u\n", (uint32)lead8);
-	#endif
 		zshift = 191 - lead8;	/* zshift < 2^64  */
 		/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		zshift <<= 1;			/* zshift < 2^128 */
+	#if FAC_DEBUG
+		if(dbg)	printf("lead8 = %u, zshift = %u\n", (uint32)lead8,zshift);
+	#endif
 		pshift.d2 = ~pshift.d2;	pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
 	}
 
@@ -340,8 +337,7 @@ uint192 twopmodq192(uint192 p, uint192 q)
 	MULL192(qinv, x, qinv);
 
 #if FAC_DEBUG
-	if(dbg)
-	{
+	if(dbg) {
 		printf("q    = %s\n", &char_buf[convert_uint192_base10_char(char_buf, q   )]);
 		printf("qinv = %s\n", &char_buf[convert_uint192_base10_char(char_buf, qinv)]);
 	}
@@ -352,7 +348,6 @@ uint192 twopmodq192(uint192 p, uint192 q)
 	/* MULL192(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
 #if FAC_DEBUG
 	if(dbg) printf("j = start_index - 1 = %u\n", j);
-	if(dbg) printf("zshift  = %u\n", zshift);
 #endif
 	LSHIFT192(qinv, zshift, lo);
 #if FAC_DEBUG
@@ -431,7 +426,7 @@ q*qinv*lo = |000 (192-x bits) 000||-------------------------------------- q*qinv
 			SUB192(hi, lo, x);
 		}
 	#if FAC_DEBUG
-		if(dbg) printf("j = %d, x = %s/n", j,&char_buf[convert_uint192_base10_char(char_buf, x)]);
+		if(dbg) printf("j = %d, x = %s\n", j,&char_buf[convert_uint192_base10_char(char_buf, x)]);
 	#endif
 
 		if(TEST_BIT192(pshift, j))
@@ -459,6 +454,9 @@ q*qinv*lo = |000 (192-x bits) 000||-------------------------------------- q*qinv
 /*** 4-trial-factor version ***/
 uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
+#if FAC_DEBUG
+	int dbg = 0;//(k0 == 460441ull);
+#endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lead8, r;
 	uint192 p, q0, q1, q2, q3
@@ -487,12 +485,17 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 3), "q must be < 2^192!");
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 3), "q must be < 2^192!");
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 3), "q must be < 2^192!");
-
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
 	q2.d0 += 1;
 	q3.d0 += 1;
-
+#if FAC_DEBUG
+	if(dbg) {	// Compare vs 1-operand version:
+		printf("twopmodq192_q4(p,q) with p = %s, q0 = %s\n",&str0[convert_uint192_base10_char(str0,p)],&char_buf[convert_uint192_base10_char(char_buf,q0)]);
+		x0 = twopmodq192(p,q0);
+		printf("Reference: twopmodq192(p,q) = %s\n", &char_buf[convert_uint192_base10_char(char_buf,x0)]);
+	}
+#endif
 	RSHIFT_FAST192(q0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 	RSHIFT_FAST192(q1, 1, qhalf1);
 	RSHIFT_FAST192(q2, 1, qhalf2);
@@ -504,6 +507,12 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		psave  = p;
 		x.d0 = 192; x.d1 = x.d2 = 0;
 		ADD192(p, x, pshift);
+	#if FAC_DEBUG
+		if(dbg) {
+			printf("p = %s\n", &char_buf[convert_uint192_base10_char(char_buf, p     )]);
+			printf("p+= %s\n", &char_buf[convert_uint192_base10_char(char_buf, pshift)]);
+		}
+	#endif
 	/*
 	!    find number of leading zeros in p, use it to find the position of the leftmost
 	!    ones bit, and subtract 7 or 8 to account for the fact that we can do the powering for the leftmost
@@ -561,7 +570,9 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
   		zshift = 191 - lead8;
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
+	#if FAC_DEBUG
+		if(dbg)	printf("lead8 = %u, zshift = %u\n", (uint32)lead8,zshift);
+	#endif
 		pshift.d2 = ~pshift.d2;	pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
 	}
 
@@ -608,9 +619,20 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	MULL192(q2, qinv2, x2);	SUB192 (TWO192, x2, x2);	MULL192(qinv2, x2, qinv2);
 	MULL192(q3, qinv3, x3);	SUB192 (TWO192, x3, x3);	MULL192(qinv3, x3, qinv3);
 
-	/* Since zstart is a power of two < 2^192, use a streamlined code sequence for the first iteration: */
+#if FAC_DEBUG
+	if(dbg) {
+		printf("q    = %s\n", &char_buf[convert_uint192_base10_char(char_buf, q0   )]);
+		printf("qinv = %s\n", &char_buf[convert_uint192_base10_char(char_buf, qinv0)]);
+	}
+#endif
+	/* Since zstart is a power of two < 2^192 (in fact < 2^128), use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
 
+#if FAC_DEBUG
+	if(dbg) printf("j = start_index - 1 = %u\n", j);
+	LSHIFT192(qinv0, zshift, lo0);
+	if(dbg) printf("lo = %s\n", &char_buf[convert_uint192_base10_char(char_buf, lo0)]);
+#endif
 	/* MULL192(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv.
 	hi = 0 in this instance, which simplifies things in the final subtract step.
 	*/
@@ -618,20 +640,38 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	LSHIFT192(qinv1, zshift, lo1);	MULH192(q1,lo1,lo1);	SUB192(q1, lo1, x1);
 	LSHIFT192(qinv2, zshift, lo2);	MULH192(q2,lo2,lo2);	SUB192(q2, lo2, x2);
 	LSHIFT192(qinv3, zshift, lo3);	MULH192(q3,lo3,lo3);	SUB192(q3, lo3, x3);
-
+#if FAC_DEBUG
+	if(dbg) printf("q*lo/2^192 = %s\n", &char_buf[convert_uint192_base10_char(char_buf, lo0)]);
+	if(dbg) printf("x = %s\n", &char_buf[convert_uint192_base10_char(char_buf, x0)]);
+#endif
 	if(TEST_BIT192(pshift, j))
 	{
+	#if FAC_DEBUG
+		ASSERT(HERE, CMPULT192(x0,q0), "twopmodq192_q4: CMPULT192(x,q)");
+	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT192(x0, qhalf0)){ ADD192(x0, x0, x0); SUB192(x0, q0, x0); }else{ ADD192(x0, x0, x0); }
 		if(CMPUGT192(x1, qhalf1)){ ADD192(x1, x1, x1); SUB192(x1, q1, x1); }else{ ADD192(x1, x1, x1); }
 		if(CMPUGT192(x2, qhalf2)){ ADD192(x2, x2, x2); SUB192(x2, q2, x2); }else{ ADD192(x2, x2, x2); }
 		if(CMPUGT192(x3, qhalf3)){ ADD192(x3, x3, x3); SUB192(x3, q3, x3); }else{ ADD192(x3, x3, x3); }
+	#if FAC_DEBUG
+		if(dbg) printf(", *2= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x0)]);
+	#endif
 	}
+
+#if FAC_DEBUG
+	if(dbg) printf("x0= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x0)]);
+#endif
+#if FAC_DEBUG
+	if(CMPULT192(q0,x0)) {
+		printf("(x0 = %s) >= (q = %s)\n", &str0[convert_uint192_base10_char(str0, x0)], &str1[convert_uint192_base10_char(str1, q0)] );
+	}
+#endif
 
 	for(j = start_index-2; j >= 0; j--)
 	{
 	/*...x^2 mod q is returned in x. */
-	#ifdef PIPELINE_MUL192
+	#if PIPELINE_MUL192
 		SQR_LOHI192_q4(
 		  x0, lo0, hi0
 		, x1, lo1, hi1
@@ -661,14 +701,23 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		if(CMPULT192(hi1, lo1)) { SUB192(q1, lo1, lo1);	ADD192(lo1, hi1, x1); } else { SUB192(hi1, lo1, x1); }
 		if(CMPULT192(hi2, lo2)) { SUB192(q2, lo2, lo2);	ADD192(lo2, hi2, x2); } else { SUB192(hi2, lo2, x2); }
 		if(CMPULT192(hi3, lo3)) { SUB192(q3, lo3, lo3);	ADD192(lo3, hi3, x3); } else { SUB192(hi3, lo3, x3); }
+	#if FAC_DEBUG
+		if(dbg) printf("j = %d, x = %s\n", j,&char_buf[convert_uint192_base10_char(char_buf,x0)]);
+	#endif
 
 		if(TEST_BIT192(pshift, j))
 		{
+		#if FAC_DEBUG
+			ASSERT(HERE, CMPULT192(x0,q0), "twopmodq192_q4 : CMPULT192(x,q)");
+		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT192(x0, qhalf0)){ ADD192(x0, x0, x0); SUB192(x0, q0, x0); }else{ ADD192(x0, x0, x0); }
 			if(CMPUGT192(x1, qhalf1)){ ADD192(x1, x1, x1); SUB192(x1, q1, x1); }else{ ADD192(x1, x1, x1); }
 			if(CMPUGT192(x2, qhalf2)){ ADD192(x2, x2, x2); SUB192(x2, q2, x2); }else{ ADD192(x2, x2, x2); }
 			if(CMPUGT192(x3, qhalf3)){ ADD192(x3, x3, x3); SUB192(x3, q3, x3); }else{ ADD192(x3, x3, x3); }
+		#if FAC_DEBUG
+			if(dbg) printf(", *2= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x0)]);
+		#endif
 		}
 	}
 
@@ -999,7 +1048,7 @@ if(dbg) {
 	for(j = start_index-2; j >= 0; j--)
 	{
 	/*...x^2 mod q is returned in x. */
-	#ifdef PIPELINE_MUL192
+	#if PIPELINE_MUL192
 		SQR_LOHI192_q4(
 		  x0, lo0, hi0
 		, x1, lo1, hi1
@@ -1285,7 +1334,7 @@ uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 	for(j = start_index-2; j >= 0; j--)
 	{
 	/*...x^2 mod q is returned in x. */
-	#ifdef PIPELINE_MUL192
+	#if PIPELINE_MUL192
 		SQR_LOHI192_q8(
 		  x0, lo0, hi0
 		, x1, lo1, hi1

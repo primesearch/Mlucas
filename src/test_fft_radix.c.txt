@@ -82,13 +82,8 @@ int int_pair_cmp(const void *va, const void *vb)	// 'v' prefix stands for 'void'
 	/* Need to store arguments in appropriate type before using */
 	const int a = ((const struct int_pair *)va)->a;	// <*** Use this predicate for sorting int-pair lists by *first* index,
 	const int b = ((const struct int_pair *)vb)->a;	// that's why we compare the a-data of the 2 inputs
-	/* Return -1 or +1 if a < b or a > b, resp: */
-	if (a > b) return +1;
-	else if (a < b) return -1;
-	/* Return 0 if equal - Pull out of the conditional so this can also serve as a catchall return value,
-	which avoids the usual compiler warning about missing return-val due to most compilers not being able
-	to discern that if(>)/elif(<)/else covers all possibilities: */
-	return 0;
+	// Return negative if a < b, positive if a > b, 0 if a == b:
+	return a - b;
 }
 
 // Need 2 flavors of Sorting predicates for the idx_cmplx struct:
@@ -97,44 +92,29 @@ int cmp_by_idx(const void *va, const void *vb)
 {
 	const int a = ((const struct idx_cmplx *)va)->idx;
 	const int b = ((const struct idx_cmplx *)vb)->idx;
-
-	if (a > b) return +1;
-	else if (a < b) return -1;
-	return 0;
+	return a - b;
 }
 
 // [2] Sort-by-value: Treating the re/im parts of the complex datum
 // like high and low words of a 2-word multiprecision datum suffices for our present purposes:
 int cmp_by_val(const void *va, const void *vb)
 {
-	const double EPS = 1e-10;	double adiff;
-	int retval = 0;
+	const double EPS = 1e-10;
+	double adiff;
 	const double ar = (((const struct idx_cmplx *)va)->cdat).re, ai = (((const struct idx_cmplx *)va)->cdat).im;
 	const double br = (((const struct idx_cmplx *)vb)->cdat).re, bi = (((const struct idx_cmplx *)vb)->cdat).im;
-	//printf("cmp_by_val: [ar,ai] = %20.10f,%20.10f; [br,bi] = %20.10f,%20.10f\n",ar,ai,br,bi);
+//	printf("cmp_by_val: [ar,ai] = %20.10f,%20.10f; [br,bi] = %20.10f,%20.10f\n",ar,ai,br,bi);
 	adiff = fabs(ar - br);
 	if(adiff > EPS) {
-		if (ar > br) {
-			retval = +1;	//printf("cmp_by_val: ar > br: retval = %2d\n",retval);
-		} else if (ar < br) {
-			retval = -1;	//printf("cmp_by_val: ar < br: retval = %2d\n",retval);
-		}
-		//printf("cmp_by_val: [ar-br] = %20.10e: retval = %2d\n",adiff,retval);
-		return retval;
+		return ar - br;
 	}
 	/* If real parts equal, proceed to imaginary parts: */
 	adiff = fabs(ai - bi);
 	if(adiff > EPS) {
-		if (ai > bi) {
-			retval = +1;	//printf("cmp_by_val: ai > bi: retval = %2d\n",retval);
-		} else if (ai < bi) {
-			retval = -1;	//printf("cmp_by_val: ai < bi: retval = %2d\n",retval);
-		}
-		//printf("cmp_by_val: [ai-bi] = %20.10e: retval = %2d\n",adiff,retval);
-		return retval;
+		return ai - bi;
 	}
-	//printf("cmp_by_val: complex data equal within roundoff tolerance, retval = %2d\n",retval);
-	return retval;
+//	printf("cmp_by_val: complex data [ar,ai] = %20.10f,%20.10f; [br,bi] = %20.10f,%20.10f equal within roundoff tolerance.\n",ar,ai,br,bi);
+	return 0;
 }
 /*
 30 Nov 2015: Bizarre result was hosing a small-DFT test (radix-8 DIF) with 2 identical Re-part outputs, [-6,-14] and [-6,-10]:

@@ -20,13 +20,15 @@
 *                                                                              *
 *******************************************************************************/
 
+#warning To-Do: Add support for PIPELINE_MUL256
+
 #include "factor.h"
 #include "imul256_macro.h"
 
 #ifndef FAC_DEBUG
 	#define FAC_DEBUG	0
 #elif FAC_DEBUG < 0 || FAC_DEBUG > 2
-	#error If FAC_DEBUG def'd it must be assigned a value of 0 (off) or 1 (on).
+	#error If FAC_DEBUG defined it must be assigned a value of 0 (off) or 1 (on).
 #endif
 #if FAC_DEBUG
 	#warning FAC_DEBUG = 1: Enabling dbg-printing.
@@ -87,7 +89,7 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 {
 	 int32 j, pow;	// j needs to be signed because of the LR binary exponentiation
 #if FAC_DEBUG
-	int dbg = STREQ(&char_buf[convert_uint256_base10_char(char_buf, q)], "insert the desired deciaml value of debug-modulus here");
+	int dbg = STREQ(&char_buf[convert_uint256_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 #endif
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 lo64;

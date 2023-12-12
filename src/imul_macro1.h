@@ -7227,15 +7227,19 @@ simply add 1 to the approximate-computed carry to obtain the correct result.
 
   #if 0
 
-    #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)\
+    #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)
 
   #elif defined(YES_ASM)
 
+   #if 1
+    #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)
+   #else
 	/* x86_64 ASM implementation of the 192-bit MULH macro: */
+	#error Using x86_64 asm version of MULH192_FAST - needs debug!
     #define MULH192_FAST(__x, __y, __hi)\
     {\
 	__asm__ volatile (\
-		"xorq   %%rbx, %%rbx    \n\t"/* Tie rbx = 0 ... the 'b' is for 'bupkus' :) */\
+		"xorq   %%rbx, %%rbx    \n\t"/* Tie rbx = 0 ... the 'b' is for 'bupkis' :) */\
 		"xorq	%%r8 ,%%r8 		\n\t"/* cy3 = 0 */\
 		"xorq	%%r9 ,%%r9 		\n\t"/* cy4 = 0 */\
 		/* Compute (x0*y1 + x1*y0): */\
@@ -7243,7 +7247,7 @@ simply add 1 to the approximate-computed carry to obtain the correct result.
 	"movq	%[__x1],%%rax	\n\t	mulq	%[__y0]	\n\t	movq	%%rdx,%%rsi	\n\t"/* rsi = MULH64(x1,y0) */\
 		"addq	%%rsi,%%rdi		\n\t"/* bd_lo in rdi */\
 		"adcq	%%rbx,%%r8 		\n\t"/* cy3 = (x0*y1 + x1*y0).hi */\
-	"movq	%[__x1],%%rax	\n\t	mulq	%[__y1]	\n\t	movq	%%rax,%%r12	\n\t	movq	%%rdx,%%r13	\n\t"/* w2:w3 = x1*y1 */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__y1]	\n\t	movq %%rax,%%r12 \n\t movq %%rdx,%%r13	\n\t"/* w2:w3 = x1*y1 */\
 		/* Now start adding cross terms: */\
 		"addq	%%rdi,%%r12		\n\t"/* __w2 += __bd_lo */\
 		"adcq	%%rbx,%%r8 		\n\t"/* __cy3 += (__w2 < __bd_lo) */\
@@ -7290,6 +7294,7 @@ simply add 1 to the approximate-computed carry to obtain the correct result.
 		: "cc","memory","rax","rbx","rdx","rdi","rsi","r8","r9","r12","r13","r14","r15"	/* Clobbered registers [all but rcx,rsi,r10,r11] */\
 	);\
 	}
+   #endif	// if(0|1)
 
   #else
 

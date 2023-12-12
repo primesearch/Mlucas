@@ -644,18 +644,18 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		ASSERT(HERE, q64%(p64<<2)==1, "test_fac : q64 % 2^(n+2) != 1 !");
 		pm60 = p64%60;
 		km60 = k  %60;
-		if(!CHECK_PKMOD60(pm60, km60, 0x0)) {
+		if(!CHECK_PKMOD60(&p64,1, km60, 0x0)) {
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
 			ASSERT(HERE, 0,"0");
 		}
 		pm60 = p64%4620;
 		km60 = k  %4620;
-		if(!CHECK_PKMOD4620(pm60, km60, 0x0)) {
+		if(!CHECK_PKMOD4620(&p64,1, km60, 0x0)) {
 			fprintf(stderr,"Illegal (p,k) mod 4620 pair: p,p mod 4620, k,k mod 4620 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
 			ASSERT(HERE, 0,"0");
 		}
 		res64 = twopmodq64(p64, q64);
-		if(res64 != -1ull) {	// Nov 2021: fiddled twopmodq64() to return true-mod
+		if(res64 != q64-1ull) {	// Nov 2021: fiddled twopmodq64() to return true-mod
 			fprintf(stderr,"ERROR: twopmodq64(F%u, k = %llu) returns non-unity result %u\n",(uint32)ffac64[i].p,k, (uint32)res64);
 			ASSERT(HERE, 0,"0");
 		}
@@ -774,7 +774,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 
 		/* This property only applies for prime exponents, so use a quick base-2 Fermat
 		compositeness test as an exponent filter: */
-		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(pm60, km60, 0x0))
+		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
 			ASSERT(HERE, 0,"0");
@@ -962,7 +962,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 
 		/* This property only applies for prime exponents, so use a quick base-2 Fermat
 		compositeness test as an exponent filter: */
-		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(pm60, km60, 0x0))
+		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
 			ASSERT(HERE, 0,"0");
@@ -1142,7 +1142,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 
 		/* This property only applies for prime exponents, so use a quick base-2 Fermat
 		compositeness test as an exponent filter: */
-		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(pm60, km60, 0x0))
+		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
 			ASSERT(HERE, 0,"0");
@@ -1353,7 +1353,7 @@ if((q128.d1 >> 14) == 0) {
 */
 		/* This property only applies for prime exponents, so use a quick base-2 Fermat
 		compositeness test as an exponent filter: */
-		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(pm60, km60, 0x0))
+		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %s %4u\n",p64,pm60,
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)],km60);
@@ -1630,7 +1630,7 @@ if((q128.d1 >> 14) == 0) {
 
 		/* This property only applies for prime exponents, so use a quick base-2 Fermat
 		compositeness test as an exponent filter: */
-		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(pm60, km60, 0x0))
+		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"ERROR: Illegal (p,k) mod 60 pair: p, p mod 60, q128, k mod 60 = %s %4u %s %4u\n",
 					&cbuf0[convert_uint64_base10_char (cbuf0,  p64)], pm60,
@@ -1722,7 +1722,7 @@ if((q128.d1 >> 14) == 0) {
 					lo.d0   = ((x128.d0-1) >> 1) + (x128.d1 << 63);	lo.d1   = (x128.d1 >> 1);       /* (q-1)/2. */
 					MULL128(lo, pinv128, lo);
 					km60 = (lo.d1*two64mod60 + lo.d0%60)%60;
-					if(!CHECK_PKMOD60(pm60, km60, 0x0))
+					if(!CHECK_PKMOD60(&p64,1, km60, 0x0))
 						continue;
 
 					if(twopmodq128(p64, x128) == 1)
@@ -1747,7 +1747,7 @@ if((q128.d1 >> 14) == 0) {
 				MULL128(lo, pinv128, lo);
 				km60 = (lo.d1*two64mod60 + lo.d0%60)%60;
 
-				if(!CHECK_PKMOD60(pm60, km60, 0x0))
+				if(!CHECK_PKMOD60(&p64,1, km60, 0x0))
 				{
 					continue;
 				}
@@ -1810,14 +1810,11 @@ if((q128.d1 >> 14) == 0) {
 	and checking whether q1*q2 divides M(p1*p2).
 	*/
    #ifdef FACTOR_STANDALONE
-	printf("Testing 63*64-bit factors...I=");
+	printf("Testing 63*64-bit factors...");
    #endif
 	/*for(i = 0; fac63[i].p != 0; i++)*/
 	for(i = 0; i < 100; i++)
 	{
-   #ifdef FACTOR_STANDALONE
-	printf("%u...",i);
-   #endif
 	  for(i2 = 0; fac64[i2].p != 0; i2++)
 	  {
 		if(fac63[i].p == fac64[i2].p)
@@ -1866,14 +1863,11 @@ if((q128.d1 >> 14) == 0) {
 	and checking whether q1*q2 divides M(p1*p2).
 	*/
    #ifdef FACTOR_STANDALONE
-	printf("Testing 64*64-bit factors...I=");
+	printf("Testing 64*64-bit factors...");
    #endif
 	/*for(i = 0; fac64[i].p != 0; i++)*/
 	for(i = 0; i < 100; i++)
 	{
-   #ifdef FACTOR_STANDALONE
-	printf("%u...",i);
-   #endif
 	  for(i2 = 0; fac64[i2].p != 0; i2++)
 	  {
 		if(fac64[i].p == fac64[i2].p)
@@ -1922,14 +1916,11 @@ if((q128.d1 >> 14) == 0) {
 	and checking whether q1*q2 divides M(p1*p2).
 	*/
    #ifdef FACTOR_STANDALONE
-	printf("Testing 63*65-bit factors...I=");
+	printf("Testing 63*65-bit factors...");
    #endif
 	/*for(i = 0; fac63[i].p != 0; i++)*/
 	for(i = 0; i < 100; i++)
 	{
-	#ifdef FACTOR_STANDALONE
-	  printf("%u...",i);
-	#endif
 	  for(i2 = 0; fac65[i2].p != 0; i2++)
 	  {
 		if(fac63[i].p == fac65[i2].p)
@@ -2324,14 +2315,11 @@ if((q128.d1 >> 14) == 0) {
 	65-bit factor q3 of M(p3) and checking whether q1*q2*q3 divides M(p1*p2*p3).
 	*/
    #ifdef FACTOR_STANDALONE
-	printf("Testing 63*64*65-bit factors: I = ");
+	printf("Testing 63*64*65-bit factors...");
    #endif
 	/*for(i = 0; fac63[i].p != 0; i++)*/
 	for(i = 0; i < 5; i++)
 	{
-   #ifdef FACTOR_STANDALONE
-	printf("%u...",i);
-   #endif
 	  /*for(i2 = 0; fac65[i2].p != 0; i2++)*/
 	  for(i2 = 0; i2 < 100; i2++)
 	  {
@@ -2503,14 +2491,11 @@ if((q128.d1 >> 14) == 0) {
 	#define NTEST256	1000000
 
    #ifdef FACTOR_STANDALONE
-	printf("Testing 63*64*64*65-bit factors: I = ");
+	printf("Testing 63*64*64*65-bit factors...");
    #endif
 	/*for(i = 0; fac63[i].p != 0; i++)*/
 	for(i = 0; i < 5; i++)
 	{
-   #ifdef FACTOR_STANDALONE
-	printf("%u...",i);
-   #endif
 	  /*for(i2 = 0; fac65[i2].p != 0; i2++)*/
 	  for(i2 = 0; i2 < 100; i2++)
 	  {

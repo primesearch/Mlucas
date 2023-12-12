@@ -25,7 +25,7 @@
 #ifndef FAC_DEBUG
 	#define FAC_DEBUG	0
 #elif FAC_DEBUG < 0 || FAC_DEBUG > 2
-	#error If FAC_DEBUG def'd it must be assigned a value of 0 (off) or 1 (on).
+	#error If FAC_DEBUG defined it must be assigned a value of 0 (off) or 1 (on).
 #endif
 #if FAC_DEBUG
 	#warning FAC_DEBUG = 1: Enabling debug-printing.
@@ -53,7 +53,7 @@
 uint128 twopmmodq128(uint128 p, uint128 q)
 {
 #if FAC_DEBUG
-	int dbg = 0;//STREQ(&char_buf[convert_uint128_base10_char(char_buf, p)], "0");
+	int dbg = STREQ(&char_buf[convert_uint128_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 #endif
 	 int32 j, pow;	// j needs to be signed because of the LR binary exponentiation
 	uint32 curr_bit, leadb, start_index, nshift;
@@ -393,8 +393,8 @@ if(dbg) printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_b
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD128(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^127, so x + x cannot overflow. */
-	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
-	q.d0 -= FERMAT;	q.d1 -= ((q.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x.d0 += FERMAT;
 	SUB128(x,q,x);
 
 #if FAC_DEBUG
@@ -610,8 +610,8 @@ if(dbg) printf("twopmodq128x2:\n");
 #if FAC_DEBUG
 	if(dbg) printf("Final x = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
-	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
-	q.d0 -= FERMAT;	q.d1 -= ((q.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x.d0 += FERMAT;
 	SUB128(x,q,x);
 #if FAC_DEBUG
 	if(dbg) printf("Final x*= %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
@@ -713,8 +713,8 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD128(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^127, so x + x cannot overflow. */
-	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
-	q.d0 -= FERMAT;	q.d1 -= ((q.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x.d0 += FERMAT;
 	SUB128(x,q,x);
 #if FAC_DEBUG
 	printf("Final x*= %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
@@ -945,11 +945,11 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	ADD128(x1 ,x1, x1);
 	ADD128(x2 ,x2, x2);
 	ADD128(x3 ,x3, x3);
-	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
-	q0.d0 -= FERMAT;	q0.d1 -= ((q0.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
-	q1.d0 -= FERMAT;	q1.d1 -= ((q1.d0 + 1ull) == 0ull);
-	q2.d0 -= FERMAT;	q2.d1 -= ((q2.d0 + 1ull) == 0ull);
-	q3.d0 -= FERMAT;	q3.d1 -= ((q3.d0 + 1ull) == 0ull);
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x0.d0 += FERMAT;
+	x1.d0 += FERMAT;
+	x2.d0 += FERMAT;
+	x3.d0 += FERMAT;
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);
@@ -1322,17 +1322,15 @@ if(dbg) printf("\n");
 	ADD128(x5 ,x5, x5);
 	ADD128(x6 ,x6, x6);
 	ADD128(x7 ,x7, x7);
-	if(FERMAT) {
-		// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
-		q0.d0 -= FERMAT;	q0.d1 -= ((q0.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
-		q1.d0 -= FERMAT;	q1.d1 -= ((q1.d0 + 1ull) == 0ull);
-		q2.d0 -= FERMAT;	q2.d1 -= ((q2.d0 + 1ull) == 0ull);
-		q3.d0 -= FERMAT;	q3.d1 -= ((q3.d0 + 1ull) == 0ull);
-		q4.d0 -= FERMAT;	q4.d1 -= ((q4.d0 + 1ull) == 0ull);
-		q5.d0 -= FERMAT;	q5.d1 -= ((q5.d0 + 1ull) == 0ull);
-		q6.d0 -= FERMAT;	q6.d1 -= ((q6.d0 + 1ull) == 0ull);
-		q7.d0 -= FERMAT;	q7.d1 -= ((q7.d0 + 1ull) == 0ull);
-	}
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x0.d0 += FERMAT;
+	x1.d0 += FERMAT;
+	x2.d0 += FERMAT;
+	x3.d0 += FERMAT;
+	x4.d0 += FERMAT;
+	x5.d0 += FERMAT;
+	x6.d0 += FERMAT;
+	x7.d0 += FERMAT;
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);

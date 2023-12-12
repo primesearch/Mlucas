@@ -193,7 +193,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	uint64 idiff, max_idiff = 0;
 
 	static int radix_set_save[10] = {1000,0,0,0,0,0,0,0,0,0};
-	static int radix0, nchunks; 	/* Stores the first element, RADIX_VEC[0], to workaround an OpemMP loop-control problem */
+	static int radix0, nchunks; 	// Store frequently-used RADIX_VEC[0] and number-of-independently-doable work units
 #if DBG_THREADS
 	int num_chunks[MAX_THREADS];		/* Collect stats about how much work done by each thread */
 #endif
@@ -231,7 +231,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 //	time_t clock1, clock2;
 	double clock1, clock2;	// Jun 2014: Switched to getRealTime() code
 #endif
-
 	uint32 mode_flag = fwd_fft_only & 3;
 	uint64 fwd_fft = fwd_fft_only - (uint64)mode_flag;	// fwd_fft = bits-0:1-cleared version of fwd_fft_only
 	// fwd_fft_only == 0x4 yields fwd_fft = 1, "Do forward FFT only and store result in a[]"
@@ -1109,7 +1108,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			fprintf(stderr, "%s:\n",func);
 			fprintf(stderr, " Max abs error between real*8 and real*16 computed values = %20.15f\n",         max_adiff);
 			fprintf(stderr, " Max bit error between real*8 and real*16 computed values = %20.0f \n", (double)max_idiff);
-
 			ASSERT(HERE, (max_adiff < 100*err_threshold),"Max error between real*8 and real*16 unacceptably high - quitting.");
 		}
 
@@ -1298,7 +1296,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	NOTE: If the first radix to be processed is 2, 4 or 8, it is assumed that a power-of-2 FFT is being performed,
 	hence no small-prime version of the corresponding pass1 routines is needed: */
 		func_dif1(a,n);
-
 	}	// if(low bit of mode_flag unset)
 
 	// p-1 stage 2 restart-from-savefile needs extra option, "do just forward-weighting and fwd-FFT-pass1;
@@ -1501,8 +1498,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		if(INTERACT)
 		{
 			fprintf(stderr,"%s",cbuf);
-			if(fracmax > 0.47 )
-			{
+			if(fracmax > 0.47 ) {
 				fprintf(stderr," ERROR ERROR...Halting test of F%u\n",findex);
 				ierr = ERR_ROUNDOFF;
 				return(ierr);
@@ -1510,6 +1506,8 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				USE_SHORT_CY_CHAIN++;	MME = 0.4;	// On switch to more-accurate-DWT-weights mode, reset MME to 0.4 to 'erase' history
 				sprintf(cbuf," Reducing DWT-multipliers chain length from [%s] to [%s] in carry step to see if this prevents further excessive fractional parts.\n",arr_sml[USE_SHORT_CY_CHAIN-1],arr_sml[USE_SHORT_CY_CHAIN]);
 				fprintf(stderr,"%s",cbuf);
+			} else {
+				// ***To-do:*** Accumulate number-of-worrisome-ROEs (rather than a specific iteration number) in a new global
 			}
 		}
 		else
@@ -1712,7 +1710,7 @@ undo_initial_ffft_pass:
 		{
 			fprintf(stderr,"%s: max_fp > 0.01! Value = %20.10f\n",func,max_fp);
 			fprintf(stderr,"Check your build for inadvertent mixing of SIMD build modes!\n");
-			ASSERT(HERE, max_fp < 0.01,"fermat_mod_square.c: max_fp < 0.01");
+			sprintf(cbuf,"%s: max_fp < 0.01 encountered during DWT-unweighting step!\n",func);	WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 		}
 	}	// if(high bit of mode_flag unset)
 
@@ -1729,7 +1727,6 @@ undo_initial_ffft_pass:
 		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
 		mlucas_fprint(cbuf,scrnFlag);	// Echo output to stddev
 	}
-
 	return(ierr);
 }
 
@@ -1756,8 +1753,10 @@ fermat_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and
 
 #else
 
-void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],
-	int index[], int ii, int nradices_prim, int radix_prim[], uint64 fwd_fft, double c[])
+void fermat_process_chunk(
+	double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],
+	int index[], int ii, int nradices_prim, int radix_prim[],
+	uint64 fwd_fft, double c[])
 {
 	int thr_id = 0;	/* In unthreaded mode this must always = 0 */
 

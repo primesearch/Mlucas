@@ -194,7 +194,7 @@ uint96 twopmodq96(uint64 p, uint64 k)
 	uint128 y;
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
-	uint64 pshift, hi64;
+	uint64 pshift, hi64, tmp;
 	uint96 q, qhalf, qinv, x, lo, hi;
 	uint32 jshift, leadb, start_index, zshift;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
@@ -406,7 +406,10 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint96_base10_char(char_buf
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD96(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^95, so x + x cannot overflow. */
-	q.d0 -= FERMAT;
+	//*** Aug 2022: Ex: F61, known factor q = 219940252*2^64 + 1 gives x3 = 219940252*2^64, q -= 2 gives borrow-from-high-limb!
+	// Since we only care about the case where x == q+1 (Mersenne) and x == q-1 (Fermat), in the latter case must either do full
+	// 2-word (q -= FERMAT), or (better) do x += FERMAT without worrying about any carry, prior to final x -= q:
+	x.d0 += FERMAT;
 	SUB96(x,q,x);
 
 #ifdef FAC_DEBUG
@@ -1036,15 +1039,15 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		ADD96_PTR(x1 ,x1, x1);
 		ADD96_PTR(x2 ,x2, x2);
 		ADD96_PTR(x3 ,x3, x3);
-		qptr0->d0 -= FERMAT;
-		qptr1->d0 -= FERMAT;
-		qptr2->d0 -= FERMAT;
-		qptr3->d0 -= FERMAT;
+		//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+		x0->d0 += FERMAT;
+		x1->d0 += FERMAT;
+		x2->d0 += FERMAT;
+		x3->d0 += FERMAT;
 		SUB96_PTR(x0, qptr0, x0);
 		SUB96_PTR(x1, qptr1, x1);
 		SUB96_PTR(x2, qptr2, x2);
 		SUB96_PTR(x3, qptr3, x3);
-
 		tmp0 = CMPEQ96_PTR(x0, ONE96_PTR);
 		tmp1 = CMPEQ96_PTR(x1, ONE96_PTR);
 		tmp2 = CMPEQ96_PTR(x2, ONE96_PTR);
@@ -1069,7 +1072,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 	{
 		if(init_sse2) return 0;
 	#ifdef FAC_DEBUG
-		int dbg = (p == 5506720553412961ull) && ((k0 == 46126737231ull) || (k1 == 46126737231ull) || (k2 == 46126737231ull) || (k3 == 46126737231ull));
+		int dbg = ((p>>61) == 1ull) && (k3 == 879761008ull);
 	/*	int dbg = STREQ(&char_buf[convert_uint64_base10_char(char_buf, p)], "0");*/
 	#endif
 		 int32 j;
@@ -1104,7 +1107,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		pshift = ~pshift;
 	#ifdef FAC_DEBUG
-		if(dbg)	printf("twopmodq96_q4: leadb = %u\n",leadb);
+		if(dbg)	printf("twopmodq96_q4: leadb = %u, pshift = %llu\n",leadb,pshift);
 	#endif
 
 		ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
@@ -1488,22 +1491,21 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 
 	#endif	/* Branchless versus branched post-multiply (h-l) and doubleif-vurrent-bit-set switch */
 		}	/* endfor() */
-		/*...Double and return.	These are specialized for the case
-		where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
-		*/
+		// Double and return.	These are specialized for the case
+		// where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2:
 		ADD96(x0 ,x0, x0);
 		ADD96(x1 ,x1, x1);
 		ADD96(x2 ,x2, x2);
 		ADD96(x3 ,x3, x3);
-		q0.d0 -= FERMAT;
-		q1.d0 -= FERMAT;
-		q2.d0 -= FERMAT;
-		q3.d0 -= FERMAT;
+		//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+		x0.d0 += FERMAT;
+		x1.d0 += FERMAT;
+		x2.d0 += FERMAT;
+		x3.d0 += FERMAT;
 		SUB96(x0, q0, x0);
 		SUB96(x1, q1, x1);
 		SUB96(x2, q2, x2);
 		SUB96(x3, q3, x3);
-
 		tmp0 = CMPEQ96(x0, ONE96);
 		tmp1 = CMPEQ96(x1, ONE96);
 		tmp2 = CMPEQ96(x2, ONE96);
@@ -1515,7 +1517,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			printf("xout1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
 			printf("xout2 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x2)]);
 			printf("xout3 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x3)]);
-			exit(0);
 		}
 	#endif
 
@@ -1564,6 +1565,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		uint32 jshift, leadb, start_index, zshift, *ptr32_a, *ptr32_b;
 		uint64 tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, r, pshift;
 		uint96 *ptr96;
+		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 		/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
 		switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
@@ -2039,7 +2041,15 @@ exit(0);
 		ADD96_PTR(x5 ,x5, x5);
 		ADD96_PTR(x6 ,x6, x6);
 		ADD96_PTR(x7 ,x7, x7);
-
+		//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+		x0->d0 += FERMAT;
+		x1->d0 += FERMAT;
+		x2->d0 += FERMAT;
+		x3->d0 += FERMAT;
+		x4->d0 += FERMAT;
+		x5->d0 += FERMAT;
+		x6->d0 += FERMAT;
+		x7->d0 += FERMAT;
 		SUB96_PTR(x0, q0, x0);
 		SUB96_PTR(x1, q1, x1);
 		SUB96_PTR(x2, q2, x2);
@@ -2078,6 +2088,7 @@ exit(0);
 			, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7;
 		uint64 pshift;
 		uint32 jshift, leadb, start_index, zshift;
+		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 		pshift = p + 96;
 		jshift = leadz64(pshift);
@@ -2374,7 +2385,15 @@ exit(0);
 		ADD96(x5 ,x5, x5);
 		ADD96(x6 ,x6, x6);
 		ADD96(x7 ,x7, x7);
-
+		//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+		x0.d0 += FERMAT;
+		x1.d0 += FERMAT;
+		x2.d0 += FERMAT;
+		x3.d0 += FERMAT;
+		x4.d0 += FERMAT;
+		x5.d0 += FERMAT;
+		x6.d0 += FERMAT;
+		x7.d0 += FERMAT;
 		SUB96(x0, q0, x0);
 		SUB96(x1, q1, x1);
 		SUB96(x2, q2, x2);

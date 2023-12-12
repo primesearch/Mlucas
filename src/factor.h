@@ -44,7 +44,13 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#define P1WORD
 #endif
 
-#if(defined(NWORD) || defined(P4WORD) || defined(P3WORD))
+#ifdef P3WORD
+  #ifndef	PIPELINE_MUL192	// User can build with -DPIPELINE_MUL192=0 to override the default
+	#define PIPELINE_MUL192	1
+  #endif
+#endif
+
+#if !defined(TRYQ) && (defined(NWORD) || defined(P4WORD) || defined(P3WORD))
 	#undef TRYQ
 	#define TRYQ	1
 #endif
@@ -65,9 +71,9 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#ifdef P2WORD
 		#error P2WORD may not be used together with USE_FLOAT!
 	#endif
-//	#ifdef P3WORD
-//		#error P3WORD may not be used together with USE_FLOAT!
-//	#endif
+	#ifdef P3WORD
+		#error P3WORD may not be used together with USE_FLOAT!
+	#endif
 	#ifdef P4WORD
 		#error P4WORD may not be used together with USE_FLOAT!
 	#endif
@@ -118,7 +124,7 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 #endif
 
 // If using x86_64 inline-asm, use ASM-ized 96-bit modpow rather than 128-bit variants:
-#if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
+#if !defined(USE_128x96) && (defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define USE_128x96	1
 #endif
 
@@ -294,8 +300,8 @@ uint256	twopmodq256		(uint256 p, uint256 q);	// q, not k!
 uint64	twopmodq256_q4	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq256_q8	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-uint32	CHECK_PKMOD60  (uint64 p, uint64 k, uint32*incr);
-uint32	CHECK_PKMOD4620(uint64 p, uint64 k, uint32*incr);
+uint32	CHECK_PKMOD60  (uint64 *p, uint32 lenP, uint64 k, uint32*incr);
+uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 
 /******************************************/
 /*            GPU-TF stuff:               */
@@ -489,6 +495,14 @@ void	get_startval(
 );
 
 uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len);
+
+int read_savefile(const char*fname, const char*pstring, double*bmin, double*bmax,
+uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*pass, uint32*passmax, uint64*count);
+
+int init_savefile(const char*fname, const char*pstring, double bmin, double bmax,
+uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 passmax, uint64 count);
+
+int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 know, uint64 count);
 
 #ifdef __cplusplus
 }

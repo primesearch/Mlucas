@@ -431,7 +431,7 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 	if(dimU < nwmod) {
 		dimU = 2*(nwmod+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if needed size increases incrementally
-		u = (uint64 *)realloc(u, dimU*sizeof(uint64));
+		u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
 	}
   #endif
 	ASSERT(HERE, nshift <= nbits, "mi64_shlc: shift count must be <= than bits in modulus!");	// This also ensures (nwshift < nwmod)
@@ -2565,8 +2565,7 @@ uint64	mi64_add_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 {
 	uint32 i;
 	uint64 cy = a;
-
-	ASSERT(HERE, len != 0, "mi64_add_scalar: zero-length array!");
+	ASSERT(HERE, x != 0x0 && y != 0x0 && len != 0, "mi64_add_scalar: null-pointer or zero-length array!");
 	if(x == y) {
 		/* In-place: Only need to proceed until carry peters out: */
 		for(i = 0; i < len; i++) {
@@ -2596,8 +2595,7 @@ uint64	mi64_sub_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 {
 	uint32 i;
 	uint64 bw = a, tmp;
-
-	ASSERT(HERE, len != 0, "mi64_sub_scalar: zero-length array!");
+	ASSERT(HERE, x != 0x0 && y != 0x0 && len != 0, "mi64_add_scalar: null-pointer or zero-length array!");
 	if(x == y) {
 		/* In-place: Only need to proceed until borrow peters out: */
 		for(i = 0; i < len; i++) {
@@ -2718,8 +2716,9 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 #if MI64_MSAV2
 	uint64 *u = 0x0, *v = 0x0;
 	uint64 c2;
-	u = (uint64 *)calloc(len, sizeof(uint64));
-	v = (uint64 *)calloc(len, sizeof(uint64));		memcpy(v,y,(len<<3));	// Save copy of x[]
+	u = (uint64 *)calloc(len, sizeof(uint64));	v = (uint64 *)calloc(len, sizeof(uint64));
+	ASSERT(HERE, u != 0x0 && v != 0x0, "calloc failed!");
+	memcpy(v,y,(len<<3));	// Save copy of x[]
 	c2  = mi64_mul_scalar(x, a, u, len);
 	c2 += mi64_add(u, y, u, len);
 #endif
@@ -2936,7 +2935,7 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 		if(dimU < (lenA+1)) {
 			dimU = 2*(lenA+1);
 			// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
-			u = (uint64 *)realloc(u, dimU*sizeof(uint64));
+			u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
 		}
 	#endif
 		/* Loop over remaining (lenB-1) elements of B[], multiplying A by each, and
@@ -3055,7 +3054,7 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 		if(dbg) printf("realloc to dimU = %u\n",dimU);
 	  #endif
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
-		u = (uint64 *)realloc(u, 4* len   *sizeof(uint64));
+		u = (uint64 *)realloc(u, 4* len   *sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
 	}
   #endif
 	ASSERT(HERE, z != x, "Input and output arrays must be distinct!");
@@ -3159,6 +3158,7 @@ void	mi64_mul_vector_lo_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 		dimU = 2*(len+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, 2*(len+1)*sizeof(uint64));	// NB: realloc leaves newly-alloc'ed size fraction uninited
+		ASSERT(HERE, u != 0x0, "alloc failed!");
 	}
 	memset(u, 0ull, (len<<4));	// Accumulator u[] needs to be cleared each time
   #endif
@@ -3208,6 +3208,7 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, 2*(len+1)*sizeof(uint64));
 		v = (uint64 *)realloc(v, 4* len   *sizeof(uint64));
+		ASSERT(HERE, u != 0x0 && v != 0x0, "alloc failed!");
 	}
 	memset(v, 0ull, (len<<4));	// Accumulator v[] needs to be cleared each time
   #endif
@@ -3356,6 +3357,7 @@ void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], ui
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, (len+1)<<4);	// Realloc with 2*(len+1)*sizeof(uint64) bytes
 		v = (uint64 *)realloc(v,  len   <<5);	// Realloc with 4*(len  )*sizeof(uint64) bytes
+		ASSERT(HERE, u != 0x0 && v != 0x0, "alloc failed!");
 	}
 	/*
 	Compute desired row-sums by row index. For row j (j renamed 'idx' in function below):
@@ -3456,6 +3458,7 @@ void	mi64_mul_vector_hi_qmmp(const uint64 y[], const uint64 p, const uint64 k, u
 		}
 		u = (uint64 *)calloc(ldim, sizeof(uint64));
 		v = (uint64 *)calloc(ldim, sizeof(uint64));
+		ASSERT(HERE, u != 0x0 && v != 0x0, "alloc failed!");
 	}
   #endif
 //====need to finish 200-bit support! =======================
@@ -3655,6 +3658,7 @@ void	mi64_mul_vector_hi_qferm(const uint64 y[], const uint64 p, const uint64 k, 
 			free((void *)u); u = 0x0;
 		}
 		u = (uint64 *)calloc(ldim, sizeof(uint64));
+		ASSERT(HERE, u != 0x0, "alloc failed!");
 	}
   #endif
 	ASSERT(HERE, z != y, "Input and output arrays must be distinct!");
@@ -3951,7 +3955,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
 		const uint32 max_dim = 4096;
 		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], *lo = prod,*hi = 0x0, i64;
-		uint32 nbits, log2_numbits, wlen,wlen2, retval, lenq, alen;
+		uint32 nbits, log2_numbits, wlen,wlen2, retval, lenq, alen, q32,qi32;
 		int i,j, start_index;
 	  #if MI64_PRP_DBG
 		int dbg = STREQ(&cbuf[convert_mi64_base10_char(cbuf, n, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
@@ -3989,7 +3993,6 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		*/
 		mi64_clear(ninv, len);	// Init ninv = 0
 		// Start with 8-bits-good inverse and compute 64-bit mod-inverse via 3 Newton iterations:
-		uint32 q32,qi32;
 		q32  = n[0]; qi32 = minv8[(n[0]&0xff)>>1];
 		qi32 = qi32*((uint32)2 - q32*qi32);
 		qi32 = qi32*((uint32)2 - q32*qi32);	ninv[0] = qi32;
@@ -4002,11 +4005,12 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 
 		where lo = converged bits, and hi = bits converged on current iteration
 		*/
-		i = 1;	// I stores number of converged 64-bit words
-		for(j = 6; j < log2_numbits; j++, i <<= 1) {
+		for(i = 1, j = 6; j < log2_numbits; j++, i <<= 1) {	// I stores number of converged 64-bit words
 			mi64_mul_vector_lo_half(n, ninv,prod, wlen);
 			mi64_nega              (prod,prod, wlen);
-			i64 = mi64_add_scalar(prod, 2ull,prod, wlen);	ASSERT(HERE, !i64, "Unexpected carry from add!");
+			i64 = mi64_add_scalar(prod, 2ull,prod, wlen);
+			// Do not require no-carryout-from-add here, example: n = 1068577456128*b^2+1,
+			// get carry i64 = 1 on final iter, ignore, result is correct: ninv = 18446743005132095488*b^2+1
 			mi64_mul_vector_lo_half(ninv,prod, ninv, wlen);
 		}
 		// Check the computed inverse:
@@ -7366,11 +7370,11 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	static uint64 *svec = 0x0;	// svec = "scratch vector"
 	if(first_entry) {
 		first_entry = FALSE;
-		svec = (uint64 *)calloc(len_save, sizeof(uint64));
+		svec = (uint64 *)calloc(len_save, sizeof(uint64));	ASSERT(HERE, svec != 0x0, "alloc failed!");
 	}
 	if(len > len_save) {
 		len_save = len<<1;
-		svec = (uint64 *)realloc(svec, len_save*sizeof(uint64));
+		svec = (uint64 *)realloc(svec, len_save*sizeof(uint64));	ASSERT(HERE, svec != 0x0, "alloc failed!");
 	}
 
 	ASSERT(HERE, (x != 0) && (len != 0), "Null input array or length parameter!");
@@ -8083,7 +8087,7 @@ int	__convert_mi64_base10_char(char char_buf[], uint32 n_alloc_chars, const uint
 		if(temp) {
 			free((void *)temp);	temp = 0x0;
 		}
-		temp = (uint64 *)calloc(curr_len, sizeof(uint64));
+		temp = (uint64 *)calloc(curr_len, sizeof(uint64));	ASSERT(HERE, temp != 0x0, "alloc failed!");
 		tlen = curr_len;
 	}
 	mi64_set_eq(temp, x, curr_len);
@@ -8151,7 +8155,7 @@ int	__convert_mi64_base10_char_print_lead0(char char_buf[], uint32 n_alloc_chars
 		if(temp) {
 			free((void *)temp);	temp = 0x0;
 		}
-		temp = (uint64 *)calloc(curr_len, sizeof(uint64));
+		temp = (uint64 *)calloc(curr_len, sizeof(uint64));	ASSERT(HERE, temp != 0x0, "alloc failed!");
 		tlen = curr_len;
 	}
 	mi64_set_eq(temp, x, curr_len);
@@ -8234,7 +8238,7 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 		LEN_MAX = (uint32)ceil( (imax-i)/log10_base );
 	}
 	// 01/09/2009: Add an extra zero-pad element here as workaround for bug in mi64_div called with differing-length operands:
-	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));
+	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));	ASSERT(HERE, mi64_vec != 0x0, "alloc failed!");
 	imin = i;
 	for(i = imin; i < imax; i++) {
 		c = char_buf[i];
@@ -8326,6 +8330,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		x      = (uint64 *)realloc(x     , (lenQ   )*sizeof(uint64));
 		lo     = (uint64 *)realloc(lo    , (2*lenQ )*sizeof(uint64));
 	}
+	ASSERT(HERE, pshift != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0, "alloc failed!");
 	hi = lo + lenQ;	// Pointer to high half of double-wide product
 
   #if MI64_POW_DBG
@@ -8584,7 +8589,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		first_entry = FALSE;
 		psave = p;
 		free((void *)pshift);
-		pshift = (uint64 *)calloc((lenP+1), sizeof(uint64));
+		pshift = (uint64 *)calloc((lenP+1), sizeof(uint64));	ASSERT(HERE, pshift != 0x0, "calloc of pshift[] failed!");
 		pshift[0] = 1;
 		mi64_shl(pshift, pshift, p, lenP);	// 2^p
 		mi64_sub_scalar(pshift, 1, pshift, lenP);	// M(p) = 2^p-1
@@ -8592,7 +8597,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		pshift[lenP] = mi64_add_scalar(pshift, lenP*64, pshift, lenP);
 		ASSERT(HERE, !pshift[lenP], "pshift overflows!");
 	#if MI64_POW_DBG
-		if(dbg) { printf("mi64_twopmodq_qmmpInit: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
+		if(dbg) { printf("mi64_twopmodq_qmmp: Init: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
 	#endif
 		lenQ_save = lenQ;
 		free((void *)q    );
@@ -8606,7 +8611,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		x      = (uint64 *)calloc((lenQ), sizeof(uint64));
 		lo   = (uint64 *)calloc((2*lenQ), sizeof(uint64));
 		hi   = lo + lenQ;	/* Pointer to high half of double-wide product */
-
+		ASSERT(HERE, q != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0 && hi != 0x0, "alloc failed!");
 		qbits = lenQ << 6;
 		log2_numbits = ceil(log(1.0*qbits)/log(2.0));
 

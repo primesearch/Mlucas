@@ -52,88 +52,28 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 
 	FILE *fp, *fq;
 	const char OFILE     [] = "results.txt";
-
+	/* Restart file name:
+	This is set at runtime, based on either command-line -file flag argument
+	or in the default case (i.e. -file {} not used) the exponent being processed: t[exponent].
+	*/
+	char RESTARTFILE[STR_MAX_LEN] = "";
 	/* These should all be set to a valid (nonzero) value at the time the appropriate test is begun */
 	uint32 TEST_TYPE		= 0;
 	uint32 MODULUS_TYPE		= 0;
 	uint32 TRANSFORM_TYPE	= 0;
-
 	int INTERACT;
 
 #endif
 
-// Oct 2015: Play with Smarandache numbers ():
-void testSmarandache(const uint32 imin, const uint32 imax, const uint8 pdiff[], const uint32 nprime)
-{
-	const double ilog10 = 1/log(10);
-	uint32 i,imod30,j,m,len,curr_p, ndd = 0, ntest = 0;
-	uint64 pow10 = 1;
-	static uint64 *x = 0x0, *y = 0x0, first_entry = TRUE;
-	if(first_entry) {
-		first_entry = FALSE;
-		x = (uint64 *)calloc(1000000, sizeof(uint64));
-		y = (uint64 *)calloc(1000000, sizeof(uint64));
-	}
-	x[0] = 1; len = 1;
-	i = 2;
-	while(i <= imax) {
-		if(i%1000 == 0) printf("At S[%u]...\n",i);
-		if(ceil(log(i+0.5)*ilog10) > ndd) {	/* Need + 0.5 so e.g. ndd(100) comes out = 3 rather than 2 */
-			ndd++;
-			pow10 *= 10;
-		}
-		// S_(i+1) = pow10^2 * S_(i-1) + pow10*i + (i+1):
-		x[len] = mi64_mul_scalar(x,pow10*pow10    ,x,len);	len += (x[len] != 0ull);
-		x[len] = mi64_add_scalar(x,pow10*i + (i+1),x,len);	len += (x[len] != 0ull);
-		if(i >= imin) {
-			// Trial-div by the first nprime odd primes:
-			m = 0; curr_p = 3;
-		#if 1	// This 4-way asm-optimized 64-bit faster than generic-C 4-way 32-bit version below
-			for(m = 0; m < nprime; m++)
-			{
-				if(mi64_is_div_by_scalar64_u4(x,curr_p,(len+3)&0xfffffffc)) {
-				//	printf("S[%u] has a small factor: %u\n",i+1,curr_p);
-					break;
-				}
-				curr_p += (pdiff[m] << 1);
-			}
-		#else
-			uint32 p[4];
-			for(m = 0; m < nprime; m+=4)
-			{
-				curr_p += (pdiff[m  ] << 1); p[0] = curr_p;
-				curr_p += (pdiff[m+1] << 1); p[1] = curr_p;
-				curr_p += (pdiff[m+2] << 1); p[2] = curr_p;
-				curr_p += (pdiff[m+3] << 1); p[3] = curr_p;
-				j = mi64_is_div_by_scalar32_x4((uint32*)x, p[0], p[1], p[2], p[3], len);
-				if(j != 0) {
-				//	printf("S[%u] has a small factor: %u\n",i+1,p[trailz32(j)]);
-					break;
-				}
-			}
-		#endif
-			// If no small factor found, do base-2 PRP test:
-			if(m == nprime) {
-				// Only terms with index (i+1) == 1,7,13,19 (mod 30) can possibly be prime:
-				imod30 = (i+1)%30;
-				ASSERT(HERE, imod30 == 1 || imod30 == 7 || imod30 == 13 || imod30 == 19, "Only terms with index (i+1) == 1,7,13,19 (mod 30) can possibly be prime!");
-				ntest++;
-				mi64_sub_scalar(x ,1ull,y ,len);	// y = x-1
-				printf("PRP-testing S[%u] (len = %u)...\n",i+1,len);
-			/*
-				j = mi64_twopmodq(y, len, 0, x, len, 0x0);
-				if(j == 1)
-					printf("S[%u] (len = %u) is a base-2 PRP!\n",i+1,len);
-				else
-					printf("S[%u] (len = %u) is composite\n"    ,i+1,len);
-			*/
-			}
-		}
-		i += 2;
-	}
-	printf("Small-prime (first %u odd primes) sieve eliminated all but %u of %u series terms",nprime,ntest,(i-imin-2)>>1);
-	return;
-}
+
+#undef RTIME
+#undef CTIME
+
+#ifdef MULTITHREAD
+	#define RTIME	/* In multithreaded mode, need to use real (wall-clock) time */
+#else
+	#define CTIME	/* In single-thread mode, prefer cycle-based time because of its finer granularity */
+#endif
 
 // Use x86_64 inline-asm?
 #undef YES_ASM
@@ -217,7 +157,7 @@ char char_buf0[STR_MAX_LEN], char_buf1[STR_MAX_LEN], char_buf2[STR_MAX_LEN];
 #ifdef FAC_DEBUG
 	#warning FAC_DEBUG enabled for this build.
 	/* Set k_targ to some known-factor k to debug a specific missed-factor case: */
-	uint64 k_targ = 0ull;	// k = that of smallest factor of mm31
+	uint64 k_targ = 2*439880504ull;	// Factor k: for M(p) q = 2.k.p + 1; for F(n) q = k*2^(n+2) + 1 .
 	uint32 pass_targ = 0xffffffff;	/* Init to a known-invalid value; if user specifies
 	 								a known (valid) test factor via k_targ, pass_targ will
 	 								be set to the associated (legitimate) value between 0 and TF_PASSES-1;
@@ -256,7 +196,7 @@ int restart;
 	uint64 PMIN;	/* minimum #bits allowed for FFT-based mul */
 	uint64 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
 					  and will be determined at runtime, via call to given_N_get_maxP(). */
-	char cbuf[STR_MAX_LEN];
+	char cbuf[STR_MAX_LEN],cstr[STR_MAX_LEN];
 	char in_line[STR_MAX_LEN];
 	/* Declare a blank STATFILE string to ease program logic: */
 	char STATFILE[] = "";
@@ -586,11 +526,11 @@ Unlike for (mod 60), use simple utility functions to manage these, rather than a
 
 	P3WORD - factor limit q < 2^192, i.e. q needs 3 full 64-bit words of storage.
 
-		PIPELINE_MUL192 - when defined, uses pipelined versions of 192-bit MUL macros.
+		PIPELINE_MUL192 - when def'd != 0 while building twopmodq192.c, uses pipelined versions of 192-bit MUL macros.
 
 	P4WORD - factor limit q < 2^256, i.e. q needs 4 full 64-bit words of storage.
 
-		PIPELINE_MUL256 - when defined, uses pipelined versions of 256-bit MUL macros.
+		To-Do: Add support for PIPELINE_MUL256
 
 	NWORD - Arbitrary-length p and q, only restriction is that (as for all other size ranges) kmax < 2^64 .
 */
@@ -599,12 +539,7 @@ Unlike for (mod 60), use simple utility functions to manage these, rather than a
 
 /* NOTE: Exponents > 64 bits *require* standalone-mode build: */
 
-#ifdef FACTOR_STANDALONE
-
-int main(int argc, char *argv[])
-{
-
-#else
+#ifndef FACTOR_STANDALONE
 
   #ifdef FAC_DEBUG
 	#error FAC_DEBUG only permitted in standalone mode!
@@ -612,38 +547,33 @@ int main(int argc, char *argv[])
 
 int factor(char *pstring, double bmin, double bmax)
 {
+	ASSERT(HERE, 0, "TF currently not supported as part of Mlucas, only via standalone Mfactor build - please delete any .o files and retry USING 'makemake.sh mfac' from Mluas dir above /src.");
+	return 1;
+}
 
-#endif
+#else	// Standalone build - we leave some FACTOR_STANDALONE-wrapped stuff inside code below for future Mlucas integration
 
+int main(int argc, char *argv[])
+{
 	static int first_entry = TRUE;
 
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 
 	/*...file pointer	*/
 	FILE *fp, *fq;
-
 	char stFlag[STR_MAX_LEN];
-
 	/* Allocate storage for any needed Globals declared in Mdata.h
 	(in non-standalone mode these are instead defined in Mlucas.c): */
 	int MODULUS_TYPE   = 0;
 	char pstring[STR_MAX_LEN] = "";
-
 	/*...program version with patch suffix... */
 	const char VERSION[] = "3.0x";			/* <--- a suffix of x, y, or z indicates a beta code. */
-
 	const char OFILE  [] = "results.txt";	/* ASCII logfile containing factors found and/or
 											final factoring-run result ONLY for each assignment */
-	/* Restart file name:
-	This is set at runtime, based on either command-line -file flag argument
-	or in the default case (i.e. -file {} not used) the exponent being processed: t[exponent].
-	*/
-	char RESTARTFILE[STR_MAX_LEN] = "", TMPFILE[STR_MAX_LEN] = "";
-
 	double bmin = 0.0, bmax = 0.0;	/* store log2 of (min|max) factoring bound */
-#endif
+  #endif
 
-#ifdef MULTITHREAD
+  #ifdef MULTITHREAD
 
 	static struct fac_thread_data_t *tdat = 0x0;
 	int thr_id;
@@ -655,7 +585,7 @@ int factor(char *pstring, double bmin, double bmax)
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
 	static task_control_t   task_control = {NULL, (void*)PerPass_tfSieve, NULL, 0x0};
 
-#endif
+  #endif
 
 	/* Make these large enough to hold the max. p,q supported by the software (currently,
 	256 bits) then use as many of the subfields as needed, depending on the values of P,QWORDS.
@@ -665,32 +595,32 @@ int factor(char *pstring, double bmin, double bmax)
 	uint64	*factor_ptmp = 0x0, *factor_k = 0x0;	/* Use this array to store the factor k's (assumed < 2^64) of any factors found. */
 	uint64	*p = 0x0, *two_p = 0x0, *p2NC = 0x0, *q = 0x0, *q2 = 0x0, *k_to_try = 0x0;
 
-#ifndef TRYQ
+  #ifndef TRYQ
 	#define TRYQ	1
-#elif TRYQ < 1
+  #elif TRYQ < 1
 	#undef TRYQ
 	#define TRYQ	1
-#endif
+  #endif
 
-#ifdef USE_AVX512
+  #ifdef USE_AVX512
 	#ifndef USE_FLOAT
 		#warning USE_AVX512 only meaningful USE_FLOAT also defined at compile time - setting this #define.
 		#define USE_FLOAT
 	#endif
 	#define MAX_TRYQ	64
-#elif defined(USE_AVX)
+  #elif defined(USE_AVX)
 	#define MAX_TRYQ	16
-#elif defined(USE_SSE2) || defined(X64_ASM)
+  #elif defined(USE_SSE2) || defined(X64_ASM)
 	#define MAX_TRYQ	 8
-#else
+  #else
 	#define MAX_TRYQ	 4
-#endif
+  #endif
 
-#if (TRYQ > MAX_TRYQ) && !defined(USE_ARM_V8_SIMD)	// Ignore on ARMv8, since no TF support there anyway
+  #if (TRYQ > MAX_TRYQ) && !defined(USE_ARM_V8_SIMD)	// Ignore on ARMv8, since no TF support there anyway
 	#error TRYQ exceeds MAX_TRYQ for this build mode!
-#endif
+  #endif
 
-	int   nargs,itmp;
+	int nargs,itmp;
 	/* pdsum stores the sums needed for the base (%30 == 0) candidate of each length-30 interval;
 	pdiff stores the diffs/2 of these absolute offsets, circularly shifted to the right one place,
 	since to update we need diff[j] = curr_p(current) - curr_p(previous) = (pdsum[j] - pdsum[j-1])/2,
@@ -719,11 +649,11 @@ int factor(char *pstring, double bmin, double bmax)
 	const uint32 p_last_small = 17;					// p_last_small = largest prime appearing in the product [= 17].
 	uint32 prime[] = {3,5,7,11,13,17};	// Also need the first [nclear] odd primes - since 'const' is treated as a read-only flag
 								// on *variables*, use [] instead of [nclear] to avoid compiler 'variable-length array init' errors.
-#if TF_CLASSES == 60
+  #if TF_CLASSES == 60
 	const uint32 bit_len = (len << TF_CLSHIFT)/TF_CLASSES; 	// 255255*64  /  60 = 272272: Number of bits in each of the  16 mod-  60 sievelets
-#else	// 4620 classes:
+  #else	// 4620 classes:
 	const uint32 bit_len = (len << TF_CLSHIFT)/TF_CLASSES;	// 255255*64^2/4620 = 226304: Number of bits in each of the 960 mod-4620 sievelets
-#endif
+  #endif
 	//   bits cleared of multiples of 3,5,7,11,13, 17 and q mod 8 = +-1 are here:
 	uint64 *temp_late = 0x0;		/* Even though we know how large to make this, it's only needed
 									for data inits, so we calloc it at runtime and free it later. */
@@ -742,16 +672,16 @@ int factor(char *pstring, double bmin, double bmax)
 	int incomplete_run = FALSE;
 	int curr_line;
 	double bmin_file, bmax_file;
-	uint64 kmin_file, know_file = 0, kmax_file = 0;
+	uint64 tf_passes_file, kmin_file, know_file = 0, kmax_file = 0;
 	uint32 passmin_file = 0, passnow_file = 0, passmax_file = 0;
 
 	uint64 interval_lo,interval_now,interval_hi,ninterval;
 
 // This stuff is for the small-primes sieve:
 	uint32 max_diff;
-#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+  #ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 	uint32 *psmall;
-#endif
+  #endif
 	uint8 *pdiff;	/* Compact table storing the (difference/2) between adjacent odd primes.
 							http://mathworld.wolfram.com/PrimeGaps.html shows the first >256-gap at ~387 million
 							and the first >512-gap at ~300 billion, so using the half-of-even-gap trick makes
@@ -761,49 +691,54 @@ int factor(char *pstring, double bmin, double bmax)
 	uint32 MAX_SIEVING_PRIME = 0;
 	uint64 *u64_arr = 0x0;	/* generic array allowing us to hook into the mi64 routines */
 
-#ifdef P1WORD
+  #ifdef P1WORD
 	double twop_float = 0,fqlo,fqhi;
 	uint128 p128,q128,t128;	// Despite the naming, these are needed for nominal 1-word runs with moduli exceeding 64 bits
-#endif
-#ifdef P3WORD
+  #endif
+  #ifdef P3WORD
 	uint192 p192,q192,t192;
   #ifdef USE_FLOAT
 	uint256 x256;	// Needed to hold result of twopmodq200_8WORD_DOUBLE
   #endif
-#endif
-#ifdef P4WORD
+  #endif
+  #ifdef P4WORD
 	uint256 p256,q256,t256;
-#endif
+  #endif
 
 	/*...time-related stuff	*/
+  #ifdef CTIME
 	clock_t clock1, clock2;
+  #else	// Multithreaded needs wall-clock, not CPU time:
+	double clock1, clock2;	// Jun 2014: Switched to getRealTime() code
+  #endif
 	double td, tdiff;
-#if TEST_TRIALDIV
+
+  #if TEST_TRIALDIV
 	double citer;
-#endif
+  #endif
 	char *char_addr;
 
 /* Set == 1 to test the trial-div stuff: */
-#define	TEST_TRIALDIV	0
-#if TEST_TRIALDIV
+  #define	TEST_TRIALDIV	0
+  #if TEST_TRIALDIV
 	#define MAX_ARRAY_DIM 10000
 	uint32	vec_len = MAX_ARRAY_DIM;
 	uint64*	xvec = (uint64 *)calloc(MAX_ARRAY_DIM, sizeof(uint64));
 	uint32 tryq[8];
-#endif
+  #endif
 
-#ifdef USE_GPU
+  #ifdef USE_GPU
 	cudaError_t cudaError = cudaGetLastError();	// Call this to reset error flag to 0
 	if(cudaError != cudaSuccess)
 	{
 		printf("ERROR: cudaGetLastError() returned %d: %s\n", cudaError, cudaGetErrorString(cudaError));
 		ASSERT(HERE, 0, "factor.c : GPU-side error detected!");
 	}
-#endif
+  #endif
 
-#ifdef macintosh
+  #ifdef macintosh
 	argc = ccommand(&argv);	/* Macintosh CW */
-#endif
+  #endif
 
 /* Allocate factor_k array and align on 16-byte boundary: */
 	factor_ptmp = ALLOC_UINT64(factor_ptmp, 24);
@@ -813,9 +748,9 @@ int factor(char *pstring, double bmin, double bmax)
 /*...initialize logicals and factoring parameters...	*/
 	restart = FALSE;
 
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 	host_init();
-#endif
+  #endif
 
 /***********************************************************************/
 /******* In standalone mode, process any command-line arguments: *******/
@@ -886,7 +821,7 @@ Others are optional and in some cases mutually exclusive:
 
 	-q [int]    A known factor for the number (only used if FAC_DEBUG def'd).
 */
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 
 	nargs = 1;
 	if(!argv[nargs])
@@ -1030,7 +965,7 @@ Others are optional and in some cases mutually exclusive:
 		}
 	}
 
-#else
+  #else
 
 	/* If non-standalone mode, make sure statfile name is non-empty: */
 	ASSERT(HERE, STRNEQ(STATFILE, ""), "STATFILE string empty");
@@ -1042,7 +977,7 @@ Others are optional and in some cases mutually exclusive:
 		fclose(fp); fp = 0x0;
 	}
 
-#endif	/* #ifdef FACTOR_STANDALONE */
+  #endif	/* #ifdef FACTOR_STANDALONE */
 
 	// One-time allocs and inits:
 	if(first_entry)
@@ -1108,16 +1043,16 @@ Others are optional and in some cases mutually exclusive:
 	}	// End (inits)
 
 /* Do a quick series of self-tests: */
-#if 1//def FAC_DEBUG
+  #if 1//def FAC_DEBUG
 	test_fac();
-#endif
+  #endif
 
 // Oct 2015: GCD-associated self-tests provides a fair bit of added coverage of the mi64 library, so always include:
-#ifdef INCLUDE_PM1
+  #ifdef INCLUDE_PM1
 	/* Simple self-tester for GCD routines in gcd_lehmer.c: */
 	ASSERT(HERE, test_gcd() == 0, "Factor_init : GCD test failed.\n");
 exit(0);
-#endif
+  #endif
 
 	/* Make sure a valid exponent string has been given - if this is the only
 	command-line parameter, will attempt to read the other needed run parameters
@@ -1236,11 +1171,11 @@ exit(0);
 //printf("fbits_in_2p = mi64_extract_lead64[= %10u] - 64 = %10.4f\n",mi64_extract_lead64(p, lenP, &itmp64),fbits_in_2p);
 	fbits_in_2p += log((double)itmp64)*ILG2 + 1;	// Add 1 to lg(p) to get lg(2p)
 //printf("fbits_in_2p += log((double)itmp64)*ILG2 [= %10.4f] = %10.4f\n",log((double)itmp64)*ILG2,fbits_in_2p);
-#if 0	// 11/2013: No clue what I was thinking here...
+  #if 0	// 11/2013: No clue what I was thinking here...
 	// If 2p < 2^64 we left-justify the leading bits to make result lie in [2^63, 2^64), so result here must always be > 2^63:
 	ASSERT(HERE, fbits_in_2p >= 63, "fbits_in_2p out of range!");
 	fbits_in_2p += nbits_in_p - 64.0;	// lg(2.p) ... Cast 64 to double to avoid signed-int subtract of RHS terms.
-#endif
+  #endif
 	// Do some quick sanity tests of exponent for the various kinds of moduli:
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
@@ -1286,8 +1221,10 @@ exit(0);
 	p2NC[lenP] = mi64_mul_scalar(p, (uint64)2*TF_CLASSES, p2NC, lenP);
 
   #ifdef FAC_DEBUG
+	u64_arr[lenP] = mi64_mul_scalar(two_p,k_targ,u64_arr,lenP);	u64_arr[0] += 1;	// q = 2.k.p + 1
+	printf("FAC_DEBUG: Doing targeted debug-TF of %s(%s) with target factor candidate q = %s\n",NUM_PREFIX[MODULUS_TYPE],pstring,&char_buf0[convert_mi64_base10_char(char_buf0, u64_arr, lenQ, 0)]);
 	printf("two_p        = %s\n", &char_buf0[convert_mi64_base10_char(char_buf0, two_p, lenQ, 0)]);
-	printf("2*p*#TF_CLASSES = %s\n", &char_buf0[convert_mi64_base10_char(char_buf0, p2NC , lenP, 0)]);
+	printf("TF_CLASSES = %u\n",(uint32)TF_CLASSES);
   #endif
 
 	// p mod TF_CLASSES:
@@ -1368,9 +1305,104 @@ exit(0);
 	Fermat-number factoring run, pstring > MAX_BITS_P is a Mersenne-number run.
 	*/
 	RESTARTFILE[0] = 't'; RESTARTFILE[1] = '\0'; strcat(RESTARTFILE, pstring);
-	strcpy(TMPFILE, RESTARTFILE);	strcat(TMPFILE, ".tmp");
-	fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
-#warning bmax/kmax-synchro needs re-do!
+	// Checkpointing only supported for single-threaded runs:
+	if(NTHREADS > 1)
+		fprintf(stderr,"WARN: Checkpointing only supported for single-threaded runs!\n");
+	else
+		fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
+
+	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %llu factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
+
+	/**** process restart-file and any command-line params: ****/
+	// Note: return value of read_savefile is signed:
+	itmp = read_savefile(RESTARTFILE, pstring, &bmin_file,&bmax_file, &kmin_file,&know_file,&kmax_file, &passmin_file,&passnow_file,&passmax_file, &count);
+	if(itmp == -1) {
+		sprintf(cbuf,"INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
+		fprintf(stderr,"%s",cbuf);
+	#ifndef FACTOR_STANDALONE
+		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
+	#endif
+		// Init savefile with above read_savefile fields so ensuing checkpoint-writes only need to update the pass# and k:
+//		ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
+	} else {
+		ASSERT(HERE,!itmp,"There were errors reading the savefile ... aborting");
+		count = 0ull;	// Need to reset == 0 prior to sieving so kvector-fill code works properly
+
+		/* If previous run is not yet complete, ignore any increased factor-bound-related
+		command-line parameters and instead proceed to complete the previous run first:
+		*/
+		if((know_file < kmax_file) || (passnow_file < passmax_file)) {
+			incomplete_run = TRUE;
+			fprintf(stderr,"INFO: Previous run to kmax = %s not yet complete.\n"  , &char_buf0[convert_uint64_base10_char(char_buf0, kmax_file)]);
+			fprintf(stderr,"Ignoring any increased factor-bound-related command-line parameters and proceeding to complete previous run.\n");
+			bmin = bmin_file; bmax = bmax_file;
+			passmin = passmin_file; passnow = passnow_file; passmax = passmax_file;
+			kmin = kmin_file; know = know_file; kmax = kmax_file;
+			kplus = 0;
+		} else {
+			/**** Previous run was completed - check that current params satisfy one (and only one)
+			of the following sets of conditions:
+				1) -bmin/bmax used to set bounds for factoring:
+					In this case we expect any command-line bmin will be >= that in the restart file
+					(in fact we expect bmin >= bmax_file, i.e. that the runs are nonoverlapping -
+					if not we warn and set bmin = bmax_file), and that bmax > bmax_file.
+			****/
+			if(bmin || bmax) {
+			#if(!defined(P1WORD))
+			//	ASSERT(HERE, 0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
+			#endif
+				ASSERT(HERE, (kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
+
+				if(bmin) {
+					ASSERT(HERE, bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
+					if(bmin < bmax_file)
+						fprintf(stderr,"WARNING: Specified bmin (%lf) smaller than previous-run bmax = %lf. Setting equal to avoid overlapping runs.\n", bmin, bmax_file);
+				}
+				bmin = bmax_file;
+				/* We expect any command-line bmax will be > that in the restart file: */
+				if(bmax)
+					ASSERT(HERE, bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
+			}
+
+			/****
+				2) -kmin/kmax used to set bounds for factoring:
+					In this case we expect any command-line kmin will be >= that in the restart file
+					(in fact we expect kmin >= kmax_file, i.e. that the runs are nonoverlapping -
+					if not we warn and set kmin = kmax_file), and that kmax > kmax_file.
+			****/
+			if(kmin || kmax) {
+				ASSERT(HERE, (bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
+				if(kmin) {
+					ASSERT(HERE, kmin >= kmin_file,"kmin >= kmin_file");
+					if(kmin < kmax_file)
+						fprintf(stderr,"WARNING: Specified kmin (%s) smaller than previous-run kmax = %s. Setting equal to avoid overlapping runs.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax_file)]);
+				}
+				kmin = kmax_file;
+				/* We expect any command-line kmax will be > that in the restart file: */
+				if(kmax)
+					ASSERT(HERE, kmax > kmax_file,"kmax >= kmax_file");
+			}
+
+			/****
+				3) -kplus used to increment an upper bound from a previous factoring run:
+			****/
+			if(kplus) {
+				ASSERT(HERE, (bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
+				kmin = kmax_file;
+				/* Ensure incremented value kmax fits into a 64-bit unsigned int: */
+				ASSERT(HERE, (kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
+				kmax = kmin + kplus;
+				kplus = 0;	/* If kplus != 0 detected further on, that indicates that no valid restart
+							file was found for factoring-bounds incrementing. */
+			}
+		}
+		/* Successfully processed restart file: */
+		restart = TRUE;
+	}
+
+/************************ END(RESTART STUFF) *******************/
+
+  #warning bmax/kmax-synchro needs re-do!
 	/* If it's not a restart of an as-yet-uncompleted run, synchronize the factoring-bound params: */
 	if(!incomplete_run)
 	{
@@ -1401,7 +1433,7 @@ exit(0);
 	#endif
 		/* Compute kmax if not already set: */
 		if(!kmax) {
-			ASSERT(HERE, bmax <= (nbits_in_p+65), "Your bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
+			ASSERT(HERE, bmax <= (nbits_in_p+65), "Specified bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
 			kmax = given_b_get_k(bmax, two_p, lenQ);
 			ASSERT(HERE, kmax > 0, "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
 		}
@@ -1419,10 +1451,10 @@ exit(0);
 		} else {
 		#ifdef P1WORD
 			fqlo = 1.0;
-		#else
 		#endif
 		}
-
+ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
+//**** Do savefile-init here? ******
 		if(kmax || bmax) {
 			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
 				kmax = given_b_get_k(bmax, two_p, lenQ);
@@ -1456,12 +1488,12 @@ exit(0);
 /*   allocate the arrays and initialize the array of sieving primes	*/
 	temp_late = (uint64 *)calloc(len, sizeof(uint64));
 
-#if TF_CLASSES == 60
+  #if TF_CLASSES == 60
 	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
-#else
+  #else
 	i = (len*64)/TF_CLASSES + 1;	// 64*len divisible by TF_CLASSES, no need for padding
 		//**** Oct 2016: AVX-512 vector-bit-clear needs a padding element, so add one. ****
-#endif
+  #endif
 	bit_map = (uint64 *)calloc(i * NTHREADS, sizeof(uint64));
 	bit_map2= (uint64 *)calloc(i * NTHREADS, sizeof(uint64));	// 2nd alloc to give each thread 1 bit-clearable copy of master bit_map
 	if (bit_map == NULL) {
@@ -1475,13 +1507,13 @@ exit(0);
 	}
 printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that in bit_atlas]\n",len,i,TF_PASSES);
 
-#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+  #ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 	psmall = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
 	if (psmall == NULL) {
 		fprintf(stderr,"Memory allocation failure for PSMALL array");
 		ASSERT(HERE, 0,"0");
 	}
-#endif
+  #endif
 
 	pdiff = (uint8 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint8));
 	if (pdiff == NULL) {
@@ -1501,13 +1533,13 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 		ASSERT(HERE, 0,"0");
 	}
 
-#if DBG_SIEVE
+  #if DBG_SIEVE
 	startval_incr = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
 	if (startval_incr == NULL) {
 		fprintf(stderr,"Memory allocation failure for STARTVAL_INCR array");
 		ASSERT(HERE, 0,"0");
 	}
-#endif
+  #endif
 
 		/* Check integrity (at least in the sense of monotonicity) for the precomputed pseudoprime table: */
 		for(i = 1; i < 9366; ++i) {
@@ -1611,13 +1643,13 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 		printf("max sieving prime = %u\n",MAX_SIEVING_PRIME);
 	#endif
 
-#if 0
+  #if 0
 	// Oct 2015: Play with Smarandache numbers ():
 	i = 2000000;	ASSERT(HERE, i <= nprime, "prime limit exceeded in testSmarandache!");
 	testSmarandache(100001,101000, pdiff, i);
 	exit(0);
-#endif
-#if 0
+  #endif
+  #if 0
 	// Oct 2018: Play with "sieve survivors" stats: lim(n --> oo) prod_(p <= n)(1-1/p)/(1/ln(p^2))
 	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceeded in testSieveProdAsymp!");
 	struct qfloat qfprod = QHALF, qt;
@@ -1632,9 +1664,9 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	}
 	printf("Used primes <= %u: 1/ln(p^2) = %18.15f, prod_(p <= n)(1-1/p) = %18.15f, ratio = %18.15f, qfprod = %18.15f\n",i,log_psq,prod,log_psq*qfdbl(qfprod),qfdbl(qfprod));
 	exit(0);
-#endif
+  #endif
 /* Time the vector trialdiv stuff: */
-#if TEST_TRIALDIV
+  #if TEST_TRIALDIV
 	for(i = 0; i < vec_len; i++)
 	{
 		xvec[i]  = rng_isaac_rand();
@@ -1724,7 +1756,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
 
 	free((void*)xvec);
-#endif
+  #endif
 
 /*   for p < max prime in precomputed table, need to truncate the range of primes...	*/
 	/*********** WHY WAS THIS HERE? *************
@@ -1741,7 +1773,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	***********/
 
 	/****************** KNOWN-TEST-FACTOR STUFF: *******************/
-#ifdef FAC_DEBUG
+  #ifdef FAC_DEBUG
 
 	if(k_targ) {
 		// Could add check of whether associated q is prime, but assume user knows what he's soing,
@@ -1755,22 +1787,21 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 		(Remember that the pass number returned by CHECK_PKMOD[60|4620] is unit-offset).
 		If a known factor given, only process the given k/log2 range for that pass:
 		*/
-		ASSERT(HERE, lenP == 1, "lenP must == 1 in call to CHECK_PKMOD4620!");
 	#if TF_CLASSES == 60
-		pass_targ = CHECK_PKMOD60  (p[0], k_targ, 0x0) - 1;
+		pass_targ = CHECK_PKMOD60  (p,lenP, k_targ, 0x0) - 1;
 	#else	// 4620 classes:
-		pass_targ = CHECK_PKMOD4620(p[0], k_targ, 0x0) - 1;
+		pass_targ = CHECK_PKMOD4620(p,lenP, k_targ, 0x0) - 1;
 	#endif
 		ASSERT(HERE, (pass_targ < TF_PASSES), "Candidate factor set via k_targ is not a possible factor for this exponent!");
 		printf("Target pass for debug-factor = %u\n",pass_targ);
 	}
 
-#endif
+  #endif
 
 	itmp64 = (uint64)mi64_div_y32(p,TF_CLASSES,0x0,lenP);
 //	printf("p %% 60 = %llu\n",itmp64);
 
-#if TF_CLASSES == 60
+  #if TF_CLASSES == 60
 /*
 	const int pmod_vec[] = { 1, 7,11,13,17,19,23,29,31,37,41,43,47,49,53,59, 2,4,8,16,32, 0x0};
 	for(i = 0; pmod_vec[i] != 0; i++) {
@@ -1801,8 +1832,8 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	pm = 16: 0, 6, 8,14,18,20,24,26,30,36,38,44,48,50,54,56	<*** F36 factor has k = 20 ... why do I miss? ***
 	pm = 32: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
 */
-	i = CHECK_PKMOD60  (itmp64, k, incr);
-	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[1,7,11,13,17,19,23,29,31,37,41,43,47,49,53,59] (mod 60).\n");
+	i = CHECK_PKMOD60  (&itmp64,1, k, incr);
+	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[1,7,11,13,17,19,23,29,31,37,41,43,47,49,53,59] (mod 60).\n");
 /*
 	printf("k mod 60 = [");
 	for(i = 0, j = 0; i < 16; i++) {
@@ -1812,10 +1843,10 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	printf("]\n");
 	exit(0);
 */
-#else	// 4620 classes:
-	i = CHECK_PKMOD4620(itmp64, k, incr);
+  #else	// 4620 classes:
+	i = CHECK_PKMOD4620(&itmp64,1, k, incr);
 	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[960 possible values] (mod 4620).\n");
-#endif
+  #endif
 
 	/* If it's a restart, interval_lo for the initial pass will be based
 	on (know), rather than (kmin) - handle that just inside the pass-loop: */
@@ -1859,24 +1890,24 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	/*	bmin = log(fqlo)/log(2.0);*/
 	/*	bmax = log(fqhi)/log(2.0);*/
 
-#ifdef FAC_DEBUG
+  #ifdef FAC_DEBUG
 	/* Make sure the range of k's for the run contains any target factor: */
 	if(k_targ)
 		ASSERT(HERE, (kmin <= k_targ) && (kmax >= k_targ),"k_targ not in [kmin, kmax]");
-#endif
+  #endif
 
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 	fp = stderr;
-#else
+  #else
 	fp = mlucas_fopen(STATFILE,"a");
-#endif
+  #endif
 	fq = mlucas_fopen(OFILE,"a");
 
-#ifdef P1WORD
+  #ifdef P1WORD
 	sprintf(char_buf0, "Searching in the interval k=[%s, %s], i.e. q=[%e, %e]\n", &char_buf1[convert_uint64_base10_char(char_buf1, kmin )], &char_buf2[convert_uint64_base10_char(char_buf2, kmax )],fqlo,fqhi);
-#else
+  #else
 	sprintf(char_buf0, "Searching in the interval k=[%s, %s]\n", &char_buf1[convert_uint64_base10_char(char_buf1, kmin )], &char_buf2[convert_uint64_base10_char(char_buf2, kmax )]);
-#endif
+  #endif
 	fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
 
 	sprintf(char_buf0, "Each of %3u (p mod %u) passes will consist of %s intervals of length %u\n", passmax-passmin+1, TF_CLASSES, &char_buf1[convert_uint64_base10_char(char_buf1, ninterval)], bit_len);
@@ -1891,14 +1922,18 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	count = 0;	// Reset == 0 prior to sieving so kvector-fill code works properly
 	}
 
-#ifndef FACTOR_STANDALONE
+  #ifndef FACTOR_STANDALONE
 	fclose(fp);
-#endif
+  #endif
 	fp = 0x0;
 	fclose(fq); fq = 0x0;
 
-/*...init clocks, etc....*/
+	//...Init clock counter:
+  #ifdef CTIME
 	clock1 = clock();
+  #else
+	clock1 = getRealTime();
+  #endif
 	tdiff = 0.0;
 
 	// quick way to set all the bits = 1:
@@ -2016,14 +2051,14 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	}
 	printf("%u ones bits of %u in master sieve template.\n", on_bits, len<<6);
 
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 	 printf(   "TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
-#else
+  #else
 	ASSERT(HERE, fp == 0x0,"0");
 	fp = mlucas_fopen(STATFILE,"a");
 	fprintf(fp,"TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
 	fclose(fp); fp = 0x0;
-#endif
+  #endif
 
 	/* Init bitmap in atlas for each of the [TF_PASSES] k mod TF_CLASSES cases:
 	We advance the current-bit-to-copy index [i] in increments based on the length-TF_PASSES incr[] array.
@@ -2087,13 +2122,13 @@ L3:
 //printf("L3: template word %u [used %u copies] bit_atlas chart %u, word %u, bit %u\n",(uint32)k,ncopies,l,word,bit);	exit(0);
 	// For 60|4620 classes expect to end at bit 15|63 of the last word of each of the TF_PASSES = 16|960 sievelets (a.k.a. charts in our atlas):
 	ASSERT(HERE, (k == 0) && (l == 0), "bit_atlas init: Exit check 1 failed!");
-#if TF_CLASSES == 60
+  #if TF_CLASSES == 60
 	ASSERT(HERE, (word == 4254) && (bit == 15), "bit_atlas init: Exit check 2 failed!");
-#else	// 4620 classes:
+  #else	// 4620 classes:
 	ASSERT(HERE, (word == 3535) && (bit == 63), "bit_atlas init: Exit check 2 failed!");
-#endif
+  #endif
 
-#ifdef FAC_DEBUG
+  #ifdef FAC_DEBUG
   #if TF_CLASSES == 60
 	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
 	j = i*64 - 48;	// #bits
@@ -2108,7 +2143,7 @@ L3:
 //	printf("%u ones bits of %u [%6.2f%%] in bit_atlas set.\n",l,(uint32)j,100.*(float)l/j);	exit(0);
 //	  60:	184349 ones bits of 272272 [ 67.71%] in bit_atlas set.
 //	4620:	196610 ones bits of 226304 [ 86.88%] in bit_atlas set.
-#endif
+  #endif
 
 /*...deallocate full-sized bit_atlas.	*/
 	free((void *)temp_late); temp_late = 0x0;
@@ -2117,7 +2152,7 @@ L3:
 	for(i = 1; i < TF_PASSES; i++) {	// Skip pass 0 here
 		incr[i] = incr[i-1] + incr[i];
 	}
-#if TF_CLASSES == 60
+  #if TF_CLASSES == 60
 	i = 0;
 	switch(pmodNC)
 	{
@@ -2144,18 +2179,26 @@ L3:
 		default:
 			ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_FERMAT,"Only Mersenne and fermat-number factoring supported!");
 	}
-#endif
+  #endif
 
 	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that
 							that is violated it's no big deal at this point. */
 	/* Use td here, as tdiff is reserved for the total runtime from factoring start: */
+	// Accumulate the cycle count in a floating double to avoid problems with integer overflow
+	// of the clock() result, if clock_t happens to be 32-bit int on the host platform:
+  #ifdef CTIME
+	clock2 = clock();
 	td = (double)(clock2 - clock1);
 	clock1 = clock2;
+  #else
+	clock2 = getRealTime();
+	td = clock2 - clock1;
+  #endif
 
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 	if(!restart)
 		printf("Time to set up sieve =%s\n",get_time_str(td));
-#endif
+  #endif
 
 /* Run through each of the 16 "sievelets" as many times as necessary, each time copying
 the appropriate q mod 8 and small-prime bit-cleared bit_atlas into memory, clearing bits
@@ -2164,22 +2207,22 @@ candidate factors that survive sieving.	*/
 
 	nfactor = 0;
 
-#ifdef FAC_DEBUG
+  #ifdef FAC_DEBUG
 	/* If a known factor given, only process the given k/log2 range for that pass: */
 	if(pass_targ < TF_PASSES) {
 		passmin = passnow = passmax = pass_targ;
 		printf("Setting run parameters to execute only the debug-targeted pass %u.\n",pass_targ);
 	}
-#endif
+  #endif
 
-#if 0//def USE_GPU *** Doing this here gives 'cudaGetLastError() returned 36: cannot set while device is active in this process' -
+  #if 0//def USE_GPU *** Doing this here gives 'cudaGetLastError() returned 36: cannot set while device is active in this process' -
 			// This is because of the start-of-run GPU-self-tests in util.c; thus moved upstream to immediately precede those. ***
 	#error Wrong place for this!
 	// Disable default spin-loop-wait-for-GPU:
 	cudaSetDeviceFlags(cudaDeviceBlockingSync);
-#endif
+  #endif
 
-#ifdef MULTITHREAD
+  #ifdef MULTITHREAD
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
@@ -2313,7 +2356,7 @@ candidate factors that survive sieving.	*/
 		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
 	};	// wave-loop
 
-#else	// Single-threaded execution:
+  #else	// Single-threaded execution:
 
 	for(pass = passnow; pass <= passmax; pass++)
 	{
@@ -2416,10 +2459,10 @@ candidate factors that survive sieving.	*/
 	/***********/
 	}	/* end of pass loop	*/
 
-#endif	// MULTITHREAD ?
+  #endif	// MULTITHREAD ?
 
 /*...all done.	*/
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 	if(!restart)
 	{
 		printf(   "%s(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n",
@@ -2428,14 +2471,14 @@ candidate factors that survive sieving.	*/
 		/* Since we're done accumulating cycle count, divide to get total time in seconds: */
 		printf(   "Clocks =%s\n",get_time_str(tdiff));
 	}
-#else
+  #else
 	ASSERT(HERE, fp == 0x0,"0");
 	fp = mlucas_fopen(STATFILE,"a");
 	fprintf(fp,"Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
 	/* Since we're done accumulating cycle count, divide to get total time in seconds: */
 	fprintf(fp,"Clocks =%s\n",get_time_str(tdiff));
 	fclose(fp); fp = 0x0;
-#endif
+  #endif
 
 	fp = mlucas_fopen(   OFILE,"a");
   #ifdef P1WORD
@@ -2445,13 +2488,13 @@ candidate factors that survive sieving.	*/
   #endif
 	fclose(fp); fp = 0x0;
 
-#ifdef FAC_DEBUG
+  #ifdef FAC_DEBUG
 	/* If a test factor was given, make sure we found at least one factor: */
 	if(k_targ > 0)
 	{
 		ASSERT(HERE, nfactor > 0,"k_targ > 0 but failed to find at least one factor");
 	}
-#endif
+  #endif
 
 	// If in double-Mersenne deep-sieve mode, print sorted list of k-to-do:
 	if((MODULUS_TYPE == MODULUS_TYPE_MERSMERS) && (findex > 10000)) {
@@ -2480,14 +2523,14 @@ candidate factors that survive sieving.	*/
 	free((void *)q);
 	free((void *)q2);
 	free((void *)u64_arr);
-#ifdef MULTITHREAD
+  #ifdef MULTITHREAD
 	free((void *)tdat); tdat = 0x0;
-#endif
+  #endif
 
 	return(0);
 
 	/* Only reachable from argc/argv section: */
-#ifdef FACTOR_STANDALONE
+  #ifdef FACTOR_STANDALONE
 MFACTOR_HELP:
 	printf(" Mfactor command line options ...\n");
 	printf(" <CR>        Default mode: prompts for manual keyboard entry\n");
@@ -2525,8 +2568,10 @@ MFACTOR_HELP:
 	if(!STREQ(stFlag, "-h"))
 		ASSERT(HERE, 0,"Mfactor: Unrecognized command-line option!");
 	return(0);
-#endif
+  #endif
 }
+
+#endif	/* #ifdef FACTOR_STANDALONE */
 
 /******************/
 
@@ -2561,6 +2606,7 @@ MFACTOR_HELP:
 		const char*OFILE
 	) {
 		int    tid = 0;
+
   #else
 
 	void*
@@ -2607,6 +2653,7 @@ MFACTOR_HELP:
 		const char *VERSION = targ->VERSION;
 		const char *OFILE   = targ->OFILE;
   #endif
+		int found_pass = FALSE;
 	#ifdef MULTITHREAD
 		// Proper init (as opposed to no-init) key to avoiding deadlock here.
 		// Started with 2 separate _checkpoint and _foundfactor mutexes here, but since both code sections
@@ -2615,13 +2662,13 @@ MFACTOR_HELP:
 						mutex_updatecount = PTHREAD_MUTEX_INITIALIZER;	// No mi64 calls here.
 	#endif
 		FILE *fp = 0x0;
-		char *cstr,*char_addr;
+		char *char_addr;
 	#if TF_CLASSES == 60
 		const uint32 TRYQM1 = TRYQ-1, bit_len = (sieve_len << TF_CLSHIFT)/TF_CLASSES; 	// 255255*64  /  60 = 272272: Number of bits in each of the  16 mod-  60 sievelets
 	#else	// 4620 classes:
 		const uint32 TRYQM1 = TRYQ-1, bit_len = (sieve_len << TF_CLSHIFT)/TF_CLASSES;	// 255255*64^2/4620 = 226304: Number of bits in each of the 960 mod-4620 sievelets
 	#endif
-		int curr_line,itmp;
+		int itmp;
 		uint32 bit,bit_hi,curr_p,i,ihi,idx,j,l,m;
 		uint64 count = 0ull, itmp64, k = 0ull, sweep, res;
 		int32 q_index = -1;
@@ -2640,215 +2687,220 @@ MFACTOR_HELP:
 		uint256 p256,q256,t256;
 	#endif
 		char cbuf[STR_MAX_LEN], cbuf2[STR_MAX_LEN];
+	#ifdef CTIME
 		clock_t clock1, clock2;
+	#else	// Multithreaded needs wall-clock, not CPU time:
+		double clock1, clock2;	// Jun 2014: Switched to getRealTime() code
+	#endif
 
 		if(interval_lo == interval_hi) {
 			printf("Thread %u immediate-return (no-op)\n",tid);
 			return 0x0;
 		}
 
-	#warning Restart-file read/write needs finishing & debug!
-	#if 0
-	/* TF restart files are in HRF, not binary: */
-	int found_pass = FALSE;
-	fp = mlucas_fopen(RESTARTFILE, "r");
-	if(fp) {
-		// If file exists, it should have the proper first 2 lines:
-		itmp = fscanf(fp,"%s\n",cstr);
-		if(itmp <= 0 || !STREQ(cstr,pstring)) {
-			sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",cstr,pstring);
-			ASSERT(HERE,0,char_buf0);
-		}
-		itmp = fscanf(fp,"%u\n",&i  );
-		if(itmp <= 0 || i != TF_PASSES      ) {
-			sprintf(char_buf0,"Line 1 entry found in factoring savefile [%d] does not match exponent of run [%d].",i,TF_PASSES);
-			ASSERT(HERE,0,char_buf0);
-		}
-		// See if restart file has a pass/max-k-reached entry matching the current pass:
-		while(fgets(cstr,STR_MAX_LEN,fp)) {
-			if((char_addr = strstr(cstr,"Pass ")) != 0) {
-				itmp = sscanf(char_addr,"%u",i);
-				if(itmp <= 0) {
-					fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+	#if 0	/************** disable for now - need to sync with similar code in main() ***************/
+	#error Need to sync this code with similar code in main()!
+	// TF restart files are in HRF, not binary - checkpointing only supported for single-threaded runs:
+	if(NTHREADS == 1)
+	{
+		fp = mlucas_fopen(RESTARTFILE, "r");
+		if(fp) {
+			// If file exists, it should have the proper first 2 lines:
+			itmp = fscanf(fp,"%s\n",cstr);
+			if(itmp <= 0 || !STREQ(cstr,pstring)) {
+				sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",cstr,pstring);
+				ASSERT(HERE,0,char_buf0);
+			}
+			itmp = fscanf(fp,"%u\n",&i  );
+			if(itmp <= 0 || i != TF_PASSES      ) {
+				sprintf(char_buf0,"Line 1 entry found in factoring savefile [%d] does not match exponent of run [%d].",i,TF_PASSES);
+				ASSERT(HERE,0,char_buf0);
+			}
+			// See if restart file has a pass/max-k-reached entry matching the current pass:
+			while(fgets(cstr,STR_MAX_LEN,fp)) {
+				if((char_addr = strstr(cstr,"Pass ")) != 0) {
+					itmp = sscanf(char_addr,"%u",i);
+					if(itmp <= 0) {
+						fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+					}
+					if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
+						ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+						found_pass = TRUE;
+						// Read the max-k-reached value
+						ASSERT(HERE,((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
+						itmp = sscanf(char_addr,"%llu",k);
+						ASSERT(HERE,itmp >= 0,"Unable to read max-k-reached value!");
+						// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
+					}
 				}
-				if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
-					ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
-					found_pass = TRUE;
-					// Read the max-k-reached value
-					ASSERT(HERE,((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
-					itmp = sscanf(char_addr,"%llu",k);
-					ASSERT(HERE,itmp >= 0,"Unable to read max-k-reached value!");
-					// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
+			}
+			/* pstring*/
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
+			}
+			/* Strip the expected newline char from in_line: */
+			char_addr = strstr(in_line, "\n");
+			if(char_addr)
+				*char_addr = '\0';
+			/* Make sure restart-file and current-run pstring match: */
+			if(STRNEQ(in_line, pstring)) {
+				fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring, curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
+			}
+
+			/* bmin */
+			++curr_line;
+			fgets(cbuf, STR_MAX_LEN, fp);
+			itmp = sscanf(cbuf, "%lf", &bmin_file);
+			if(itmp != 1) {
+				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
+			}
+
+			/* bmax */
+			++curr_line;
+			fgets(cbuf, STR_MAX_LEN, fp);
+			itmp = sscanf(cbuf, "%lf", &bmax_file);
+			if(itmp != 1) {
+				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
+			}
+
+		/************************************
+		LINE PAIRS 5/6 AND 7/8 ARE USED TO DETERMINE WHETHER A PREVIOUS
+		FACTORING RUN OF THE SAME EXPONENT COMPLETED OR NOT: If know >= kmax
+		and passnow = passmax then the previous run completed, in which case
+		we allow a new run to a deeper bound, i.e. reset passnow = passmin
+		and run passes passmin through passmax from bounds kmin to kmax.
+		*************************************/
+			/* KMin */
+			++curr_line;
+	GET_LINE4:
+		/**** redo this ****/
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: 'KMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "KMin");
+			/* Since the preceding fscanf call may leave us at the end of curr_line-1
+			(rather than the beginning of curr_line), allow for a possible 2nd needed
+			fgets call here: */
+			if(!char_addr) {
+				goto GET_LINE4;
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
 				}
+				char_addr++;
+				kmin_file = convert_base10_char_uint64(char_addr);
 			}
-		}
-		/* pstring*/
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
-		}
-		/* Strip the expected newline char from in_line: */
-		char_addr = strstr(in_line, "\n");
-		if(char_addr)
-			*char_addr = '\0';
-		/* Make sure restart-file and current-run pstring match: */
-		if(STRNEQ(in_line, pstring)) {
-			fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring, curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
-		}
 
-		/* bmin */
-		++curr_line;
-		fgets(cbuf, STR_MAX_LEN, fp);
-		itmp = sscanf(cbuf, "%lf", &bmin_file);
-		if(itmp != 1) {
-			fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
-		}
-
-		/* bmax */
-		++curr_line;
-		fgets(cbuf, STR_MAX_LEN, fp);
-		itmp = sscanf(cbuf, "%lf", &bmax_file);
-		if(itmp != 1) {
-			fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
-		}
-
-	/************************************
-	LINE PAIRS 5/6 AND 7/8 ARE USED TO DETERMINE WHETHER A PREVIOUS
-	FACTORING RUN OF THE SAME EXPONENT COMPLETED OR NOT: If know >= kmax
-	and passnow = passmax then the previous run completed, in which case
-	we allow a new run to a deeper bound, i.e. reset passnow = passmin
-	and run passes passmin through passmax from bounds kmin to kmax.
-	*************************************/
-		/* KMin */
-		++curr_line;
-GET_LINE4:
-	/**** redo this ****/
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: 'KMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "KMin");
-		/* Since the preceding fscanf call may leave us at the end of curr_line-1
-		(rather than the beginning of curr_line), allow for a possible 2nd needed
-		fgets call here: */
-		if(!char_addr) {
-			goto GET_LINE4;
-		} else {
-			char_addr = strstr(in_line, "=");
+			/* KNow */
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (KNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "KNow");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'KNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				}
+				char_addr++;
+				know_file = convert_base10_char_uint64(char_addr);
 			}
-			char_addr++;
-			kmin_file = convert_base10_char_uint64(char_addr);
-		}
 
-		/* KNow */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (KNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "KNow");
-		if(!char_addr) {
-			fprintf(stderr,"ERROR: 'KNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		} else {
-			char_addr = strstr(in_line, "=");
+			/* KMax */
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (KMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "KMax");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'KMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				}
+				char_addr++;
+				kmax_file = convert_base10_char_uint64(char_addr);
 			}
-			char_addr++;
-			know_file = convert_base10_char_uint64(char_addr);
-		}
 
-		/* KMax */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (KMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "KMax");
-		if(!char_addr) {
-			fprintf(stderr,"ERROR: 'KMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		} else {
-			char_addr = strstr(in_line, "=");
+			/* PassMin */
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "PassMin");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'PassMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				}
+				char_addr++;
+				passmin_file = (uint32)convert_base10_char_uint64(char_addr);
+				ASSERT(HERE, passmin_file < TF_PASSES,"factor.c: passmin < TF_PASSES");
 			}
-			char_addr++;
-			kmax_file = convert_base10_char_uint64(char_addr);
-		}
 
-		/* PassMin */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "PassMin");
-		if(!char_addr) {
-			fprintf(stderr,"ERROR: 'PassMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		} else {
-			char_addr = strstr(in_line, "=");
+			/* PassNow */
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (PassNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "PassNow");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'PassNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				}
+				char_addr++;
+				passnow_file = (uint32)convert_base10_char_uint64(char_addr);
+				ASSERT(HERE, passnow_file < TF_PASSES,"factor.c: passnow < TF_PASSES");
+				ASSERT(HERE, passnow_file >= passmin_file  ,"factor.c: passnow_file >= passmin_file");
 			}
-			char_addr++;
-			passmin_file = (uint32)convert_base10_char_uint64(char_addr);
-			ASSERT(HERE, passmin_file < TF_PASSES,"factor.c: passmin < TF_PASSES");
-		}
 
-		/* PassNow */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (PassNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "PassNow");
-		if(!char_addr) {
-			fprintf(stderr,"ERROR: 'PassNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		} else {
-			char_addr = strstr(in_line, "=");
+			/* PassMax */
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (PassMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "PassMax");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'PassMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				}
+				char_addr++;
+				passmax_file = (uint32)convert_base10_char_uint64(char_addr);
+				ASSERT(HERE, passmax_file < TF_PASSES,"factor.c: passmax_file < TF_PASSES");
+				ASSERT(HERE, passmax_file >= passnow_file  ,"factor.c: passmax_file >= passnow_file");
 			}
-			char_addr++;
-			passnow_file = (uint32)convert_base10_char_uint64(char_addr);
-			ASSERT(HERE, passnow_file < TF_PASSES,"factor.c: passnow < TF_PASSES");
-			ASSERT(HERE, passnow_file >= passmin_file  ,"factor.c: passnow_file >= passmin_file");
-		}
 
-		/* PassMax */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (PassMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "PassMax");
-		if(!char_addr) {
-			fprintf(stderr,"ERROR: 'PassMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		} else {
-			char_addr = strstr(in_line, "=");
+			/* Number of q's tried: */
+			++curr_line;
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr = strstr(in_line, "#Q tried");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			} else {
+				char_addr = strstr(in_line, "=");
+				if(!char_addr) {
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				}
+				char_addr++;
+				count = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
 			}
-			char_addr++;
-			passmax_file = (uint32)convert_base10_char_uint64(char_addr);
-			ASSERT(HERE, passmax_file < TF_PASSES,"factor.c: passmax_file < TF_PASSES");
-			ASSERT(HERE, passmax_file >= passnow_file  ,"factor.c: passmax_file >= passnow_file");
-		}
-
-		/* Number of q's tried: */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		}
-		char_addr = strstr(in_line, "#Q tried");
-		if(!char_addr) {
-			fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
-			}
-			char_addr++;
-			count = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
-		}
-
-		fclose(fp); fp = 0x0;
+			fclose(fp); fp = 0x0;
+		}	// endif(NTHREADS == 1)
 
 		/**** process restart-file and any command-line params: ****/
 
@@ -2943,18 +2995,24 @@ GET_LINE4:
 		/* Successfully processed restart file: */
 		restart = TRUE;
 	}
-	#endif
+
 	// No restart file found, or no enty for this pass found in same, or max-k-reached-for-this-pass found therein <= kstart;
 	// Take starting k value from kstart:
 	if(!k)
 		k = kstart;
+	#endif	// #if 0
 /************************ END(RESTART STUFF) *******************/
 
 	#ifdef MULTITHREAD
 	//	fprintf(stderr, "In PerPass_tfSieve task_id = %u, worker thread id %u\n", tid, ((struct thread_init *)targ)->thread_num);
 	//	if(interval_hi > interval_lo) fprintf(stderr, "pass = %u",pass);	// Only print this diagnostic for non-empty tasks
 	#endif
-		clock1 = clock();	// In || mode, only the 0-thread accumulates runtime, but do this for all threads to avoid uninit warnings
+		// In || mode, only the 0-thread accumulates runtime, but do this for all threads to avoid uninit warnings:
+	#ifdef CTIME
+		clock1 = clock();
+	#else
+		clock1 = getRealTime();
+	#endif
 
 	  #ifdef FAC_DEBUG
 		// compute qstart = 2.kstart.p + 1:
@@ -3218,8 +3276,8 @@ GET_LINE4:
 				{
 				#ifdef FAC_DEBUG
 					/* If a known factor is specified, here it is in the bitmap: */
-					if(k == k_targ)
-					{
+					if(ABS((int64)(k-k_targ)) < 1000) printf("Trying k = %llu\n",k);
+					if(k == k_targ) {
 						printf("here it is: sweep = %s, bitmap word = %u, bit = %3u\n", &cbuf[convert_uint64_base10_char(cbuf, sweep)], i, bit);
 						if((bit_map2[i] >> bit) & 1)
 							printf("Trying k_targ = %llu...\n", k_targ);
@@ -3682,44 +3740,63 @@ GET_LINE4:
 									/* Recover the factor: */
 									q[lenP] = mi64_mul_scalar( p, 2*k_to_try[l], q, lenP);
 									q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-									if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1) {
+									if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1)
+									{
 										fprintf(stderr, "ERROR: k = %llu, post-check indicates this does not yield a factor.\n", k_to_try[l]);
 									//	printf("Args sent to mi64_twopmodq:\n");
 									//	printf("p = %s\n", &cbuf[convert_mi64_base10_char(cbuf, p, lenP, 0)]);
 									//	printf("q = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 									//	printf("res = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q2, lenQ, 0)]);
 									} else {
-									  #ifdef FAC_DEBUG
-										printf("Factor found: q = %s. Checking primality...\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
-									  #endif
 										/* Do a quick base-3 compositeness check (base-2 would be much faster due to
 										our fast Montgomery arithmetic-based powering for that, but it's useless for
 										weeding out composite Mersenne factors since those are all base-2 Fermat pseudoprimes).
 										If it's composite we skip it, since we expect to recover the individual prime subfactors
 										on subsequent passes (although this should only ever happen for small p and q > (2p+1)^2 :
 										*/
+										uint32 known_factor_div_check_done = 0;
 									TEST_FAC_PRIM:
-										if(mi64_pprimeF(q, 3ull, lenQ))
-										{
+										if(mi64_pprimeF(q, 3ull, lenQ)) {
 											factor_k[(*nfactor)++] = k_to_try[l];
-											sprintf(cbuf,"\n\tFactor with k = %llu. This factor is a probable prime.\n", k_to_try[l]);
+											if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%llu. This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
+											else
+												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %llu. This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
 										#ifdef FAC_DEBUG
 											if(TRYQM1 > 1)
 												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 										#endif
-										} else {	// Composite factor: see if any previously-found ones divide it:
-											printf("\n\tFactor with k = %llu. This factor is composite - checking if any previously-found ones divide it...\n", k_to_try[l]);
-											for(j = 0; j < *nfactor; j++) {
-												q2[lenP] = mi64_mul_scalar( p, 2*factor_k[j], q2, lenP);
-												q2[0] += 1;	// q2 = 2.k.p + 1; No need to check for carry since 2.k.p even
-												mi64_clear(u64_arr, lenQ);	// Use u64_arr for quotient; only care if remainder == 0 or not
-												if(mi64_div(q,q2,lenQ,lenQ,u64_arr,0x0)) {
-													printf("\tFactor divisible by previously-found factor with k = %llu.\n", factor_k[j]);
+										} else {	// Composite factor; this should only occur in "single-word" (q < 2^96) mode:
+											if(known_factor_div_check_done) {	// Already divided out all pvsly-found factors
+												sprintf(cbuf,"\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
+											} else {
+												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
+												for(j = 0; j < *nfactor; j++) {
+													q2[lenP] = mi64_mul_scalar( p, 2*factor_k[j], q2, lenP);
+													ASSERT(HERE, lenP == 1 && q2[lenP] == 0ull, "Unexpected carryout in known-factor computation!");
+													q2[0] += 1;	// q2 = 2.k.p + 1; No need to check for carry since 2.k.p even
+													mi64_clear(u64_arr, lenQ);	// Use u64_arr for quotient; only care if remainder == 0 or not
+													if(mi64_div(q,q2,lenQ,lenQ,u64_arr,0x0)) {
+														/* in this case, need to update factor_k entry to reflect k of cofactor>
+														Given factor q which is product of 2 factors f1 = 2.k1.p+1 and f2 = 2.k2.p+1,
+														the first of which has been previously found, we have
+														q = f1*f2 = (2.k1.p+1).(2.k2.p+1) = 4.k1.k2.p^2 + 2.(k1+k2).p + 1 = 2.k.p+1,
+														so k = 2.k1.k2.p + (k1+k2) = k1 + k2.(2.k1.p + 1) = k1 + f1.k2 .
+														Thus if have pvsly found f1 and now find the composite factor q = f1.f2,
+														to get k2 from k and k1, use k2 = (k - k1)/f1: */
+														factor_k[*nfactor-1] = (factor_k[*nfactor-1] - factor_k[j])/q2[0];
+														if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2^(%u+2)*%llu.\n",findex,factor_k[j]);
+														else
+															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2*p*k + 1 with k = %llu.\n",factor_k[j]);
+													}
+													mi64_set_eq(q, u64_arr, lenQ);
 												}
-												mi64_set_eq(q, u64_arr, lenQ);
+												known_factor_div_check_done = 1;
+												// If dividing out any previously-found factors leaves a nontrivial cofactor, send it back to above is-PRP check:
+												if(!mi64_cmp_eq_scalar(q, 1ull, lenQ))
+													goto TEST_FAC_PRIM;
 											}
-											if(!mi64_cmp_eq_scalar(q, 1ull, lenQ))
-												goto TEST_FAC_PRIM;
 										}	/* endif(factor a probable prime?) */
 									#ifdef FACTOR_STANDALONE
 										fprintf(stderr,"%s", cbuf);
@@ -3752,33 +3829,34 @@ GET_LINE4:
 				} /* end of BIT loop	*/
 			}	/* end of K loop	*/
 
-		#if(TRYQ > 1)
-
+		#if 0	//(TRYQ > 1)	Aug 2022: This code no longer needed; use 'run -bmin 57 -bmax 64 -m 7962742673' to see why
+			#error Aug 2022: This code no longer needed!
 			/* Clean up any remaining in queue */
-			if(q_index >= 0)
-			{
-				for(l = 0; l <= (uint32)q_index; l++)
-				{
+			if(q_index >= 0) {
+			//	if(pass == 14 && k_to_try[0] > 16300000 && k_to_try[0] < 16340000)
+			//		printf("Cleaning up remaining %u candidates in queue...\n",q_index+1);
+				for(l = 0; l <= (uint32)q_index; l++) {
 				#ifdef FAC_DEBUG
-					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
+					itmp64 = mi64_mul_scalar(two_p,k_to_try[l],q,lenQ);
+					// Should only happen benignly, for q just above a wordcount boundary due to padding at high end of current sieve interval
+				//	if(itmp64)
+				//		fprintf(stderr,"2.k.p overflows for k = %llu, result = %llu*2^64 + %llu\n",k_to_try[l],itmp64,q[0]);
 					q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-					printf("A: Trying q = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
+				//	if(k_to_try[0] > 16300000 && k_to_try[0] < 16340000)printf("A: Trying k[%u] = %llu, q = %s\n",l,k_to_try[l],&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 				#endif
 
 				#ifdef P4WORD
 
-					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],(uint64*)&q256,lenQ), "2.k.p overflows!");
-					q256.d0 += 1;	// No need to check for carry since 2.k.p even
-					p256.d0 = p[0]; p256.d1 = p[1]; p256.d1 = p[1]; p256.d2 = p[2]; p256.d3 = p[3];
-					t256 = twopmodq256(p256,q256);
+					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
+					q[0] += 1;	// No need to check for carry since 2.k.p even
+					t256 = twopmodq256(*(uint256*)p,*(uint256*)q);
 					res = CMPEQ256(t256, ONE256);
 
 				#elif(defined(P3WORD))
 
-					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],(uint64*)&q192,lenQ), "2.k.p overflows!");
-					q192.d0 += 1;	// No need to check for carry since 2.k.p even
-					p192.d0 = p[0]; p192.d1 = p[1]; p192.d1 = p[1]; p192.d2 = p[2];
-					t192 = twopmodq192(p192,q192);
+					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
+					q[0] += 1;	// No need to check for carry since 2.k.p even
+					t192 = twopmodq192(*(uint192*)p,*(uint192*)q);
 					res = CMPEQ192(t192, ONE192);
 
 				#elif(defined(P2WORD))
@@ -3787,16 +3865,12 @@ GET_LINE4:
 
 				#else
 
-					if(fbits_in_q < 63) {
-						itmp64 = p[0]*k_to_try[l];	itmp64 += itmp64 + 1;
-						res = twopmodq63(p[0],itmp64);
-						res = (res == 1);
-					} else if(fbits_in_q < 64) {
-						itmp64 = p[0]*k_to_try[l];	itmp64 += itmp64 + 1;
-						res = twopmodq64(p[0],itmp64);
-						res = (res == 1);
-					} else {
+					if(fbits_in_q > 64) {
 						res = twopmodq128_96(p[0],k_to_try[l]);
+					} else {
+						q[0] = 2*p[0]*k_to_try[l] + 1;
+						res = twopmodq64(p[0],q[0]);
+						res = (res == 1);
 					}
 
 				#endif	/* endif(P1WORD) */
@@ -3809,7 +3883,7 @@ GET_LINE4:
 						/* Check if it's a composite factor - if so, skip: */
 						if(mi64_pprimeF(q, 3ull, lenQ))
 						{
-							sprintf(cbuf,"Factor with k = %llu. Program: E%s\n", k, VERSION);
+							sprintf(cbuf,"Factor: q = %s. Program: E%s\n",&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],VERSION);
 						#ifdef FACTOR_STANDALONE
 							fprintf(stderr,"%s", cbuf);
 						#else
@@ -3825,7 +3899,7 @@ GET_LINE4:
 						#ifdef FAC_DEBUG
 							printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 						#endif
-							factor_k[(*nfactor)++] = k;
+							factor_k[(*nfactor)++] = k_to_try[l];
 
 						#ifdef QUIT_WHEN_FACTOR_FOUND
 							return 0;
@@ -3839,96 +3913,118 @@ GET_LINE4:
 			}	/* endif(q_index >= 0) */
 		#endif	/* end #if(TRYQ > 1) */
 
-	#warning Need to move checkpointing stuff to factor-main!
-	#if 0
-		#if (!FAC_DEBUG)
-			/*
-			Every 1024th pass through the small-primes sieve, and also following the final pass
-			through the sieve, write the checkpoint file, with format as described previously.
+	/******************* MOVE CHKPT STUFF TO FACTOR-MAIN?? ***********************/
+	// Checkpointing only supported for single-threaded runs:
+	if(NTHREADS == 1) {
+	#if !FAC_DEBUG
+		// Every 1024th pass, write the checkpoint file, with format as described previously:
+		if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi)) {
+			i = write_savefile(RESTARTFILE, pstring, pass, k, count);	// Only overwrite passnow, know and count fields of savefile
+			ASSERT(HERE,!i,"There were errors writing the savefile ... aborting");
+		}	/* Successfully wrote restart file. */
+	#endif /* #if !FAC_DEBUG */
+	}
+#if 0
+	#error Multithreaded checkpointing stuff needs debug & test!
+	else {
+	  #if (!FAC_DEBUG)
+		char *char_addr, TMPFILE[STR_MAX_LEN] = "";
+		strcpy(TMPFILE, RESTARTFILE);	strcat(TMPFILE, ".tmp");
+		/*
+		Every 1024th pass through the small-primes sieve, and also following the final pass
+		through the sieve, write the checkpoint file, with format as described previously.
 
-			Since we expect that multiple jobs and/or threads may be working on the same exponent,
-			we make such checkpoint-updates atomic as follows:
+		Since we expect that multiple jobs and/or threads may be working on the same exponent,
+		we make such checkpoint-updates atomic as follows:
 
-			1. job/thread X acquires file lock and opens checkpoint file <filename> for reading, if it exists.
-				No other job/thread may acquire file lock until X releases it;
-			2. X also opens a 2nd, temporary, file <filename.tmp> for writing, beginning with line 1: exponent (= pstring)
-				and line 2, Value of TF_PASSES in the build (16 or 960)
-			3. If there was an existing savefile found in step [1], X copies its contents
-				to the .tmp file in [2] line-by-line, only updating the single "Pass *: [max k reached]" entry
-				corresponding to the current pass whose progress is being saved via checkpointing;
-			4. X closes both files, renames <filename.tmp> to <filename>, thus overwriting the now-obsolete
-				version of the latter;
-			5. X releases the file lock and resumes processing factor candidates.
-			*/
-			if(1) {//((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi))
-			{
-				/* TF restart files are in HRF, not binary: */
-				fp = mlucas_fopen(RESTARTFILE, "r");
-				fq = mlucas_fopen(    TMPFILE, "w");
-				if(!fp) {
-					fprintf(stderr,"INFO: factoring savefile %s not found - will create.\n",RESTARTFILE);
-				} else {	// If file exists, it should have the proper first 2 lines:
-					itmp = fscanf(fp,"%s\n",cstr); if(itmp <= 0 || !STREQ(cstr,pstring)) ASSERT(HERE,0,"Line 1 entry found in factoring savefile does not match exponent of run.");
-					itmp = fscanf(fp,"%u\n",&i  ); if(itmp <= 0 || i != TF_PASSES      ) ASSERT(HERE,0,"Line 2 entry found in factoring savefile does not match TF_PASSES value of build.");
-				}
-				if(!fq) {
-					fprintf(stderr,"INFO: Unable to open factoring savefile %s for reading and/or %s.tmp for writing...quitting.\n",RESTARTFILE,RESTARTFILE);
-					ASSERT(HERE, 0,"0");
-				}
+		1. job/thread X acquires file lock and opens checkpoint file <filename> for reading, if it exists.
+			No other job/thread may acquire file lock until X releases it;
+		2. X also opens a 2nd, temporary, file <filename.tmp> for writing, beginning with line 1: exponent (= pstring)
+			and line 2, Value of TF_PASSES in the build (16 or 960)
+		3. If there was an existing savefile found in step [1], X copies its contents
+			to the .tmp file in [2] line-by-line, only updating the single "Pass *: [max k reached]" entry
+			corresponding to the current pass whose progress is being saved via checkpointing;
+		4. X closes both files, renames <filename.tmp> to <filename>, thus overwriting the now-obsolete
+			version of the latter;
+		5. X releases the file lock and resumes processing factor candidates.
+		*/
+		if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi))
+		{
+			/* TF restart files are in HRF, not binary: */
+			fp = mlucas_fopen(RESTARTFILE, "r");
+			fq = mlucas_fopen(    TMPFILE, "w");
+			if(!fp) {
+				fprintf(stderr,"INFO: factoring savefile %s not found - will create.\n",RESTARTFILE);
+			} else {	// If file exists, it should have the proper first 2 lines:
+				itmp = fscanf(fp,"%s\n",cstr); if(itmp <= 0 || !STREQ(cstr,pstring)) ASSERT(HERE,0,"Line 1 entry found in factoring savefile does not match exponent of run.");
+				itmp = fscanf(fp,"%u\n",&i  ); if(itmp <= 0 || i != TF_PASSES      ) ASSERT(HERE,0,"Line 2 entry found in factoring savefile does not match TF_PASSES value of build.");
+			}
+			if(!fq) {
+				fprintf(stderr,"INFO: Unable to open factoring savefile %s for reading and/or %s.tmp for writing...quitting.\n",RESTARTFILE,RESTARTFILE);
+				ASSERT(HERE, 0,"0");
+			}
 
-				curr_line = 0;
-				/* pstring: */
-				++curr_line;
-				itmp = fprintf(fq,"%s\n",pstring);
-				if(itmp <= 0) {
-					fprintf(stderr,"ERROR: unable to write Line %d (current exponent) to %s.\n", curr_line, TMPFILE);
-					ASSERT(HERE, 0,"0");
-				}
-				/* TF_PASSES: */
-				++curr_line;
-				itmp = fprintf(fq,"%u\n",TF_PASSES);
-				if(itmp <= 0) {
-					fprintf(stderr,"ERROR: unable to write Line %d (TF_PASSES of build) to %s!\n", curr_line, TMPFILE);
-					ASSERT(HERE, 0,"0");
-				}
+			curr_line = 0;
+			/* pstring: */
+			++curr_line;
+			itmp = fprintf(fq,"%s\n",pstring);
+			if(itmp <= 0) {
+				fprintf(stderr,"ERROR: unable to write Line %d (current exponent) to %s.\n", curr_line, TMPFILE);
+				ASSERT(HERE, 0,"0");
+			}
+			/* TF_PASSES: */
+			++curr_line;
+			itmp = fprintf(fq,"%u\n",TF_PASSES);
+			if(itmp <= 0) {
+				fprintf(stderr,"ERROR: unable to write Line %d (TF_PASSES of build) to %s!\n", curr_line, TMPFILE);
+				ASSERT(HERE, 0,"0");
+			}
 
-				// Now copy any remaining entries in existing file, modifying only the one corr. to the current pass, if it exists:
-				if(fp) {
-					while(fgets(cstr,STR_MAX_LEN,fp)) {
-						if((char_addr = strstr(cstr,"Pass ")) != 0) {
-							itmp = sreadf(char_addr,"%u",i);
-							if(itmp <= 0) {
-								fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
-							}
-							if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
-								ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
-								found_pass = TRUE;
-								// Calculate the current k-value
-								k = (uint64)incr + (sweep+1)*(sieve_len<<6);
-								fprintf(fq,"Pass %u: %llu\n",pass,k);
-							} else			// Otherwise just copy as-is
-								fputs(cstr,STR_MAX_LEN,fq);
-						} else {	// Just copy as-is
-							fputs(cstr,STR_MAX_LEN,fq);
+			// Now copy any remaining entries in existing file, modifying only the one corr. to the current pass, if it exists:
+			if(fp) {
+				while(fgets(cstr,STR_MAX_LEN,fp)) {
+					if((char_addr = strstr(cstr,"Pass ")) != 0) {
+						itmp = sscanf(char_addr,"%u",i);
+						if(itmp <= 0) {
+							fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
 						}
+						if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
+							ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+							found_pass = TRUE;
+							// Calculate the current k-value
+							k = (uint64)incr + (sweep+1)*(sieve_len<<6);
+							fprintf(fq,"Pass %u: %llu\n",pass,k);
+						} else			// Otherwise just copy as-is
+							fputs(cstr,fq);
+					} else {	// Just copy as-is
+						fputs(cstr,fq);
 					}
 				}
-				if(fp) { fclose(fp); fp = 0x0; }
-				fclose(fq); fq = 0x0;
-				if(rename(TMPFILE,RESTARTFILE)) {
-					sprintf(cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
-					ASSERT(HERE,0,cstr);
-				}
-			}	// Successfully updated restart file.
-		#endif /* #if !FAC_DEBUG */
-	#endif	// #if 0 [restartfile stuff]
+			}
+			if(fp) { fclose(fp); fp = 0x0; }
+			fclose(fq); fq = 0x0;
+			if(rename(TMPFILE,RESTARTFILE)) {
+				sprintf(cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
+				ASSERT(HERE,0,cstr);
+			}
+		}	// Successfully updated restart file.
+	  #endif /* #if !FAC_DEBUG */
+	}	// endif(NTHREADS > 1)
+#endif	// #if 0|1
+
 	#if DBG_SIEVE
 		QUIT:
 	#endif
 		#ifdef MULTITHREAD
 		  if(tid == 0) {	// In || mode, only the 0-thread accumulated runtime
 		#endif
-			clock2 = clock();	*tdiff += (double)(clock2 - clock1);	clock1 = clock2;
+		#ifdef CTIME
+			clock2 = clock();
+		#else
+			clock2 = getRealTime();
+		#endif
+			*tdiff += (double)(clock2 - clock1);
+			clock1 = clock2;
 //		exit(0);
 		#ifdef MULTITHREAD
 		  }
@@ -3966,13 +4062,16 @@ otherwise populates the arglist incr[] array with the 16 increments in k (mod 60
 valid residue classes for the given p (mod 60). These increments sum to 60, i.e. te final pass
 will be the k == 0 (mod 60) one.
 */
-uint32 CHECK_PKMOD60(uint64 p, uint64 k, uint32*incr)
+uint32 CHECK_PKMOD60(uint64*p, uint32 lenP, uint64 k, uint32*incr)
 {
 	uint32 i,kcur, *iptr = 0x0;	// iptr will point to either the in-array (if one provided) or the following local array:
 	uint32 iloc[16];
+	uint32 pm = 0, km = k%60, FERMAT = 0;
+	uint64 q = 0ull;
+	pm = mi64_div_by_scalar64(p,60ull,lenP,0x0);
+	 q = 2*km*pm + 1;
 	// Note isPow2 works the same for unmodded and modded exponent, e.g. 2^[2,3,4,5,6,...]%60 = [4,8,16,32,4,...]:
-	uint32 pm = p%60, km = k%60, FERMAT = (pm > 1) && isPow2(pm);
-	uint64 q = 2*km*pm + 1;
+	FERMAT = (pm > 1) && isPow2(pm);
 
 	if((pm%3 == 0) || (pm%5 == 0))
 		return 0;
@@ -4028,14 +4127,18 @@ uint32 CHECK_PKMOD60(uint64 p, uint64 k, uint32*incr)
 }
 
 // Same as above, but (mod 4620) - i.e. small-primes 3,5,7,11 built into the sieve length - and 960 resulting passes:
-uint32 CHECK_PKMOD4620(uint64 p, uint64 k, uint32*incr)
+uint32 CHECK_PKMOD4620(uint64*p, uint32 lenP, uint64 k, uint32*incr)
 {
 	uint32 i,kcur, *iptr = 0x0;	// iptr will point to either the in-array (if one provided) or the following local array:
 	uint32 iloc[960];
+	uint32 pm = 0, km = k%4620, FERMAT = 0;
+	uint64 q = 0ull;
+	pm = mi64_div_by_scalar64(p,4620ull,lenP,0x0);
+	 q = 2*km*pm + 1;
 	// For (mod 4620) we do not have the property that isPow2 works the same for unmodded and modded power-of-2
-	// exponents that we do (mod 60), so must infer Fermat-ness based simply on evenness of exponent (modded or not):
-	uint32 pm = p%4620, km = k%4620, FERMAT = IS_EVEN(pm);
-	uint64 q = 2*km*pm + 1;
+	// exponents that we do (mod 60), so must infer Fermat-ness based simply on evenness of exponent (modded or not).
+	// or better, by call to the mi64 library:
+	FERMAT = mi64_isPow2(p,lenP,&i);	// If p a power of 2, binary exponent returned in i
 
 	if((pm%3 == 0) || (pm%5 == 0) || (pm%7 == 0) || (pm%11 == 0))
 		return 0;
@@ -4266,6 +4369,440 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 //	printf("2*p = %16llX has %u bits, lead64 = %s ==> k = %16llu.\n",itmp64,i,cbuf,k);
 #endif
 	return k;
+}
+
+/* The factoring checkpoint file is assumed to have the format:
+	Line 1:		{string containing the current exponent stored in pstring}
+	Line 2:		TF_PASSES; supporte values are 16 and 960
+
+	Line 3:		bmin = {Log2(minimum factor to try), in floating double form}
+				If > 10^9 its whole-number part is taken as the KMin value instead.
+	Line 4:		bmax = {Log2(maximum factor to try), in floating double form}
+				If > 10^9 its whole-number part is taken as the KMax value instead.
+
+	Line 5:		KMin = {smallest factor K value to be tried in each pass}
+	Line 6:		KNow = { largest factor K value tried so far during current pass}
+	Line 7:		KMax = { largest factor K value to be tried in each pass}
+
+	Line 8:		PassMin = {maximum pass for the run (typically TF_PASSES-1, but perhaps not, e.g. for a factoring assignment split over multiple CPUs.}
+	Line 9:		PassNow = {current factoring pass}
+	Line 10:	PassMax = {maximum pass for the run (typically TF_PASSES-1, but perhaps not, e.g. for a factoring assignment split over multiple CPUs.}
+
+	Line 11:	Number of q's tried so far during the run
+
+	Line 12+:	Any diagnostic info not needed for restarting from interrupt
+				(mainly, in standalone mode can use this in place of STATFILE.)
+*/
+int read_savefile(const char*fname, const char*pstring, double*bmin, double*bmax,
+uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*passmax, uint64*count)
+{
+	int itmp;
+	uint32 curr_line = 0, nerr = 0;
+	uint64 tf_passes = 0;
+	char *char_addr;
+	/* TF restart files are in HRF, not binary: */
+	fp = mlucas_fopen(fname, "r");
+	if(!fp) {
+		return -1;
+	} else {
+		sprintf(cbuf,"Factoring savefile %s found ... reading ...\n",fname);
+		fprintf(stderr,"%s",cbuf);
+	#ifndef FACTOR_STANDALONE
+		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
+	#endif
+		/* Line 1: pstring */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Strip the expected newline char from in_line: */
+		char_addr = strstr(in_line, "\n");
+		if(char_addr)
+			*char_addr = '\0';
+		/* Make sure restart-file and current-run pstring match: */
+		if(STRNEQ(in_line, pstring)) {
+			++nerr; fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring,curr_line,fname);
+		}
+
+		/* Line 2: TF_PASSES */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (TF_PASSES) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "tf_passes");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'tf_passes' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			tf_passes = convert_base10_char_uint64(char_addr);
+			if(tf_passes != TF_PASSES) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s: TF_PASSES value [%llu] mismatches that of build [%u]!\n",curr_line,fname, tf_passes, (uint32)TF_PASSES);
+			}
+		}
+
+		/* Line 3: bmin */
+		++curr_line;
+		fgets(in_line, STR_MAX_LEN, fp);
+		char_addr = strstr(in_line, "bmin");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'bmin' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+		}
+		itmp = sscanf(char_addr, "%lf",bmin);
+		if(itmp != 1) {
+			++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
+		}
+
+		/* Line 4: bmax */
+		++curr_line;
+		fgets(in_line, STR_MAX_LEN, fp);
+		char_addr = strstr(in_line, "bmax");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'bmax' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+		}
+		itmp = sscanf(char_addr, "%lf",bmax);
+		if(itmp != 1) {
+			++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmax) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
+		}
+
+	/************************************
+	LINE PAIRS 5/6 AND 7/8 ARE USED TO DETERMINE WHETHER A PREVIOUS
+	FACTORING RUN OF THE SAME EXPONENT COMPLETED OR NOT: If know >= kmax
+	and passnow = passmax then the previous run completed, in which case
+	we allow a new run to a deeper bound, i.e. reset passnow = passmin
+	and run passes passmin through passmax from bounds kmin to kmax.
+	*************************************/
+		/* Line 5: kmin */
+		++curr_line;
+		fgets(in_line, STR_MAX_LEN, fp);
+		char_addr = strstr(in_line, "kmin");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'kmin' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*kmin = convert_base10_char_uint64(char_addr);
+		}
+
+		/* Line 6: know */
+		++curr_line;
+		fgets(in_line, STR_MAX_LEN, fp);
+		char_addr = strstr(in_line, "know");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'know' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*know = convert_base10_char_uint64(char_addr);
+		}
+
+		/* Line 7: kmax */
+		++curr_line;
+		fgets(in_line, STR_MAX_LEN, fp);
+		char_addr = strstr(in_line, "kmax");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'kmax' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*kmax = convert_base10_char_uint64(char_addr);
+		}
+
+		/* Line 8: passmin */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "passmin");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'passmin' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*passmin = (uint32)convert_base10_char_uint64(char_addr);
+			if(*passmin >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passmin[%u] < TF_PASSES[%u]",*passmin,TF_PASSES); }
+		}
+
+		/* Line 9: passnow */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "passnow");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'passnow' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*passnow = (uint32)convert_base10_char_uint64(char_addr);
+			if(*passnow >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passnow[%u] < TF_PASSES[%u]",*passnow,TF_PASSES); }
+			if(*passnow <  *passmin  )	{ ++nerr; fprintf(stderr,"factor.c: Require passnow[%u] >= passmin[%u]",*passnow,*passmin); }
+		}
+
+		/* Line 10: passmax */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "passmax");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'passmax' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*passmax = (uint32)convert_base10_char_uint64(char_addr);
+			if(*passmax >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passmax[%u] < TF_PASSES[%u]",*passmax,TF_PASSES); }
+			if(*passmax <  *passnow  )	{ ++nerr; fprintf(stderr,"factor.c: Require passmax[%u] >= passnow[%u]",*passmax,*passnow); }
+		}
+
+		/* Line 11: Number of q's tried: */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "#Q tried");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			*count = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
+		}
+		fclose(fp); fp = 0x0;
+	}
+	return (int)nerr;
+}
+
+// Init savefile with above read_savefile fields so ensuing checkpoint-writes only need to update the pass# and k:
+int init_savefile(const char*fname, const char*pstring, double bmin, double bmax,
+uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 passmax, uint64 count)
+{
+	int itmp;
+	uint32 curr_line = 0, nerr = 0;
+	/* TF restart files are in HRF, not binary: */
+	fp = mlucas_fopen(fname,"w");	// Open in write mode
+	if(!fp) {
+	#ifndef FACTOR_STANDALONE
+		fp = mlucas_fopen(STATFILE,"a");
+		fprintf(	fp,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
+		fclose(fp); fp = 0x0;
+	#endif
+		fprintf(stderr,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
+		return -1;
+	} else {
+		/* Line 1: pstring: */
+		++curr_line; itmp = fprintf(fp,"%s\n",pstring);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 2: TF_PASSES: */
+		++curr_line; itmp = fprintf(fp,"tf_passes = %u\n",TF_PASSES);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (TF_PASSES of build) to %s!\n",curr_line,fname);
+		}
+		/* Line 3: bmin: */
+		++curr_line; itmp = fprintf(fp, "bmin = %lf\n", bmin);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (bmin) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 4: bmax: */
+		++curr_line; itmp = fprintf(fp, "bmax = %lf\n", bmax);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (bmax) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 5: kmin: */
+		++curr_line; itmp = fprintf(fp,"kmin = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, kmin)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (kmin) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 6: know: */
+		++curr_line; itmp = fprintf(fp,"know = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, know)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (know) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 7: kmax: */
+		++curr_line; itmp = fprintf(fp,"kmax = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, kmax)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (kmax) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 8: passmin: */
+		++curr_line; itmp = fprintf(fp,"passmin = %u\n", passmin);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (passmin) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 9: passnow: */
+		++curr_line; itmp = fprintf(fp,"passnow = %u\n", passnow);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 10: passmax: */
+		++curr_line; itmp = fprintf(fp,"passmax = %u\n", passmax);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (passmax) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Line 11: Number of q's tried: */
+		++curr_line; itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
+		}
+		fclose(fp); fp = 0x0;
+		return (int)nerr;
+	}
+}
+
+// Only overwrite passnow, know and count fields of savefile:
+int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 know, uint64 count)
+{
+	 int itmp;
+	uint32 curr_line = 0, nerr = 0, passnow_file;
+	uint64 know_file, count_file;
+	char *char_addr;
+	/* TF restart files are in HRF, not binary: */
+	fp = mlucas_fopen(fname,"r+");	// Open in update ("read plus") mode
+	if(!fp) {
+	#ifndef FACTOR_STANDALONE
+		fp = mlucas_fopen(STATFILE,"a");
+		fprintf(	fp,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
+		fclose(fp); fp = 0x0;
+	#endif
+		fprintf(stderr,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
+		return -1;
+	} else {
+		/* Line 1: pstring */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
+		}
+		/* Strip the expected newline char from in_line: */
+		char_addr = strstr(in_line, "\n");
+		if(char_addr)
+			*char_addr = '\0';
+		/* Make sure restart-file and current-run pstring match: */
+		if(STRNEQ(in_line, pstring)) {
+			++nerr; fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring,curr_line,fname);
+		}
+
+		/* Line 6: know */
+		while(++curr_line < 6) {
+			if(!fgets(in_line, STR_MAX_LEN, fp)) {
+				++nerr; fprintf(stderr,"ERROR: unable to read Line %d of factoring restart file %s!\n",curr_line,fname);
+			}
+		}
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (know) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "know");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'know' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			know_file = convert_base10_char_uint64(char_addr);
+		}
+		itmp = fprintf(fp,"know = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, know)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (know) of factoring restart file %s!\n",curr_line,fname);
+		}
+
+		/* Line 7: kmax: */
+		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
+		/* Line 8: passmin: */
+		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
+
+		/* Line 9: passnow: */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "passnow");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: 'passnow' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			passnow_file = convert_base10_char_uint64(char_addr);
+		}
+		itmp = fprintf(fp,"passnow = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, passnow)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
+		}
+
+		// Check progress: compared to previous checkpoint, passnow should be same and know greater, or passnow should be greater:
+		if(passnow == passnow_file && know > know_file) {
+			/* No-op */
+		} else if(passnow > passnow_file) {
+			/* No-op */
+		} else {
+			++nerr; fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, passnow[%u] should be same as file[%u] and know[%llu] greater than file[%llu], or passnow should be greater!\n",fname,passnow,passnow_file,know,know_file);
+		}
+
+		/* Line 10: passmax: */
+		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
+
+		/* Line 11: Number of q's tried: */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
+		}
+		char_addr = strstr(in_line, "#Q tried");
+		if(!char_addr) {
+			++nerr; fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			}
+			char_addr++;
+			count_file = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
+		}
+		++curr_line; itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
+		if(itmp <= 0) {
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
+		}
+		fclose(fp); fp = 0x0;
+		return (int)nerr;
+	}
 }
 
 /* This is actually an auxiliary source file, but give it a .h extension to allow wildcarded project builds of form 'gcc -c *.c' */

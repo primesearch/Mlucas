@@ -240,7 +240,8 @@ if(dbg)printf("\n");
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD128(x,x,x);
-	q.d0 -= FERMAT;
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x.d0 += FERMAT;
 	SUB128(x,q,x);
 
 #if FAC_DEBUG
@@ -566,10 +567,11 @@ if(dbg)printf("\n");
 	ADD128(x1 ,x1, x1);
 	ADD128(x2 ,x2, x2);
 	ADD128(x3 ,x3, x3);
-	q0.d0 -= FERMAT;
-	q1.d0 -= FERMAT;
-	q2.d0 -= FERMAT;
-	q3.d0 -= FERMAT;
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x0.d0 += FERMAT;
+	x1.d0 += FERMAT;
+	x2.d0 += FERMAT;
+	x3.d0 += FERMAT;
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);
@@ -972,16 +974,15 @@ if(dbg)printf("\n");
 	ADD128(x5 ,x5, x5);
 	ADD128(x6 ,x6, x6);
 	ADD128(x7 ,x7, x7);
-	if(FERMAT) {
-		q0.d0 -= 2;
-		q1.d0 -= 2;
-		q2.d0 -= 2;
-		q3.d0 -= 2;
-		q4.d0 -= 2;
-		q5.d0 -= 2;
-		q6.d0 -= 2;
-		q7.d0 -= 2;
-	}
+	//*** Aug 2022: see note at end of twopmodq96() for why we can add-sans-carry the constant (0 or 2) here:
+	x0.d0 += FERMAT;
+	x1.d0 += FERMAT;
+	x2.d0 += FERMAT;
+	x3.d0 += FERMAT;
+	x4.d0 += FERMAT;
+	x5.d0 += FERMAT;
+	x6.d0 += FERMAT;
+	x7.d0 += FERMAT;
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);

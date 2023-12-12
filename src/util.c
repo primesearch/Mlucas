@@ -1517,8 +1517,7 @@ void host_init(void)
 	// Now do bignum-PRP test:
 	uint64 vec[max_test_dim], exp;	// Use a known M-prime exponent and dimension vec suitably
 	const uint32 mers_expos[] = {61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941,11213,19937,21701,0x0};
-	for(i = 0; ; i++) {
-		if((exp = (uint64)mers_expos[i]) == 0ull) break;
+	for(i = 0, exp = (uint64)mers_expos[i]; exp != 0; i++) {
 		fprintf(stderr,"TEST_MI64_PRP: Base-3 Fermat-PRP test of M(%llu)...\n",exp);
 		ASSERT(HERE, exp < (max_test_dim<<6), "Bignum-PRP test exponent larger than test-vec dimension permits!");
 		j = mi64_init_mers_or_ferm_modulus(exp, 0, vec);

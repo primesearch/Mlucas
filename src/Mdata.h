@@ -40,8 +40,12 @@ extern "C" {
 /* Declare various Globals (externs). Unless specified otherwise, these are defined/inited in Mlucas.c: */
 /********************************************************************************************************/
 #ifndef INCLUDE_HWLOC
-	#define INCLUDE_HWLOC 1	// v21: Make INCLUDE_HWLOC = TRUE the default; set == 2 to further enable
-							// hwloc-related debug-printing (e.g. detailed core assignments in util.c)
+	#define INCLUDE_HWLOC 0	// v21: Make INCLUDE_HWLOC = 0 (FALSE) the default; set = 1 in compile-args to enable hwloc,
+							// = 2 to further enable hwloc-related debug-printing (e.g. detailed core assignments in util.c)
+#else
+	#if(INCLUDE_HWLOC != 0 && INCLUDE_HWLOC != 1 && INCLUDE_HWLOC != 2)
+		#error INCLUDE_HWLOC flag, if invoked, must be set = 0, 1 or 2! Aborting.
+	#endif
 #endif
 #if INCLUDE_HWLOC
 	//#warning Including HWLOC library.

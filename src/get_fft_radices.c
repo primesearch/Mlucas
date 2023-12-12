@@ -294,14 +294,14 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 			numrad = 3; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; break;
 	  #ifdef USE_SSE2
 		default :
-			*nradices = 3;	return ERR_RADIXSET_UNAVAILABLE;
+			*nradices = 4;	return ERR_RADIXSET_UNAVAILABLE;
 	  #else
-		case 3 :
-			numrad = 3; rvec[0] =  6; rvec[1] = 32; rvec[2] = 32; break;
 		case 4 :
+			numrad = 3; rvec[0] =  6; rvec[1] = 32; rvec[2] = 32; break;
+		case 5 :
 			numrad = 4; rvec[0] =  6; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		default :
-			*nradices = 5;	return ERR_RADIXSET_UNAVAILABLE;
+			*nradices = 6;	return ERR_RADIXSET_UNAVAILABLE;
 	  #endif
 		}; break;
 	case 13 :						/* 13K */
@@ -2855,6 +2855,7 @@ With AsympConst = 0.6, this gives the following maxP values for various FFT leng
           6144 K	 115351074	 115980220
           6656 K	 124740700	 125422275
           7168 K	 134113980	 134847983	<*** F27 = 2^134217728 + 1
+
           7680 K	 143472090	 144258522
   8 M =   8192 K	 152816052	 153654913
   9 M =   9216 K	 171464992	 172408710

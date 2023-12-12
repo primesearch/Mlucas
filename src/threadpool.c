@@ -377,7 +377,7 @@ me at: heber.tomer@gmail.com
 	  #endif
 		if (errcode) {
 			perror("sched_setaffinity");
-			fprintf(stderror,"INFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n");
+			fprintf(stderr,"INFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n");
 		}
 	  #endif
 

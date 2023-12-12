@@ -87,6 +87,9 @@ int		cfgNeedsUpdating(char*in_line);
 const char*returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
+uint32	Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
+	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
+	int n, int scrnFlag, double *tdiff, char*const gcd_str);
 int		test_types_compatible(uint32 t1, uint32 t2);
 int		 read_ppm1_residue(const uint32 nbytes, FILE*fp,       uint8 arr_tmp[],       uint64*Res64,       uint64*Res35m1,       uint64*Res36m1);
 void	write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
