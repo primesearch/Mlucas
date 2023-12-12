@@ -107,7 +107,7 @@ void radix32_dyadic_square(
 	double *add4,*add5,*add6,*add7;
   #endif
 	vec_dbl *c_tmp,*s_tmp;
-	vec_dbl *tmp;
+	vec_dbl *tmp,*tm1;
 
   #ifdef MULTITHREAD
 	// Base addresses for discrete per-thread local stores ... 'r' for double-float data, 'i' for int:
@@ -582,7 +582,7 @@ void radix32_dyadic_square(
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[10] = k1<<4;	k2_arr[10] = k2<<4;
 		l += iroot;			/* 28*iroot */
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[12] = k1<<4;	k2_arr[12] = k2<<4;
-//if(thr_id < 2 || thr_id == (radix0-1))printf("%s: j = %u, iroot = %u\n",func,j,iroot);
+
 		// 2nd set:
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
@@ -688,15 +688,236 @@ void radix32_dyadic_square(
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX32_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
-/*
-printf("k1_arr:\n"); for(l = 0; l < 28; l++) { printf("%u,",k1_arr[l]); }; printf("\n");
-printf("k2_arr:\n"); for(l = 0; l < 28; l++) { printf("%u,",k2_arr[l]); }; printf("\n");exit(0);
-printf("AVX256: Outputs of twiddle-comp:\n");
-for(l = 0, tmp = cc0; l < 35; l++, tmp += 2) {	// 3 [cc,ss]-terms plus 32 complex twiddles
-printf("\tc[%2d] = %20.15f, %20.15f,%20.15f, %20.15f, s[%2d] = %20.15f,%20.15f,%20.15f,%20.15f\n",l-3,tmp->d0,tmp->d1,tmp->d2,tmp->d3, l-3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-} exit(0);
-*/
+
 	  #elif defined(USE_AVX512)	// AVX512: need 8 sets of sincos gathered into 512-bit vectors-of-doubles
+
+	   #ifdef USE_IMCI512	// Vectorized version below a no-go on 1st-gen Xeon Phi
+
+		#warning AVX-512: Using slower non-ASM-macro version of sincos-indexing in radix32_dyadic_square.c.
+		/*
+		IMCI512: SSE2_RADIX16_CALC_TWIDDLES_LOACC reads k[0|1]_arr[0-55] in 8-index chunks,
+			does gather-loads associated rt[0|1] elts, computes twiddles, writes to cc0+[0x8-...].
+			Pull the gather-loads out here and do in C, just do the 512-bit vector CMULs in asm-macro:
+		*/
+		// 1st set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 2nd set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 3rd set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 4th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 5th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 6th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 7th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 8th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
+		tmp = cc0+0x8; tm1 = cc0+0x9;	c_tmp = cc0+0xa; s_tmp = cc0+0xb;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 3*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 7*iroot */	iroot = l;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 14*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 21*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 28*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+	   #else
+
+		#warning Using AVX-512 code in radix32_dyadic_square.c
 		/*
 		Cf. the radix-16 version of this routine for notes re. the following vector-index-computation code:
 		*/
@@ -795,15 +1016,15 @@ printf("\tc[%2d] = %20.15f, %20.15f,%20.15f, %20.15f, s[%2d] = %20.15f,%20.15f,%
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
 
+	   #endif	// (IMCI512 or AVX512?) toggle
+
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX32_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
 /*
-printf("k1_arr:\n"); for(l = 0; l < 56; l++) { printf("%u,",k1_arr[l]); }; printf("\n");
-printf("k2_arr:\n"); for(l = 0; l < 56; l++) { printf("%u,",k2_arr[l]); }; printf("\n");exit(0);
 printf("AVX512: Outputs of twiddle-comp:\n");
 for(l = 0, tmp = cc0; l < 35; l++, tmp += 2) {	// 3 [cc,ss]-terms plus 32 complex twiddles
-printf("\tc[%2d] = %20.15f, %20.15f,%20.15f, %20.15f, s[%2d] = %20.15f,%20.15f,%20.15f,%20.15f\n",l-3,tmp->d0,tmp->d1,tmp->d2,tmp->d3, l-3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
+printf("c[%2d] = %18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f\ns[%2d] = %18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f\n",l-3,tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,l-3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);
 } exit(0);
 */
 	  #endif	// SIMD mode?

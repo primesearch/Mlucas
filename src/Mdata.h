@@ -36,9 +36,26 @@
 extern "C" {
 #endif
 
-/*
-!...Module for stashing global parameters used by various Mlucas routines.
-*/
+/********************************************************************************************************/
+/* Declare various Globals (externs). Unless specified otherwise, these are defined/inited in Mlucas.c: */
+/********************************************************************************************************/
+#ifndef INCLUDE_HWLOC
+	#define INCLUDE_HWLOC 1	// v21: Make INCLUDE_HWLOC = TRUE the default; set == 2 to further enable
+							// hwloc-related debug-printing (e.g. detailed core assignments in util.c)
+#endif
+#if INCLUDE_HWLOC
+	//#warning Including HWLOC library.
+	#include <hwloc.h>
+	// Make sure it's at least hwloc v1:
+	#if HWLOC_API_VERSION < 0x00010000
+		#error Application requires installed hwloc version to be >= 1.0
+	#endif
+
+	extern hwloc_topology_t hw_topology;
+	extern int HWLOC_AFFINITY;	// Is per-thread LPU-binding (affinity) supported?
+#else
+	//#warning NOT including HWLOC library.
+#endif
 // System-related globals:
 extern uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
 
@@ -65,7 +82,7 @@ extern const int CHAROFFSET;
 extern int len_a;
 
 /* These must match the smallest and largest values in the switch() in get_fft_radices(): */
-#define MIN_FFT_LENGTH_IN_K			2
+#define MIN_FFT_LENGTH_IN_K			1
 #define MAX_FFT_LENGTH_IN_K			524288
 /* This next one should be set to log2(MAX_FFT_LENGTH_IN_K) + 10 + 4,
 i.e. max. 16 bits per digit of the transform vector: */

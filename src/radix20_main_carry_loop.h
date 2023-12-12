@@ -39,7 +39,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/*
 		!...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do a radix-20 DIT transform...
 		*/
-	#ifdef USE_ARM_V8_SIMD	// For x86 SIMD have radix-20 DFT macro, so only use the small-macro approach on ARMv8
+	// For x86 SIMD (specifically, sse2 and avx+) have radix-20 DFT macro, so only use the small-macro approach on ARMv8 and k10m:
+	#if defined(USE_ARM_V8_SIMD) || defined(USE_IMCI512)
 
 	  #ifdef USE_ARM_V8_SIMD
 		uint32 OFF = 0xa0;
@@ -422,7 +423,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 /*...The radix-20 DIF pass is here:	*/
 
-	#ifdef USE_ARM_V8_SIMD
+	#if defined(USE_ARM_V8_SIMD) || defined(USE_IMCI512)
 
 		// swap last 2 outputs (va3 <-> va4) of the 5-DFTs to undo swap of these in macro:
 		tmp = r00; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;

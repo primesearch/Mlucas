@@ -33,6 +33,7 @@
   #endif
 #else
 	#define USE_SCALAR_DFT_MACRO	1
+	#warning USE_SCALAR_DFT_MACRO = 1
 #endif
 
 #ifndef PFETCH_DIST
@@ -1290,7 +1291,7 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;

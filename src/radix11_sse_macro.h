@@ -232,6 +232,264 @@
 
 #elif defined(USE_AVX512)	// AVX512 version, based on RADIX_11_DFT_FMA in dft_macro.h
 
+  #ifdef USE_IMCI512	// 1st-gen Xeon Phi - VPBROADCASTQ is only from mem64, use alternate 2.0 x 8 - generation code:
+
+	#define SSE2_RADIX_11_DFT(Xin0,Xi_off, Xcc, Xout0,Xo_off)\
+	{\
+	__asm__ volatile (\
+		"movl	$0xaaaa,%%eax			\n\t	kmov	%%eax,%%k1	\n\t"/* k1 = 0b1010101010101010 */\
+		"vpsbbd %%zmm31,%%k1,%%zmm31	\n\t"/* zmm31 = 0xffffffff00000000 x 8 */\
+		"vpslld $31,%%zmm31,%%zmm31		\n\t"/* zmm31 = 0x8000000000000000 x 8 */\
+		"vpsrld  $1,%%zmm31,%%zmm31		\n\t"/* zmm31 = 0x4000000000000000 x 8 = 2.0 x 8 */\
+	"movq	%[in0],%%rax		\n\t	movq	%[out0],%%rcx	\n\t"/* rax,rcx hold to I/O base-pointers */\
+	"movq	%[i_off],%%rbx		\n\t	movq	%[o_off],%%rdx	\n\t"/* rbx,rdx hold pointers to uint32[] I/O pointer-offset-stride arrays */\
+		/********************************************/\
+		/*       Here are the 5 cosine terms:       */\
+		/********************************************/\
+		/* Compute &i[1-A] from 32-bit offsets: */\
+		"movslq	0x04(%%rbx),%%rsi	\n\t	addq	%%rax,%%rsi		\n\t"\
+		"movslq	0x08(%%rbx),%%rdi	\n\t	addq	%%rax,%%rdi		\n\t"\
+		"movslq	0x0c(%%rbx),%%r8 	\n\t	addq	%%rax,%%r8 		\n\t"\
+		"movslq	0x10(%%rbx),%%r9 	\n\t	addq	%%rax,%%r9 		\n\t"\
+		"movslq	0x14(%%rbx),%%r10	\n\t	addq	%%rax,%%r10		\n\t"\
+		"movslq	0x18(%%rbx),%%r11	\n\t	addq	%%rax,%%r11		\n\t"\
+		"movslq	0x1c(%%rbx),%%r12	\n\t	addq	%%rax,%%r12		\n\t"\
+		"movslq	0x20(%%rbx),%%r13	\n\t	addq	%%rax,%%r13		\n\t"\
+		"movslq	0x24(%%rbx),%%r14	\n\t	addq	%%rax,%%r14		\n\t"\
+		"movslq	0x28(%%rbx),%%r15	\n\t	addq	%%rax,%%r15		\n\t"\
+		"vmovaps	(%%rsi),%%zmm1		\n\t"/* A1r */"		vmovaps	0x40(%%rsi),%%zmm6	\n\t"/* A1i */\
+		"vmovaps	(%%rdi),%%zmm2		\n\t"/* A2r */"		vmovaps	0x40(%%rdi),%%zmm7	\n\t"/* A2i */\
+		"vmovaps	(%%r8 ),%%zmm3		\n\t"/* A3r */"		vmovaps	0x40(%%r8 ),%%zmm8	\n\t"/* A3i */\
+		"vmovaps	(%%r9 ),%%zmm4		\n\t"/* A4r */"		vmovaps	0x40(%%r9 ),%%zmm9	\n\t"/* A4i */\
+		"vmovaps	(%%r10),%%zmm5		\n\t"/* A5r */"		vmovaps	0x40(%%r10),%%zmm10	\n\t"/* A5i */\
+		/* Have enough registers to also hold the real-upper-half inputs: */\
+		"vmovaps	(%%r11),%%zmm11		\n\t"/* A6r */\
+		"vmovaps	(%%r12),%%zmm12		\n\t"/* A7r */\
+		"vmovaps	(%%r13),%%zmm13		\n\t"/* A8r */\
+		"vmovaps	(%%r14),%%zmm14		\n\t"/* A9r */\
+		"vmovaps	(%%r15),%%zmm15		\n\t"/* AAr */\
+	/* ...Do the + parts of the opening wave of radix-2 butterflies: */\
+		"vaddpd %%zmm15,%%zmm1,%%zmm1	\n\t	vaddpd 0x40(%%r15),%%zmm6 ,%%zmm6 	\n\t"/* t1 = A1 + Aa */\
+		"vaddpd %%zmm14,%%zmm2,%%zmm2	\n\t	vaddpd 0x40(%%r14),%%zmm7 ,%%zmm7 	\n\t"/* t2 = A2 + A9 */\
+		"vaddpd %%zmm13,%%zmm3,%%zmm3	\n\t	vaddpd 0x40(%%r13),%%zmm8 ,%%zmm8 	\n\t"/* t3 = A3 + A8 */\
+		"vaddpd %%zmm12,%%zmm4,%%zmm4	\n\t	vaddpd 0x40(%%r12),%%zmm9 ,%%zmm9 	\n\t"/* t4 = A4 + A7 */\
+		"vaddpd %%zmm11,%%zmm5,%%zmm5	\n\t	vaddpd 0x40(%%r11),%%zmm10,%%zmm10	\n\t"/* t5 = A5 + A6 */\
+	/* Write lower-half outputs back to memory... */\
+		"vmovaps	%%zmm1,(%%rsi)		\n\t"/* t1r */"		vmovaps	%%zmm6 ,0x40(%%rsi)	\n\t"/* t1i */\
+		"vmovaps	%%zmm2,(%%rdi)		\n\t"/* t2r */"		vmovaps	%%zmm7 ,0x40(%%rdi)	\n\t"/* t2i */\
+		"vmovaps	%%zmm3,(%%r8 )		\n\t"/* t3r */"		vmovaps	%%zmm8 ,0x40(%%r8 )	\n\t"/* t3i */\
+		"vmovaps	%%zmm4,(%%r9 )		\n\t"/* t4r */"		vmovaps	%%zmm9 ,0x40(%%r9 )	\n\t"/* t4i */\
+		"vmovaps	%%zmm5,(%%r10)		\n\t"/* t5r */"		vmovaps	%%zmm10,0x40(%%r10)	\n\t"/* t5i */\
+	/* ...Do the - parts of the radix-2 butterflies: */\
+	"vfnmadd231pd %%zmm15,%%zmm31,%%zmm1		\n\t	vfnmadd231pd 0x40(%%r15),%%zmm31,%%zmm6	\n\t"/* ta = A1 - Aa */\
+	"vfnmadd231pd %%zmm14,%%zmm31,%%zmm2		\n\t	vfnmadd231pd 0x40(%%r14),%%zmm31,%%zmm7	\n\t"/* t9 = A2 - A9 */\
+	"vfnmadd231pd %%zmm13,%%zmm31,%%zmm3		\n\t	vfnmadd231pd 0x40(%%r13),%%zmm31,%%zmm8	\n\t"/* t8 = A3 - A8 */\
+	"vfnmadd231pd %%zmm12,%%zmm31,%%zmm4		\n\t	vfnmadd231pd 0x40(%%r12),%%zmm31,%%zmm9	\n\t"/* t7 = A4 - A7 */\
+	"vfnmadd231pd %%zmm11,%%zmm31,%%zmm5		\n\t	vfnmadd231pd 0x40(%%r11),%%zmm31,%%zmm10	\n\t"/* t6 = A5 - A6 */\
+	/* ...And write upper-half outputs 6-9 (A stays in-reg) back to memory to free up registers for the 5x5 sine-term-subconvo computation: */\
+		"vmovaps	%%zmm2,(%%r14)		\n\t"/* t9r */"		vmovaps	%%zmm7 ,0x40(%%r14)	\n\t"/* t9i */\
+		"vmovaps	%%zmm3,(%%r13)		\n\t"/* t8r */"		vmovaps	%%zmm8 ,0x40(%%r13)	\n\t"/* t8i */\
+		"vmovaps	%%zmm4,(%%r12)		\n\t"/* t7r */"		vmovaps	%%zmm9 ,0x40(%%r12)	\n\t"/* t7i */\
+		"vmovaps	%%zmm5,(%%r11)		\n\t"/* t6r */"		vmovaps	%%zmm10,0x40(%%r11)	\n\t"/* t6i */\
+	/*
+		Sr1 =      ss1*tar+ss2*t9r+ss3*t8r+ss4*t7r+ss5*t6r;		Si1 =      ss1*tai+ss2*t9i+ss3*t8i+ss4*t7i+ss5*t6i;	// S1
+		Sr2 =      ss2*tar+ss4*t9r-ss5*t8r-ss3*t7r-ss1*t6r;		Si2 =      ss2*tai+ss4*t9i-ss5*t8i-ss3*t7i-ss1*t6i;	// S2
+		Sr3 =      ss3*tar-ss5*t9r-ss2*t8r+ss1*t7r+ss4*t6r;		Si3 =      ss3*tai-ss5*t9i-ss2*t8i+ss1*t7i+ss4*t6i;	// S3
+		Sr4 =      ss4*tar-ss3*t9r+ss1*t8r+ss5*t7r-ss2*t6r;		Si4 =      ss4*tai-ss3*t9i+ss1*t8i+ss5*t7i-ss2*t6i;	// S4
+		Sr5 =      ss5*tar-ss1*t9r+ss4*t8r-ss2*t7r+ss3*t6r;		Si5 =      ss5*tai-ss1*t9i+ss4*t8i-ss2*t7i+ss3*t6i;	// S5
+
+		In a 16-reg FMA model, can keep the 10 S-terms and all 5 shared sincos data in registers, but that
+		requires us to reload one of the 2 repeated t*-mults (e.g. tai in the 1st block) 5 times per block.
+		OTOH if we keep both t*r,i-mults and 4 of the 5 ss-mults in-reg, we just need 2 loads-from-mem per block:
+	*/\
+	"movq	%[__cc],%%r9	\n\t"/* cc1 */\
+		"vmovaps	%%zmm1,%%zmm2		\n\t	vmovaps	%%zmm6 ,%%zmm7		\n\t"/* S2 = ta */\
+		"vmovaps	%%zmm1,%%zmm3		\n\t	vmovaps	%%zmm6 ,%%zmm8		\n\t"/* S3 = ta */\
+		"vmovaps	%%zmm1,%%zmm4		\n\t	vmovaps	%%zmm6 ,%%zmm9		\n\t"/* S4 = ta */\
+		"vmovaps	%%zmm1,%%zmm5		\n\t	vmovaps	%%zmm6 ,%%zmm10		\n\t"/* S5 = ta */\
+	"addq	$0x140,%%r9	\n\t"/* Incr trig ptr to point to ss1 */\
+		"vmovaps	0x040(%%r9),%%zmm11	\n\t	vmovaps	0x080(%%r9),%%zmm12		\n\t"/* ss2,ss3 */\
+		"vmovaps	0x0c0(%%r9),%%zmm13	\n\t	vmovaps	0x100(%%r9),%%zmm14		\n\t"/* ss4,ss5 */\
+\
+	"	vmulpd	(%%r9),%%zmm1,%%zmm1	\n\t	vmulpd	(%%r9),%%zmm6 ,%%zmm6	\n\t"/* S1  = ss1*ta; */\
+	"	vmulpd	%%zmm11,%%zmm2,%%zmm2	\n\t	vmulpd	%%zmm11,%%zmm7 ,%%zmm7	\n\t"/* S2  = ss2*ta; */\
+	"	vmulpd	%%zmm12,%%zmm3,%%zmm3	\n\t	vmulpd	%%zmm12,%%zmm8 ,%%zmm8	\n\t"/* S3  = ss3*ta; */\
+	"	vmulpd	%%zmm13,%%zmm4,%%zmm4	\n\t	vmulpd	%%zmm13,%%zmm9 ,%%zmm9	\n\t"/* S4  = ss4*ta; */\
+	"	vmulpd	%%zmm14,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm14,%%zmm10,%%zmm10	\n\t"/* S5  = ss5*ta; */\
+\
+		"vmovaps	    (%%r14),%%zmm0	\n\t	vmovaps	0x40(%%r14),%%zmm15	\n\t"/* t9 */\
+	" vfmadd231pd %%zmm11,%%zmm0,%%zmm1	\n\t  vfmadd231pd %%zmm11,%%zmm15,%%zmm6	\n\t"/* S1 += ss2*t9; */\
+	" vfmadd231pd %%zmm13,%%zmm0,%%zmm2	\n\t  vfmadd231pd %%zmm13,%%zmm15,%%zmm7	\n\t"/* S2 += ss4*t9; */\
+	"vfnmadd231pd %%zmm14,%%zmm0,%%zmm3	\n\t vfnmadd231pd %%zmm14,%%zmm15,%%zmm8	\n\t"/* S3 -= ss5*t9; */\
+	"vfnmadd231pd %%zmm12,%%zmm0,%%zmm4	\n\t vfnmadd231pd %%zmm12,%%zmm15,%%zmm9	\n\t"/* S4 -= ss3*t9; */\
+	"vfnmadd231pd (%%r9 ),%%zmm0,%%zmm5	\n\t vfnmadd231pd (%%r9 ),%%zmm15,%%zmm10	\n\t"/* S5 -= ss1*t9; */\
+\
+		"vmovaps	    (%%r13),%%zmm0	\n\t	vmovaps	0x40(%%r13),%%zmm15	\n\t"/* t8 */\
+	" vfmadd231pd %%zmm12,%%zmm0,%%zmm1	\n\t  vfmadd231pd %%zmm12,%%zmm15,%%zmm6	\n\t"/* S1 += ss3*t8; */\
+	"vfnmadd231pd %%zmm14,%%zmm0,%%zmm2	\n\t vfnmadd231pd %%zmm14,%%zmm15,%%zmm7	\n\t"/* S2 -= ss5*t8; */\
+	"vfnmadd231pd %%zmm11,%%zmm0,%%zmm3	\n\t vfnmadd231pd %%zmm11,%%zmm15,%%zmm8	\n\t"/* S3 -= ss2*t8; */\
+	" vfmadd231pd (%%r9 ),%%zmm0,%%zmm4	\n\t  vfmadd231pd (%%r9 ),%%zmm15,%%zmm9	\n\t"/* S4 += ss1*t8; */\
+	" vfmadd231pd %%zmm13,%%zmm0,%%zmm5	\n\t  vfmadd231pd %%zmm13,%%zmm15,%%zmm10	\n\t"/* S5 += ss4*t8; */\
+\
+		"vmovaps	    (%%r12),%%zmm0	\n\t	vmovaps	0x40(%%r12),%%zmm15	\n\t"/* t7 */\
+	" vfmadd231pd %%zmm13,%%zmm0,%%zmm1	\n\t  vfmadd231pd %%zmm13,%%zmm15,%%zmm6	\n\t"/* S1 += ss4*t7; */\
+	"vfnmadd231pd %%zmm12,%%zmm0,%%zmm2	\n\t vfnmadd231pd %%zmm12,%%zmm15,%%zmm7	\n\t"/* S2 -= ss3*t7; */\
+	" vfmadd231pd (%%r9 ),%%zmm0,%%zmm3	\n\t  vfmadd231pd (%%r9 ),%%zmm15,%%zmm8	\n\t"/* S3 += ss1*t7; */\
+	" vfmadd231pd %%zmm14,%%zmm0,%%zmm4	\n\t  vfmadd231pd %%zmm14,%%zmm15,%%zmm9	\n\t"/* S4 += ss5*t7; */\
+	"vfnmadd231pd %%zmm11,%%zmm0,%%zmm5	\n\t vfnmadd231pd %%zmm11,%%zmm15,%%zmm10	\n\t"/* S5 -= ss2*t7; */\
+\
+		"vmovaps	    (%%r11),%%zmm0	\n\t	vmovaps	0x40(%%r11),%%zmm15	\n\t"/* t6 */\
+	" vfmadd231pd %%zmm14,%%zmm0,%%zmm1	\n\t  vfmadd231pd %%zmm14,%%zmm15,%%zmm6	\n\t"/* S1 += ss5*t6; */\
+	"vfnmadd231pd (%%r9 ),%%zmm0,%%zmm2	\n\t vfnmadd231pd (%%r9 ),%%zmm15,%%zmm7	\n\t"/* S2 -= ss1*t6; */\
+	" vfmadd231pd %%zmm13,%%zmm0,%%zmm3	\n\t  vfmadd231pd %%zmm13,%%zmm15,%%zmm8	\n\t"/* S3 += ss4*t6; */\
+	"vfnmadd231pd %%zmm11,%%zmm0,%%zmm4	\n\t vfnmadd231pd %%zmm11,%%zmm15,%%zmm9	\n\t"/* S4 -= ss2*t6; */\
+	" vfmadd231pd %%zmm12,%%zmm0,%%zmm5	\n\t  vfmadd231pd %%zmm12,%%zmm15,%%zmm10	\n\t"/* S5 += ss3*t6; */\
+\
+	/* Write sine-term-subconvo outputs back to memory to free up registers for the 5x5 cosine-term-subconvo computation: */\
+	/* These i-ptrs no longer needed, so load o-ptrs in their place: */\
+		"movslq	0x28(%%rdx),%%r15	\n\t	addq	%%rcx,%%r15		\n\t"/* &BA */\
+		"movslq	0x24(%%rdx),%%r14	\n\t	addq	%%rcx,%%r14		\n\t"/* &B9 */\
+		"movslq	0x20(%%rdx),%%r13	\n\t	addq	%%rcx,%%r13		\n\t"/* &B8 */\
+		"movslq	0x1c(%%rdx),%%r12	\n\t	addq	%%rcx,%%r12		\n\t"/* &B7 */\
+		"movslq	0x18(%%rdx),%%r11	\n\t	addq	%%rcx,%%r11		\n\t"/* &B6 */\
+		"vmovaps	%%zmm1,(%%r15)		\n\t"/* s1r */"		vmovaps	%%zmm6 ,0x40(%%r15)	\n\t"/* s1i */\
+		"vmovaps	%%zmm2,(%%r14)		\n\t"/* s2r */"		vmovaps	%%zmm7 ,0x40(%%r14)	\n\t"/* s2i */\
+		"vmovaps	%%zmm3,(%%r13)		\n\t"/* s3r */"		vmovaps	%%zmm8 ,0x40(%%r13)	\n\t"/* s3i */\
+		"vmovaps	%%zmm4,(%%r12)		\n\t"/* s4r */"		vmovaps	%%zmm9 ,0x40(%%r12)	\n\t"/* s4i */\
+		"vmovaps	%%zmm5,(%%r11)		\n\t"/* s5r */"		vmovaps	%%zmm10,0x40(%%r11)	\n\t"/* s5i */\
+	/*
+		Cr1 = t0r+cc1*t1r+cc2*t2r+cc3*t3r+cc4*t4r+cc5*t5r;		Ci1 = t0i+cc1*t1i+cc2*t2i+cc3*t3i+cc4*t4i+cc5*t5i;	// C1
+		Cr2 = t0r+cc2*t1r+cc4*t2r+cc5*t3r+cc3*t4r+cc1*t5r;		Ci2 = t0i+cc2*t1i+cc4*t2i+cc5*t3i+cc3*t4i+cc1*t5i;	// C2
+		Cr3 = t0r+cc3*t1r+cc5*t2r+cc2*t3r+cc1*t4r+cc4*t5r;		Ci3 = t0i+cc3*t1i+cc5*t2i+cc2*t3i+cc1*t4i+cc4*t5i;	// C3
+		Cr4 = t0r+cc4*t1r+cc3*t2r+cc1*t3r+cc5*t4r+cc2*t5r;		Ci4 = t0i+cc4*t1i+cc3*t2i+cc1*t3i+cc5*t4i+cc2*t5i;	// C4
+		Cr5 = t0r+cc5*t1r+cc1*t2r+cc4*t3r+cc2*t4r+cc3*t5r;		Ci5 = t0i+cc5*t1i+cc1*t2i+cc4*t3i+cc2*t4i+cc3*t5i;	// C5
+		B0r = t0r+    t1r+    t2r+    t3r+    t4r+    t5r;		B0i = t0i+    t1i+    t2i+    t3i+    t4i+    t5i;	// X0
+
+		In a 16-reg FMA model, makes sense to init the c-terms to the t0-summand,
+		and keep the 10 c-terms and 4 of the 5 shared sincos data in registers. That uses 14 regs,
+		leaving 2 for the 2 t*[r,i] data shared by each such block. Those need to be in-reg (at least
+		in the cosine-mults section) because of the need to accumulate the DC terms: E.g. at end of the
+		first block below (after doing the 10 c-term-update FMAs) we add the current values of B0r,i
+		(which we init to t0r,i in the ASM version) to t1r,i, then write the result to memory and
+		load t2r,i into the same 2 regs in preparation for the next such block.
+	*/\
+	/*
+	Current GPR assignments:
+		rax	rbx	rcx	rdx	rsi	rdi	r8	r9	r10	r11	r12	r13	r14	r15
+		in	iff	out	off	i1	i2	2.0	ss1	i5	o6	o7	o8	o9	oA
+	*/\
+	"subq	$0x140,%%r9	\n\t"/* Decr trig ptr to point to cc1 */\
+	"movslq	(%%rbx),%%r8	\n\t	addq	%%rax,%%r8	\n\t"/* i0-from-offset */\
+		"vmovaps	(%%r8 ),%%zmm1		\n\t	vmovaps	0x40(%%r8 ),%%zmm6	\n\t"/* c1 = A0 */\
+		"vmovaps	%%zmm1,%%zmm2		\n\t	vmovaps	%%zmm6 ,%%zmm7		\n\t"/* c2 = A0 */\
+		"vmovaps	%%zmm1,%%zmm3		\n\t	vmovaps	%%zmm6 ,%%zmm8		\n\t"/* c3 = A0 */\
+		"vmovaps	%%zmm1,%%zmm4		\n\t	vmovaps	%%zmm6 ,%%zmm9		\n\t"/* c4 = A0 */\
+		"vmovaps	%%zmm1,%%zmm5		\n\t	vmovaps	%%zmm6 ,%%zmm10		\n\t"/* c5 = A0 */\
+\
+		"vmovaps	0x040(%%r9),%%zmm11	\n\t	vmovaps	0x080(%%r9),%%zmm12		\n\t"/* cc2,cc3 */\
+		"vmovaps	0x0c0(%%r9),%%zmm13	\n\t	vmovaps	0x100(%%r9),%%zmm14		\n\t"/* cc4,cc5 */\
+\
+		"vmovaps	    (%%rsi),%%zmm0	\n\t	vmovaps	0x40(%%rsi),%%zmm15	\n\t"/* t1 */\
+	"vfmadd231pd (%%r9 ),%%zmm0,%%zmm1	\n\t vfmadd231pd (%%r9 ),%%zmm15,%%zmm6	\n\t"/* c1 += cc1*t1; */\
+	"vfmadd231pd %%zmm11,%%zmm0,%%zmm2	\n\t vfmadd231pd %%zmm11,%%zmm15,%%zmm7	\n\t"/* c2 += cc2*t1; */\
+	"vfmadd231pd %%zmm12,%%zmm0,%%zmm3	\n\t vfmadd231pd %%zmm12,%%zmm15,%%zmm8	\n\t"/* c3 += cc3*t1; */\
+	"vfmadd231pd %%zmm13,%%zmm0,%%zmm4	\n\t vfmadd231pd %%zmm13,%%zmm15,%%zmm9	\n\t"/* c4 += cc4*t1; */\
+	"vfmadd231pd %%zmm14,%%zmm0,%%zmm5	\n\t vfmadd231pd %%zmm14,%%zmm15,%%zmm10	\n\t"/* c5 += cc5*t1; */\
+		"vaddpd (%%r8 ),%%zmm0,%%zmm0	\n\t	vaddpd 0x40(%%r8 ),%%zmm15,%%zmm15	\n\t"/* B0 += t1; */\
+		"vmovaps	%%zmm0,(%%r8 )		\n\t	vmovaps	%%zmm15,0x40(%%r8 )			\n\t"/* Store B0 */\
+\
+		"vmovaps	    (%%rdi),%%zmm0	\n\t	vmovaps	0x40(%%rdi),%%zmm15	\n\t"/* t2 */\
+		"movslq	0x0c(%%rbx),%%rsi	\n\t	addq	%%rax,%%rsi		\n\t"/* Compute &i3,4 from 32-bit offsets */\
+		"movslq	0x10(%%rbx),%%rdi	\n\t	addq	%%rax,%%rdi		\n\t"\
+	"vfmadd231pd %%zmm11,%%zmm0,%%zmm1	\n\t vfmadd231pd %%zmm11,%%zmm15,%%zmm6	\n\t"/* c1 += cc2*t2; */\
+	"vfmadd231pd %%zmm13,%%zmm0,%%zmm2	\n\t vfmadd231pd %%zmm13,%%zmm15,%%zmm7	\n\t"/* c2 += cc4*t2; */\
+	"vfmadd231pd %%zmm14,%%zmm0,%%zmm3	\n\t vfmadd231pd %%zmm14,%%zmm15,%%zmm8	\n\t"/* c3 += cc5*t2; */\
+	"vfmadd231pd %%zmm12,%%zmm0,%%zmm4	\n\t vfmadd231pd %%zmm12,%%zmm15,%%zmm9	\n\t"/* c4 += cc3*t2; */\
+	"vfmadd231pd (%%r9 ),%%zmm0,%%zmm5	\n\t vfmadd231pd (%%r9 ),%%zmm15,%%zmm10	\n\t"/* c5 += cc1*t2; */\
+		"vaddpd (%%r8 ),%%zmm0,%%zmm0	\n\t	vaddpd 0x40(%%r8 ),%%zmm15,%%zmm15	\n\t"/* B0 += t2; */\
+		"vmovaps	%%zmm0,(%%r8 )		\n\t	vmovaps	%%zmm15,0x40(%%r8 )			\n\t"/* Store B0 */\
+\
+		"vmovaps	    (%%rsi),%%zmm0	\n\t	vmovaps	0x40(%%rsi),%%zmm15	\n\t"/* t3 */\
+	"vfmadd231pd %%zmm12,%%zmm0,%%zmm1	\n\t vfmadd231pd %%zmm12,%%zmm15,%%zmm6	\n\t"/* c1 += cc3*t3; */\
+	"vfmadd231pd %%zmm14,%%zmm0,%%zmm2	\n\t vfmadd231pd %%zmm14,%%zmm15,%%zmm7	\n\t"/* c2 += cc5*t3; */\
+	"vfmadd231pd %%zmm11,%%zmm0,%%zmm3	\n\t vfmadd231pd %%zmm11,%%zmm15,%%zmm8	\n\t"/* c3 += cc2*t3; */\
+	"vfmadd231pd (%%r9 ),%%zmm0,%%zmm4	\n\t vfmadd231pd (%%r9 ),%%zmm15,%%zmm9	\n\t"/* c4 += cc1*t3; */\
+	"vfmadd231pd %%zmm13,%%zmm0,%%zmm5	\n\t vfmadd231pd %%zmm13,%%zmm15,%%zmm10	\n\t"/* c5 += cc4*t3; */\
+		"vaddpd (%%r8 ),%%zmm0,%%zmm0	\n\t	vaddpd 0x40(%%r8 ),%%zmm15,%%zmm15	\n\t"/* B0 += t3; */\
+		"vmovaps	%%zmm0,(%%r8 )		\n\t	vmovaps	%%zmm15,0x40(%%r8 )			\n\t"/* Store B0 */\
+\
+		"vmovaps	    (%%rdi),%%zmm0	\n\t	vmovaps	0x40(%%rdi),%%zmm15	\n\t"/* t4 */\
+	"vfmadd231pd %%zmm13,%%zmm0,%%zmm1	\n\t vfmadd231pd %%zmm13,%%zmm15,%%zmm6	\n\t"/* c1 += cc4*t4; */\
+	"vfmadd231pd %%zmm12,%%zmm0,%%zmm2	\n\t vfmadd231pd %%zmm12,%%zmm15,%%zmm7	\n\t"/* c2 += cc3*t4; */\
+	"vfmadd231pd (%%r9 ),%%zmm0,%%zmm3	\n\t vfmadd231pd (%%r9 ),%%zmm15,%%zmm8	\n\t"/* c3 += cc1*t4; */\
+	"vfmadd231pd %%zmm14,%%zmm0,%%zmm4	\n\t vfmadd231pd %%zmm14,%%zmm15,%%zmm9	\n\t"/* c4 += cc5*t4; */\
+	"vfmadd231pd %%zmm11,%%zmm0,%%zmm5	\n\t vfmadd231pd %%zmm11,%%zmm15,%%zmm10	\n\t"/* c5 += cc2*t4; */\
+		"vaddpd (%%r8 ),%%zmm0,%%zmm0	\n\t	vaddpd 0x40(%%r8 ),%%zmm15,%%zmm15	\n\t"/* B0 += t4; */\
+		"vmovaps	%%zmm0,(%%r8 )		\n\t	vmovaps	%%zmm15,0x40(%%r8 )			\n\t"/* Store B0 */\
+\
+		"vmovaps	    (%%r10),%%zmm0	\n\t	vmovaps	0x40(%%r10),%%zmm15	\n\t"/* t5 */\
+	"vfmadd231pd %%zmm14,%%zmm0,%%zmm1	\n\t vfmadd231pd %%zmm14,%%zmm15,%%zmm6	\n\t"/* c1 += cc5*t5; */\
+	"vfmadd231pd (%%r9 ),%%zmm0,%%zmm2	\n\t vfmadd231pd (%%r9 ),%%zmm15,%%zmm7	\n\t"/* c2 += cc1*t5; */\
+	"vfmadd231pd %%zmm13,%%zmm0,%%zmm3	\n\t vfmadd231pd %%zmm13,%%zmm15,%%zmm8	\n\t"/* c3 += cc4*t5; */\
+	"vfmadd231pd %%zmm11,%%zmm0,%%zmm4	\n\t vfmadd231pd %%zmm11,%%zmm15,%%zmm9	\n\t"/* c4 += cc2*t5; */\
+	"vfmadd231pd %%zmm12,%%zmm0,%%zmm5	\n\t vfmadd231pd %%zmm12,%%zmm15,%%zmm10	\n\t"/* c5 += cc3*t5; */\
+		"vaddpd (%%r8 ),%%zmm0,%%zmm0	\n\t	vaddpd 0x40(%%r8 ),%%zmm15,%%zmm15	\n\t"/* B0 += t5; */\
+	/*
+	Current GPR assignments:
+		rax	rbx	rcx	rdx	rsi	rdi	r8	r9	r10	r11	r12	r13	r14	r15
+		in	iff	out	off	i3	i4	i0	cc1	i5	o6	o7	o8	o9	oA
+	*/\
+		"movslq	(%%rdx),%%r8	\n\t	addq	%%rcx,%%r8	\n\t"/* o0-from-offset */\
+		"vmovaps	%%zmm0,(%%r8 )		\n\t	vmovaps	%%zmm15,0x40(%%r8 )			\n\t"/* Store B0, now into output slot */\
+		/* Have enough registers to also hold the real parts of S-terms: */\
+		"vmovaps	(%%r15),%%zmm11		\n\t"/* s1r */\
+		"vmovaps	(%%r14),%%zmm12		\n\t"/* s2r */\
+		"vmovaps	(%%r13),%%zmm13		\n\t"/* s3r */\
+		"vmovaps	(%%r12),%%zmm14		\n\t"/* s4r */\
+		"vmovaps	(%%r11),%%zmm15		\n\t"/* s5r */\
+		/* Need rcx,rdx for O-address computations, but done with I-addesses so rax,rbx free: */\
+		"movslq	0x04(%%rdx),%%rsi	\n\t	addq	%%rcx,%%rsi		\n\t"/* &B1 */\
+		"movslq	0x08(%%rdx),%%rdi	\n\t	addq	%%rcx,%%rdi		\n\t"/* &B2 */\
+		"movslq	0x0c(%%rdx),%%rax	\n\t	addq	%%rcx,%%rax		\n\t"/* &B3 */\
+		"movslq	0x10(%%rdx),%%rbx	\n\t	addq	%%rcx,%%rbx		\n\t"/* &B4 */\
+		"movslq	0x14(%%rdx),%%r10	\n\t	addq	%%rcx,%%r10		\n\t"/* &B5 */\
+	/* ...Do the lower-half-index portion of the closing wave of radix-2 butterflies: */\
+		"vsubpd 0x40(%%r15),%%zmm1,%%zmm1		\n\t	 vaddpd %%zmm11,%%zmm6 ,%%zmm6	\n\t"/* B1 = C1 + I*S1 */\
+		"vsubpd 0x40(%%r14),%%zmm2,%%zmm2		\n\t	 vaddpd %%zmm12,%%zmm7 ,%%zmm7	\n\t"/* B2 = C2 + I*S2 */\
+		"vsubpd 0x40(%%r13),%%zmm3,%%zmm3		\n\t	 vaddpd %%zmm13,%%zmm8 ,%%zmm8	\n\t"/* B3 = C3 + I*S3 */\
+		"vsubpd 0x40(%%r12),%%zmm4,%%zmm4		\n\t	 vaddpd %%zmm14,%%zmm9 ,%%zmm9	\n\t"/* B4 = C4 + I*S4 */\
+		"vsubpd 0x40(%%r11),%%zmm5,%%zmm5		\n\t	 vaddpd %%zmm15,%%zmm10,%%zmm10	\n\t"/* B5 = C5 + I*S5 */\
+	/* Write lower-half outputs back to memory... */\
+		"vmovaps	%%zmm1,(%%rsi)		\n\t"/* B1r */"		vmovaps	%%zmm6 ,0x40(%%rsi)	\n\t"/* B1i */\
+		"vmovaps	%%zmm2,(%%rdi)		\n\t"/* B2r */"		vmovaps	%%zmm7 ,0x40(%%rdi)	\n\t"/* B2i */\
+		"vmovaps	%%zmm3,(%%rax)		\n\t"/* B3r */"		vmovaps	%%zmm8 ,0x40(%%rax)	\n\t"/* B3i */\
+		"vmovaps	%%zmm4,(%%rbx)		\n\t"/* B4r */"		vmovaps	%%zmm9 ,0x40(%%rbx)	\n\t"/* B4i */\
+		"vmovaps	%%zmm5,(%%r10)		\n\t"/* B5r */"		vmovaps	%%zmm10,0x40(%%r10)	\n\t"/* B5i */\
+	/* ...Do the upper-half-index portion of the radix-2 butterflies: */\
+		" vfmadd231pd 0x40(%%r15),%%zmm31,%%zmm1		\n\t	vfnmadd231pd %%zmm11,%%zmm31,%%zmm6	\n\t"/* B10= C1 - I*S1 */\
+		" vfmadd231pd 0x40(%%r14),%%zmm31,%%zmm2		\n\t	vfnmadd231pd %%zmm12,%%zmm31,%%zmm7	\n\t"/* B9 = C2 - I*S2 */\
+		" vfmadd231pd 0x40(%%r13),%%zmm31,%%zmm3		\n\t	vfnmadd231pd %%zmm13,%%zmm31,%%zmm8	\n\t"/* B8 = C3 - I*S3 */\
+		" vfmadd231pd 0x40(%%r12),%%zmm31,%%zmm4		\n\t	vfnmadd231pd %%zmm14,%%zmm31,%%zmm9	\n\t"/* B7 = C4 - I*S4 */\
+		" vfmadd231pd 0x40(%%r11),%%zmm31,%%zmm5		\n\t	vfnmadd231pd %%zmm15,%%zmm31,%%zmm10	\n\t"/* B6 = C5 - I*S5 */\
+	/* ...And write the upper-half outputs back to memory. */\
+		"vmovaps	%%zmm1,(%%r15)		\n\t"/* Bar */"		vmovaps	%%zmm6 ,0x40(%%r15)	\n\t"/* Bai */\
+		"vmovaps	%%zmm2,(%%r14)		\n\t"/* B9r */"		vmovaps	%%zmm7 ,0x40(%%r14)	\n\t"/* B9i */\
+		"vmovaps	%%zmm3,(%%r13)		\n\t"/* B8r */"		vmovaps	%%zmm8 ,0x40(%%r13)	\n\t"/* B8i */\
+		"vmovaps	%%zmm4,(%%r12)		\n\t"/* B7r */"		vmovaps	%%zmm9 ,0x40(%%r12)	\n\t"/* B7i */\
+		"vmovaps	%%zmm5,(%%r11)		\n\t"/* B6r */"		vmovaps	%%zmm10,0x40(%%r11)	\n\t"/* B6i */\
+		:					/* outputs: none */\
+		: [in0] "m" (Xin0)	/* All inputs from memory addresses here */\
+		 ,[i_off] "m" (Xi_off)	/* I-address pointer-strides */\
+		 ,[__cc] "m" (Xcc)\
+		 ,[out0] "m" (Xout0)\
+		 ,[o_off] "m" (Xo_off)	/* O-address pointer-strides */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15",\
+			"xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm31"	/* Clobbered registers */\
+		);\
+	}
+
+  #else	// AVX-512:
+
    #if DFT_11_FMA	// [1] DFT_11_FMA = True: Naive but good-ROE and FMA-friendly impl based on RADIX_11_DFT_BASIC in dft_macro.h:
 
 	// Arithmetic opcount: [30 ADD, 120 MUL/FMA, 166 memref], close to general target of 1 memref per vec_dbl arithmetic op.
@@ -715,6 +973,8 @@
 	}
 
    #endif	// ? DFT_11_FMA
+
+  #endif	// (IMCI512 or AVX512?) toggle
 
 #elif defined(USE_AVX2)	// AVX+FMA version, based on RADIX_11_DFT_FMA in dft_macro.h
 

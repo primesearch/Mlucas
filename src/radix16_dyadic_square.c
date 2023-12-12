@@ -42,8 +42,8 @@
 		#define FULLY_FUSED		0	// For 64-bit GCC-mode builds, this invokes a fused DIF/Square/DIT macro.
 	  #endif
 	  #if FULLY_FUSED
-	  #error FULLY_FUSED path does not support Gerbicz-check!
 		#warning Using FULLY_FUSED version of radix-16 DIF/dyadic-square/DIT algorithm.
+		#error FULLY_FUSED path does not support Gerbicz-check!
 		#include "radix16_dyadic_square_gcc64.h"
 	  #else
 		#include "radix16_wrapper_square_gcc64.h"
@@ -121,11 +121,11 @@ void radix16_dyadic_square(
 	static vec_dbl *__r0;
 	static uint32  *__i0;
 	// In || mode, only above base-pointers (shared by all threads) are static:
-	uint32  *k1_arr, *k2_arr;
-	vec_dbl *cc0, *ss0, *isrt2, *two,*one, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+	uint32  *k1_arr,*k2_arr;
+	vec_dbl *cc0,*ss0,*isrt2, *two,*one, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
   #else
-	static uint32  *k1_arr, *k2_arr;
-	static vec_dbl *cc0, *ss0, *isrt2, *two,*one, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+	static uint32  *k1_arr,*k2_arr;
+	static vec_dbl *cc0,*ss0,*isrt2, *two,*one, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
   #endif
 
 #else
@@ -653,7 +653,8 @@ void radix16_dyadic_square(
 
 		[3] Or, we can use an AVX-512 gather-load (operands in reverse of GCC inline-asm order here):
 
-			VGATHERDPD zmm1{k1},vm32y	Using signed qword indices, gather float64 data into zmm1 using OPMASK register k1 as completion mask.
+			VGATHERDPD zmm1{k1},vm32y	Using signed qword indices, gather float64 data into zmm1 using OPMASK register
+			k1 as completion mask.
 
 		Description
 			A set of 8 double-precision floating-point memory locations pointed by base address
@@ -665,7 +666,8 @@ void radix16_dyadic_square(
 			register is left unchanged. The entire mask register will be set to zero by this
 			instruction unless it triggers an exception.
 
-		AT&T/GCC enhanced-inline-asm syntax example - note the required '%' escapes preceding each curly brace in the opmask-reg specifier:
+		AT&T/GCC enhanced-inline-asm syntax example - note the required '%' escapes preceding
+		each curly brace in the opmask-reg specifier:
 
 			vgatherdpd 0x8(%%rax,%%ymm0),%%zmm1%{%%k1%}
 
@@ -675,9 +677,178 @@ void radix16_dyadic_square(
 		then simply load the needed block of elements from k1,2_arr - each half the width of the double it will generate the
 		address of upon addition to the common base-address - into a ymm.
 		*/
-	  #define KASM 1
-	  #if KASM
-	   #if 0	// Set = 1 to enable timing-loop (also need to do same for post-asm loop-ending bracket
+	  #ifdef USE_IMCI512	// Vectorized version below a no-go on 1st-gen Xeon Phi
+
+		#warning AVX-512: Using slower non-ASM-macro version of sincos-indexing in radix16_dyadic_square.c.
+		/*
+		IMCI512: SSE2_RADIX16_CALC_TWIDDLES_LOACC reads k[0|1]_arr[0-39] in 8-index chunks,
+			does gather-loads associated rt[0|1] elts, computes twiddles, writes to cc0+[0x4-...].
+			Pull the gather-loads out here and do in C, just do the 512-bit vector CMULs in asm-macro:
+		*/
+		// 1st set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 2nd set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 3rd set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 4th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 5th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 6th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 7th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 8th set:
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+	  #else
+		#warning Using AVX-512 code in radix16_dyadic_square.c
+
+	   #if 0	// Set = 1 to enable timing-loop
 		/*
 			16 Jan 2017: 10^7-execs timings on single 1.3GHz core of KNL:
 			Description																T(sec)
@@ -779,156 +950,12 @@ void radix16_dyadic_square(
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
 
-	  #else
-		#warning AVX-512: Using slower non-ASM-macro version of sincos-indexing.
+	  #endif	// (IMCI512 or AVX512?) toggle
 
-		// 1st set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 0] = k1<<4;	k2_arr[ 0] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 8] = k1<<4;	k2_arr[ 8] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[16] = k1<<4;	k2_arr[16] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[24] = k1<<4;	k2_arr[24] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[32] = k1<<4;	k2_arr[32] = k2<<4;
-//printf("iroot[0] = %u\n",l);
-		// 2nd set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 1] = k1<<4;	k2_arr[ 1] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 9] = k1<<4;	k2_arr[ 9] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[17] = k1<<4;	k2_arr[17] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[25] = k1<<4;	k2_arr[25] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[33] = k1<<4;	k2_arr[33] = k2<<4;
-//printf("iroot[1] = %u\n",l);
-		// 3rd set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 2] = k1<<4;	k2_arr[ 2] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[10] = k1<<4;	k2_arr[10] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[18] = k1<<4;	k2_arr[18] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[26] = k1<<4;	k2_arr[26] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[34] = k1<<4;	k2_arr[34] = k2<<4;
-//printf("iroot[2] = %u\n",l);
-		// 4th set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 3] = k1<<4;	k2_arr[ 3] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[11] = k1<<4;	k2_arr[11] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[19] = k1<<4;	k2_arr[19] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[27] = k1<<4;	k2_arr[27] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[35] = k1<<4;	k2_arr[35] = k2<<4;
-//printf("iroot[3] = %u\n",l);
-		// 5th set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 4] = k1<<4;	k2_arr[ 4] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[12] = k1<<4;	k2_arr[12] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[20] = k1<<4;	k2_arr[20] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[28] = k1<<4;	k2_arr[28] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[36] = k1<<4;	k2_arr[36] = k2<<4;
-//printf("iroot[4] = %u\n",l);
-		// 6th set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 5] = k1<<4;	k2_arr[ 5] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[13] = k1<<4;	k2_arr[13] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[21] = k1<<4;	k2_arr[21] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[29] = k1<<4;	k2_arr[29] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[37] = k1<<4;	k2_arr[37] = k2<<4;
-//printf("iroot[5] = %u\n",l);
-		// 7th set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 6] = k1<<4;	k2_arr[ 6] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[14] = k1<<4;	k2_arr[14] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[22] = k1<<4;	k2_arr[22] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[30] = k1<<4;	k2_arr[30] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[38] = k1<<4;	k2_arr[38] = k2<<4;
-//printf("iroot[6] = %u\n",l);
-		// 8th set:
-		iroot = index0[index0_idx] + index1[index1_idx];
-		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
-		l = iroot;
-		// Lshift all the vector k1,k2 indices to effect *= 16 needed for complex-double-strided access:
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[ 7] = k1<<4;	k2_arr[ 7] = k2<<4;
-		l += iroot;			/* 2*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[15] = k1<<4;	k2_arr[15] = k2<<4;
-		l += (iroot << 1);	/* 4*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[23] = k1<<4;	k2_arr[23] = k2<<4;
-		l += (iroot << 2);	/* 8*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[31] = k1<<4;	k2_arr[31] = k2<<4;
-		l += 5*iroot;		/* 13*iroot */
-		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[39] = k1<<4;	k2_arr[39] = k2<<4;
-//printf("iroot[7] = %u\n",l);
-	  #endif	// ASM vs C toggle
-//printf("k1_arr:\n"); for(l = 0; l < 40; l++) { printf("%u,",k1_arr[l]); }; printf("\n");
-//printf("k2_arr:\n"); for(l = 0; l < 40; l++) { printf("%u,",k2_arr[l]); }; printf("\n");exit(0);
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX16_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
 
-/*
-printf("AVX512: Outputs of twiddle-comp:\n");
-tmp = cc0; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 0] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c1 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 1] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c2 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 2] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c3 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 3] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c4 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 4] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c5 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 5] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c6 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 6] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c7 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 7] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c8 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 8] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c9 ; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[ 9] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c10; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[10] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c11; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[11] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c12; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[12] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c13; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[13] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c14; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[14] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-tmp = c15; %20.15f,%20.15f,%20.15f,%20.15f"\tc,s[15] = %20.15f, %20.15f\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3, (tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);
-exit(0);
-*/
 	  #endif	// SIMD mode?
 
 	#endif	// SIMD ?
@@ -1172,7 +1199,7 @@ locations, just with local-store address offsets doubled due to the double data 
 
 		add0 = &a[j1];
 		add1 = &a[j1+stridh];	// stridh = 128/64/32/16 for AVX512/AVX/SSE2/scalar-double, respectively
-	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
+	#ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:
 		add1 = add0 +  32;
 		add2 = add0 +  64;
@@ -1181,18 +1208,21 @@ locations, just with local-store address offsets doubled due to the double data 
 		add5 = add0 + 160;
 		add6 = add0 + 192;
 		add7 = add0 + 224;
-	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	#elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
 	  					// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
 		add1 = add0 + 32;
 		add2 = add0 + 64;
 		add3 = add0 + 96;
-	  #endif
+	#endif
 
-	if(fwd_fft_only != 3)	// v20: add support for both-inputs-already-fwd-FFTed case - fwd_fft_only == 3 means skip fwd-FFT
-	{
 	#if FULLY_FUSED
+
 		SSE2_RADIX16_DIF_DYADIC_DIT(add0,add1,r1,isrt2,pfetch_dist);
+
 	#else
+
+	  if(fwd_fft_only != 3)	// v20: add support for both-inputs-already-fwd-FFTed case - fwd_fft_only == 3 means skip fwd-FFT
+	  {
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:
 		// process 8 main-array blocks of 4 vec_dbl [= 4 x 8 = 32 doubles each] in AVX512 mode, total = 256 float64
@@ -1207,16 +1237,16 @@ locations, just with local-store address offsets doubled due to the double data 
 		SSE2_RADIX16_WRAPPER_DIF(add0,add1
 								,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 	  #endif
-	}
+	  }
 
-	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
-	if(fwd_fft_only == 1)
-	{
+	  // v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
+	  if(fwd_fft_only == 1)
+	  {
 		nbytes = ((long)r17 - (long)r1)<<1;
 		memcpy(add0, r1, nbytes);	// add0 = a + j1pad;
 		goto loop;	// Skip dyadic-mul and iFFT
 
-	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
+	  } else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
 
 	  if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
 		nbytes = ((long)r17 - (long)r1)<<1;
@@ -2310,9 +2340,9 @@ locations, just with local-store address offsets doubled due to the double data 
 		#error 32-bit OSes no longer supported for SIMD builds!
 	  #endif	// avx512 / avx / sse2_64 / sse2_32 ?
 
-	}	// endif(fwd_fft_only == 1)
+	  }	// endif(fwd_fft_only == 1)
 
-	/*...And do an inverse DIT radix-16 pass on the squared-data blocks. */
+	  /*...And do an inverse DIT radix-16 pass on the squared-data blocks. */
 
 	  #ifdef USE_AVX512
 		SSE2_RADIX16_WRAPPER_DIT(add0,add1,add2,add3,add4,add5,add6,add7
@@ -2325,7 +2355,7 @@ locations, just with local-store address offsets doubled due to the double data 
 								,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 	  #endif // AVX or SSE2?
 
-  #endif // FULLY_FUSED?
+	#endif // FULLY_FUSED?
 
 #else	/* if(!USE_SSE2) */
 

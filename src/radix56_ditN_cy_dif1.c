@@ -382,6 +382,10 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	bs_arr    = wtinv_arr + ODD_RADIX;
 	bsinv_arr = bs_arr    + ODD_RADIX;
 
+  #if 0	//def USE_IMCI512
+	WARN(HERE, "radix56_ditN_cy_dif1: No k1om / IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+  #endif
+
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
@@ -1480,7 +1484,10 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+		//	target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));	*** This works but gives warnings re. 'lshift-of-signed-int undefined'
+			// must explicitly cast the negated uint32 result to (signed) int, otherwise the compiler is free to default-cast it,
+			// and if said default-cast is to unsigned (either 32 or 64-bit) get a large positive int multiplying target_wtfwd:
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;

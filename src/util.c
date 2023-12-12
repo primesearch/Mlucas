@@ -1434,6 +1434,17 @@ void host_init(void)
 	clock_t clock1, clock2;
 	double tdiff;
 
+#if INCLUDE_HWLOC
+	/* Allocate and initialize topology object (extern hw_topology is defined in Mlucas.c): */
+	hwloc_topology_init(&hw_topology);
+	/* Perform the topology detection. */
+	hwloc_topology_load(hw_topology);
+	/* See if per-thread LPU-binding (affinity) is supported: */
+	const struct hwloc_topology_support *support;
+	support = hwloc_topology_get_support (hw_topology);
+	HWLOC_AFFINITY = (support && support->cpubind->set_thread_cpubind);
+#endif
+
 	/* Various useful precomputed powers of 2 in floating-double form: */
 	TWO25FLOAT = (double)0x02000000;				TWO25FLINV = 1.0/TWO25FLOAT;
 	TWO26FLOAT = (double)0x04000000;				TWO26FLINV = 1.0/TWO26FLOAT;
@@ -1486,7 +1497,35 @@ void host_init(void)
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 //	printf("Time for %u 2^[+|-]p (mod q) call pairs =%s\n",imax, get_time_str(tdiff));
-
+#ifdef TEST_MI64_PRP
+	const uint32 max_test_dim = 1024;
+	uint32 i,ihi = 1000,j,jhi;
+  #if 0
+	// Use this to test truncated vector-UMULH function:
+	uint64 vec0[max_test_dim],vec1[max_test_dim],vec2[max_test_dim];
+	for(jhi = 8; jhi <= max_test_dim; jhi <<= 1) {
+		fprintf(stderr,"Doing %u random-input calls to mi64_mul_vector_hi_trunc() with input length %u...\n",ihi,jhi);
+		for(i = 0; i < ihi; i++) {
+			for(j = 0; j < jhi; j++) {
+				vec0[j] = -1ull;//rng_isaac_rand();
+				vec1[j] = -1ull;//rng_isaac_rand();
+			}
+			mi64_mul_vector_hi_trunc(vec0,vec1,vec2,jhi);
+		}
+	}
+  #endif
+	// Now do bignum-PRP test:
+	uint64 vec[max_test_dim], exp;	// Use a known M-prime exponent and dimension vec suitably
+	const uint32 mers_expos[] = {61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941,11213,19937,21701,0x0};
+	for(i = 0; ; i++) {
+		if((exp = (uint64)mers_expos[i]) == 0ull) break;
+		fprintf(stderr,"TEST_MI64_PRP: Base-3 Fermat-PRP test of M(%llu)...\n",exp);
+		ASSERT(HERE, exp < (max_test_dim<<6), "Bignum-PRP test exponent larger than test-vec dimension permits!");
+		j = mi64_init_mers_or_ferm_modulus(exp, 0, vec);
+		ASSERT(HERE, mi64_pprimeF(vec,3ull,j), "TEST_MI64_PRP: Base-3 Fermat-PRP test fails!");
+	}
+	exit(0);
+#endif
 	// Test certain aspects of SIMD functionality (aim is to expand this into a decently comprehensive
 	// timing-test-of-key-SIMD-code-constructs suite):
 #ifdef TEST_SIMD
@@ -1502,6 +1541,8 @@ void host_init(void)
 //	ASSERT(HERE, test_radix32_dft() == 0, "test_radix32_dft() returns nonzero!");
 
   #ifdef USE_AVX
+	test_vperm2f128();	// Is one designed for step-thru debug
+exit(0);
 //	ASSERT(HERE, test_simd_transpose_4x4() == 0, "test_simd_transpose_4x4() returns nonzero!");
   #endif
   #ifdef USE_AVX512
@@ -1536,8 +1577,64 @@ exit(0);
 	isfact = gcd(0,0ull,vec1,vec2,nlimb,gcd_str);	// 1st arg = stage just completed
 exit(0);
 #endif
-
 #if 0
+	// Test fast 32-bit single-word divrem N/D based on multiply by pseudoinverse ceiling(2^33/D):
+	rng_isaac_init(TRUE);
+	uint32 i32,x32,q32,r32, i,j, d,pow,dodd,dinv, nfail,min_fail,qtrue;
+	int qdiff, max_qdiff;	// Make these one signed so can see if all failures have q wrong in the same direction
+	/*
+		Stats for d = dodd*2^18 with Dodd = {3,5,7,9,11,13,15}; #fail is out of 10^9 loop-passes, i.e. 2*10^9 divrems:
+		Dodd	#fail	Smallest failing quotient
+		----	-----	-----------
+		   3	   0		--
+		   5	 502	2869166079
+		   7	1103	1436811263
+		   9	   0		--
+		  11	 226	2863398911
+		  13	 890	1076887551
+		  15	1400	 664535039
+		In all of the failures, qdiff = +1, i.e. is overestimated by 1; a single conditional subtract-D step
+		by way of error correction would fix up the affected remainders.
+	*/
+	uint64 i64;
+	imax = 1000000000;
+	// Outer loop is over odds in [3,15]:
+	for(j = 3; j < 16; j += 2) {
+		d = j<<18; pow = trailz32(d); dodd = d>>pow; dinv = ((1ull<<(33+pow))+d-1)/d; nfail = 0; min_fail = -1u;
+		max_qdiff = 0;	// Make this one signed so can see if all failures have q wrong in the same direction
+		for(i = 0; i < imax; i++) {
+			i64 = rng_isaac_rand();
+			// No point wasting expensive rng calls - use both halves of i64 for fast-divrem test:
+			x32 = (uint32)i64;
+			// Quotient is full-length 64-bit product x32*dinv followed by 33-bit rightward shift:
+			q32 = ((uint64)x32 * dinv)>>(pow+33);
+			r32 = x32 - d*q32;
+			if(r32 != x32%d) {
+				qtrue = x32/d; qdiff = q32 - qtrue;
+				if(qdiff < 0) fprintf(stderr,"\tA: qdiff < 0 in 32-bit fast-divrem for D = %u*2^%u, N = %u: gives Q = %u, true quotient = %u.\n",dodd,pow,x32,q32,qtrue);
+				if(ABS(qdiff) > max_qdiff)
+					max_qdiff = qdiff;
+				min_fail = MIN(min_fail,x32);
+				if(++nfail < 10) fprintf(stderr,"\tA: 32-bit fast-divrem fails for D = %u*2^%u, N = %u: gives Q = %u, true quotient = %u.\n",dodd,pow,x32,q32,qtrue);
+			}
+			// High half of i64:
+			x32 = i64>>32;
+			q32 = ((uint64)x32 * dinv)>>(pow+33);
+			r32 = x32 - d*q32;
+			if(r32 != x32%d) {
+				qtrue = x32/d; qdiff = q32 - qtrue;
+				if(qdiff < 0) fprintf(stderr,"\tB: qdiff < 0 in 32-bit fast-divrem for D = %u*2^%u, N = %u: gives Q = %u, true quotient = %u.\n",dodd,pow,x32,q32,qtrue);
+				if(ABS(qdiff) > max_qdiff)
+					max_qdiff = qdiff;
+				min_fail = MIN(min_fail,x32);
+				if(++nfail < 10) fprintf(stderr,"\tB: 32-bit fast-divrem fails for D = %u*2^%u, N = %u: gives Q = %u, true quotient = %u.\n",dodd,pow,x32,q32,x32/d);
+			}
+		}
+		fprintf(stderr,"D = %u*2^%u: %u (out of %u) fast-divrem failures, max_qdiff = %d.\n",dodd,pow,nfail,imax+imax,max_qdiff);
+		if(nfail) fprintf(stderr,"Smallest failing quotient = %u\n",min_fail);
+	}
+	exit(0);
+
 	rng_isaac_init(TRUE);
 	uint32 i32,x32,bit, i,imax;
 	uint64 i64;
@@ -2020,6 +2117,18 @@ void print_host_info(void)
 
 	printf("CPU Family = %s, OS = %s, %2d-bit Version, compiled with %s, Version %s.\n", CPU_NAME, OS_NAME, OS_BITS, COMPILER_NAME, COMPILER_VERSION);
 
+#if INCLUDE_HWLOC
+	char hwloc_version[12];
+	snprintf(hwloc_version,sizeof(hwloc_version),"%u.%u.%u",HWLOC_API_VERSION>>16,(HWLOC_API_VERSION>>8)&0xff,HWLOC_API_VERSION&0xff);
+	printf("HWLOC Version = %s; \n",hwloc_version);
+	ASSERT(HERE,hw_topology != 0x0,"HWLOC hardware topology object not initialized!");
+	int topodepth = hwloc_topology_get_depth(hw_topology);
+	uint32 nsock = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_PACKAGE);
+	uint32 ncore = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_CORE);
+	uint32 nlpu = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_PU);
+	printf("\tHardware topology: %d levels, %u sockets, %u cores, %u logical processors (threads)\n",topodepth,nsock,ncore,nlpu);
+#endif
+
 #ifdef CPU_IS_ARM_EABI
 
 	if(has_asimd()) {
@@ -2048,9 +2157,9 @@ void print_host_info(void)
   #ifdef USE_IMCI512	// 1st-gen Xeon Phi (KNF,KNC)
 
 	if(has_avx512()) {
-		ASSERT(HERE, 0, "Build uses AVX-512 instruction set, but only IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
+		ASSERT(HERE, 0, "Build uses AVX-512 instruction set, but only k1om / IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
 	} else if(has_imci512()) {
-		printf("INFO: Build uses IMCI-512 instruction set.\n");
+		printf("INFO: Build uses k1om / IMCI-512 instruction set.\n");
 	} else {
 		#define CPUID(arg1,arg2,ax,bx,cx,dx)\
 			__asm__ __volatile__ ("cpuid":\
@@ -2547,17 +2656,18 @@ void check_nbits_in_types(void)
 
 #endif
 
-#if 0
-#error Code obsolete as of Dec 2015!
+/* May 2022: My subquadratic GCD never flew, using the GMP gcd for e.g. p-1 work, so revert
+to original "fiddle these depending on exponent being tested" scheme. */
+#if 1
 	/* We typically need more information re. the FFT-mul params before being
 	able to inteligently set the anti-thrashing array-padding params, so set = -1
 	(which is taken to mean uninitialized) here:
 	*/
 	DAT_BITS = PAD_BITS = (int32)0xffffffff;
 #else
-	// Dec 20155: Subquadratic GCD needs FFT-mul with variable array lengths, thus no longer
-	// have the "one FFT length at a time" simplicity of LL-testing where we can fiddle these
-	// depending on exponent being tested, so now just set FFT array-padding params right here:
+	/* Dec 2015: My subquadratic GCD needs FFT-mul with variable array lengths, thus no longer
+	have the "one FFT length at a time" simplicity of LL-testing where we can fiddle these
+	depending on exponent being tested, so now just set FFT array-padding params right here: */
 	DAT_BITS = DAT_BITS_DEF;	PAD_BITS = PAD_BITS_DEF;
 	printf("Setting DAT_BITS = %d, PAD_BITS = %d\n",DAT_BITS,PAD_BITS);
 #endif
@@ -3579,6 +3689,36 @@ DEV uint32 trailz64(uint64 x)
 #endif
 }
 
+DEV uint32	trailz128(uint128 i)
+{
+	if(i.d0)
+		return trailz64(i.d0);
+	else
+		return trailz64(i.d1) + 64;
+}
+
+DEV uint32	trailz192(uint192 i)
+{
+	if(i.d0)
+		return trailz64(i.d0);
+	else if(i.d1)
+		return trailz64(i.d1) + 64;
+	else
+		return trailz64(i.d2) + 128;
+}
+
+DEV uint32	trailz256(uint256 i)
+{
+	if(i.d0)
+		return trailz64(i.d0);
+	else if(i.d1)
+		return trailz64(i.d1) + 64;
+	else if(i.d2)
+		return trailz64(i.d2) + 128;
+	else
+		return trailz64(i.d3) + 192;
+}
+
 /***************/
 // Return number of leading (leftmost) zeros of input:
 DEV uint32 leadz32(uint32 x)
@@ -3958,7 +4098,8 @@ DEV int isPRP64(uint64 p)
 	// Handle even-argument case separately, since the powmod routines may not accept even moduli:
 	if((p & 1ull) == 0ull)
 		return (p == 2ull);
-	return twopmodq64(p-1,p) == 1ull;
+	uint64 retval = twopmodq64(p-1,p);
+	return retval == 1ull;
 //	return(pprimeF64(p,2ull) && pprimeF64(p,3ull) && pprimeF64(p,5ull) && pprimeF64(p,7ull) && pprimeF64(p,11ull) && pprimeF64(p,13ull));
 }
 
@@ -5731,7 +5872,34 @@ ftmp0 = ftmp;
 /*********************** SIMD functionality/cycle-count tests: **********************************/
 #ifdef TEST_SIMD
 
-	// Random (digits of Pi) input data sufficient for 64 AVX1024-sized vec_dbl elements of 16 doubles each:
+  #ifdef USE_AVX2
+	void test_vperm2f128() {
+		// Proto for posix aligned_alloc() is "void *aligned_alloc(size_t alignment, size_t size);'
+		// where size is a multiple of alignment - we need pair of 32-byte-aligned data chunks here:
+		uint64_t *testvec = aligned_alloc( 32, 2*32 ), *dat1 = testvec, *dat2 = testvec+4;
+		testvec[0] = 0x0000000000000000ull; testvec[1] = 0x1111111111111111ull; testvec[2] = 0x2222222222222222ull; testvec[3] = 0x3333333333333333ull;
+		testvec[4] = 0x4444444444444444ull; testvec[5] = 0x5555555555555555ull; testvec[6] = 0x6666666666666666ull; testvec[7] = 0x7777777777777777ull;
+		/* The imm8 arg of "vperm2f128 src2/mem256,src1,dest" encodes the following 128-bit data-source fields:
+			imm8[0:1] = 0-3 => dest.lo128 = src1.lo128,src1.hi128,src2.lo128,src2.hi128
+			imm8[4:5] = 0-3 => dest.hi128 = src1.lo128,src1.hi128,src2.lo128,src2.hi128
+		Thus e.g. if want dest.lo128 = src1.lo128 and dest.hi128 = src2.lo128,
+		use imm[0:1] = 0, imm8[4:5] = 2 => imm8 = 0b00100000 = 0x20 = 32.
+		*/
+		__asm__ volatile (\
+			"movq		%[__dat1],%%rax		\n\t"\
+			"movq		%[__dat2],%%rbx		\n\t"\
+			"vmovaps	(%%rax),%%ymm1	\n\t"/* 00 01 02 03 [-garbage-] */\
+			"vmovaps	(%%rbx),%%ymm2	\n\t"/* 04 05 06 07 [-garbage-] */\
+			"vperm2f128 $32,%%ymm2,%%ymm1,%%ymm0	\n\t"/* 00 01 02 03 04 05 06 07 */\
+			:						// outputs: none
+			: [__dat1] "m" (dat1)	// All inputs from memory addresses here
+			, [__dat2] "m" (dat2)
+			: "cc","memory","rax","rbx","xmm0","xmm1","xmm2"
+		);
+	}
+  #endif
+
+	// Random (digits of Pi) input data sufficient for 64 1024-bit-SIMD vec_dbl elements of 16 doubles each:
 	const char ran[1024] = {
 	3,1,4,1,5,9,2,6,5,3,5,8,9,7,9,3,2,3,8,4,6,2,6,4,3,3,8,3,2,7,9,5,0,2,8,8,4,1,9,7,1,6,9,3,9,9,3,7,5,1,0,5,8,2,0,9,7,4,9,4,4,5,9,2,
 	3,0,7,8,1,6,4,0,6,2,8,6,2,0,8,9,9,8,6,2,8,0,3,4,8,2,5,3,4,2,1,1,7,0,6,7,9,8,2,1,4,8,0,8,6,5,1,3,2,8,2,3,0,6,6,4,7,0,9,3,8,4,4,6,
@@ -5761,8 +5929,7 @@ ftmp0 = ftmp;
 
   #ifdef USE_AVX512
 	int	test_simd_transpose_8x8()
-	{
-		/*...time-related stuff	*/
+	{	// Time-related stuff:
 		double clock1, clock2;
 		double tdiff, t0,t1,t2,t3;
 		int i,imax = 100000001, row,col, nerr;	// Use 10^8 loop execs in effort to yield timing on order of 1 sec on target CPUs
@@ -5784,7 +5951,84 @@ ftmp0 = ftmp;
 		// Do timing loop using 2 fundamentally different methods of effecting the transpose, the 2nd of
 		// which mimics the data movement surrounding the dyadic-square and carry steps of our FFT-mul:
 	  #ifdef USE_IMCI512
-		// [1a] Rowwise-load and in-register data shuffles. On KNL: 45 cycles per loop-exec:
+		/* OK, this is weird - was trying to find a way to init a vector-double of 0.5 x 8 ... since k10m
+		broadcasts are different from avx-512 ones, they take only mem-addresses as sources, not GPRs, need
+		to supply the bitstring for DP 0.5 = 0x3FE0000000000000 via pointer to an int-const containing that.
+		Here from the architecture reference: "The 8 bytes at [the given] memory address are broadcast to a int64 vector."
+		But when the asm-snip below had (i64ptr) as the input-mem-arg aliased to __dhalf, it didn't work right,
+		the *value* of the pointer (i.e. the address) was broadcast to the 64-bit slots of zmm0. Only worked
+		right once I changed that macro input-argument to (*int64). But in general we prefer the memory-arg-
+		less on-the-fly int32-subtract-with-borrow-followed-by-pair-of-32x16-shifts version anyway:
+		*/
+		const uint64 dhalf = 0x3FE0000000000000ull, *i64ptr = &dhalf;
+		nerr = 0; clock1 = getRealTime();
+		// Pull init of opmask-register k1 out of timing loop: Note that on EI's KNC-copro system, GDB messes up
+		// prints of zmm with reg-index > 7, and of opmask-registers - must kmov the latter to an e-reg to print value:
+		__asm__ volatile (\
+			"movl	$0xaaaa,%%eax	\n\t	kmov	%%eax,%%k1	\n\t"/* k1 = 0b1010101010101010 */\
+			: :
+			: "cc","memory","rax"
+		);
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+			/* Try several different options for generating a vector 0.5 x 8: */\
+			/* [2] Subtract-with-borrow-bits-in-k1 zmm0, result back into zmm0, borrowouts into k1 ... 21 cycles, ouch: */\
+				"vpsbbd %%zmm0,%%k1,%%zmm0	\n\t"/* zmm0 = 0xffffffff00000000 x 8 */\
+				"vpslld $23,%%zmm0,%%zmm0	\n\t"/* zmm0 = 0xff80000000000000 x 8 */\
+				"vpsrld  $2,%%zmm0,%%zmm0	\n\t"/* zmm0 = 0x3ffe000000000000 x 8 */\
+			/* [3] Broadcast-double-0.5-from-mem64, result in zmm2, 0.5^2 = 0.25 x 8 in zmm3 ... 19 cycles: //
+				"vpbroadcastq	%[__dhalf],%%zmm2	\n\t"\
+				"vmulpd		%%zmm2,%%zmm2,%%zmm3	\n\t"*/\
+			/* Unrelatedly, test reverse-order permutation of (double)[0,1,2,3,4,5,6,7]: //
+				"movq	%[__data],%%rax \n\t"\
+				"vmovapd	(%%rax)       ,%%zmm5	\n\t"// zmm5 = 00 01 02 03 04 05 06 07 //\
+				"vmovapd	%%zmm5%{cdab%},%%zmm5	\n\t"// zmm5 = 01 00 03 02 05 04 07 06 //\
+				"vmovapd	%%zmm5%{badc%},%%zmm5	\n\t"// zmm5 = 03 02 01 00 07 06 05 04 //\
+				"vpermf32x4	$78, %%zmm5,%%zmm5		\n\t"// zmm5 = 07 06 05 04 03 02 01 00 (Note vpermf32x4 allows no src-swizzle) */\
+				:	// outputs: none
+				: [__dhalf] "m" (*i64ptr)
+				 ,[__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("IMCI512 / k1om test: Time for %u loops of (double)0.5 x 8 in-register init =%s\n",imax, get_time_str(tdiff));
+
+		// Test out side-by-side 4x4 transpose algorithm - On KNL 15 cycles/loop,
+		// drops to 12 cycles when pull inits of index-registers zmm30,zmm31 out into 1-pass init step:
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movq		%[__data],%%rax		\n\t"\
+			/* Read in the 4 rows of our input matrix: */\
+				"vmovaps	0x000(%%rax),%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 */\
+				"vmovaps	0x040(%%rax),%%zmm1	\n\t"/* zmm1 = 10 11 12 13 14 15 16 17 */\
+				"vmovaps	0x080(%%rax),%%zmm2	\n\t"/* zmm2 = 20 21 22 23 24 25 26 27 */\
+				"vmovaps	0x0c0(%%rax),%%zmm3	\n\t"/* zmm3 = 30 31 32 33 34 35 36 37 */\
+			/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices; in order
+			to highlight the ensuing step 2, use [], want to swap [] pairs in lo,hi halves of zmm4,zmm0 and zmm1,zmm3: */\
+				"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm4%{%%k1%}	\n\t"/* zmm4 = 00 10[02 12]04 14[06 16]*/\
+				"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+				"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t"/* zmm0 =[20 30]22 32[24 34]26 36 */\
+				"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+			/* zmm2 free: */\
+			/* [2] Second layer of VBLENDMPD with pairwise-double swizzle of src1 gives us fully transposed double-quartets: */\
+				"vblendmpd		%%zmm0%{badc%},%%zmm4,%%zmm2%{%%k3%}	\n\t"/* zmm2 = 00 10 20 30 04 14 24 34 */\
+				"vblendmpd		%%zmm4%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t"/* zmm0 = 02 12 22 32 06 16 26 36 */\
+				"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm4%{%%k3%}	\n\t"/* zmm4 = 01 11 21 31 05 15 25 35 */\
+				"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t"/* zmm3 = 03 13 23 33 07 17 27 37 */\
+			/* No write-back-to-memory - just want to be able to examine contents of zmm2,4,0,3 in debugger. */\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Time for %u paired 4x4 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
+
+		// [1a] Rowwise-load and in-register data shuffles. On KNC, 1.24GHz: 9.3 sec, 115 cycles per loop-exec:
 		nerr = 0; clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
@@ -5793,6 +6037,7 @@ ftmp0 = ftmp;
 			"movl $0b10101010,%%ebx	\n\t movl $0b11001100,%%ecx	\n\t movl $0b11110000,%%edx	\n\t"\
 			"kmov	%%ebx,%%k1		\n\t kmov	%%ecx,%%k3		\n\t kmov	%%edx,%%k5		\n\t"\
 			"knot	%%k1 ,%%k2		\n\t knot	%%k3 ,%%k4		\n\t"\
+			/* indices in comments at right are [row,col] pairs, i.e. octal version of linear array indices: */
 				/* Read in the 8 rows of our input matrix: */\
 				"vmovaps	0x000(%%rax),%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 */\
 				"vmovaps	0x040(%%rax),%%zmm1	\n\t"/* zmm1 = 10 11 12 13 14 15 16 17 */\
@@ -5802,38 +6047,42 @@ ftmp0 = ftmp;
 				"vmovaps	0x140(%%rax),%%zmm5	\n\t"/* zmm5 = 50 51 52 53 54 55 56 57 */\
 				"vmovaps	0x180(%%rax),%%zmm6	\n\t"/* zmm6 = 60 61 62 63 64 65 66 67 */\
 				"vmovaps	0x1c0(%%rax),%%zmm7	\n\t"/* zmm7 = 70 71 72 73 74 75 76 77 */\
-
-				"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t"/* zmm8 = {0, 8, 2, 10, 4, 12, 6, 14} */\
-				"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t"/* zmm1 = {1, 9, 3, 11, 5, 13, 7, 15} */\
-				"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t"/* zmm0 = {16, 24, 18, 26, 20, 28, 22, 30 */\
-				"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t"/* zmm3 =  */\
-				"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t"/* zmm2 =  */\
-				"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t"/* zmm5 =  */\
-				"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t"/* zmm4 =  */\
-				"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t"/* zmm7 =  */\
-
-				"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t"\
-				"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t"\
-				"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t"\
-				"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t"\
-				"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t"\
-				"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t"\
-				"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t"\
-				"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t"\
-
+			/* NB: GDB on KNC has a bug: when try to 'p $zmm*.v8_double' with reg-index * > 7, get garbage ... used 'vmovaps zmm8,zmm[0-7]' to read out zmm8 result via copy in zmm[0-7] */\
+				/* Transpose uses regs0-7 for data, reg8 for temp: */\
+				/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices - */\
+				/* under IMCI-512 use VBLENDMPD with 4-double swizzle of src1 to emulate AVX-512 [UNPCKLPD,UNPCKHPD]: */\
+				"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t"/* zmm8 = 00 10 02 12 04 14 06 16 */\
+				"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+				"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t"/* zmm0 = 20 30 22 32 24 34 26 36 */\
+				"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+				"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t"/* zmm2 = 40 50 42 52 44 54 46 56 */\
+				"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t"/* zmm5 = 41 51 43 53 45 55 47 57 */\
+				"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t"/* zmm4 = 60 70 62 72 64 74 66 76 */\
+				"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t"/* zmm7 = 61 71 63 73 65 75 67 77 */\
+				/* zmm6 free: */\
+				/* [2] Second layer of VBLENDMPD with pairwise-double swizzle of src1 gives us fully transposed double-quartets: */\
+				"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t"/* zmm6 = 00 10 20 30 04 14 24 34 */\
+				"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t"/* zmm0 = 02 12 22 32 06 16 26 36 */\
+				"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t"/* zmm8 = 01 11 21 31 05 15 25 35 */\
+				"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t"/* zmm3 = 03 13 23 33 07 17 27 37 */\
+				"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t"/* zmm1 = 40 50 60 70 44 54 64 74 */\
+				"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t"/* zmm4 = 42 52 62 72 46 56 66 76 */\
+				"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t"/* zmm2 = 41 51 61 71 45 55 65 75 */\
+				"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t"/* zmm7 = 43 53 63 73 47 57 67 77 */\
+				/* zmm5 free: */\
 				"vpermf32x4	$78, %%zmm1,%%zmm1		\n\t"\
 				"vpermf32x4	$78, %%zmm2,%%zmm2		\n\t"\
 				"vpermf32x4	$78, %%zmm4,%%zmm4		\n\t"\
 				"vpermf32x4	$78, %%zmm7,%%zmm7		\n\t"\
 
 				"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}	\n\t"\
-				"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}		\n\t"\
-				"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}		\n\t"\
-				"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}		\n\t"\
-				"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}		\n\t"\
-				"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}		\n\t"\
-				"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}		\n\t"\
-				"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}	\n\t"\
 
 				"vpermf32x4	$78, %%zmm1,%%zmm1		\n\t"\
 				"vpermf32x4	$78, %%zmm2,%%zmm2		\n\t"\
@@ -5870,6 +6119,58 @@ ftmp0 = ftmp;
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
 
 	  #else	// AVX-512 version:
+
+		__asm__ volatile (\
+			"movq		%[__data],%%rax		\n\t"\
+			"vmovaps				0x20(%%rax),%%ymm0	\n\t"/* 04 05 06 07 [-garbage-] */\
+			"vinsertf64x4 $1,0x00(%%rax),%%zmm0,%%zmm0	\n\t"/* 04 05 06 07 00 01 02 03 */\
+			"vinsertf64x4 $0,0x20(%%rax),%%zmm1,%%zmm1	\n\t"/* 04 05 06 07 [-garbage-] */\
+			"vmovaps				0x00(%%rax),%%zmm2	\n\t"/* 00 01 02 03 04 05 06 07 */\
+			"valignq			$4,%%zmm2,%%zmm2,%%zmm2	\n\t"/* 04 05 06 07 00 01 02 03 */\
+			:						// outputs: none
+			: [__data] "m" (data)	// All inputs from memory addresses here
+			: "cc","memory","rax","xmm0"
+		);
+		// Test out side-by-side 4x4 transpose algorithm - On KNL 15 cycles/loop,
+		// drops to 12 cycles when pull inits of index-registers zmm30,zmm31 out into 1-pass init step:
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movq		%[__data],%%rax		\n\t"\
+			"movq	$0x05040d0c01000908,%%rbx	\n\t"/* 64-bit register w/byte offsets 0x[8,9,0,1,c,d,4,5], bytes numbered left-to-right */\
+			"movq	$0x07060f0e03020b0a,%%rcx	\n\t"/* 64-bit register w/byte offsets 0x[a,b,2,3,e,f,6,7], bytes numbered left-to-right */\
+			"vmovq		%%rbx,%%xmm30 		\n\t"/* Copy byte pattern in rbx to low qword (64 bits) of xmm30 [NB: avx-512 only supports MOVQ to/from 128-bit vector regs] */\
+			"vmovq		%%rcx,%%xmm31 		\n\t"/* Copy byte pattern in rcx to low qword (64 bits) of xmm31 */\
+			"vpmovzxbq	%%xmm30,%%zmm30		\n\t"/* vector-index offsets: zmm30 = 0x[8,9,0,1,c,d,4,5] in 64-bit form in 8 qwords */\
+			"vpmovzxbq	%%xmm31,%%zmm31		\n\t"/* vector-index offsets: zmm31 = 0x[a,b,2,3,e,f,6,7] in 64-bit form in 8 qwords */\
+			/* Read in the 4 rows of our input matrix: */\
+				"vmovaps	0x000(%%rax),%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 */\
+				"vmovaps	0x040(%%rax),%%zmm1	\n\t"/* zmm1 = 10 11 12 13 14 15 16 17 */\
+				"vmovaps	0x080(%%rax),%%zmm2	\n\t"/* zmm2 = 20 21 22 23 24 25 26 27 */\
+				"vmovaps	0x0c0(%%rax),%%zmm3	\n\t"/* zmm3 = 30 31 32 33 34 35 36 37 */\
+			/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices; in order
+			to highlight the ensuing step 2, use [], want to swap [] pairs in lo,hi halves of zmm4,zmm0 and zmm1,zmm3: */\
+				"vunpcklpd		%%zmm1,%%zmm0,%%zmm4	\n\t"/* zmm4 = 00 10[02 12]04 14[06 16]*/\
+				"vunpckhpd		%%zmm1,%%zmm0,%%zmm1	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+				"vunpcklpd		%%zmm3,%%zmm2,%%zmm0	\n\t"/* zmm0 =[20 30]22 32[24 34]26 36 */\
+				"vunpckhpd		%%zmm3,%%zmm2,%%zmm3	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+			/* [2] Layer of VPERMT2PD; the imm4 values expressed in terms of 2-bit index subfields read right-to-left
+			in order of increasing significance are (2,2,0,0) = 10100000_2 = 160 and (3,3,1,1) = 11110101_2 = 245: */\
+				"vmovaps	%%zmm0,%%zmm2	\n\t"/* zmm2 = copy of zmm0 */\
+				"vpermt2pd	%%zmm4,%%zmm30,%%zmm0	\n\t"/* zmm0 = 00 10 20 30 04 14 24 34 */\
+				"vpermt2pd	%%zmm4,%%zmm31,%%zmm2	\n\t"/* zmm2 = 02 12 22 32 06 16 26 36 */\
+				"vmovaps	%%zmm3,%%zmm4	\n\t"/* zmm4 = copy of zmm3 */\
+				"vpermt2pd	%%zmm1,%%zmm30,%%zmm3	\n\t"/* zmm4 = 01 11 21 31 05 15 25 35 */\
+				"vpermt2pd	%%zmm1,%%zmm31,%%zmm4	\n\t"/* zmm3 = 03 13 23 33 07 17 27 37 */\
+			/* No write-back-to-memory - just want to be able to examine contents of zmm2,4,0,3 in debugger. */\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Time for %u paired 4x4 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
 
 		// [1a] Rowwise-load and in-register data shuffles. On KNL: 45 cycles per loop-exec:
 		nerr = 0; clock1 = getRealTime();
@@ -5949,6 +6250,109 @@ ftmp0 = ftmp;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+	  #endif	// endif(IMCI-512 or AVX-512?)
+
+	  #ifdef USE_IMCI512
+
+		// [1b] Variant of [1a] using VALIGND for final stage of shuffles-across-midline. On KNC: 11.75 sec, 146 cycles per loop-exec:
+		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movq	%[__data],%%rax \n\t"\
+			/* This mov/kmov/knot sequence saves ~4% overall-macro-runtime vs movl/kmov of 5 separate bitstrings into k1-k5 */\
+			"movl $0b10101010,%%ebx	\n\t movl $0b11001100,%%ecx	\n\t movl $0b11110000,%%edx	\n\t"\
+			"kmov	%%ebx,%%k1		\n\t kmov	%%ecx,%%k3		\n\t kmov	%%edx,%%k5		\n\t"\
+			"knot	%%k1 ,%%k2		\n\t knot	%%k3 ,%%k4		\n\t"\
+			/* indices in comments at right are [row,col] pairs, i.e. octal version of linear array indices: */
+				/* Read in the 8 rows of our input matrix: */\
+				"vmovaps	0x000(%%rax),%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 */\
+				"vmovaps	0x040(%%rax),%%zmm1	\n\t"/* zmm1 = 10 11 12 13 14 15 16 17 */\
+				"vmovaps	0x080(%%rax),%%zmm2	\n\t"/* zmm2 = 20 21 22 23 24 25 26 27 */\
+				"vmovaps	0x0c0(%%rax),%%zmm3	\n\t"/* zmm3 = 30 31 32 33 34 35 36 37 */\
+				"vmovaps	0x100(%%rax),%%zmm4	\n\t"/* zmm4 = 40 41 42 43 44 45 46 47 */\
+				"vmovaps	0x140(%%rax),%%zmm5	\n\t"/* zmm5 = 50 51 52 53 54 55 56 57 */\
+				"vmovaps	0x180(%%rax),%%zmm6	\n\t"/* zmm6 = 60 61 62 63 64 65 66 67 */\
+				"vmovaps	0x1c0(%%rax),%%zmm7	\n\t"/* zmm7 = 70 71 72 73 74 75 76 77 */\
+			/* NB: GDB on KNC has a bug: when try to 'p $zmm*.v8_double' with reg-index * > 7, get garbage ... used 'vmovaps zmm8,zmm[0-7]' to read out zmm8 result via copy in zmm[0-7] */\
+				/* Transpose uses regs0-7 for data, reg8 for temp: */\
+				/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices - */\
+				/* under IMCI-512 use VBLENDMPD with 4-double swizzle of src1 to emulate AVX-512 [UNPCKLPD,UNPCKHPD]: */\
+				"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t"/* zmm8 = 00 10 02 12 04 14 06 16 */\
+				"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
+				"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t"/* zmm0 = 20 30 22 32 24 34 26 36 */\
+				"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
+				"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t"/* zmm2 = 40 50 42 52 44 54 46 56 */\
+				"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t"/* zmm5 = 41 51 43 53 45 55 47 57 */\
+				"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t"/* zmm4 = 60 70 62 72 64 74 66 76 */\
+				"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t"/* zmm7 = 61 71 63 73 65 75 67 77 */\
+				/* zmm6 free: */\
+				/* [2] Second layer of VBLENDMPD with pairwise-double swizzle of src1 gives us fully transposed double-quartets: */\
+				"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t"/* zmm6 = 00 10 20 30 04 14 24 34 */\
+				"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t"/* zmm0 = 02 12 22 32 06 16 26 36 */\
+				"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t"/* zmm8 = 01 11 21 31 05 15 25 35 */\
+				"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t"/* zmm3 = 03 13 23 33 07 17 27 37 */\
+				"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t"/* zmm1 = 40 50 60 70 44 54 64 74 */\
+				"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t"/* zmm4 = 42 52 62 72 46 56 66 76 */\
+				"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t"/* zmm2 = 41 51 61 71 45 55 65 75 */\
+				"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t"/* zmm7 = 43 53 63 73 47 57 67 77 */\
+				/* zmm5 free: */\
+				/* [3] Use 8 VALIGND to auto-swap 256-bit halves of last 4 of the above outputs --
+				'VALIGND imm8,src1,src2,dest' means 'doubleword shift [src1,src2] rightward, with low (imm8) dwords
+				of src2 shifted in at high end of src1', so each such used to merge RL halves of our 8 intermediates
+				must be accompanied by a lo|hi-half autoswaps - use VPERMF32X4 for that, it has just 2 register
+				operands, so we hope it's faster than also using VALIGND 8,src,src,src to effect the autoswap: */\
+				"vpermf32x4	$78,%%zmm6,%%zmm5	\n\t"\
+				"valignd	$8,%%zmm5,%%zmm1,%%zmm5		\n\t"/* zmm5 = 00 10 20 30 40 50 60 70 */\
+				"vpermf32x4	$78,%%zmm1,%%zmm1	\n\t"\
+				"valignd	$8,%%zmm6,%%zmm1,%%zmm6		\n\t"/* zmm6 = 04 14 24 34 44 54 64 74 */\
+				/* zmm1 free: */\
+				"vpermf32x4	$78,%%zmm8,%%zmm1	\n\t"\
+				"valignd	$8,%%zmm1,%%zmm2,%%zmm1		\n\t"/* zmm1 = 01 11 21 31 41 51 61 71 */\
+				"vpermf32x4	$78,%%zmm2,%%zmm2	\n\t"\
+				"valignd	$8,%%zmm8,%%zmm2,%%zmm8		\n\t"/* zmm8 = 05 15 25 35 45 55 65 75 */\
+				/* zmm2 free: */\
+				"vpermf32x4	$78,%%zmm0,%%zmm2	\n\t"\
+				"valignd	$8,%%zmm2,%%zmm4,%%zmm2		\n\t"/* zmm2 = 02 12 22 32 42 52 62 72 */\
+				"vpermf32x4	$78,%%zmm4,%%zmm4	\n\t"\
+				"valignd	$8,%%zmm0,%%zmm4,%%zmm0		\n\t"/* zmm0 = 06 16 26 36 46 56 66 76 */\
+				/* zmm4 free: */\
+				"vpermf32x4	$78,%%zmm3,%%zmm4	\n\t"\
+				"valignd	$8,%%zmm4,%%zmm7,%%zmm4		\n\t"/* zmm4 = 03 13 23 33 43 53 63 73 */\
+				"vpermf32x4	$78,%%zmm7,%%zmm7	\n\t"\
+				"valignd	$8,%%zmm3,%%zmm7,%%zmm3		\n\t"/* zmm3 = 07 17 27 37 47 57 67 77 */\
+
+				"vmovaps	%%zmm5,0x000(%%rax)	\n\t"\
+				"vmovaps	%%zmm1,0x040(%%rax)	\n\t"\
+				"vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+				"vmovaps	%%zmm4,0x0c0(%%rax)	\n\t"\
+				"vmovaps	%%zmm6,0x100(%%rax)	\n\t"\
+				"vmovaps	%%zmm8,0x140(%%rax)	\n\t"\
+				"vmovaps	%%zmm0,0x180(%%rax)	\n\t"\
+				"vmovaps	%%zmm3,0x1c0(%%rax)	\n\t"\
+				:				// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [1b]: Time for %u 8x8 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
+		// Check the result:
+	//	printf("Output matrix:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+	  #else	// AVX-512 version:
 
 		// [1b] Same as [1a] but with a few reg-copies to make for a nicer indexing pattern. On KNL: 48 cycles per loop-exec:
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
@@ -6188,15 +6592,137 @@ ftmp0 = ftmp;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
 	  #endif	// endif(USE_IMCI512 || USE_AVX512)
 
 		// [2a] Columnwise-load-and-rowwise-writeback using AVX512 gather-load functionality. On KNL: 56 cycles per loop-exec.
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
 
 	  #ifdef USE_IMCI512
-	  #elif 0	// Here the code needing fixing-up:
-		#error Needs non-IMCI isntructions replaced!
+
 		nerr = 0; clock1 = getRealTime();
+		/*
+		Emily Ingalls provided KNC code below; she comments:
+
+			"what i've found is that vgatherdpd behaves slightly differently in IMCI512 - where in AVX512
+			the instruction can only be interrupted by an exception, in IMCI512 that is not the case, and
+			the only guarantees even in the absence of exceptions is that at least the single element with
+			the least significant mask bit set will be read, and that any elements read will have their bits
+			in the mask unset. in many cases, and indeed the one i'm seeing here, this means you will have
+			to re-run the instruction repeatedly until all elements have been loaded - unrolled, this would
+			mean 64 cycles (really 128, since only one instruction can be executed every other cycle on one
+			thread) just for the vgatherdpd instructions, plus whatever the combined cost of the knot/kmovs,
+			the loading of the vector-index offsets, and writing them back out. a napkin-math estimate puts
+			it at probably 168 cycles per loop on a single thread."
+
+		Indeed, the fine folks at Intel actually released such a worse-than-useless instruction. From the
+		Xeon Phi Coprocessor Instruction Set Architecture Reference Manual:
+
+			A set of 8 memory locations pointed by base address BASE_ADDR and doubleword index vector VINDEX
+			with scale SCALE are converted to a float64 vector. The result is written into float64 vector zmm1.
+
+			Note the special mask behavior as only a subset of the active elements of write mask k1 are actually
+			operated on (as denoted by function SELECT_SUBSET). There are only two guarantees about the function:
+				(a) the destination mask is a subset of the source mask (identity is included), and
+				(b) on a given invocation of the instruction, at least one element (the least
+				significant enabled mask bit) will be selected from the source mask.
+
+			Programmers should always enforce the execution of a gather/scatter instruction to be re-executed
+			(via a loop) until the full completion of the sequence (i.e. all elements of the gather/scatter
+			sequence have been loaded/stored and hence, the write-mask bits all are zero).
+		*/
+		// Doubled version of same 64-bit int containing byte offsets used in AVX-512 version below:
+		uint64_t *gatherindex = aligned_alloc( 512 * 2, 512 * 2 );
+		gatherindex[0] = gatherindex[1] = 0x1c1814100c080400;
+		for(i = 0; i < imax; i++) {	// On KNC, 1.24GHz: 16.1 sec, ~200 cycles per loop-exec, *and* we get errors due to unfilled gather-load target slots:
+			__asm__ volatile (\
+				"movq		%[__data],%%rax		\n\t"\
+				"movq		%[__gatherindex],%%rbx		\n\t"\
+				/* load auxiliary register data needed for columnwise loads: */\
+				"vmovdqa32 0(%%rbx)%{uint8%},%%zmm0		\n\t" /* testing */ \
+				"vpslld	$4,%%zmm0,%%zmm0				\n\t" \
+				"vmovaps %%zmm0,%%zmm8					\n\t" \
+			/* Mask-reg zmm9 = 11...11 - this is stupidly zeroed each time we do gather-load, so need to reinit: */\
+			"movl	$-1,%%ebx	\n\t"/* Init opmask k1 (Only need the low byte) */\
+			"kmov	%%ebx,%%k1	\n\t"\
+			/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation.
+			EWM: When I cut the number of VGATHERPD in each repeated-instruction block from 8 to 4, the resulting
+			speed was actually borderline-competitive, but mismatches from unfilled-targe-vectors cropped up:
+				Method [2a]: Time for 100000001 8x8 doubles-transposes using gather-loads = 00:00:11.923
+				Outputs incorrect! #mismatches = 40
+			[8-fold gives 17 sec and correct result in my test, but correctness is system-load dependent - lovely.]
+			*/
+			"vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t"\
+			"vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t"\
+			"vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t"\
+			"vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 1 */ \
+			"vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t"\
+			"vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t"\
+			"vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t"\
+			"vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 2 */ \
+			"vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t"\
+			"vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t"\
+			"vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t"\
+			"vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 3 */ \
+			"vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t"\
+			"vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t"\
+			"vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t"\
+			"vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 4 */ \
+			"vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t"\
+			"vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t"\
+			"vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t"\
+			"vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 5 */ \
+			"vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t"\
+			"vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t"\
+			"vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t"\
+			"vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 6 */ \
+			"vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t"\
+			"vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t"\
+			"vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t"\
+			"vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t"\
+            "knot %%k1,%%k1	\n\t" /* Col 7 */ \
+			"vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t"\
+			"vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t"\
+			"vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t"\
+			"vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t"\
+				/* Write original columns back as rows: */\
+				"vmovaps	%%zmm0,0x000(%%rax)	\n\t"\
+				"vmovaps	%%zmm1,0x040(%%rax)	\n\t"\
+				"vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+				"vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+				"vmovaps	%%zmm4,0x100(%%rax)	\n\t"\
+				"vmovaps	%%zmm5,0x140(%%rax)	\n\t"\
+				"vmovaps	%%zmm6,0x180(%%rax)	\n\t"\
+				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
+				:						// outputs: none
+				: [__data] "m" (data)	/* All inputs from memory addresses here */\
+				 ,[__gatherindex] "m" (gatherindex)
+				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [2a]: Time for %u 8x8 doubles-transposes using 8-fold-repeated gather-loads =%s\n",imax, get_time_str(tdiff));
+	//	printf("Output matrix:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+	  #else	// AVX-512:
+
 		/* Compare latency/thruput/ports for shuffle and gather-based versions, using Agner Fog's KNL tables:
 		[1] vunpcklpd, vshuff64x2 both have 4-7 cycle latency, one can start every 2 cycles [3,1 on Skylake-X].
 								Thus 24 such in sequence with no wait-stalls ==> ~50 cycles, close to what I measure.
@@ -6215,16 +6741,16 @@ ftmp0 = ftmp;
 				"vpslld	$4,%%ymm8,%%ymm8		\n\t"/* The above bytewise offsets need scale *16 to get the needed ones - would include but
 												e.g. 0x1C<<4 overflows 1 byte), but x86 ISA only permits scale factors 1,2,4,8, so <<= 4 here. */\
 			/* Mask-reg zmm9 = 11...11 - this is stupidly zeroed each time we do gather-load, so need to reinit: */\
-			"movl	$-1,%%ebx	\n\t"/* Init opmask k1 (Only need the low byte) */\
+			"kxorw	%%k1,%%k1,%%k1	\n\t"/* Init opmask k1 = 0b11...11 (Only need the low byte) */\
 			/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation */
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm8),%%zmm0%{%%k1%}	\n\t"/* Col 0 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm8),%%zmm1%{%%k1%}	\n\t"/* Col 1 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm8),%%zmm2%{%%k1%}	\n\t"/* Col 2 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm8),%%zmm3%{%%k1%}	\n\t"/* Col 3 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm8),%%zmm4%{%%k1%}	\n\t"/* Col 4 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm8),%%zmm5%{%%k1%}	\n\t"/* Col 5 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm8),%%zmm6%{%%k1%}	\n\t"/* Col 6 */\
-			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm8),%%zmm7%{%%k1%}	\n\t"/* Col 7 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm8),%%zmm0%{%%k1%}	\n\t"/* Col 0 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm8),%%zmm1%{%%k1%}	\n\t"/* Col 1 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm8),%%zmm2%{%%k1%}	\n\t"/* Col 2 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm8),%%zmm3%{%%k1%}	\n\t"/* Col 3 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm8),%%zmm4%{%%k1%}	\n\t"/* Col 4 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm8),%%zmm5%{%%k1%}	\n\t"/* Col 5 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm8),%%zmm6%{%%k1%}	\n\t"/* Col 6 */\
+			"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm8),%%zmm7%{%%k1%}	\n\t"/* Col 7 */\
 				/* Write original columns back as rows: */\
 				"vmovaps	%%zmm0,0x000(%%rax)	\n\t"\
 				"vmovaps	%%zmm1,0x040(%%rax)	\n\t"\
@@ -6254,36 +6780,60 @@ ftmp0 = ftmp;
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
 
-	  #else
+	  #endif	// endif(USE_IMCI512 || USE_AVX512)
 
-		/* Compare latency/thruput/ports for shuffle and gather-based versions, using Agner Fog's KNL tables:
-		[1] vunpcklpd, vshuff64x2 both have 4-7 cycle latency, one can start every 2 cycles [3,1 on Skylake-X].
-								Thus 24 such in sequence with no wait-stalls ==> ~50 cycles, close to what I measure.
-		[2] vgatherdpd has 7-cycle latency, no data re. thruput, thus ~60 cycles per loop, again close to that observed.
-		Both [1] and [2] use port 5, but on KNL the 'empty' cycles between shuffle-op issues can be used to issue gathers,
-		which is what the side-by-ide matrix-pair [2b] variant tests.
-		*/
+	  #ifdef USE_IMCI512
+
+		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
 		nerr = 0; clock1 = getRealTime();
-		for(i = 0; i < imax; i++) {	// Nov 2016: 4.3 sec for 10^8 loops @1.3GHz ==> ~7 cycles per gather-load
+		// Variant of IMCI-512 version [2a] above using loop-wrapped gather-loads to ensure instruction completion:
+		gatherindex[0] = gatherindex[1] = 0x1c1814100c080400;
+		for(i = 0; i < imax; i++) {	// On KNC, 1.24GHz: time vs 8-fold-repetition version [2a] balloons to 60 sec [!]
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
-				/* Auxiliary register data needed for columnwise loads: */\
-			"movq	$0x1c1814100c080400,%%rbx	\n\t"/* 64-bit register w/byte offsets 0x[00,04,08,0c,10,14,18,1c], bytes numbered left-to-right */\
-				"vmovq		%%rbx,%%xmm8 		\n\t"/* Copy byte pattern to low qword (64 bits) of ymm8 [NB: avx-512 only supports MOVQ to/from 128-bit vector regs] */\
-				"vpmovzxbd	%%xmm8,%%ymm8		\n\t"/* vector-index offsets: ymm8 = 0x[00,04,08,0c,10,14,18,1c] in 32-bit form in low 8 dwords */\
-				"vpslld	$4,%%ymm8,%%ymm8		\n\t"/* The above bytewise offsets need scale *16 to get the needed ones - would include but
-												e.g. 0x1C<<4 overflows 1 byte), but x86 ISA only permits scale factors 1,2,4,8, so <<= 4 here. */\
+				"movq		%[__gatherindex],%%rbx		\n\t"\
+				/* load auxiliary register data needed for columnwise loads: */\
+				"vmovdqa32 0(%%rbx)%{uint8%},%%zmm0		\n\t" /* testing */\
+				"vpslld	$4,%%zmm0,%%zmm0				\n\t"\
+				"vmovaps %%zmm0,%%zmm8					\n\t"\
 			/* Mask-reg zmm9 = 11...11 - this is stupidly zeroed each time we do gather-load, so need to reinit: */\
-			"movl	$-1,%%ebx	\n\t"/* Init opmask k1 (Only need the low byte) */\
-			/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation */
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm8),%%zmm0%{%%k1%}	\n\t"/* Col 0 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm8),%%zmm1%{%%k1%}	\n\t"/* Col 1 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm8),%%zmm2%{%%k1%}	\n\t"/* Col 2 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm8),%%zmm3%{%%k1%}	\n\t"/* Col 3 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm8),%%zmm4%{%%k1%}	\n\t"/* Col 4 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm8),%%zmm5%{%%k1%}	\n\t"/* Col 5 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm8),%%zmm6%{%%k1%}	\n\t"/* Col 6 */\
-			"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm8),%%zmm7%{%%k1%}	\n\t"/* Col 7 */\
+			"movl	$0xff,%%ebx	\n\t"/* Init opmask k1 (Only need the low byte) */\
+			"kmov	%%ebx,%%k1	\n\t	kmov %%k1,%%k2	\n\t"/* Save a copy in k2 */\
+			/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation.
+			To guarantee instruction completion we've little choice but to wrap each in a while(k1) loop;
+			that causes the timing-loop runtime to balloon to a full 60 seconds:
+			*/
+		"0:	\n\t"\
+			"vgatherdpd 0x00(%%rax,%%zmm8),%%zmm0%{%%k1%}	\n\t"\
+		"jknzd	0b,%%k1	\n\t"/* while(k1) */\
+            "kmov %%k2,%%k1	\n\t" /* Col 1 */\
+		"1:	\n\t"\
+			"vgatherdpd 0x08(%%rax,%%zmm8),%%zmm1%{%%k1%}	\n\t"\
+		"jknzd	1b,%%k1	\n\t"\
+            "kmov %%k2,%%k1	\n\t" /* Col 2 */\
+		"2:	\n\t"\
+			"vgatherdpd 0x10(%%rax,%%zmm8),%%zmm2%{%%k1%}	\n\t"\
+		"jknzd	2b,%%k1	\n\t"\
+            "kmov %%k2,%%k1	\n\t" /* Col 3 */\
+		"3:	\n\t"\
+			"vgatherdpd 0x18(%%rax,%%zmm8),%%zmm3%{%%k1%}	\n\t"\
+		"jknzd	3b,%%k1	\n\t"\
+            "kmov %%k2,%%k1	\n\t" /* Col 4 */\
+		"4:	\n\t"\
+			"vgatherdpd 0x20(%%rax,%%zmm8),%%zmm4%{%%k1%}	\n\t"\
+		"jknzd	4b,%%k1	\n\t"\
+            "kmov %%k2,%%k1	\n\t" /* Col 5 */\
+		"5:	\n\t"\
+			"vgatherdpd 0x28(%%rax,%%zmm8),%%zmm5%{%%k1%}	\n\t"\
+		"jknzd	5b,%%k1	\n\t"\
+            "kmov %%k2,%%k1	\n\t" /* Col 6 */\
+		"6:	\n\t"\
+			"vgatherdpd 0x30(%%rax,%%zmm8),%%zmm6%{%%k1%}	\n\t"\
+		"jknzd	6b,%%k1	\n\t"\
+            "kmov %%k2,%%k1	\n\t" /* Col 7 */\
+		"7:	\n\t"\
+			"vgatherdpd 0x38(%%rax,%%zmm8),%%zmm7%{%%k1%}	\n\t"\
+		"jknzd	7b,%%k1	\n\t"\
 				/* Write original columns back as rows: */\
 				"vmovaps	%%zmm0,0x000(%%rax)	\n\t"\
 				"vmovaps	%%zmm1,0x040(%%rax)	\n\t"\
@@ -6294,13 +6844,14 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm6,0x180(%%rax)	\n\t"\
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
-				: [__data] "m" (data)	// All inputs from memory addresses here
+				: [__data] "m" (data)	/* All inputs from memory addresses here */\
+				 ,[__gatherindex] "m" (gatherindex)
 				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
-		printf("Method [2a]: Time for %u 8x8 doubles-transposes using gather-loads =%s\n",imax, get_time_str(tdiff));
+		printf("Method [2b]: Time for %u 8x8 doubles-transposes using loop-wrapped gather-loads =%s\n",imax, get_time_str(tdiff));
 	//	printf("Output matrix:\n");
 		for(i = 0; i < dim; i += 8) {
 			row = i>>3;
@@ -6312,6 +6863,8 @@ ftmp0 = ftmp;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+	  #else	// AVX-512 version:
 
 		// [2b] Hybrid shuffle/gather side-by-side matrix-pair [2b] variant of [2a]. On KNL this is faster
 		// than [1a]+[2a] separately, i.e. we do save some cycles by interleaving the 2 types of transposes,
@@ -6330,38 +6883,39 @@ ftmp0 = ftmp;
 				"vmovaps		0x300(%%rax),%%zmm4		\n\t"\
 				"vmovaps		0x340(%%rax),%%zmm5		\n\t"\
 				"vmovaps		0x380(%%rax),%%zmm6		\n\t	vpslld	$4,%%ymm9,%%ymm9		\n\t"\
-				"vmovaps		0x3c0(%%rax),%%zmm7		\n\t	movl	$-1,%%ebx				\n\t"\
+				"vmovaps		0x3c0(%%rax),%%zmm7		\n\t"\
 				/* Transpose uses regs0-7 for data, reg8 for temp: */\
+			"kxorw	%%k1,%%k1,%%k1	\n\t"/* Init opmask k1 = 0b11...11 (Only need the low byte) */\
 									/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation */
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm9),%%zmm10%{%%k1%}	\n\t"/* Col 0 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm9),%%zmm10%{%%k1%}	\n\t"/* Col 0 */\
 				"vunpcklpd		%%zmm1,%%zmm0,%%zmm8	\n\t"\
 				"vunpckhpd		%%zmm1,%%zmm0,%%zmm1	\n\t"\
 				"vunpcklpd		%%zmm3,%%zmm2,%%zmm0	\n\t"\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm9),%%zmm11%{%%k1%}	\n\t"/* Col 1 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm9),%%zmm11%{%%k1%}	\n\t"/* Col 1 */\
 				"vunpckhpd		%%zmm3,%%zmm2,%%zmm3	\n\t"\
 				"vunpcklpd		%%zmm5,%%zmm4,%%zmm2	\n\t"\
 				"vunpckhpd		%%zmm5,%%zmm4,%%zmm5	\n\t"\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm9),%%zmm12%{%%k1%}	\n\t"/* Col 2 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm9),%%zmm12%{%%k1%}	\n\t"/* Col 2 */\
 				"vunpcklpd		%%zmm7,%%zmm6,%%zmm4	\n\t"\
 				"vunpckhpd		%%zmm7,%%zmm6,%%zmm7	\n\t"\
 				"vshuff64x2	$136,%%zmm0,%%zmm8,%%zmm6	\n\t"\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm9),%%zmm13%{%%k1%}	\n\t"/* Col 3 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm9),%%zmm13%{%%k1%}	\n\t"/* Col 3 */\
 				"vshuff64x2	$221,%%zmm0,%%zmm8,%%zmm0	\n\t"\
 				"vshuff64x2	$136,%%zmm3,%%zmm1,%%zmm8	\n\t"\
 				"vshuff64x2	$221,%%zmm3,%%zmm1,%%zmm3	\n\t"\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm9),%%zmm14%{%%k1%}	\n\t"/* Col 4 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm9),%%zmm14%{%%k1%}	\n\t"/* Col 4 */\
 				"vshuff64x2	$136,%%zmm4,%%zmm2,%%zmm1	\n\t"\
 				"vshuff64x2	$221,%%zmm4,%%zmm2,%%zmm4	\n\t"\
 				"vshuff64x2	$136,%%zmm7,%%zmm5,%%zmm2	\n\t"\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm9),%%zmm15%{%%k1%}	\n\t"/* Col 5 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm9),%%zmm15%{%%k1%}	\n\t"/* Col 5 */\
 				"vshuff64x2	$221,%%zmm7,%%zmm5,%%zmm7	\n\t"\
 				"vshuff64x2	$136,%%zmm1,%%zmm6,%%zmm5	\n\t"/* [output row 0] */\
 				"vshuff64x2	$221,%%zmm1,%%zmm6,%%zmm1	\n\t"/* [output row 4] */\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm9),%%zmm16%{%%k1%}	\n\t"/* Col 6 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm9),%%zmm16%{%%k1%}	\n\t"/* Col 6 */\
 				"vshuff64x2	$136,%%zmm2,%%zmm8,%%zmm6	\n\t"/* [output row 1] */\
 				"vshuff64x2	$221,%%zmm2,%%zmm8,%%zmm2	\n\t"/* [output row 5] */\
 				"vshuff64x2	$136,%%zmm4,%%zmm0,%%zmm8	\n\t"/* [output row 2] */\
-									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm9),%%zmm17%{%%k1%}	\n\t"/* Col 7 */\
+									"knotw	%%k1,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm9),%%zmm17%{%%k1%}	\n\t"/* Col 7 */\
 				"vshuff64x2	$221,%%zmm4,%%zmm0,%%zmm4	\n\t"/* [output row 6] */\
 				"vshuff64x2	$136,%%zmm7,%%zmm3,%%zmm0	\n\t"/* [output row 3] */\
 				"vshuff64x2	$221,%%zmm7,%%zmm3,%%zmm7	\n\t"/* [output row 7] */\
@@ -6506,6 +7060,7 @@ ftmp0 = ftmp;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
 	  #endif	// endif(USE_IMCI512 || USE_AVX512)
 
 		return nerr;
@@ -8600,12 +9155,49 @@ exit(0);
 	}
 
 	/********* Thread-affinity utilities: *********/
+#if INCLUDE_HWLOC
+	// For a given contiguous range of hwloc core indices, return the number of hardware sockets (hwloc
+	// "Package" ancestors) said core set maps to. If the input topology or core set is invalid (= one
+	// or more core indices in the range does not map to a valid PU), return -1:
+	int num_sockets_of_core_set(hwloc_topology_t topology, int lidx_lo, int lidx_hi)
+	{
+		hwloc_obj_t obj;
+		if(!topology) return -1;
+		int topodepth = hwloc_topology_get_depth(topology);
+		// Logical PUs 1 level above topodepth:
+		int i, nsockets = 0, socket_idx = -1, depth = topodepth-2, nobjs1,nobjs2;
+		nobjs1 = hwloc_get_nbobjs_by_type (topology, HWLOC_OBJ_CORE);
+		nobjs2 = hwloc_get_nbobjs_by_depth(topology, depth);
+		if(nobjs1 != nobjs2) {
+			snprintf(cbuf,STR_MAX_LEN,"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
+			ASSERT(HERE,0,cbuf);
+		}
+		// Loop over HWLOC_OBJ_CORE objects corr. to index range:
+		for (i = lidx_lo; i <= lidx_hi; i++) {
+			hwloc_obj_t obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_CORE, i);
+			if (!obj) {
+				snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
+			}
+			ASSERT(HERE, obj->type == HWLOC_OBJ_CORE, "[hwloc] Error: Object not of expected type CORE.");
+			while(obj && (obj->type != HWLOC_OBJ_PACKAGE)) {
+				obj = obj->parent;
+			}
+			ASSERT(HERE, obj != 0, "[hwloc] Error: PACKAGE Object not found.");
+			if(obj->logical_index != socket_idx) {
+				nsockets++;
+				socket_idx = obj->logical_index;
+			}
+		}
+		return nsockets;
+	}
+#endif
 
 	// Parse a single core-affinity-triplet substring and set the corresponding bits in the global CORE_SET bitmap.
-	// Returns: #cores specified in the substring.
-	uint32 parseAffinityTriplet(char*istr)
+	// If the boolean hwloc_topo argument = TRUE, use hwloc-generated topology, via '-core lo:hi[:threads_per_core]'.
+	// Returns: #logical cores (hwloc: logical processing units, objects of type HWLOC_OBJ_PU) specified in the substring.
+	uint32 parseAffinityTriplet(char*istr, int hwloc_topo)
 	{
-		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,bit,word;
+		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,j,bit,word;
 		char *char_addr = istr, *endp;
 		ASSERT(HERE, char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);
@@ -8629,12 +9221,59 @@ exit(0);
 		} else {
 			hi = lo;	// If only 'lo' arg of triplet supplied, take hi = lo and incr=1, i.e. add just CPUid = lo to bitmap
 		}
-		// CPU set encoded by integer-triplet argument corresponds to values of integer loop
-		// index i in the C-loop for(i = lo; i < hi; i += incr), excluding loop-exit value of i:
-		for(i = lo; i <= hi; i += incr, ncpu++) {
-			word = i>>6; bit = i & 63;	ASSERT(HERE, word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
-			if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(HERE, 0, cbuf); }
-			else { CORE_SET[word] |= 1ull<<bit; }
+
+		if(hwloc_topo) {
+		#if INCLUDE_HWLOC
+			// Warn if core set lo:hi maps to > 1 sockets:
+			i = num_sockets_of_core_set(hw_topology, lo, hi);
+			if(i > 1) {
+				fprintf(stderr,"[hwloc] Warning: Core set %u:%u maps to multiple (%u) sockets ... this may hurt performance.\n",lo,hi,i);
+			}
+			// CPU set encoded by integer-triplet argument is in form lo:hi:threads_per_core,
+			// where lo:hi is a contiguous range of hwloc CORE objects (physical processors, indexed
+			// via topological 'nearness') and we use threads_per_core logical processors (hwloc PU
+			// objects) of each CORE:
+			for(i = lo; i <= hi; i++, ncpu += incr) {
+				// 1. parse '-core lo:hi', loop over corr. HWLOC_OBJ_CORE objects:
+				hwloc_obj_t obj_core, obj_pu;
+				obj_core = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CORE, i);
+				if (!obj_core) {
+					snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
+				}
+				// 2. for each HWLOC_OBJ_CORE object in the above set, verify that it has at least (n) children
+				/*
+					Q: How to account for hybrid architectures? E.g. a combo of a 4c2t perf-core and a 4c1t efficiency core?
+					A: Need some kind of "given a core index and thread-on-this-core index, finds corr. bit in CORE_SET" function,
+					or perhaps extend "comma-separated triplets" support to hwloc-topology, e.g. on the above example 12-thread
+					architecture, '-core 0:7:1' to use 1 thread on each core (8 threads total), '-core 0:3:2,4:7:1' (or more simply
+					'-cpu 0:11', or even more simply '-nthread 12') to use all 12 threads.
+				*/
+				if (obj_core->arity < incr) {
+					snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(HERE,0,cbuf);
+				}
+				for (j = 0; j < incr; j++) {
+					obj_pu = obj_core->children[j];
+					// Set bit = (obj_pu->logical_index) in CORE_SET bitmap, used in thread-affinity setting:
+					bit = obj_pu->logical_index;
+					if(mi64_test_bit(CORE_SET, bit)) {
+						sprintf(cbuf, "HWLOC_OBJ_PU %d multiply specified in affinity-setting!",bit);	ASSERT(HERE, 0, cbuf);
+					} else {
+						mi64_set_bit(CORE_SET, bit, MAX_CORES>>6, 1);
+					#if INCLUDE_HWLOC==2
+						fprintf(stderr, "Using HWLOC_OBJ_PU %d, (OS-index = %d)\n",bit,obj_pu->os_index);
+					#endif
+					}
+				}
+			}
+		#endif
+		} else {	// hwloc_topo = FALSE:
+			// CPU set encoded by integer-triplet argument corresponds to values of integer loop
+			// index i in the C-loop for(i = lo; i < hi; i += incr), excluding loop-exit value of i:
+			for(i = lo; i <= hi; i += incr, ncpu++) {
+				word = i>>6; bit = i & 63;	ASSERT(HERE, word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
+				if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(HERE, 0, cbuf); }
+				else { CORE_SET[word] |= 1ull<<bit; }
+			}
 		}
 		return ncpu;
 	}
@@ -8654,10 +9293,10 @@ exit(0);
 		// Affinity-triplet substrings are delimited by commas:
 		while(0x0 != (cptr = strchr(char_addr,','))) {
 			strncpy(cbuf,char_addr,(cptr-char_addr));	cbuf[cptr-char_addr] = '\0';	// Copy substring into cbuf and null-terminate
-			ncpu += parseAffinityTriplet(cbuf);
+			ncpu += parseAffinityTriplet(cbuf,FALSE);
 			char_addr = cptr+1;
 		}
-		ncpu += parseAffinityTriplet(char_addr);	// Final (or only) core-affinity-triplet
+		ncpu += parseAffinityTriplet(char_addr,FALSE);	// Final (or only) core-affinity-triplet
 		printf("Set affinity for the following %u cores: ",ncpu);
 		nc = 0;
 		for(i = 0; i < MAX_CORES; i++) {

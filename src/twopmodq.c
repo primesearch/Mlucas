@@ -1189,96 +1189,80 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 /***********************************************************************************/
 
 // Conventional positive-power version of twopmodq, returns true mod:
-/*
-Ex:  p = 110527 = 11010111110111111_2
-	p + 64 = 11010111111111111_2
-	jshift = leadz64(p+64) = 47
-Extract leftmost 6 bits of p+64:
-	leadb = ((p+64)<<jshift) >> (64-6) = 53
-	start_index = (64-6)-jshift = 11
-Leftmost 6 bits of = 110101 = 53, so can do those in 1-shot by init x = 2^53;
-Then compute rsqr = R^2 (mod q) = 2^128 (mod q);
-x = mont_mul64(x,rsqr) gives x *= R (mod q), so each ensuing mont_mul64 will preserve the extra power of R.
-Then loop over low (start_index) = 11 bits of p (*not* pshift) = 11110111111_2 from left to right;
-for each bit do an update x = mont_sqr64(x) and mod-double the result if the corrent bit of pshift = 1:
-	j	bit	power (+64)
-	--	---	------
-	10	1	107
-	 9	1	215
-	 8	1	431
-	 7	1	863
-	 6	0	1726
-	 5	1	3453
-	 4	1	6907
-	 3	1	13815
-	 2	1	27631
-	 1	1	55263
-	 0	1	110527
-and a final mont_unity_mul64(x) subtracts 64 from the power, leaving the desired power p = 110527.
-
-Ex 2:  p = 31 = 11111_2, q = 60: 2^31 % 60 = 8, but q = 2^2.15, so Mont-mul code computes 2^(31-2) % 15 = 2, then 2<<2 = 8.
-	p' = 31-2; q' = q>>2 = 15
-	p' + 64 = 93 = 1011101_2
-	jshift = leadz64(p'+64) = 57
-Extract leftmost 6 bits of p'+64:
-	leadb = ((p+64')<<jshift) >> 58 = 101110_2 = 46
-	start_index = 58-jshift = 1
-Leftmost 6 bits of = 110101 = 46, so can do those in 1-shot by init x = 2^46;
-Then compute rsqr = R^2 (mod q') = 2^128 (mod q') = 1;
-x = mont_mul64(x,rsqr) gives x *= R (mod q), so each ensuing mont_mul64 will preserve the extra power of R.
-Then loop over low (start_index) = 1 bits of UN-COMPLEMENTED pshift = 1_2 from left to right;
-for each bit do an update x = mont_sqr64(x) and mod-double the result if the current bit of pshift = 1:
-	j	bit	power (+64)
-	--	---	------
-	 0	1	46*2+1 = 93, and we verify that 2^93 % q' = 2^93 % 15 = 2,
-and a final mont_unity_mul64(x) subtracts 64 from the power, leaving the desired power p' = 29.
-*/
 uint64 twopmmodq64(uint64 p, uint64 q)
 {
-	 int32 j;
-	uint32 leadb, start_index, nshift;
+	 int32 j, debug = 0, pow;
+//	debug = (q == 640126220763136ull);	/* Uncomment (debug = ...) part and customize q to enable debug-printing */
+	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 pshift, qhalf, qinv, x, rsqr;
+	if(debug) printf("twopmmodq64: computing 2^%llu (mod %llu)\n",p,q);
+	// If p <= 64, directly compute 2^p (mod q):
+	if(p < 64)
+		return (1ull < p) % q;
+	else if(p == 64) {
+		x = (1ull << 63) % q;
+		MOD_ADD64(x,x,q,x);
+		return x;
+	}
+	// If get here, p > 64: set up for Montgomery-mul-based powering loop:
 	nshift = trailz64(q);
-	if(nshift)
-	{
-		ASSERT(HERE, p >= nshift, "twopmodq64: Must add code to explicitly save off-shifted low bits of modulus!");
-		q >>= nshift;
-		p -= nshift;	// Must also right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+	if(nshift) {
+		// p >= nshift guaranteed here:
+		q >>= nshift; p -= nshift;	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+		if(debug) printf("Removed power-of-2 from q: q' = (q >> %u) = %llu\n",nshift,q);
 	}
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
-	// Extract leftmost 6 bits of (p+64) and subtract from 64:
-	pshift = p + 64;
-	j = leadz64(pshift);
-	leadb = (pshift<<j) >> 58;	// No (pshift = ~pshift) step in positive-power algorithm!
-	start_index = 58-j;
+	// Extract leftmost 7 bits of (p - 64); if > 64, use leftmost 6 instead:
+	pshift = p - 64;	j = leadz64(pshift);
+	leadb = (pshift<<j) >> 57;	// No (pshift = ~pshift) step in positive-power algorithm!
+	if(leadb > 64) {
+		start_index = 58-j;
+		leadb >>= 1;
+	} else {
+		start_index = 57-j;
+	}
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, (q & 0x1) && (q > 1), "q must be odd > 1!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 		qinv = qinv*((uint64)2 - q*qinv);
-	/*...Initialize the binary powering...*/
-	x = 1ull << leadb;
+	// Initialize binary powering = R*x (mod q), where R = binary radix (2^64 here);
+	// each Montgomery-mul in the ensuing loop computes (R*x)^2/R (mod q), thus preserves the R-multiplier:
 	rsqr = radix_power64(q,qinv,2);	// Compute R^2 (mod q) in prep. for Mont-mul with initial seed...
-	MONT_MUL64(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
-//	printf("Initial power = 2^(%u+64) mod q = %llu\n",leadb,x);
-	for(j = start_index-1; j >= 0; j--)
-	{
+	// If leadb = 64, x = 2^64 = R, thus rsqr holds our desired starting value for x:
+	if(leadb == 64)
+		x = rsqr;
+	else {
+		x = 1ull << leadb;
+		MONT_MUL64(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
+ 	}
+	if(debug) {
+		printf("leadb = %u, x0 = %llu\n",leadb,x);
+		printf("pshift = p - %u = %llu\n",64,pshift);
+		pow = leadb + 64;
+		printf("twopmmodq64: Initial power = 2^(%u+64) = 2^%u mod q' = %llu\n",leadb,pow,x);
+		printf("twopmmodq64: Looping over %u remaining bits in power:\n",start_index);
+	}
+	for(j = start_index-1; j >= 0; j--) {
+		curr_bit = (pshift >> j) & (uint64)1;
 		MONT_SQR64(x,q,qinv,x);
-	//	printf("J = %u: MONT_SQR64(x) = %llu, (x *= 2)-Bit = %llu\n",j,x,(p >> j) & (uint64)1);
-		if((p >> j) & (uint64)1) {	//**** Original p here, not pshift! ****
+		if(debug) { pow = 2*pow + curr_bit - 64; printf("\tJ = %2u: [bit = %u]pow = %u, x = %llu\n",j,curr_bit,pow,x); }
+		if(curr_bit) {
 			if(x > qhalf) {	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
-				x = x + x;
-				x -= q;
+				x = x + x;	x -= q;
 			} else {
 				x = x + x;
 			}
 		}
 	}
-	MONT_UNITY_MUL64(x,q,qinv,x);	// Un-scale the loop output
+	// May 2022: Since pre-subtracted 64 from computed powermod exponent, no need to un-scale the loop output anymore:
+	// MONT_UNITY_MUL64(x,q,qinv,x);
+	if(debug) printf("pow = %u, x = %llu\n",pow,x);
 	// If we applied an initial right-justify shift to the modulus, restore the shift to the
 	// current (partial) remainder and re-add the off-shifted part of the true remainder.
 	if(nshift) {
 		x = (x << nshift);// + rem_save;
+		if(debug) printf("Restoring power-of-2: pow = %u, x *= 2^%u = %llu\n",pow+nshift,nshift,x);
 	}
 	return x;
 }

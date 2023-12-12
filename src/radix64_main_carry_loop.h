@@ -59,11 +59,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	for(l = 0; l < 8; l++) {
 		add0 = &a[j1] + poff[l+l];	// poff[2*l] = p00,08,...,38
 		add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	  #ifdef USE_AVX2
+	#ifdef USE_AVX2
 		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
-	  #else
+	#else
 		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
-	  #endif
+	#endif
 		tmp += 16;
 	}
 

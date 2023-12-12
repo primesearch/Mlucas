@@ -26,12 +26,12 @@
 
 #define EPS 1e-10
 
-#ifdef USE_ARM_V8_SIMD	// No radix-24 DIF|DIT macro for ARMv8; instead assemble the 24-DIFs from small macros.
-	#define USE_SMALL_MACROS	1			// Can also manually set this flag at compile time, but note that the
-	#warning Defining USE_SMALL_MACROS = 1	// SSE2_RADIX8_DIT_0TWIDDLE macro requires extra pointer-arg not set
-#endif										// up for in the code, so only allow in SSE2 and AVX modes
-#if defined(USE_AVX2) && defined(USE_SMALL_MACROS)
-	#error USE_SMALL_MACROS only allowed for 128-bit ARMv8 SIMD and x86 SSE2 and AVX builds, not for AVX2 and above!
+// No radix-24 DIF|DIT macro for ARMv8 and 512-bit SIMD (avx-512 and k1om); instead assemble the 24-DIFs from small macros.
+#if defined(USE_ARM_V8_SIMD) || defined(USE_AVX512)
+	#define USE_SMALL_MACROS	1			// Can also manually set this flag at compile time, but note, SSE2_RADIX8_DIT_0TWIDDLE macro
+	#warning Defining USE_SMALL_MACROS = 1	// requires extra pointer-arg not set up for in the code, so only allow in SSE2 and AVX modes
+#elif defined(USE_AVX2) && defined(USE_SMALL_MACROS)
+	#error USE_SMALL_MACROS only allowed for 128-bit ARMv8 SIMD, x86 SSE2 and AVX, and k10m builds, not for AVX2 / AVX-512!
 #endif
 
 #ifndef PFETCH_DIST
@@ -49,13 +49,13 @@
   // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (24 [SSE2] or 68 [AVX])[LOACC] added slots for half_arr lookup tables.
   // Max = (40 = 0x28 [SSE2]; 132 = 0x84 [AVX]), add to (half_arr_offset12 + RADIX) to get value of radix12_creals_in_local_store.
   #ifdef USE_AVX512	// RADIX/8 = 3 fewer carry slots than AVX:
-	const int half_arr_offset24 = 0x39;	// + RADIX = 0x50; Used for thread local-storage-integrity checking
-	const int radix24_creals_in_local_store = 0xc0;	// += 132(0x84) and round up to nearest multiple of 4
+	const int half_arr_offset24 = 0x39;	// + RADIX = 0x51; Used for thread local-storage-integrity checking
+	const int radix24_creals_in_local_store = 0xd8;	// += 132(0x84) and round up to nearest multiple of 4
   #elif defined(USE_AVX)
-	const int half_arr_offset24 = 0x3c;	// + RADIX = 0x53; Used for thread local-storage-integrity checking
-	const int radix24_creals_in_local_store = 0xc0;	// (half_arr_offset24 + RADIX) + 132 and round up to nearest multiple of 4
+	const int half_arr_offset24 = 0x3c;	// + RADIX = 0x54; Used for thread local-storage-integrity checking
+	const int radix24_creals_in_local_store = 0xd8;	// (half_arr_offset24 + RADIX) + 132 and round up to nearest multiple of 4
   #else
-	const int half_arr_offset24 = 0x42;	// + RADIX = 0x59; Used for thread local-storage-integrity checking
+	const int half_arr_offset24 = 0x42;	// + RADIX = 0x5a; Used for thread local-storage-integrity checking
 	const int radix24_creals_in_local_store = 0x84;	// (half_arr_offset24 + RADIX) + 40 and round up to nearest multiple of 4
   #endif
 
@@ -241,7 +241,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-	static vec_dbl *isrt2, *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2;
+	static vec_dbl *isrt2,*two,*cc0,*cc3,*max_err,*sse2_rnd,*half_arr,*tmp,*tm1,*tm2;
 	static vec_dbl *s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p20,*s1p21,*s1p22,*s1p23;
 	/* Only explicitly reference the even-indexed carries in SSE2 mode: */
 	static vec_dbl
@@ -496,14 +496,15 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		s1p22 = sc_ptr + 0x2c;
 		s1p23 = sc_ptr + 0x2e;
 		isrt2 = sc_ptr + 0x30;
-		cc3   = sc_ptr + 0x31;
-		cc0   = sc_ptr + 0x32;
-		tmp = sc_ptr + 0x33;
+		two   = sc_ptr + 0x31;
+		cc3   = sc_ptr + 0x32;
+		cc0   = sc_ptr + 0x33;
+		tmp = sc_ptr + 0x34;
 	  #ifdef USE_AVX512
 		cy00	= tmp + 0x0;
 		cy08	= tmp + 0x1;
 		cy16	= tmp + 0x2;
-		tmp += 0x3;	// sc_ptr += 0x36
+		tmp += 0x3;	// sc_ptr += 0x37
 	  #elif defined(USE_AVX)
 		cy00	= tmp + 0x0;
 		cy04	= tmp + 0x1;
@@ -511,21 +512,22 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		cy12	= tmp + 0x3;
 		cy16	= tmp + 0x4;
 		cy20	= tmp + 0x5;
-		tmp += 0x6;	// sc_ptr += 0x39
+		tmp += 0x6;	// sc_ptr += 0x3a
 	  #else
-		cy00	= tmp + 0x3;
-		cy02	= tmp + 0x4;
-		cy04	= tmp + 0x5;
-		cy06	= tmp + 0x6;
-		cy08	= tmp + 0x7;
-		cy10	= tmp + 0x8;
-		cy12	= tmp + 0x9;
-		cy14	= tmp + 0xa;
-		cy16	= tmp + 0xb;
-		cy18	= tmp + 0xc;
-		cy20	= tmp + 0xd;
-		cy22	= tmp + 0xe;
-		tmp += 0xc;	// sc_ptr += 0x3f
+		#warning Why did cy*-ptr-offsets start at 0x3 rather than 0x0 here?
+		cy00	= tmp + 0x0;
+		cy02	= tmp + 0x1;
+		cy04	= tmp + 0x2;
+		cy06	= tmp + 0x3;
+		cy08	= tmp + 0x4;
+		cy10	= tmp + 0x5;
+		cy12	= tmp + 0x6;
+		cy14	= tmp + 0x7;
+		cy16	= tmp + 0x8;
+		cy18	= tmp + 0x9;
+		cy20	= tmp + 0xa;
+		cy22	= tmp + 0xb;
+		tmp += 0xc;	// sc_ptr += 0x40
 	  #endif
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
@@ -533,6 +535,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		// half_arr = sc_ptr + 0x[39|3c|42] [AVX512|AVX|SSE2]; This is where the value of half_arr_offset24 comes from
 		/* These remain fixed: */
 		VEC_DBL_INIT(isrt2, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );
 		VEC_DBL_INIT(cc3  , c3m1 );
 		VEC_DBL_INIT(cc0  , s    );
 	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
@@ -1046,7 +1049,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;
@@ -1955,7 +1958,7 @@ void radix24_dit_pass1(double a[], int n)
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *isrt2, *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2;
+		vec_dbl *isrt2,*two,*cc0,*cc3,*max_err,*sse2_rnd,*half_arr,*tmp,*tm1,*tm2;
 	  #if USE_SMALL_MACROS
 		vec_dbl *s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p20,*s1p21,*s1p22,*s1p23;
 	  #else
@@ -2052,8 +2055,9 @@ void radix24_dit_pass1(double a[], int n)
 		s1p16	= s1p00 + 0x20;
 		s1p20	= s1p00 + 0x28;
 		isrt2	= s1p00 + 0x30;
-		cc3		= s1p00 + 0x31;
-		cc0  	= s1p00 + 0x32;
+		two     = s1p00 + 0x31;
+		cc3		= s1p00 + 0x32;
+		cc0  	= s1p00 + 0x33;
 	  #if USE_SMALL_MACROS
 		s1p01  = s1p00 + 0x02;
 		s1p02  = s1p00 + 0x04;
@@ -2076,43 +2080,48 @@ void radix24_dit_pass1(double a[], int n)
 	  #endif
 	  #ifdef USE_AVX512
 		isrt2	= s1p00 + 0x30;
-		cc3		= s1p00 + 0x31;
-		cc0  	= s1p00 + 0x32;
-		cy00	= s1p00 + 0x33;
-		cy08	= s1p00 + 0x34;
-		cy16	= s1p00 + 0x35;
-		max_err = s1p00 + 0x36;
-		sse2_rnd= s1p00 + 0x37;
-		half_arr= s1p00 + 0x38;
+		two     = s1p00 + 0x31;
+		cc3		= s1p00 + 0x32;
+		cc0  	= s1p00 + 0x33;
+		cy00	= s1p00 + 0x34;
+		cy08	= s1p00 + 0x35;
+		cy16	= s1p00 + 0x36;
+		max_err = s1p00 + 0x37;
+		sse2_rnd= s1p00 + 0x38;
+		half_arr= s1p00 + 0x39;
 	  #elif defined(USE_AVX)
 		isrt2	= s1p00 + 0x30;
-		cc3		= s1p00 + 0x31;
-		cc0  	= s1p00 + 0x32;
-		cy00	= s1p00 + 0x33;
-		cy04	= s1p00 + 0x34;
-		cy08	= s1p00 + 0x35;
-		cy12	= s1p00 + 0x36;
-		cy16	= s1p00 + 0x37;
-		cy20	= s1p00 + 0x38;
-		max_err = s1p00 + 0x39;
-		sse2_rnd= s1p00 + 0x3a;
-		half_arr= s1p00 + 0x3b;
-	  #else
-		cy00	= s1p00 + 0x33;
-		cy02	= s1p00 + 0x34;
+		two     = s1p00 + 0x31;
+		cc3		= s1p00 + 0x32;
+		cc0  	= s1p00 + 0x33;
+		cy00	= s1p00 + 0x34;
 		cy04	= s1p00 + 0x35;
-		cy06	= s1p00 + 0x36;
-		cy08	= s1p00 + 0x37;
-		cy10	= s1p00 + 0x38;
-		cy12	= s1p00 + 0x39;
-		cy14	= s1p00 + 0x3a;
-		cy16	= s1p00 + 0x3b;
-		cy18	= s1p00 + 0x3c;
-		cy20	= s1p00 + 0x3d;
-		cy22	= s1p00 + 0x3e;
-		max_err = s1p00 + 0x3f;
-		sse2_rnd= s1p00 + 0x40;
-		half_arr= s1p00 + 0x41;	/* This table needs 20x16 bytes */
+		cy08	= s1p00 + 0x36;
+		cy12	= s1p00 + 0x37;
+		cy16	= s1p00 + 0x38;
+		cy20	= s1p00 + 0x39;
+		max_err = s1p00 + 0x3a;
+		sse2_rnd= s1p00 + 0x3b;
+		half_arr= s1p00 + 0x3c;
+	  #else
+		#warning Why did cy*-ptr-offsets start at 0x3 rather than 0x0 here?
+		tmp = s1p00 + 0x34;
+		cy00	= tmp + 0x0;
+		cy02	= tmp + 0x1;
+		cy04	= tmp + 0x2;
+		cy06	= tmp + 0x3;
+		cy08	= tmp + 0x4;
+		cy10	= tmp + 0x5;
+		cy12	= tmp + 0x6;
+		cy14	= tmp + 0x7;
+		cy16	= tmp + 0x8;
+		cy18	= tmp + 0x9;
+		cy20	= tmp + 0xa;
+		cy22	= tmp + 0xb;
+		tmp += 0xc;	// s1p00 += 0x40
+		max_err = s1p00 + 0x40;
+		sse2_rnd= s1p00 + 0x41;
+		half_arr= s1p00 + 0x42;	/* This table needs 20x16 bytes */
 	  #endif
 		ASSERT(HERE, (s1p00 == thread_arg->s1p00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");

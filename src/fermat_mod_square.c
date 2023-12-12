@@ -216,7 +216,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 																				scheme and we store no inverse weights),
 																				here wt1[] is used to store explicit inverse weights	*/
 	static int pow2_fft;
-	uint32 findex = 0;
+	static uint32 findex = 0;
 	double fracmax,wt,wtinv;
 	double max_fp = 0.0, frac_fp, atmp;
 	static int first_entry = TRUE;
@@ -266,6 +266,10 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 #endif
 
+#ifdef USE_IMCI512	// 1st-gen Xeon Phi - Use modified 8x8 doubles-transpose algo [1a] from util.c:test_simd_transpose_8x8()
+	ASSERT(HERE,0,"Fermat-mod unsupported in k1om / IMCI-512 build mode!");
+	exit(1);
+#endif
 	radix0 = RADIX_VEC[0];
 	nchunks = radix0;
 	ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE, "fermat_mod_square: Incorrect TRANSFORM_TYPE!");
@@ -1388,7 +1392,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
 		RES_SHIFT += ((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1);	// No mod needed on this add, since result of pvs line even and < p, which is itself even in the Fermat-mod case (p = 2^m)
 		const char flip[2] = {' ','*'};
-	//	printf(" shift = [%c]%llu, ",flip[RES_SIGN],RES_SHIFT);	fflush(stdout);
+//	printf("Iter %d: shift = [%c]%llu\n",iter,flip[RES_SIGN],RES_SHIFT);
 	#endif
 	}
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
@@ -1519,7 +1523,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				mlucas_fprint(cbuf,scrnFlag);	// Echo output to stderr
 			// v20: For == 0.4375, in PRP-test mode, if already at shortest chain length, simply allow further 0.4375 errors,
 			// since Gerbicz check will catch rare cases of a wrong-way digit rounding, i.e. 0.4375 really being a 0.5625 in disguise:
-			} else if(fracmax == 0.4375 && TEST_TYPE == TEST_TYPE_PRP) {
+			} else if(fracmax == 0.4375 && DO_GCHECK) {	// v21: Now do G-check for Fermat-mod, too
 				/* No-op */
 			} else if(fracmax >= 0.4375 ) {	// already at shortest chain length
 				// In range test mode, any fractional part > 0.4375 is cause for error exit, triggering switch to next-larger FFT length:

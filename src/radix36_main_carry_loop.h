@@ -287,11 +287,108 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// And do a final 4-fold pass for 32-35:
 		add0 = a + j1 + pfetch_dist + poff[l+l];
 	   #ifdef USE_AVX512
+	   #ifdef X4_ZMM
+		// For fused X4x2 version, place a copy of bjmodn[0:3] in bjmodn[4:7] slots and increment by 7*bw (mod n):
+		MOD_ADD32(((struct uint32x8*)itmp)->d0,bw_x7_modn,n, ((struct uint32x8*)itmp)->d4);
+		MOD_ADD32(((struct uint32x8*)itmp)->d1,bw_x7_modn,n, ((struct uint32x8*)itmp)->d5);
+		MOD_ADD32(((struct uint32x8*)itmp)->d2,bw_x7_modn,n, ((struct uint32x8*)itmp)->d6);
+		MOD_ADD32(((struct uint32x8*)itmp)->d3,bw_x7_modn,n, ((struct uint32x8*)itmp)->d7);
+		AVX_cmplx_carry_fast_errcheck_X4_ZMM(tmp, tm1, itmp, half_arr,0x000, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
+	   #else
 		// AVX-512 mode calls this macro twice, with Call 2ptr-offsets fiddled as described in comments to that version of the macro:
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x000, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
+/*
+=== 4-WAY ===
+Input:
+*tmp = {-516770855357715.75, 190672422644522.5, -211956860295766.72, -86904961926692.984, -55584894075895.883, -71126886553534.016, -206117597153738.62, 1097001158675664.9}
+*tm1 = 0 x 8
+*(struct uint32x8*)itmp = {d0 = 262144, d1 = 196608, d2 = 131072, d3 = 65536, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+Call 1 Output:
+*tmp = {-218730.49378017406, -48056.699550186735, -93280.269136510979, 52231.276634893475, [d4-7 same as above]}
+*tm1 = {d0 = -78, d1 = 1402, d2 = -650, d3 = -149, d4 = 0, d5 = 0, d6 = 0, d7 = 0};
+*itmp = {d0 = 1206488, d1 = 1140952, d2 = 1075416, d3 = 1009880, [d4-7 = 0]}
+Call 2 Output:
+*tmp = {-218730.49378017406, -48056.699550186735, -93280.269136510979, 52231.276634893475, -39592.837455274152, 102333.6974532048, 86549.392108867847, -268614.23201552214}
+*tm1 = {d0 = -365, d1 = 1336, d2 = -256, d3 = 314, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+*itmp = {d0 = 2150832, d1 = 2085296, d2 = 2019760, d3 = 1954224, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+
+=== 8-WAY ===
+tmp[0] = {-516770855357715.75, 190672422644522.5, -211956860295766.72, -86904961926692.984, -55584894075895.883, -71126886553534.016, -206117597153738.62, 1097001158675664.9}
+tmp[7] = {815558989568825.25, 166479510996781, 602333754119585.88, -184329755184470.81, 118987226527178.23, -581635903644156.12, -75851190430049.625, -103403585708466.94}
+	Set bit in k1 if sw < bjmodn[0:3]: sw = n - (p%n) = 2359296 - (43765019 % 2359296) = 1061605, which is < all 4 imtp[4-7] values below,
+	thus
+*tm1 = 0 x 8
+*(struct uint32x8*)itmp = {d0 = 262144, d1 = 196608, d2 = 131072, d3 = 65536, d4 = 2268093, d5 = 2202557, d6 = 2137021, d7 = 2071485}
+After rcol-carry-estimate step:
+$zmm3.v8_int32 = {262144, 196608, 131072, 65536, 1206488, 1140952, 1075416, 1009880} d4-7 now match above Call 1 Output ones
+$zmm1.v8_double = {0, 0, 0, 0, 1284, 257, 912, -274}, d4-7 nowhere near the correct {-78,1402,-650,-149} values!
+Output:
+*/
 		add0 += p04;				// prefetch of a + [prefetch offset] + p4,5,6,7
 		tmp  = (double *)tmp +  4;	// Call 2 will handle the .d4-7 doubles of our 4 input zmm register-sized vector data
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x800, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);	// Call 2 wts-data pointers += 0x400
+	   #endif
+/*
+IDEA: In avx-512 build, fuse the above 2 _X4 calls into 1, in which we use full-width zmm-registers rather than half-width ymm.
+Added "AVX debug" rng-init to radix36*c, examined data:
+
+Args: AVX_cmplx_carry_fast_errcheck_4(data,cy,bjmod_0, half_arr,doff, sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3, prp_mult)\
+vec_dbl*ptr := ((void *)half_arr + doff) = ((vec_dbl*)half_arr + [0,32]) is start of wt/wtinv block for current dataset
+For the 8 data-quartets (A.re,A.im,B.re,B.im,C.re,C.im,D.re,D.im):
+ 	Residue-data in data + 0-7
+	wt_fwd in ptr + 0,4,8,...
+	wt_inv in ptr + 2,6,10,... [why 2-strides between wt_fwd/inv ... perhaps to allow for 16-way carry macros?]
+	maxerr in (vec_dbl*)half_arr - 2
+	cy, bjmodn data in the associated ptrs
+Call 1:
+  In:
+	data: {d0 = -4037272307482.1543, d1 = 1489628301910.332, d2 = -1655912971060.6775, d3 = -678945015052.28894, d4 = -434256984967.93658, d5 = -555678801199.4845, d6 = -1610293727763.583, d7 = 8570321552153.6318}
+	cy	: {d0 = 0, d1 = 0, d2 = 0, d3 = 0, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+	bjmod {d0 = 262144, d1 = 196608, d2 = 131072, d3 = 65536
+	p *(struct uint32x8*)itmp = {d0 = 262144, d1 = 196608, d2 = 131072, d3 = 65536, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+	half_arr + ...:
+		0	{d0 = 1.8517494245745807, d1 = 1.8877486253633868, d2 = 1.9244476737882898, d3 = 1.9618601753378295, d4 = 1.9999999999999996, d5 = 1.0194406437021448, d6 = 1.0392592260318434, d7 = 1.0594630943592951}
+		4	{d0 = 1.2647530720435787, d1 = 1.2893406858883709, d2 = 1.3144062987734058, d3 = 1.3399592033077143, d4 = 1.3660088727546293, d5 = 1.3925649645438212, d6 = 1.4196373238516071, d7 = 1.4472359872508724}
+		...
+		28	{d0 = 1.0271571120694201, d1 = 1.0471257075112859, d2 = 1.0674825053023689, d3 = 1.0882350523462252, d4 = 1.1093910422630731, d5 = 1.1309583182420606, d6 = 1.1529448759489815, d7 = 1.1753588664905192}
+		32	{d0 = 1.4031057287998494, d1 = 1.4303830073498853, d2 = 1.4581905737533771, d3 = 1.4865387371475425, d4 = 1.515438007085864, d5 = 1.5448990974343091, d6 = 1.5749329303432944, d7 = 1.6055506402968731}
+		2	{d0 = 4.5778899251823675e-07, d1 = 4.4905899656477821e-07, d2 = 4.4049548086880288e-07, d3 = 4.3209527066639561e-07, d4 = 4.2385525173611109e-07, d5 = 8.3154473848886652e-07, d6 = 8.1568725322650911e-07, d7 = 8.0013216881789595e-07}
+		6	{d0 = 6.7025771449797521e-07, d1 = 6.5747595864326529e-07, d2 = 6.4493794975214226e-07, d3 = 6.3263903959137917e-07, d4 = 6.2057466856914965e-07, d5 = 6.0874036404464391e-07, d6 = 5.9713173866991963e-07, d7 = 5.8574448876337593e-07}
+		...
+		30	{d0 = 8.2529779866327764e-07, d1 = 8.0955944199573126e-07, d2 = 7.9412121441007049e-07, d3 = 7.7897739247101577e-07, d4 = 7.641223618886962e-07, d5 = 7.4955061543725714e-07, d6 = 7.3525675091315763e-07, d7 = 7.2123546913240532e-07}
+		34	{d0 = 6.041672313584761e-07, d1 = 5.9264581522315561e-07, d2 = 5.8134411148346563e-07, d3 = 5.7025793024328346e-07, d4 = 5.5938316150743785e-07, d5 = 5.4871577365800598e-07, d6 = 5.3825181195966429e-07, d7 = 5.2798739709354578e-07}
+  Out:
+	data: {d0 = -24463.461648054785, d1 = -95907.80709410111, d2 = -136076.03802495691, d3 = -181309.34733751958, d4 = -434256984967.93658, d5 = -555678801199.4845, d6 = -1610293727763.583, d7 = 8570321552153.6318}
+	cy	: {d0 = -1, d1 = 11, d2 = -5, d3 = -1, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+	bjmod {d0 = 1206488, d1 = 1140952, d2 = 1075416, d3 = 1009880, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+	p *(struct uint32x8*)itmp = {d0 = 1206488, d1 = 1140952, d2 = 1075416, d3 = 1009880, d4 = 0, d5 = 0, d6 = 0, d7 = 0}
+Call 2:
+  In:
+	data: [above data.d4-7]
+	cy	: [above cy  .d0-3]
+	bjmod [above bjmod.d0-3]
+  Out:
+	data:
+	cy	:
+	bjmod
+***No Point Going Further*** -
+Forgot that the two succeeding _X4 calls have data dependency, bjmodn/carries output by Call 1 are inputs to Call 2!
+To make this work would need to quick-estimate carries out of Call 1, feed those as input-carries to the Call 2 data,
+then at end of fused _X4x2 macro fold the differences between the actual Call 1 o-carries (i.e. the ones resulting from
+the full-length Call 1 carry-propagation sequence) and the estimated ones into the starting data (A.re) for Call 2,
+for which we could omit the usual fwd-weighting following the carry step until after said folding-in has been done.
+
+Will also be doing lots of 256-bit half-register merges ... data quartets for Call 1|2 in low|high half of zmm.
+Options -- assume Call 1|2 data in ymm0,ymm1, will concatenate into zmm0:
+															Latency/thruput:
+	Instruction sequence:					KNL											Skylake-X	Comment:
+vpslldq 32,zmm0,zmm0						2/1												1/1		n/a on k1om; use vpermf32x4 78,zmm0,zmm0
+valignd  8,zmm1,zmm0,zmm0					3-6/1											3/1		k1om has just valignd (not q), so use for both architectures
+
+vshuff64x2 0b01000100,zmm1,zmm0,zmm0		4-7/2											3/1
+
+vinsertf64x4 1,ymm1,zmm0,zmm0	 3-6/1 for y,z,z, 7/1 for m256,z,z			3/1 for y,z,z, 5/0.5 for m256,z,z	<=== BEST ===
+*/
 	   #else
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,i,     sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 	   #endif

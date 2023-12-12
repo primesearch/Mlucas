@@ -63,6 +63,7 @@ me at: heber.tomer@gmail.com
 --------------------------------------------------------------------*/
 
 #include "threadpool.h"
+#include "util.h"	// This is to get (or not) <hwloc.h>
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
@@ -265,6 +266,10 @@ me at: heber.tomer@gmail.com
 	#endif
 	static void *worker_thr_routine(void *data)
 	{
+		char cbuf[STR_MAX_LEN];
+	#if INCLUDE_HWLOC
+		char str[80];
+	#endif
 		struct thread_init *init = (struct thread_init *)data;
 		int my_id = init->thread_num;
 		struct threadpool *pool = init->pool;
@@ -299,6 +304,7 @@ me at: heber.tomer@gmail.com
 	#elif defined(OS_TYPE_LINUX)
 
 	  #if 0
+	  /*
 		// This is the affinity API tied to pthread library ... interestingly, it's less portable than the
 		// Linux system-centric one below; e.g. GCC gives "error: unknown type name ‘cpuset_t’; did you mean ‘cpu_set_t’?" here:
 		int i,errcode;
@@ -318,7 +324,7 @@ me at: heber.tomer@gmail.com
 			perror("pthread_setaffinity_np");
 		}
 		cpuset_destroy(cset);
-
+	  */
 	  #else
 
 		cpu_set_t cpu_set;
@@ -327,13 +333,43 @@ me at: heber.tomer@gmail.com
 	  #if THREAD_POOL_DEBUG
 		printf("executing worker thread id %u, syscall_id = %u\n", my_id, thread_id);
 	  #endif
-		CPU_ZERO (&cpu_set);	i = my_id % pool->num_of_cores;
+
+		i = my_id % pool->num_of_cores;
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
 			ASSERT(HERE, 0, "Aborting.");
 		}
-		// get cpu mask using sequential thread ID modulo #available cores in runtime-specified affinity set
+
+	 #if INCLUDE_HWLOC
+
+	  if(HWLOC_AFFINITY) {	// Global, declared in Mdata.h, defined in Mlucas.c, set in util.c::host_init()
+		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc();
+		hwloc_obj_t obj = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, i);
+		if (obj) {
+			hwloc_bitmap_or(cpuset, cpuset, obj->cpuset);
+		} else {
+			snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: HWLOC_OBJ_PU[%u] not found.\n",i);
+			fprintf(stderr,"%s",cbuf);
+		}
+		// Set affinity to specified logical CPUs:
+		if (hwloc_set_cpubind(hw_topology, cpuset, HWLOC_CPUBIND_THREAD)) {
+			int error = errno;
+			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+			snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Warning: Unable to set affinity to cpuset %s: %s; leaving up to OS to manage thread/core binding.\n",str,strerror(error));
+			fprintf(stderr,"%s",cbuf);
+	  #if THREAD_POOL_DEBUG
+		} else {
+			printf("[hwloc] tid = %d: HWLOC_OBJ_PU[%u], lidx %u, pidx %u: setaffinity[%d] to cpuset %s\n",my_id,i,obj->logical_index,obj->os_index,str);
+	  #endif
+		}
+		hwloc_bitmap_free(cpuset);
+	  }	// HWLOC_AFFINITY = True?
+
+	 #else	// INCLUDE_HWLOC = False:
+
+		// get cpu mask using sequential thread ID modulo #available cores in runtime-specified affinity set:
+		CPU_ZERO (&cpu_set);
 		CPU_SET(i, &cpu_set);
 		errcode = sched_setaffinity(thread_id, sizeof(cpu_set), &cpu_set);
 	  #if THREAD_POOL_DEBUG
@@ -341,9 +377,11 @@ me at: heber.tomer@gmail.com
 	  #endif
 		if (errcode) {
 			perror("sched_setaffinity");
+			fprintf(stderror,"INFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n");
 		}
-
 	  #endif
+
+	 #endif	// INCLUDE_HWLOC?
 
 	#elif defined(OS_TYPE_MACOSX)
 

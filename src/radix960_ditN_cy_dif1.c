@@ -849,17 +849,23 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	}		/************************************************************************/
 	else	/*                MODULUS_TYPE_MERSENNE:                                */
 	{		/************************************************************************/
+		ASSERT(HERE, tmp == half_arr, "tmp == half_arr check failed!");
 	#ifdef USE_AVX512
-		// Each lookup-category in the 'mini-tables' used in AVX mode balloons from 16x32-bytes to 64x64-bytes,
-		// so switch to an opmask-based scheme which starts with e.g. a broadcast constant and onditional doubling.
-		// Here are the needed consts and opmasks:
-		// [1] Fwd-wt multipliers: Init = 0.50 x 8, anytime AVX-style lookup into 1st table below would have bit = 0, double the corr. datum
-		// [2] Inv-wt multipliers: Init = 0.25 x 8, anytime AVX-style lookup into 2nd table below would have bit = 0, double the corr. datum
-		// [3] Fwd-base mults: Init = base[0] x 8, anytime AVX-style lookup into 3rd table below would have bit = 1, double the corr. datum
-		// [4] Inv-base mults: Init = binv[1] x 8, anytime AVX-style lookup into 4th table below would have bit = 0, double the corr. datum
-		// [5] [LOACC] Init = wts_mult[1] x 8, anytime AVX-style lookup into 5th table below would have bit = 0, double the corr. datum
-		// [6] [LOACC] Init = inv_mult[0] x 8, anytime AVX-style lookup into 6th table below would have bit = 1, double the corr. datum
-		nbytes = 0;
+		/* Each lookup-category in the 'mini-tables' used in AVX mode balloons from 16x32-bytes to 64x64-bytes,
+			so switch to an opmask-based scheme which starts with e.g. a broadcast constant and onditional doubling.
+			Here are the needed consts and opmasks:
+			[1] Fwd-wt multipliers: Init = 0.50 x 8, anytime AVX-style lookup into 1st table below would have bit = 0, double the corr. datum
+			[2] Inv-wt multipliers: Init = 0.25 x 8, anytime AVX-style lookup into 2nd table below would have bit = 0, double the corr. datum
+			[3] Fwd-base mults: Init = base[0] x 8, anytime AVX-style lookup into 3rd table below would have bit = 1, double the corr. datum
+			[4] Inv-base mults: Init = binv[1] x 8, anytime AVX-style lookup into 4th table below would have bit = 0, double the corr. datum
+			[5] [LOACC] Init = wts_mult[1] x 8, anytime AVX-style lookup into 5th table below would have bit = 0, double the corr. datum
+			[6] [LOACC] Init = inv_mult[0] x 8, anytime AVX-style lookup into 6th table below would have bit = 1, double the corr. datum
+		*/
+		nbytes = 2 << L2_SZ_VD;
+		// Dec 2021: k10m / IMCI512 makes it really hard to on-the-fly vector-int zmm = 0.5 x 8 w/o supplying a new input-arg
+		// the asm carry-macros containing (pointer to mem64 containing 0.5), so add inits of v8_double(0.5) and v8_double(0.25):
+		VEC_DBL_INIT(tmp  , 0.50);
+		VEC_DBL_INIT(tmp+1, 0.25);
 	#elif defined(USE_AVX)
 		/* Forward-weight multipliers: */
 		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
@@ -1620,7 +1626,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;
@@ -1822,6 +1828,8 @@ for(outer=0; outer <= 1; outer++)
 		tmp = tdat[ithread].half_arr;
 	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
 		ASSERT(HERE, ((tmp-1)->d0 == base[0] && (tmp-1)->d1 == baseinv[1] && (tmp-1)->d2 == wts_mult[1] && (tmp-1)->d3 == inv_mult[0]), "thread-local memcheck failed!");
+		ASSERT(HERE, ((tmp+0)->d0 == 0.50 && (tmp+0)->d1 == 0.50 && (tmp+0)->d2 == 0.50 && (tmp+0)->d3 == 0.50 && (tmp+0)->d4 == 0.50 && (tmp+0)->d5 == 0.50 && (tmp+0)->d6 == 0.50 && (tmp+0)->d7 == 0.50, "thread-local memcheck failed!");
+		ASSERT(HERE, ((tmp+1)->d0 == 0.25 && (tmp+1)->d1 == 0.25 && (tmp+1)->d2 == 0.25 && (tmp+1)->d3 == 0.25 && (tmp+1)->d4 == 0.25 && (tmp+1)->d5 == 0.25 && (tmp+1)->d6 == 0.25 && (tmp+1)->d7 == 0.25, "thread-local memcheck failed!");
 	  #else
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
 	  #endif

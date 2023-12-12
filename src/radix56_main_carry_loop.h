@@ -46,11 +46,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			i7 = p_id1[l]; i0 = i7&7; i1 = (i7>>3)&7; i2 = (i7>>6)&7; i3 = (i7>>9)&7; i4 = (i7>>12)&7; i5 = (i7>>15)&7; i6 = (i7>>18)&7; i7 = (i7>>21);
 			addr = &a[j1+poff[p_od1[l]]];
 			add0 = addr+pp07[i0]; add1 = addr+pp07[i1]; add2 = addr+pp07[i2]; add3 = addr+pp07[i3]; add4 = addr+pp07[i4]; add5 = addr+pp07[i5]; add6 = addr+pp07[i6]; add7 = addr+pp07[i7];
-		  #ifdef USE_AVX2
+		#ifdef USE_AVX2
 			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
-		  #else
+		#else
 			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
-		  #endif
+		#endif
 		}
 	/*...and now do 8 radix-7 transforms, with the columns of r*[r,i] output pairs in the above 7x radix-8 set now acting as input rows: */
 		// Bytewise array of output-pointer offsets w.r.to the s1p00 base-pointer:
@@ -812,11 +812,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			i7 = p_id2[l]; i0 = i7&7; i1 = (i7>>3)&7; i2 = (i7>>6)&7; i3 = (i7>>9)&7; i4 = (i7>>12)&7; i5 = (i7>>15)&7; i6 = (i7>>18)&7; i7 = (i7>>21);
 			addr = &a[j1+poff[p_od1[l]]];
 			add0 = addr+pp07[i0]; add1 = addr+pp07[i1]; add2 = addr+pp07[i2]; add3 = addr+pp07[i3]; add4 = addr+pp07[i4]; add5 = addr+pp07[i5]; add6 = addr+pp07[i6]; add7 = addr+pp07[i7];
-		  #ifdef USE_AVX2
+		#ifdef USE_AVX2
 			SSE2_RADIX8_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two);
-		  #else
+		#else
 			SSE2_RADIX8_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
-		  #endif
+		#endif
 		}
 
 	  #else

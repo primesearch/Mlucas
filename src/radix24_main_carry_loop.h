@@ -46,15 +46,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// SSE2_RADIX8_DIT_0TWIDDLE( add0     +p[0,1,3,2,7,6,5,4], s1p00)
 		add0 = &a[j1];
 		add1 = add0+p01; add2 = add0+p03; add3 = add0+p02; add4 = add0+p07; add5 = add0+p06; add6 = add0+p05; add7 = add0+p04;
+	#ifdef USE_AVX2
+		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, s1p00, isrt2,two);
+	#else
 		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, s1p00, isrt2);
+	#endif
 		// SSE2_RADIX8_DIT_0TWIDDLE([add0+p08]+p[5,4,6,7,1,0,2,3], s1p08)
 		add5 = &a[j1] + p08;
 		add0 = add5+p05; add1 = add5+p04; add2 = add5+p06; add3 = add5+p07; add4 = add5+p01; add6 = add5+p02; add7 = add5+p03;
+	#ifdef USE_AVX2
+		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, s1p08, isrt2,two);
+	#else
 		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, s1p08, isrt2);
+	#endif
 		// SSE2_RADIX8_DIT_0TWIDDLE([add0+p16]+p[2,3,0,1,4,5,7,6], s1p16)
 		add2 = &a[j1] + p16;
 		add0 = add2+p02; add1 = add2+p03; add3 = add2+p01; add4 = add2+p04; add5 = add2+p05; add6 = add2+p07; add7 = add2+p06;
+	#ifdef USE_AVX2
+		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, s1p16, isrt2,two);
+	#else
 		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, s1p16, isrt2);
+	#endif
 	   #if 0	// doubled-data _X2 version slower on x86 SSE2 but slightly faster in ARMv8 SIMD, latter is
 	   			// our main target for this assemble-24-DFTs-from-small-macros code, so make _X2 the default:
 		SSE2_RADIX_03_DFT(s1p00,s1p08,s1p16,cc3,s1p00,s1p16,s1p08);
@@ -504,24 +516,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// SSE2_RADIX8_DIF_0TWIDDLE( i[0-7] = s1p00 + 0x[0a4e82c6]0, o[0-7] = add0 + p[01235476])
 		add0 = &a[j1];
 		add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p05; add5 = add0+p04; add6 = add0+p07; add7 = add0+p06;
-		SSE2_RADIX8_DIF_0TWIDDLE(
-			s1p00,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7,
-			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
-		);
+	#ifdef USE_AVX2
+		SSE2_RADIX8_DIF_0TWIDDLE(s1p00,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two);
+	#else
+		SSE2_RADIX8_DIF_0TWIDDLE(s1p00,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
+	#endif
 		// SSE2_RADIX8_DIF_0TWIDDLE( i[0-7] = s1p16 + 0x[0a4e82c6]0, o[0-7] = add8 + p[54762310])
 		add7 = &a[j1] + p08;
 		add0 = add7+p05; add1 = add7+p04; add2 = add7+p07; add3 = add7+p06; add4 = add7+p02; add5 = add7+p03; add6 = add7+p01;
-		SSE2_RADIX8_DIF_0TWIDDLE(
-			s1p16,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7,
-			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
-		);
+	#ifdef USE_AVX2
+		SSE2_RADIX8_DIF_0TWIDDLE(s1p16,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two);
+	#else
+		SSE2_RADIX8_DIF_0TWIDDLE(s1p16,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
+	#endif
 		// SSE2_RADIX8_DIF_0TWIDDLE( i[0-7] = s1p08 + 0x[0a4e82c6]0, o[0-7] = add16+ p[23107645])
 		add3 = &a[j1] + p16;
 		add0 = add3+p02; add1 = add3+p03; add2 = add3+p01; add4 = add3+p07; add5 = add3+p06; add6 = add3+p04; add7 = add3+p05;
-		SSE2_RADIX8_DIF_0TWIDDLE(
-			s1p08,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7,
-			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
-		);
+	#ifdef USE_AVX2
+		SSE2_RADIX8_DIF_0TWIDDLE(s1p08,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two);
+	#else
+		SSE2_RADIX8_DIF_0TWIDDLE(s1p08,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
+	#endif
 
 	   #ifndef USE_ARM_V8_SIMD
 		#undef OFF1

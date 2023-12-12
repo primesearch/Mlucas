@@ -271,6 +271,10 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#define USE_AVX
 	#define	USE_SSE2
 
+#elif defined(USE_ICMI512)	// Made this transposition so often that I'd better add check for it:
+
+	#error I think the preprocessor flag you want is USE_IMCI512, not USE_ICMI512!
+
 #endif
 
 // At several points in the code we need to make sure the compiler is at least GCC v5 in order

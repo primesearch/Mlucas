@@ -21,34 +21,53 @@
 *******************************************************************************/
 
 #if 0
-	Jul 2015:
+	[Last updated Mar 2022]
 	This is a C-ified version of my 2003-dated F90-based FGT-exploration code.
 	Most of the comments about op- and cycle counts reflect that dating, at which
 	time the leding candidate architectures for such arithmetic were Alpha and MIPS,
 	due to their decent (and improving, as embodied by e.g. tha third-gen Alpha 21264)
 	64 x 64 ==> 128-bit integer multiply, a.k.a. MUL_LOHI64, support. (Alpha via the
-	separate MULQ, UMULH instruction pair; with its single DMULTU instruction.)
-	
+	separate MULQ, UMULH instruction pair; MIPS with its single DMULTU instruction.)
+
 	As of this date, x86_64 has taken over, with recent iterations having excellent
-	MUL_LOHI64 support via its single MUL instruction.
-	(Which appears as 'mulq' in GCC-style inline assembler, not to be confused with
-	the aforementoned Alpha MULQ, returning the low half of the full 128 bit product.)
-	
+	MUL_LOHI64 support via its single MUL instruction, which appears as 'mulq' in
+	GCC-style inline assembler, not to be confused with the aforementoned Alpha MULQ,
+	returning the low half of the full 128 bit product.
+
 	Thus x86_64 MUL is like a fully pipelined MIPS DMULTU with 2 key differences:
-	
+
 	1. MUL uses the legacy x86 2-operand MUL syntax, but note the resulting register
 	constraints (i.e. need to move result out of the A:D register pair prior to the
-	next MUL) is mitiggated in terms of performance impact by hardware-level register
+	next MUL) is mitigated in terms of performance impact by hardware-level register
 	aliasing, i.e. the user-required 'move result out of A:D' typically ends up being
 	a no-op at the microcode-execution level.
-	
-	2. Haswell-and-beyond iterations of x86_64
-	add a 3-operand MULX instruction which further eases the register-shuffling burden
-	on the assembly programmer.
-	
+
+	2. Haswell-and-beyond iterations of x86_64 add a 3-operand MULX instruction which
+	further eases the register-shuffling burden on the assembly programmer.
+
 	And the x86_64 ADD/SUB both set a carry flag, which can be used to speed mutiowrd
 	arithmetic, e.g. via an ADD/ADC instruction pair in the 2-word case relevant to mod-q
 	arithmetic here.
+
+	The biggest problem with M61-mod FGT on x86_64 is lack of SIMD 128-bit integer product
+	support, relative to the excellent floating-point SIMD MUL+FMA support. The latest-gen
+	avx-512 SIMD offers the following 64-bit SIMD integer multiply instructions:
+
+	o VPMUL[U]DQ: Multiply packed [un]signed doubleword integers in even-indexed 32-bit
+	dwords of zmm2 by packed [un]signed doubleword integers in even-indexed 32-bit dwords
+	of zmm3/m512/m64bcst, and store the 8 quadword results in zmm1 using writemask k1.
+
+	o VPMULL[D|Q]: Multiply the packed [dword|qword] signed integers in zmm2 and zmm3/m512/
+	m32bcst and store the low [32|64] bits of each product in zmm1 under writemask k1.
+	(Equivalent to [16|8]-way SIMD version of IMULL[D|Q].)
+
+	o [Needs AVX512IFMA instruction extensions]
+	VPMADD52[L|H]UQ: Multiply unsigned 52-bit integers in zmm2 and zmm3/m128 and add the
+	low 52 bits of the 104-bit product to the qword unsigned integer accumulators in zmm1
+	using writemask k1.
+
+	Q: Can we use some combination of the above, plus perhaps some bytewise or similar low-
+	bitness MUL and/or LUT to synthesize a fast 512-bit SIMD analog of Alpha MULQ+UMULH ?
 #endif
 
 #ifdef USE_FGT61
@@ -117,7 +136,7 @@ uint64 rmul_modq(const uint64 a, const uint64 b)
 
 #else	// Hybrid Int/float version of above; strictly experimental,
 		// payoff only on arches lacking UMULH and/or where MUL is slow.
-/* 
+/*
 Combines a MULQ (64-bit integer multiply) with a floating multiply
 to replace UMULH for calculation of the full 128-bit product of two
 unsigned integer operands, x*y, and returns the product modulo q = 2^61-1.
@@ -261,31 +280,31 @@ and still have results in [0,8*q], or really [0,2^64-1].
 Peter Montgomery notes that in fact the a-operands can be somewhat
 larger than q+7 and still satisfy this constraint, as follows:
 
-	The value of lo will be exactly divisible by 8.  
+	The value of lo will be exactly divisible by 8.
 	We want to show tmp <= 2*q where tmp = hi + lo/8 = prodq8(a, b).
 	There are two cases to consider:
-	
+
 	(1) When a + b < 2^62, the arithmetic-geometric mean inequality (AGM) gives
-	
+
 		a*b <= (a+b)^2/4 <= (2^62 - 1)^2/4 = 2^61 * q + 1/4.
-	
+
 	Here hi <= q and lo/8 <= q, so tmp <= 2q.
-	
+
 	(2) Otherwise a + b >= 2^62, i.e. a >= 2^62 - b > 2^61, so 2^61 <= a <= 2^61 + sqrt(2^61).
 	Also b >= 2^62 - a > 2^61 - sqrt(2^61).
 	So 0 < (a - 2^61)*(2^61 - b) < 2^61.  From a*b = 2^61*hi + lo/8
 	and 0 <= lo/8 < 2^61 we conclude
-	
+
 		lo/8 = 2^61 - (a - 2^61)*(2^61 - b) = a*b - 2^61*(a + b - 2^61 - 1)
-	
+
 	and hence
-	
+
 	 hi = a + b - 2^61 - 1
 	tmp = (a + b - 2^61 - 1) + (2^122 + 2^61 - 2^61*a - 2^61*b + a*b)
 		= 2^122 - 1 + a*(1 - 2^61) + b*(1 - 2^61) + a*b
 		= q^2 + 2q - a*q - b*q + a*b
 		= 2q - (a - q)*(q - b) <= 2q
-	
+
 	Having tmp <= 2q = 2^62 - 2 always gives an output <= q (tmp = q gives q.)
 
 UPSHOT: for 0 <= a <= 2^61 + sqrt(2^61),  0 <= b < 2^64, (b divisible by 8),
@@ -367,7 +386,7 @@ this costs 6 + 3*2 = 12 IOPs, in addition to 3 128-bit multiplies.
 The real part of the result is t00 - t11, which is in [-2q, 2q]. We can add
 2*q to bring this into [0, 4q]. t00 - t11 + 2*q costs 3 IOPs.
 
-For the imaginary part, t01 - t00 - t11 appears to have a potential range of 
+For the imaginary part, t01 - t00 - t11 appears to have a potential range of
 5q + 2q + 2q = 9q > 2^64 if we use only the individual upper bounds
 on the three variables.  But the three are not independent, since
 t01 - t00 - t11 = (a0 + a1) * (b0 + b1) - a0*b0 - a1*b1 = a0*b1 + a1*b0,
@@ -577,7 +596,7 @@ void prim_root_q(const uint64 ord, uint64*root_re, uint64*root_im)
 		// Promote the next-lower bit into the MSB slot. Again, this works because pow is odd:
 		pow <<= 1;
 	}
-	
+
 	// q^2 - 1 = 2^62*(2^60-1), so need to do [62-trailz(ord)] squarings...
 	zbits = 62 - trailz64(ord);
 	for(i = 0; i < zbits; i++) {

@@ -2379,7 +2379,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 			: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8"	/* Clobbered registers */\
 		);
 
-	#elif defined(USE_AVX512) || !defined(USE_IMCI512)
+	#elif defined(USE_AVX512) && !defined(USE_IMCI512)
 
 		// AVX512 prototype code for 8-folded adc loop
 		uint32 i, lrem = (len&7), len8 = len >> 3;
@@ -3031,14 +3031,14 @@ initing a vector containing the (nonoverlapping) square terms, and then doing a 
 
 #ifdef __CUDA_ARCH__
 __device__
-void	(const uint64 x[], uint64 z[], uint32 len, uint64 u[])
+void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len, uint64 u[])
 #else
 void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 #endif
 {
 	const char func[] = "mi64_sqr_vector";
   #if MI64_SQR_DBG
-	uint32 dbg = len == 10 && !x[0] && !x[1] && !x[2] && x[3] == 1073741824ull;// && STREQ(&s0[convert_mi64_base10_char(s0, x, len, 0)], "0");
+	uint32 dbg = STREQ(&s0[convert_mi64_base10_char(s0, x, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 	if(dbg)
 		printf("%s: len = %u\n",func,len);
   #endif
@@ -3138,6 +3138,7 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 (gdb) p v[19]	=               129184		z[19]	=               129184
 (gdb)
 */
+
 /* Low and high-half mul allow in-place: */
 #ifdef __CUDA_ARCH__
 __device__	/* GPU version needs to supply its own scratch array: */
@@ -3281,115 +3282,129 @@ q*qinv = [2^607-1]*[2^640-2^607-1]
 
 Now examine full-double-width multiply in term-by-term fashion, powers of the base b = 2^64 in left col:
 
-b^n:	Coefficient (unnormalized)
-----	--------------------------
-n = 0	x0.y0
-1		x0.y1 + x1.y0
-2		x0.y2 + x1.y1 + x2.y0
-3		x0.y3 + x1.y2 + x2.y1 + x3.y0
-4		x0.y4 + x1.y3 + x2.y2 + x3.y1 + x4.y0
-5		x0.y5 + x1.y4 + x2.y3 + x3.y2 + x4.y1 + x5.y0
-6		x0.y6 + x1.y5 + x2.y4 + x3.y3 + x4.y2 + x5.y1 + x6.y0
-7		x0.y7 + x1.y6 + x2.y5 + x3.y4 + x4.y3 + x5.y2 + x6.y1 + x7.y0
-8		x0.y8 + x1.y7 + x2.y6 + x3.y5 + x4.y4 + x5.y3 + x6.y2 + x7.y1 + x8.y0
-9		x0.y9 + x1.y8 + x2.y7 + x3.y6 + x4.y5 + x5.y4 + x6.y3 + x7.y2 + x8.y1 + x9.y0
-10		        x1.y9 + x2.y8 + x3.y7 + x4.y6 + x5.y5 + x6.y4 + x7.y3 + x8.y2 + x9.y1
-11		                x2.y9 + x3.y8 + x4.y7 + x5.y6 + x6.y5 + x7.y4 + x8.y3 + x9.y2
-12		                        x3.y9 + x4.y8 + x5.y7 + x6.y6 + x7.y5 + x8.y4 + x9.y3
-13		                                x4.y9 + x5.y8 + x6.y7 + x7.y6 + x8.y5 + x9.y4
-14		                                        x5.y9 + x6.y8 + x7.y7 + x8.y6 + x9.y5
-15		                                                x6.y9 + x7.y8 + x8.y7 + x9.y6
-16		                                                        x7.y9 + x8.y8 + x9.y7
-17		                                                                x8.y9 + x9.y8
-18		                                                                        x9.y9
-19		                                                                          0
+	j:	i0 = MAX(0,j+1-n)	Coefficient (unnormalized)
+	--	--	--------------------------
+	0	0	x0.y0
+	1	0	x0.y1 + x1.y0
+	2	0	x0.y2 + x1.y1 + x2.y0
+	3	0	x0.y3 + x1.y2 + x2.y1 + x3.y0
+	4	0	x0.y4 + x1.y3 + x2.y2 + x3.y1 + x4.y0
+	5	0	x0.y5 + x1.y4 + x2.y3 + x3.y2 + x4.y1 + x5.y0
+	6	0	x0.y6 + x1.y5 + x2.y4 + x3.y3 + x4.y2 + x5.y1 + x6.y0
+	7	0	x0.y7 + x1.y6 + x2.y5 + x3.y4 + x4.y3 + x5.y2 + x6.y1 + x7.y0
+	8	0	x0.y8 + x1.y7 + x2.y6 + x3.y5 + x4.y4 + x5.y3 + x6.y2 + x7.y1 + x8.y0
+	------------------------ truncate here, don't compute above sums --------------------
+	9	0	x0.y9 + x1.y8 + x2.y7 + x3.y6 + x4.y5 + x5.y4 + x6.y3 + x7.y2 + x8.y1 + x9.y0	u[lm1]
+	10	1	        x1.y9 + x2.y8 + x3.y7 + x4.y6 + x5.y5 + x6.y4 + x7.y3 + x8.y2 + x9.y1
+	11	2	                x2.y9 + x3.y8 + x4.y7 + x5.y6 + x6.y5 + x7.y4 + x8.y3 + x9.y2
+	12	3	                        x3.y9 + x4.y8 + x5.y7 + x6.y6 + x7.y5 + x8.y4 + x9.y3
+	13	4	                                x4.y9 + x5.y8 + x6.y7 + x7.y6 + x8.y5 + x9.y4
+	14	5	                                        x5.y9 + x6.y8 + x7.y7 + x8.y6 + x9.y5
+	15	6	                                                x6.y9 + x7.y8 + x8.y7 + x9.y6
+	16	7	                                                        x7.y9 + x8.y8 + x9.y7
+	17	8	                                                                x8.y9 + x9.y8
+	18	9	                                                                        x9.y9
+	19		                                                                          0
 
-Does use of only the b^9 = x0.y9 + x1.y8 + x2.y7 + x3.y6 + x4.y5 + x5.y4 + x6.y3 + x7.y2 + x8.y1 + x9.y0 term
-yield the correct carry into the b^10 term here?
+Jun 2022: The above is tricky to implement & debug using existing mi64_mul_scalar() to compute UL->LR diagonals, for 2 reasons:
+	1. Indexing and Diagonal-sum lengths irregular, e.g. start with x8.y0 + x9.y0 partial-diag, then 3-term, thru n-term;
+	2. In fact we need to compute the full Row 8 sum, since its high product halves will carry into Rows 9 and 10!
+Instead switch to rowwise summation scheme. We use bc-code to illustrate.
 
-bc
-b=2^64;
-x0=x1=x2=x3=x4=x5=x6=x7=x8=b-1; x9=2^31-1
-y0=y1=y2=y3=y4=y5=0; y6=b-2^60; y7=y8=y9=b-1;
-
-																								bn (normalized)			cy
-b0-5 = 0																						0						0
-b6 = cy+x0*y6+x1*y5+x2*y4+x3*y3+x4*y2+x5*y1+x6*y0                   ;m=b6%b ;m;cy=(b6 -m)/b;cy	1152921504606846976		17293822569102704639
-b7 = cy+x0*y7+x1*y6+x2*y5+x3*y4+x4*y3+x5*y2+x6*y1+x7*y0             ;m=b7%b ;m;cy=(b7 -m)/b;cy	0						35740566642812256254
-b8 = cy+x0*y8+x1*y7+x2*y6+x3*y5+x4*y4+x5*y3+x6*y2+x7*y1+x8*y0       ;m=b8%b ;m;cy=(b8 -m)/b;cy	0						54187310716521807869
-b9 = cy+x0*y9+x1*y8+x2*y7+x3*y6+x4*y5+x5*y4+x6*y3+x7*y2+x8*y1+x9*y0 ;m=b9%b ;m;cy=(b9 -m)/b;cy	0						72634054790231359484
-b10= cy+      x1*y9+x2*y8+x3*y7+x4*y6+x5*y5+x6*y4+x7*y3+x8*y2+x9*y1 ;m=b10%b;m;cy=(b10-m)/b;cy	18446744073709551615	72634054790231359484
-b11= cy+            x2*y9+x3*y8+x4*y7+x5*y6+x6*y5+x7*y4+x8*y3+x9*y2 ;m=b11%b;m;cy=(b11-m)/b;cy
-b12= cy+                  x3*y9+x4*y8+x5*y7+x6*y6+x7*y5+x8*y4+x9*y3 ;m=b12%b;m;cy=(b12-m)/b;cy
-b13= cy+                        x4*y9+x5*y8+x6*y7+x7*y6+x8*y5+x9*y4 ;m=b13%b;m;cy=(b13-m)/b;cy
-b14= cy+                              x5*y9+x6*y8+x7*y7+x8*y6+x9*y5 ;m=b14%b;m;cy=(b14-m)/b;cy
-b15= cy+                                    x6*y9+x7*y8+x8*y7+x9*y6 ;m=b15%b;m;cy=(b15-m)/b;cy
-b16= cy+                                          x7*y9+x8*y8+x9*y7 ;m=b16%b;m;cy=(b16-m)/b;cy
-b17= cy+                                                x8*y9+x9*y8 ;m=b17%b;m;cy=(b17-m)/b;cy
-b18= cy+                                                      x9*y9 ;m=b18%b;m;cy=(b18-m)/b;cy
-b19= cy+
-
-Using low-order-truncated-rhombus, get
-
-b9  = x0*y9 + x1*y8 + x2*y7 + x3*y6 + x4*y5 + x5*y4 + x6*y3 + x7*y2 + x8*y1 + x9*y0 = 1152921504606846979 + b*72634054790231359481	<*** cy is 3 too low! ***
-thus carry into b10 = 72634054790231359481 .
-
-With the 3-too-low approx-carry, get
-
-b10 = cy + x1*y9 + x2*y8 + x3*y7 + x4*y6 + x5*y5 + x6*y4 + x7*y3 + x8*y2 + x9*y1
-	= 18446744073709551612 + b*72634054790231359484 ,
-which has remainder also 3-too-low (18446744073709551612 vs the correct 18446744073709551615 = 2^64-1) but correct carryout.
-
-UPSHOT: Could spend days coming up with error-coorection scheme, but no point, since for mm(p)-TF-related modmuls we already
-have an exact fast O(n) alternative to compute the mi64_mul_vector_hi_half(q, lo) result.
+Compute desired row-sums by row index. For row j (j renamed 'idx' in function below):
+	o define i0 = max(0,j+1-n) [e.g. for j = 16, i0 = 7]; j < 0 or j > 2*n-1 illegal, j = 2*n-1 returns 0;
+	o start x-index at   i0, increment;
+	o start y-index at j-i0, decrement until < i0.
+Code:
+	define row(idx,n) {
+		auto i0,i,j,t,sum;
+		i0 = max(0,idx+1-n); sum = 0;
+		if(idx < 0 || idx >= 2*n-1)
+			return 0;
+		// BC doesn't support comma-separated multi-clause loop-control expressions:
+		i = i0;
+		for(j = idx-i0; j >= i0; j--) {
+			t = x[i]*y[j]; sum += t;
+			print "x",i,"*y",j," + ";
+			i += 1;
+		}
+		print "\n";
+		return sum;
+	}
+Compute rows of our mul-rhombus - this assumes row() returns 0 for index < 0 or >= 2*n-1:
+	for(i = 0; i < 2*n; i++) { z[i] = row(i,n); }
+Propagate carries and print normalized outputs:
+	b = 2^64; cy = 0;
+Full product is:
+	for(i = 0; i < 2*n-1; i++) { z[i] += cy; cy = z[i]/b; z[i] %= b; print "z[",i,"] = ",z[i],", cy = ",cy,"\n"; }
+Instead start at i = n-2:need to always include the carry out of the row(n-2) summation in addition to the row(n-1) one.
+Could consider some fast way of computing said carry, e.g. computing approximate row(n-2) summation using floating-point.
 */
-#if 0
-#error mi64_mul_vector_hi_trunc not yet debugged!
+#if MI64_USE_FAST_MULH
+	#warning mi64_mul_vector_hi_trunc not yet fully debugged! (E.g. nonrandom inputs with all limbs = 2^64-1.)
+#endif
 void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 {
-	uint32 j, lm1 = len-1;
+	int i0,idx,i,j, lm1 = len-1;	// j must be signed for purposes of loop control
+	uint64 tprod[2], cy;
 	static uint64 *u = 0x0, *v = 0x0;	// Scratch arrays for storing intermediate scalar*vector products
 	static uint32 dimU = 0;
 	ASSERT(HERE, len != 0, "zero-length X-array!");
-
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
 	if(dimU < (len+1)) {
 		dimU = 2*(len+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
-		u = (uint64 *)realloc(u, 2*(len+1)*sizeof(uint64));
-		v = (uint64 *)realloc(v, 4* len  )*sizeof(uint64));
+		u = (uint64 *)realloc(u, (len+1)<<4);	// Realloc with 2*(len+1)*sizeof(uint64) bytes
+		v = (uint64 *)realloc(v,  len   <<5);	// Realloc with 4*(len  )*sizeof(uint64) bytes
+	}
+	/*
+	Compute desired row-sums by row index. For row j (j renamed 'idx' in function below):
+		o define i0 = max(0,j+1-n) [e.g. for j = 16, i0 = 7]; j < 0 or j > 2*n-1 illegal, j = 2*n-1 returns 0;
+		o start x-index at   i0, increment;
+		o start y-index at j-i0, decrement until < i0.
+	*/
+	memset(v,0,len<<5);
+//	idx = len-2; <*** Fails with highly nonrandom inputs such as all-input-limbs = 2^64-1 ***
+	idx = 0;
+	for( ; idx < len+len-1; idx++) {
+		i0 = MAX(0,(int)(idx+1-len));	// Must cast (idx+1-len) to signed here!
+		for(i = i0, j = idx-i0; j >= i0; i++, j--) {
+			// x[i]*y[j]: lo64 into v[idx], hi64 into v[idx+1], any carryout of 2-limb accumulate-sum into v[idx+2]
+		#ifdef MUL_LOHI64_SUBROUTINE
+			MUL_LOHI64(x[i],y[j],tprod   ,tprod+1 );
+		#else
+			MUL_LOHI64(x[i],y[j],tprod[0],tprod[1]);
+		#endif
+			v[idx+2] += mi64_add(v+idx,tprod,v+idx,2);
+		}
 	}
 
+  #if 0
 	/* Loop over the elements of y[], multiplying x[] by each, and
 	using u[] as a scratch array to store x[]*y[j] prior to adding to z[].
 
 	For the high-half version, only want terms x[i]*y[j] with (i + j) >= len,
 	plus the high halves of the (i + j) = len-1 terms for the requisite carryins.
 	*/
-	for(j = 0; j < len; j++)
-	{
-		if(y[j] == 0)
-			continue;
+  #error This loop needs debug!
+	for(j = 0; j < len; j++) {
+		if(y[j] == 0) continue;
 		// Only need y[j]*u[len-1-j:len-1], i.e. low term of order [len-1]
-		u[lm1] = mi64_mul_scalar(&x[lm1-j], y[j], &u[lm1-j], j);
+		u[j+1] = mi64_mul_scalar(&x[lm1-j], y[j], &u[lm1-j], j+1);
 		// Add j-word-left-shifted u[] to v[], retaining only terms with index < len in the sum:
-		v[lm1+j] = u[lm1] + mi64_add(&v[lm1], &u[lm1-j], &v[lm1], j);
-		// Full-length: v[j, j+1, ..., j+len-1] gets added to u[0,1,...,len-1]
-		// Half-length: v[ len-1, ..., j+len-1] gets added to u[len-1-j,...,len-1]
+		v[len+j] = u[j+1] + mi64_add(&v[lm1], &u[lm1-j], &v[lm1], j+1);
 	}
-#if DEBUG_HI_MUL
+  #endif
+  #if 1//DEBUG_HI_MUL
 	// Test code for fast version of this function - re-use low half of v[] for output::
 	mi64_mul_vector_hi_half(x,y,v,len);
 	if(!mi64_cmp_eq(v,v+len,len)) {
-		printf("mi64_mul_vector_hi_trunc result incorrect!");
+		ASSERT(HERE,0,"mi64_mul_vector_hi_trunc result incorrect!");
 	}
-#endif
-
+  #endif
 	/* Copy v[len:2*len-1] into z[0:len-1]: */
 	memcpy(z,v+len,(len<<3));
 }
-#endif
-
 
 /* Fast O(n) variant of the more-general O(n^2) mi64_mul_vector_hi_half() to compute UMULH(q, Y)
 for the special case of MM(p)-TF-related modmul, i.e. with modulus q = 2.k.M(p) + 1, where M(p)
@@ -3874,130 +3889,272 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 }
 
 /***************/
+// Init mvec[] = (2^exp - 1) or (2^2^exp + 1), depending on whether modtype = 0|1, respectively.
+// Modulus returned in mvec[], #limbs in function return value:
+uint32 mi64_init_mers_or_ferm_modulus(uint64 exp, int modtype, uint64 mvec[])
+{
+	uint32 i,j;	// j = uint64 vector length
+	ASSERT(HERE, mvec != 0x0, "Null output-vector pointer!");
+	if(modtype == 0) {	// Mersenne, 2^exp - 1
+		ASSERT(HERE, isPRP64(exp), "Mersenne exponent must be prime!");
+		j = (exp+63)>>6;
+		// Loop rather than call to mi64_set_eq_scalar here, since need to set all elts = -1:
+		for(i = 0; i < j; i++) { mvec[i] = -1ull; }
+		mvec[j-1] >>= 64-(exp&63);	// Leading word needs >> to leave just low exp%64 bits set
+	} else {	// Fermat, 2^exp + 1
+		ASSERT(HERE, exp < 64, "Max supported Fermat-number index = 63!");
+		j = ((1ull << exp)+63)>>6;
+		// j = uint64 vector length; init sans the leading '1' word, then increment prior to mi64_div
+		mi64_clear(mvec,j);
+		mvec[j++] = mvec[0] = 1ull;	// Post-increment here
+	}
+	return j;
+}
 
-/* returns 1 if the multiword unsigned integer p is a base-z Fermat pseudoprime, 0 otherwise. The base is assumed to fit in a 64-bit unsigned scalar. */
-#if MI64_DEBUG
+/***************/
+/* returns 1 if the multiword unsigned integer p is a base-z Fermat pseudoprime, 0 otherwise.
+The base is assumed to fit in a 64-bit unsigned scalar. Computes z^(p-1) (mod p) via call to
+LR binary modpow function and compares ?== 1 .
+*/
+#ifndef MI64_PRP_DBG
 	#define MI64_PRP_DBG 0
 #endif
 #ifndef __CUDA_ARCH__
 uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 {
-//int dbg = (p[0] == 25409026523137ull);
-/* The allocatable-array version of this gave bizarre stack faults under MSVC, so use fixed size,
-especially as this routine is too slow to be useful for inputs larger than a couple hundred words anyway:
-*/
-/*	static uint64 *y, *n, *zvec, *ppad, *prod, *tmp;	*/
-	uint64 y[1024], n[1024], zvec[1024], ppad[2048], prod[2048];
-	uint64 flag;
-	uint32 len2 = 2*len, curr_len, retval, plen;
-  #if MI64_PRP_DBG
-	uint128 q128, r128;
-	uint192 q192, r192;
-  #endif
-	ASSERT(HERE, p != 0x0, "Null input-array pointer!");
-	ASSERT(HERE, len <= 1024, "mi64_pprimeF: Max 1024 words allowed at present!");
-	plen = mi64_getlen(p, len);
-	// Special handling for even moduli:
-	if(IS_EVEN(p[0])) return (len == 1 && p[0] == 2ull);
-/*
-	y    = (uint64 *)calloc((  len), sizeof(uint64));
-	n    = (uint64 *)calloc((  len), sizeof(uint64));
-	zvec = (uint64 *)calloc((  len), sizeof(uint64));
-	ppad = (uint64 *)calloc((len2), sizeof(uint64));
-	prod = (uint64 *)calloc((len2), sizeof(uint64));
-*/
-	mi64_clear(y, len);
-	mi64_clear(n, len);
-	mi64_clear(zvec, len);
-	mi64_clear(ppad, len2);
-	mi64_clear(prod, len2);
+	const uint32 max_dim = 4096;
+	uint64 n[max_dim],result[max_dim];
+	ASSERT(HERE, len <= max_dim, "mi64_pprimeF: Required array length exceeds dimensioned maximum!");
+	mi64_set_eq(n, p, len);	mi64_sub_scalar(n, 1ull, n, len);	/* n = p - 1 */
+	mi64_scalar_modpow_lr(z, n, p, len, result);
+	return mi64_cmp_eq_scalar(result,1ull, len);
+}
 
-	y[0] = 1ull;						/* y = 1 */
-	zvec[0] = z;						/* vector version of z for powering */
-	mi64_set_eq(ppad, p, len);			/* set ppad = p; ppad is zero-padded */
-	mi64_set_eq(n   , p, len);
-	mi64_sub_scalar(n, 1ull, n, len);	/* n = p-1 */
-	curr_len = mi64_getlen(n, len);		ASSERT(HERE, curr_len > 0, "0-length array!");
+// Def != 0 to just do b[0] mod-squarings in mi64_scalar_modpow_lr(), i.e. To compute a^(2^b[0]) (mod n):
+#ifndef DO_N_MODSQUARES
+	#define DO_N_MODSQUARES	0
+#endif
+// Default is the fast Montgomery-mul-based remaindering version of mi64_scalar_modpow_lr():
+#ifndef MONT_MUL
+	#define MONT_MUL	1
+#endif
+#if MONT_MUL
+	#warning mi64_scalar_modpow_lr: Using fast Montgomery-mul-based LR powering
 
-  #if 0	// Slower RL modpow:
-
-	while(!mi64_iszero(n, curr_len))
+	// Computes c = a^b (mod q), where a = scalar, rest are multiword ints,
+	// via Montgomery-mul-based LR modular binary powering. Requires odd modulus q:
+	void mi64_scalar_modpow_lr(uint64 a, const uint64 b[], const uint64 q[], uint32 len, uint64 c[])
 	{
-		flag = n[0] & 1;
-		mi64_shrl_short(n, n, 1, curr_len);	/* n >>= 1, also update curr_len */
-		curr_len = mi64_getlen(n, curr_len);
-
-	#if MI64_PRP_DBG
-		if(len == 2) {
-			q128[0] = y[0]; q128.d1 = y[1];
-			r128[0] = zvec[0]; r128.d1 = zvec[1];
-			printf("mi64_pprimeF: flag = %1d, y = %s, z = %s\n", (uint32)flag, &s0[convert_uint128_base10_char(s0, q128, 0)], &s1[convert_uint128_base10_char(s1, r128, 0)]);
-		} else if(len == 3) {
-			q192[0] = y[0]; q192.d1 = y[1]; q192.d2 = y[2];
-			r192[0] = zvec[0]; r192.d1 = zvec[1]; r192.d2 = zvec[2];
-			printf("mi64_pprimeF: flag = %1d, y = %s, z = %s\n", (uint32)flag, &s0[convert_uint192_base10_char(s0, q192, 0)], &s1[convert_uint192_base10_char(s1, r192, 0)]);
+	/* The allocatable-array version of this gave bizarre stack faults under MSVC, so use fixed size,
+	especially as this routine is too slow to be useful for inputs larger than a couple hundred words anyway:
+	*/
+	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
+		const uint32 max_dim = 4096;
+		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], *lo = prod,*hi = 0x0, i64;
+		uint32 nbits, log2_numbits, wlen,wlen2, retval, lenq, alen;
+		int i,j, start_index;
+	  #if MI64_PRP_DBG
+		int dbg = STREQ(&cbuf[convert_mi64_base10_char(cbuf, n, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
+	  #endif
+	  #if MI64_PRP_DBG
+	  if(dbg) {
+		printf("mi64_scalar_modpow_lr: %llu^%s (mod q = %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,q,len,0)]);
+		printf("Using Montgomery-multiply remaindering.\n");
+	  }
+	  #endif
+		if(a < 2) {	// a = 0 or 1; set result c[] = a and return
+			mi64_clear(c,len);	c[0] = a;
+			return;
 		}
+		ASSERT(HERE, b != 0x0 && c != 0x0, "Null input- or output-array pointer!");
+		// Working length = length of product of scalar powering-base and modulus vector;
+		// must not assume [len] reflects number nonzero limbs, i.e. thee might be 0-pads at high end:
+		wlen = mi64_getlen(q, len);		ASSERT(HERE, wlen > 0, "0-length modulus!");
+		// Increment working length if a*q overflows into the next-higher limb:
+		i64 = mi64_mul_scalar(q,a,prod,wlen);	wlen += (i64 != 0ull);
+		ASSERT(HERE, wlen <= max_dim, "mi64_modpow_lr: Required array length exceeds dimensioned maximum!");
+		// Init writable local array n[] = q[], including 0-pad at top if a*q overflows len limbs
+		mi64_set_eq(n, q, len); if(i64) n[wlen-1] = 0ull;	// Use carryo4t i64 rather than (wlen > len) here, since wlen may be < len
+		wlen2 = wlen + wlen;
+		hi = prod + wlen;	// Pointer to upper half of product array
+	  #if MI64_PRP_DBG
+		if(dbg) printf("Modulus q has %u limbs, a*q has %u limbs\n",mi64_getlen(q,len),wlen);
+	  #endif
+		nbits = wlen << 6;		log2_numbits = ceil(log(1.0*nbits)/log(2.0));
+		ASSERT(HERE, IS_ODD(n[0]), "Modulus must be odd for Montgomery-mod-based LR binary powering!");
+		if(len == 1) ASSERT(HERE, a < n[0], "Input base array must be properly normalized (mod q)!");
+		/*
+		Find modular inverse (mod 2^nbits) of w in preparation for modular multiply.
+		w must be odd for Montgomery-style modmul to work.
+		*/
+		mi64_clear(ninv, len);	// Init ninv = 0
+		// Start with 8-bits-good inverse and compute 64-bit mod-inverse via 3 Newton iterations:
+		uint32 q32,qi32;
+		q32  = n[0]; qi32 = minv8[(n[0]&0xff)>>1];
+		qi32 = qi32*((uint32)2 - q32*qi32);
+		qi32 = qi32*((uint32)2 - q32*qi32);	ninv[0] = qi32;
+		ninv[0] = ninv[0]*((uint64)2 - n[0]*ninv[0]);
+		/*
+		Now that have bottom 64 = 2^6 bits of ninv, do as many more Newton iterations as needed to get the full [nbits] of ninv.
+		Number of good bits doubes each iteration, and we only need to compute the new good bits, via
+
+			ninv.hi = MULL(-ninv.lo, MULL(n.hi, ninv.lo) + UMULH(n.lo, ninv.lo))	//========== do this optimization later===========
+
+		where lo = converged bits, and hi = bits converged on current iteration
+		*/
+		i = 1;	// I stores number of converged 64-bit words
+		for(j = 6; j < log2_numbits; j++, i <<= 1) {
+			mi64_mul_vector_lo_half(n, ninv,prod, wlen);
+			mi64_nega              (prod,prod, wlen);
+			i64 = mi64_add_scalar(prod, 2ull,prod, wlen);	ASSERT(HERE, !i64, "Unexpected carry from add!");
+			mi64_mul_vector_lo_half(ninv,prod, ninv, wlen);
+		}
+		// Check the computed inverse:
+		mi64_mul_vector_lo_half(n, ninv, prod, wlen);
+		ASSERT(HERE, mi64_cmp_eq_scalar(prod, 1ull, wlen), "Bad Montmul inverse!");
+	#if MI64_PRP_DBG
+		if(dbg) printf("qinv = %s\n", &cbuf[convert_mi64_base10_char(cbuf, ninv, wlen, 0)]);
 	#endif
 
-		if(flag) {
-			mi64_mul_vector(y, len, zvec, len, prod, &plen);	/* y*z */
-			mi64_div(prod, ppad, len2, len2, 0x0, prod);		/* Discard quotient here, overwrite prod with remainder */
-			ASSERT(HERE, mi64_getlen(prod, len2) <= len, "mi64_pprimeF: (y*z)%p illegal length");
-			mi64_set_eq(y, prod, len);	/* y = (y*z)%p */
+		// Initialize binary powering = R*a (mod q), where R = binary radix 2^(wlen*64);
+		// at present don't care about optimizing this rarely-used function:
+		mi64_clear(prod,wlen); prod[wlen] = a;	// R*a
+		mi64_div_binary(prod, n, wlen+1,wlen, 0x0, (uint32*)&j, c);	// c = R*a (mod q)
+
+		// LR modpow:
+		j = mi64_leadz(b,len); start_index = (len<<6) - j;
+	  #if MI64_PRP_DBG
+	  if(dbg) {
+		printf("base a[] = %llu, start_bit = %d\n",a,start_index-2);
+		printf("R*a (mod q) = %s\n",&cbuf[convert_mi64_base10_char(cbuf,c,wlen, 0)]);
+	  }
+	  #endif
+	  #if DO_N_MODSQUARES
+		for(j = 0; j < b[0]; j++) {
+	  #else
+		for(j = start_index-2; j >= 0; j--) {
+	  #endif
+			mi64_sqr_vector(c, prod, wlen);		// x^2
+		  #if MI64_PRP_DBG
+			if(dbg) printf("j = %d: (R*x)^2 (mod q) = %s\n", j, &cbuf[convert_mi64_base10_char(cbuf,prod,wlen2, 0)]);
+		  #endif
+			// Since power-of-2 radix chosen to accommodate a*n-sized inputs,
+			// do bit-dependent mul-by-base here on the double-wide squaring output:
+		  #if !DO_N_MODSQUARES
+			if(mi64_test_bit(b,j)) {
+				i64 = mi64_mul_scalar(prod, a, prod, wlen2);	ASSERT(HERE, i64 == 0ull, "Unexpected carry out of a*x^2!");
+		      #if MI64_PRP_DBG
+				if(dbg) printf("*= %llu = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
+		      #endif
+			}
+		  #endif	// endif !DO_N_MODSQUARES
+			mi64_mul_vector_lo_half(lo,ninv,lo,wlen);	// lo =  mull_r(lo,qinv);
+		  #if MI64_USE_FAST_MULH
+			mi64_mul_vector_hi_trunc(lo,n   ,lo,wlen);
+		  #else
+			mi64_mul_vector_hi_half(lo,n   ,lo,wlen);	// lo = umulh_r(lo,   q);
+		  #endif
+			// If hi < lo, then calculate (hi-lo)+q = q-lo+hi < q; otherwise calculate hi-lo:
+			if(mi64_cmpult(hi,lo,wlen)) {
+				i64 = mi64_sub(hi,lo,lo,wlen);	ASSERT(HERE, i64, "Expected a borrow!");
+				i64 = mi64_add(n ,lo,c ,wlen);	ASSERT(HERE, i64, "Expected borrow/carry cancellation!");
+			} else {
+				i64 = mi64_sub(hi,lo,c ,wlen);	ASSERT(HERE,!i64, "Unexpected borrow!");
+			}
+		   #if MI64_PRP_DBG
+			if(dbg) printf("(mod q) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
+			if(dbg && !(j & 1023)) printf("At bit %d: Res64 = %016llX\n",j,c[0]);
+		   #endif
 		}
-		mi64_mul_vector(zvec, len, zvec, len, prod, &plen);		/* z^2 */
-		mi64_div(prod, ppad, len2, len2, 0x0, prod);
-		ASSERT(HERE, mi64_getlen(prod, len2) <= len, "mi64_pprimeF: (z^2)%p illegal length");
-		mi64_set_eq(zvec, prod, len);	/* z = (z^2)%p */
-		if(mi64_iszero(zvec, len)) {
-			retval=0;
-		}
+		// Do a final Montmul-by-1 to remove the excess *R (mod q); hi = 0 here simplifies things:
+		mi64_mul_vector_lo_half( c,ninv,lo,wlen);
+		mi64_mul_vector_hi_half(lo,n   ,lo,wlen);
+		// (hi-lo)+q = q-lo+hi = q-lo:
+		i64 = mi64_sub(n,lo, c,len);	ASSERT(HERE,!i64, "Unxpected borrow!");
+	#if MI64_PRP_DBG
+	  if(dbg) printf("retval = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, len, 0)]);
+	#endif
 	}
 
-  #else	// LR modpow:
+#else	// Slow first-cut version of this function, using binary divide for the remaindering step in the powering loop:
+	#warning mi64_scalar_modpow_lr: Using slow binary-div-mod-based LR powering
 
-	int j = leadz64(n[curr_len-1]), start_index = (curr_len<<6) - j;
-	y[0] = z;
-//if(dbg)printf("x0 = %llu, len = %u\n",y[0],plen);
-  #if MI64_PRP_DBG
-	printf("p  = %s, start_bit = %d\n", &cbuf[convert_mi64_base10_char(cbuf, p, plen, 0)],start_index-2);
-	printf("x0 = %s\n", &cbuf[convert_mi64_base10_char(cbuf, y, plen, 0)]);
-  #endif
-	for(j = start_index-2; j >= 0; j--)
+	// Computes c = a^b (mod n), where a = scalar, rest are multiword ints:
+	void mi64_scalar_modpow_lr(uint64 a, const uint64 b[], const uint64 n[], uint32 len, uint64 c[])
 	{
-		mi64_sqr_vector(y, prod, plen);		/* y^2 */
-		mi64_div(prod, ppad, len2, len2, 0x0, prod);
-		ASSERT(HERE, mi64_getlen(prod, len2) <= len, "mi64_pprimeF: (y^2)%p illegal length");
-		mi64_set_eq(y, prod, len);	/* y = (y^2)%p */
+	/* The allocatable-array version of this gave bizarre stack faults under MSVC, so use fixed size,
+	especially as this routine is too slow to be useful for inputs larger than a couple hundred words anyway:
+	*/
+	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
+		uint64 npad[2048], prod[2048];
+		uint32 len2 = len+len, wlen, retval, lenq, alen;
+		int j, start_index;
 	  #if MI64_PRP_DBG
-		printf("j = %d: x^2 %% p = %s\n", j, &cbuf[convert_mi64_base10_char(cbuf, y, plen, 0)]);
+		int dbg = STREQ(&cbuf[convert_mi64_base10_char(cbuf, n, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 	  #endif
-//if(dbg)printf("j = %d: x^2 %% p = %llu\n",j,y[0]);
-		if(mi64_test_bit(n,j)) {
-			prod[plen] = mi64_mul_scalar(y, z, prod, plen);
 	  #if MI64_PRP_DBG
-		printf("*= %llu = %s\n", z, &cbuf[convert_mi64_base10_char(cbuf, prod, plen+1, 0)]);
+	  if(dbg) {
+		printf("mi64_scalar_modpow_lr: %llu^%s (mod %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,b,len,0)]);
+	  }
 	  #endif
-//if(dbg)printf("*= %llu = %llu\n",z,prod[0]);
-			mi64_div_binary(prod, p, plen+1, plen, 0x0,0x0, y); 	// y = prod % p
-	  #if MI64_PRP_DBG
-		printf("(mod p) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, y, plen, 0)]);
-	  #endif
-//if(dbg)printf("(mod p) = %llu\n",y[0]);
+		if(!a) {	// a = 0; set result c[] = 0 and return
+			mi64_clear(c,len);
+			return;
 		}
+		ASSERT(HERE, b != 0x0 && c != 0x0, "Null input- or output-array pointer!");
+		ASSERT(HERE, len <= 1024, "mi64_modpow_lr: Max 1024 words allowed at present!");
+		mi64_set_eq_scalar(c, a, len);	// Init result-holding array c[0] = a
+		mi64_set_eq(npad	, n, len);	mi64_clear(npad+len, len);	// set npad = a[]; npad is zero-padded
+		// Working length = length of actual modulus vector:
+		wlen = mi64_getlen(n, len);		ASSERT(HERE, wlen > 0, "0-length array!");
+		ASSERT(HERE, mi64_cmpult(c, n, len), "Input base array must be properly normalized (mod n)!");
+		// LR modpow:
+		j = leadz64(b[wlen-1]); start_index = (wlen<<6) - j;
+	  #if MI64_PRP_DBG
+	  if(dbg) {
+		printf("base a[] = %llu, start_bit = %d\n",a,start_index-1);
+		printf("x0 = %s, len = %u\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)], wlen);
+	  }
+	  #endif
+	  #if DO_N_MODSQUARES
+		for(j = 0; j < b[0]; j++)
+	  #else
+		for(j = start_index-2; j >= 0; j--)
+	  #endif
+		{
+			mi64_sqr_vector(c, prod, wlen);		/* x^2 */
+		//	mi64_div(prod, npad, len2, len2, 0x0, prod);	*** Fails on F28 cofactor-PRP 3^nsquares (mod q) check; for x = 146715292687661855688^2 % q get 314605340220462438224, should = 240587464360836147143! ***
+			mi64_div_binary(prod, npad, len2, len2, 0x0,&lenq, prod);
+			ASSERT(HERE, mi64_getlen(prod, len2) <= len, "mi64_modpow_lr: (x^2)%p illegal length");
+			mi64_set_eq(c, prod, len);	/* c = (c^2)%p */
+		  #if MI64_PRP_DBG
+			if(dbg) printf("j = %d: x^2 (mod n) = %s\n", j, &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
+		  #endif
+		  #if !DO_N_MODSQUARES
+			if(mi64_test_bit(b,j)) {
+				prod[wlen] = mi64_mul_scalar(c, a, prod, wlen);
+		   #if MI64_PRP_DBG
+			if(dbg) printf("*= %llu = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
+		   #endif
+				mi64_div_binary(prod, n, wlen+1, wlen, 0x0,0x0, c); 	// x = prod % p
+		   #if MI64_PRP_DBG
+			if(dbg) printf("(mod n) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
+		   #endif
+			}
+		  #endif	// endif !DO_N_MODSQUARES
+			if(!(j & 1023)) printf("At bit %d: Res64 = %016llX\n",j,c[0]);
+		}
+	#if MI64_PRP_DBG
+	  if(dbg) printf("retval = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
+	#endif
+		// Result returned in output vector c[]
 	}
 
-  #endif
-	retval = mi64_cmp_eq_scalar(y, 1ull, len);
-/*
-	free((void *)y);
-	free((void *)n);
-	free((void *)zvec);
-	free((void *)ppad);
-	free((void *)prod);
-*/
-//if(dbg)printf("retval = %u\n",retval);
-	return retval;
+#endif	// endif MONT_MUL
+
+// Computes c = a^b (mod n), where all operands are multiword ints:
+void mi64_modpow_lr(const uint64 a[], const uint64 b[], const uint64 n[], uint32 len, uint64 c[])
+{
 }
 #endif	// __CUDA_ARCH__ ?
 
@@ -4023,7 +4180,7 @@ Test harness code:
 void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 {
 	uint32 i;
-#ifdef USE_AVX512
+#if defined(USE_AVX512) && !defined(USE_IMCI512)
 	__asm__ volatile (\
 		"movq	%[__a],%%rax				\n\t	vpxorq	%%zmm30,%%zmm30,%%zmm30	\n\t"/* 0.0 */\
 		"movq	%[__b],%%rbx				\n\t	vmovaps		(%%rax),%%zmm0 	\n\t"/* Load uint64 inputs */\
@@ -4066,7 +4223,7 @@ void mi64_vcvtpd2uqq(const double a[], uint64 b[])
 		ASSERT(HERE, (double)b[i] == a[i], "double->uint64 conversion result differs from reference!");
 	}
 #else
-	ASSERT(HERE, 0,"mi64_vcvtuqq2pd requires build with AVX512 instruction set!\n");
+	ASSERT(HERE, 0,"mi64_vcvt2pduqq requires build with AVX512 instruction set!\n");
 #endif	// USE_AVX ?
 }
 #endif	// __CUDA_ARCH__ ?
@@ -4113,7 +4270,8 @@ void mi64_modmul53_batch(const double a[], const double b[], const double m[], d
 	// Debug: short-length arrays to gather error-correction statistics:
 	static int32 ierr[100];	static double err[72], *eptr = err;	while((uint64)eptr & 0x3f) { ++eptr; }
 	const double two = 2.0, three = 3.0;	const double *ptwo = &two, *pthree = &three;
-#ifdef USE_AVX	// ewm: wrap in AVX (not AVX2) prepro flag because my older gcc on the Haswell  barfs on the MULXs in this file when built using USE_AVX2, but is OK with the FMA3 portion of AVX2
+// ewm: wrap in AVX (not AVX2) prepro flag because my older gcc on the Haswell barfs on the MULXs in this file when built using USE_AVX2, but is OK with the FMA3 portion of AVX2
+#if defined(USE_AVX) && !defined(USE_IMCI512)
   #ifdef USE_AVX512
 	const uint32 ndata = 64;	uint32 i;
 	__asm__ volatile (\
@@ -4843,7 +5001,7 @@ int mi64_div(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint6
 	}
 	// If single-word divisor, use specialized single-word-divisor version.
 	if(ylen == 1) {
-		itmp64 = mi64_div_by_scalar64_u4(x, y[0], xlen, q);	// Use 4-folded divrem for speed
+		itmp64 = mi64_div_by_scalar64_u4((uint64*)x, y[0], xlen, q);	// Use 4-folded divrem for speed
 		if(r != 0x0) r[0] = itmp64;
 		retval = (itmp64 == 0ull);
 	} else {
@@ -5105,7 +5263,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			Find modular inverse (mod 2^nbits) of w in preparation for modular multiply.
 			w must be odd for Montgomery-style modmul to work.
 
-			Init yinv = 3*w ^ 2. This formula returns the correct bottom 4 bits of yinv,
+			Init yinv = 3*w ^ 2. This formula returns the correct bottom 5 bits of yinv,
 			and we double the number of correct bits on each of the subsequent iterations.
 			*/
 			ASSERT(HERE, (w[0] & (uint64)1) == 1, "modulus must be odd!");
@@ -5327,10 +5485,8 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 				if(dbg)printf("i = %u; v = %s\n", i,&s0[convert_mi64_base10_char(s0, v+i, lenS, 0)]);
 			#endif
 				bw = mi64_sub(v+i,hi,tmp,lenS);	// tmp = x[i] - (bw+cy);
-
 				// Compute expected value of low-half of MUL_LOHI for sanity-checking
 				mi64_set_eq(itmp,tmp,lenS);	// itmp = tmp
-
 				// Now do the Montgomery mod: cy = umulh( y, mull(tmp, yinv) );
 				mi64_mul_vector_lo_half(tmp,yinv,tmp, lenS);	// tmp = tmp*yinv + bw;
 			#if MI64_DIV_MONT
@@ -5338,13 +5494,13 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			#endif
 				// Do double-wide product. Fast-divisibility test needs just high half (stored in hi); low half (lo) useful to extract true-mod
 				mi64_mul_vector(tmp,lenS,w,lenS,lo, (uint32*)&j);	// lo:hi = MUL_LOHI(q, tmp); cy is in hi half
-				hi[0] += bw;	ASSERT(HERE, hi[0] >= bw, "bw!");// (cy + bw); Since bw = 0 or 1, check that bw=1 does not propagate is simply check (sum >= bw)
-
+				// (cy + bw); Since bw = 0 or 1, check that bw=1 does not propagate is (sum >= bw) in 1-limb form.
+				// Apr 2022: in more-general multiword case, check that hi[] + bw does not yield a carryout:
+				itmp64 = mi64_add_scalar(hi,bw, hi, lenS);	ASSERT(HERE, itmp64 == 0ull, "mi64_div_mont(): Unexpected carryout from (hi[] + bw) in quotient loop!");
 			#if MI64_DIV_MONT
 				if(dbg)printf("  lo = %s\n", &s0[convert_mi64_base10_char(s0,   lo, lenS, 0)]);
 				if(dbg)printf("  hi = %s\n", &s0[convert_mi64_base10_char(s0,   hi, lenS, 0)]);
 			#endif
-
 				if(!mi64_cmp_eq(lo,itmp,lenS)) {
 				#if MI64_DIV_MONT
 					printf("itmp = %s\n", &s0[convert_mi64_base10_char(s0, itmp, lenS, 0)]);
@@ -5419,12 +5575,14 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 /*
 Slow bit-at-a-time method to get quotient q = x/y and remainder r = x%y.
 [optional] Output Q-array:
-			if supplied, must have dimension at least as large as that of X-array, even if actual  quotient is smaller.
+			if supplied, must have dimension at least as large as number of limbs needed to hold X/Y.
 [optional] Output R-array:
 			if supplied, must have dimension at least as large as that of Y-array, even if actual remainder is smaller.
-
 Returns: 1 if x divisible by y (remainder = 0), 0 otherwise.
-Assumes: If either the quotient-array ptr q[] or the quotient-length-ptr lenQ provided, the other of thw 2 ptrs also is.
+Assumes:
+	o If either the quotient-array ptr q[] or the quotient-length-ptr lenQ provided, the other of thw 2 ptrs also is;
+	o None of x,y,q overlap; we allow x == r, in which case r overwrites x and the leading (lenX-lenR) limbs are zeroed;
+	  If x != r the leading (lenY-lenR) limbs of r are zeroed prior to return.
 Side effect: Sets value of quotient-length lenQ if that input-ptr provided, irrespective of whether
 			an accompanying array to store quotient is provided.
 */
@@ -5442,11 +5600,11 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	// pointers to local storage:
 	static uint64 *xloc = 0x0, *yloc = 0x0;
 	static uint64 *scratch = 0x0;	// "base pointer" for local storage shared by all of the above subarrays
+	uint64 *tmp_ptr;
 	static int lens = 0;	// # of 64-bit ints allocated for current scratch space
   #if MI64_DIV_DBG
-	if(dbg) {
+	if(dbg)
 		printf("mi64_div_binary: x = %s, y = %s\n",&s0[convert_mi64_base10_char(s0, x, lenX, 0)],&s1[convert_mi64_base10_char(s1, y, lenY, 0)]);
-	}
   #endif
 	ASSERT(HERE, lenX && lenY, "illegal 0 dimension!");
 	ASSERT(HERE, x && y, "At least one of X, Y is null!");
@@ -5469,10 +5627,25 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	ylen = mi64_getlen(y, lenY);
 	ASSERT(HERE, ylen != 0, "divide by 0!");
 
-	/* Allocate the needed auxiliary storage: */
-	if(lens < (xlen << 1)) {
-		lens = (xlen << 1);	// Alloc yloc same as x to allow for left-justification of y-copy
+	// Allocate the needed auxiliary storage - the 2 yloc = ... / mi64_set_eq calls below copy (lenX + lenY) limbs into scratch, so alloc at least that much:
+	if(lens < (lenX + lenY)) {
+		lens = MAX(1024,lenX + lenY);	// Alloc yloc same as x to allow for left-justification of y-copy
+		/*** May 2022: In preparing for the cofactor-is-prime-power GCD on F25/[known factors], build on Linux
+		with GCC 9.2.1, hit SIGABRT 		here with 'realloc(): invalid next size'. Step-thru debug showed
+		the #limbs-allocated counter lens increasing from 0 to 4 to 9, next jump from 9 to 1048574 triggered
+		the exception ... looks like realloc does not like too-large jumps in allocated size, switched to malloc.
+		***
+		Jun 2022: Again hit error, this time after half-dozen small increments in lens:
+		"malloc: *** error for object 0x1006002d8: incorrect checksum for freed object - object was probably modified after being freed.
+				*** set a breakpoint in malloc_error_break to debug"
+		Setting said breakpoint is useless, can't see function context when hit. Instead try setting min-size  = 1024 in lens = ... .
+		***/
+	#if 1
 		scratch = (uint64 *)realloc(scratch, lens*sizeof(uint64));	ASSERT(HERE, scratch != 0x0, "alloc fail!");
+	#else
+		tmp_ptr = (uint64 *)malloc(lens*sizeof(uint64));	ASSERT(HERE, tmp_ptr != 0x0, "alloc fail!");
+		free(scratch); scratch = tmp_ptr;
+	#endif
 	}
 
 	// If x < y, no modding needed - copy x into remainder and set quotient = 0:
@@ -5527,7 +5700,10 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	ASSERT(HERE, xlen <= ylen && mi64_cmpugt(y,xloc,ylen), "Remainder should be < modulus!");
 	if(r != 0x0) {
 		mi64_set_eq(r, xloc, ylen);
-		mi64_clear(r+ylen,lenY-ylen);
+		if(x == r)	// If x == r, zero the leading (lenX-lenR) limbs of r prior to return:
+			mi64_clear(r+ylen,lenX-ylen);
+		else		// If x != r, zero the leading (lenY-lenR) limbs of r prior to return:
+			mi64_clear(r+ylen,lenY-ylen);
 	}
 	/* Final value of yloc is unchanged from its (unshifted) starting value == y */
 	ASSERT(HERE, mi64_cmp_eq(yloc,y,ylen), "Final value of y-copy differs from original!");
@@ -6724,7 +6900,10 @@ printf("\n");
 			itmp64 += (uint64)fquo;
 			rem64 = rem64 - q*(uint64)fquo;
 		}
-		ASSERT(HERE, rem64 == tmp%q, "Bad floating-mod mod!");
+		if(rem64 != tmp%q) {
+			fprintf(stderr,"WARNING: Bad floating-point mod in mi64_div_by_scalar64! x = %llu, q = %llu: exact remainder = %llu, FP gives %llu.\n",x[0],q,tmp%q,rem64);
+			rem64 = tmp%q;	// Replace FP-approximation result with exact
+		}
 		if(y) {
 			y[0] = itmp64;
 		}
@@ -8054,7 +8233,8 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 		*len = 1;
 		LEN_MAX = (uint32)ceil( (imax-i)/log10_base );
 	}
-	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));	/* 01/09/2009: Add an extra zero-pad element here as workaround for bug in mi64_div called with differing-length operands */
+	// 01/09/2009: Add an extra zero-pad element here as workaround for bug in mi64_div called with differing-length operands:
+	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));
 	imin = i;
 	for(i = imin; i < imax; i++) {
 		c = char_buf[i];
@@ -8212,7 +8392,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	Find modular inverse (mod 2^qbits) of q in preparation for modular multiply.
 	q must be odd for Montgomery-style modmul to work.
 
-	Init qinv = q. This formula returns the correct bottom 4 bits of qinv,
+	Init qinv = q. This formula returns the correct bottom 5 bits of qinv,
 	and we double the number of correct bits on each of the subsequent iterations.
 	*/
 	ASSERT(HERE, (q[0] & (uint64)1) == 1, "q must be odd!");

@@ -48,6 +48,8 @@
 //	#include "gcd_lehmer.h"	// v20: Use GMP GCD, own-rolled n (log n)^2 one simply not in the cards.
 #endif
 
+/**** HWLOC-header include is in util.h ****/
+
 /*******************************************************************************
    Function prototypes. The corresponding function definitions will either
    be in a {function name}.c file or (for cases where a .c file contains
@@ -92,6 +94,7 @@ int		 read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, u
 void	write_ppm1_savefiles(const char*fname, uint64 p,          int n, FILE*fp, uint64 ihi, uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1, uint8 arr2[], uint64 i1, uint64 i2, uint64 i3);
 int		convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const uint64 p);
 void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
+void	res_SH(uint64 a[], uint32 len, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
 uint32	get_default_factoring_depth(uint64 p);
 // Sets function pointers for DIF|DIT pass1 based on value of radix0:
 void dif1_dit1_func_name(
@@ -107,7 +110,7 @@ uint32	filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_be
 void	write_fft_debug_data(double a[], int jlo, int jhi);
 
 /* pm1.c: */
-uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved);
+uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const double tests_saved);
 uint32	pm1_check_bounds();
 uint32	compute_pm1_s1_product(const uint64 p);
 uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
@@ -362,8 +365,6 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 			);
 
 #ifdef MULTITHREAD
-	uint32 parseAffinityTriplet(char*istr);
-	void parseAffinityString(char*istr);
 	/* Multithreaded version must be in form of 1-arg functor */
 	void *mers_process_chunk  (void*targ);
 	void *fermat_process_chunk(void*targ);

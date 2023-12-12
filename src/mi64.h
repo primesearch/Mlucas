@@ -41,6 +41,7 @@ extern "C" {
 // On x86_64, compile-time NO_ASM flag allows us to override the normally auto-set YES_ASM flag:
 #ifndef NO_ASM
   #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
+	#warning mi64.h: Defining YES_ASM.
 	#define YES_ASM
   #endif
 #endif
@@ -278,6 +279,7 @@ DEV void	mi64_mul_vector			(const uint64 x[], uint32 lenX, const uint64 y[], uin
 DEV void	mi64_sqr_vector			(const uint64 x[], uint64 z[], uint32 len);
 DEV void	mi64_mul_vector_lo_half	(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);
 DEV void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);
+DEV void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);	// Rhombus-truncated multiword MULH
 DEV void	mi64_mul_vector_hi_qferm(const uint64 y[], const uint64 p, const uint64 k, uint64 z[], uint32 bits);
 // Specialized O(n) version of mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne prime
 DEV void	mi64_mul_vector_hi_qmmp	(const uint64 y[], const uint64 p, const uint64 k, uint64 z[], uint32 bits);
@@ -290,7 +292,10 @@ DEV void	mi64_mul_vector_hi_fast	(const uint64 y[], const uint64 p, const uint64
 	uint32	mi64_cvt_double_uint64	(const double a[], uint32   n, uint64 x[], uint64 y[]);
 
 /* returns 1 if the multiword unsigned integer p is a base-z Fermat pseudoprime, 0 otherwise: */
-	uint32	mi64_pprimeF			(const uint64 p[], uint64 z, uint32 len);
+	void	mi64_modpow_lr	(const uint64 a[], const uint64 b[], const uint64 n[], uint32 len, uint64 c[]);
+	void	mi64_scalar_modpow_lr( uint64 a  , const uint64 b[], const uint64 n[], uint32 len, uint64 c[]);
+	uint32	mi64_init_mers_or_ferm_modulus(uint64 exp, int modtype, uint64 mvec[]);
+	uint32	mi64_pprimeF	(const uint64 p[], uint64 z, uint32 len);
 
 // Hand-rolled vector double/quad conversions which work on KNL, i.e. need just AVX512F,CD:
 DEV	void	mi64_vcvtuqq2pd(const uint64 a[], double b[]);

@@ -141,7 +141,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		s1p00,OFF1,OFF2,OFF3,OFF4
 	);
 
-  #ifdef USE_AVX2	// Must define - or not - @compile time
+  #if defined(USE_AVX2) && !defined(USE_IMCI512)
 
 /*** Only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
 // Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
@@ -985,7 +985,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		isrt2,twid0
 	);
 
-  #ifdef USE_AVX2	// Must define - or not - @compile time
+  #if defined(USE_AVX2) && !defined(USE_IMCI512)
 
 /*** Only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
 // Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}

@@ -269,6 +269,7 @@ uint64	twopmodq128_96_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq128_96_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 uint64	twopmodq128_96_q8_const_qhi(uint64 p, uint64 khi, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
+uint128 twopmmodq128	(uint128 p, uint128 q);
 uint128	twopmodq128		(uint128 p, uint128 q);	// q, not k!
 uint64	twopmodq128x2	(uint64 *p, uint64 k);
 uint64	twopmodq128x2B	(uint64 *p, uint128 q);	// q, not k!
@@ -279,17 +280,19 @@ uint64	twopmodq160   (uint64 *p, uint64 k);
 uint64	twopmodq160_q4(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq160_q8(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-uint192	twopmodq192   (uint192 p, uint192 q);	// q, not k!
-uint64	twopmodq192_q4(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint192 twopmmodq192	(uint192 p, uint192 q);
+uint192	twopmodq192		(uint192 p, uint192 q);	// q, not k!
+uint64	twopmodq192_q4	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq192_q4_qmmp(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
-uint64	twopmodq192_q8(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint64	twopmodq192_q8	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
 uint256	twopmodq200_8WORD_DOUBLE(uint64 *p, uint64 k);
 uint256	twopmodq200_8WORD_qmmp  (uint64 *p, uint64 k);
 
-uint256	twopmodq256   (uint256 p, uint256 q);	// q, not k!
-uint64	twopmodq256_q4(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
-uint64	twopmodq256_q8(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint256 twopmmodq256	(uint256 p, uint256 q);
+uint256	twopmodq256		(uint256 p, uint256 q);	// q, not k!
+uint64	twopmodq256_q4	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq256_q8	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
 uint32	CHECK_PKMOD60  (uint64 p, uint64 k, uint32*incr);
 uint32	CHECK_PKMOD4620(uint64 p, uint64 k, uint32*incr);

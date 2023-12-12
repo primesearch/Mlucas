@@ -115,17 +115,28 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 	/* Real-array length, in CS notation (1K=1024 8-byte elements):	*/
 	switch(kblocks)
 	{
+	case 1 :						/* 1K */
+		switch(radix_set) {
+		case 0 :
+			numrad = 2; rvec[0] = 32; rvec[1] = 16; break;
+		case 1 :
+			numrad = 2; rvec[0] = 16; rvec[1] = 32; break;
+		default :
+			*nradices = 2;	return ERR_RADIXSET_UNAVAILABLE;
+		}; break;
 	case 2 :						/* 2K */
 		switch(radix_set) {
 		case 0 :
 			numrad = 3; rvec[0] =  8; rvec[1] =  8; rvec[2] = 16; break;
+		case 1 :
+			numrad = 2; rvec[0] = 32; rvec[1] = 32; break;
 		default :
-			*nradices = 1;	return ERR_RADIXSET_UNAVAILABLE;
+			*nradices = 2;	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 3 :						/* 3K */
 		switch(radix_set) {
 		case 0 :
-			numrad = 3; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; break;	// Note: Radix-12 has no SSE2-optimized DFT, bu must support at least one radix set in vector-build mode
+			numrad = 3; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; break;	// Note: Radix-12 has no SSE2-optimized DFT, but must support at least one radix set in vector-build mode
 	  #ifdef USE_SSE2
 		default :
 			*nradices = 1;	return ERR_RADIXSET_UNAVAILABLE;
@@ -276,8 +287,10 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		case 0 :
 			numrad = 3; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; rvec[0] = 12; rvec[1] = 32; rvec[2] = 16; break;
+			numrad = 3; rvec[0] = 24; rvec[1] =  8; rvec[2] = 32; break;
 		case 2 :
+			numrad = 3; rvec[0] = 12; rvec[1] = 32; rvec[2] = 16; break;
+		case 3 :
 			numrad = 3; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; break;
 	  #ifdef USE_SSE2
 		default :
@@ -2514,10 +2527,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 
 	ASSERT(HERE, rvec[0] <= MAX_RADIX, "Leading radix exceeds value of MAX_RADIX set in Mdata.h file!");
 
-	/* Check that there are at least 3 radices: */
-	if(numrad < 3)
-	{
-		fprintf(stderr,"ERROR: get_fft_radices: Specified %d radices; this must be >= 3.\n",numrad);
+	// Check that there are at least 2 radices:
+	if(numrad < 2) {
+		fprintf(stderr,"ERROR: get_fft_radices: Specified %d radices; this must be >= 2.\n",numrad);
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
 
@@ -2726,26 +2738,44 @@ uint64 given_N_get_maxP(uint32 N)
 */
 	return (uint64)maxExp2;
 }
-/* Here a simple PARI 'script' to return maxExp for any desired N [enter FFT length in #doubles]:
-
-maxp(N, AsympConst) = { \
-	Bmant = 53.; ln2inv = 1.0/log(2.0); \
-	ln_N = log(1.0*N); lnln_N = log(ln_N); l2_N = ln2inv*ln_N; lnl2_N = log(l2_N); l2l2_N = ln2inv*lnl2_N; lnlnln_N = log(lnln_N); l2lnln_N = ln2inv*lnlnln_N; \
-	Wbits = 0.5*( Bmant - AsympConst - 0.5*(l2_N + l2l2_N) - 1.5*(l2lnln_N) ); \
-	return(Wbits*N); \
-}
+/* Here a simple PARI 'script' to return maxExp for any desired N [FFT length in #doubles] and Bmant [#mantissa bits in float type]:
+	maxp(Bmant, N, AsympConst) = { \
+		ln2inv = 1.0/log(2.0); \
+		ln_N = log(1.0*N); lnln_N = log(ln_N); l2_N = ln2inv*ln_N; lnl2_N = log(l2_N); l2l2_N = ln2inv*lnl2_N; lnlnln_N = log(lnln_N); l2lnln_N = ln2inv*lnlnln_N; \
+		Wbits = 0.5*( Bmant - AsympConst - 0.5*(l2_N + l2l2_N) - 1.5*(l2lnln_N) ); \
+		return(Wbits*N); \
+	}
 Ex: maxp(2240<<10, 0.4) = 43235170
 
 And here a *nix bc function (invoke bc in floating-point mode, as 'bc -l'):
-
-define maxp(bmant, n, asympconst) {
-	auto ln2inv, ln_n, lnln_n, l2_n, lnl2_n, l2l2_n, lnlnln_n, l2lnln_n, wbits;
-	ln2inv = 1.0/l(2.0);
-	ln_n = l(1.0*n); lnln_n = l(ln_n); l2_n = ln2inv*ln_n; lnl2_n = l(l2_n); l2l2_n = ln2inv*lnl2_n; lnlnln_n = l(lnln_n); l2lnln_n = ln2inv*lnlnln_n;
-	wbits = 0.5*( bmant - asympconst - 0.5*(l2_n + l2l2_n) - 1.5*(l2lnln_n) );
-	return(wbits*n);
-}
-Ex: maxp(2240*2^10, 0.4) = 43235170.58240592323366420480
+	define maxp(bmant, n, asympconst) {
+		auto maxp, wbits, ln2inv, ln_n, lnln_n, l2_n, lnl2_n, l2l2_n, lnlnln_n, l2lnln_n;
+		ln2inv = 1.0/l(2.0);
+		ln_n = l(1.0*n); lnln_n = l(ln_n); l2_n = ln2inv*ln_n; lnl2_n = l(l2_n); l2l2_n = ln2inv*lnl2_n; lnlnln_n = l(lnln_n); l2lnln_n = ln2inv*lnlnln_n;
+		wbits = 0.5*( bmant - asympconst - 0.5*(l2_n + l2l2_n) - 1.5*(l2lnln_n) );
+		maxp = wbits*n;
+		return maxp - maxp % 10^scale;
+	}
+Examples:
+	Using DP-float: maxp(53,2048*2^10,0.4) = 39606917
+					maxp(53,2048*2^10,0.6) = 39397201
+	Using SP-float: maxp(24,2048*2^10,0.4) =  9198213
+					maxp(24,2048*2^10,0.6) =  8988497
+Here are maxp values for DP and SP-float per the above heuristic, both using the more-aggressive length-setting
+given by using AsympConst = 0.6, for a range of FFT lengths covering current GIMPS DCs and testing wavefront (M = 2^20):
+[code]FFT	DP maxp		SP maxp
+	---	--------	--------
+	 2M	 39397201	  8988497
+	 3M	 58569855	 12956799
+	 4M	 77597294	 16779886
+	 5M	 96517023	 20495263
+	 6M 115351074	 24124962
+	...
+	10M 190066770	 38023250
+	20M				 70146273
+	30M				100064264
+	40M				128554502[/code]
+I retested my several-years-ago SP-only hack of Mlucas side-by-side vs the DP version at 2M using a prime exponent ~9M - the SP version looks like it needs further debug of the DWT-weight/carry macro, so have not been able to confirm if the above SP numbers are realistic - but they're certain to be closer to realistic than my previous backwards-arguments numbers were.
 
 With AsympConst = 0.6, this gives the following maxP values for various FFT lengths:
 				maxn(N) as a function of AsympConst:
@@ -2824,7 +2854,7 @@ With AsympConst = 0.6, this gives the following maxP values for various FFT leng
           5632 K	 105943724	 106520441
           6144 K	 115351074	 115980220
           6656 K	 124740700	 125422275
-          7168 K	 134113980	 134847983
+          7168 K	 134113980	 134847983	<*** F27 = 2^134217728 + 1
           7680 K	 143472090	 144258522
   8 M =   8192 K	 152816052	 153654913
   9 M =   9216 K	 171464992	 172408710
@@ -2833,7 +2863,7 @@ With AsympConst = 0.6, this gives the following maxP values for various FFT leng
  12 M =  12288 K	 227147031	 228405322
  13 M =  13312 K	 245632644	 246995793
  14 M =  14336 K	 264085729	 265553736
- 15 M =  15360 K	 282508628	 284081492
+ 15 M =  15360 K	 282508628	 284081492	<*** F28 too large for 14M, needs >= 15M
  16 M =  16384 K	 300903371	 302581093
  18 M =  18432 K	 337615274	 339502711	<*** smallest 100-Mdigit moduli ***
  20 M =  20480 K	 374233313	 376330465
@@ -2841,7 +2871,7 @@ With AsympConst = 0.6, this gives the following maxP values for various FFT leng
  24 M =  24576 K	 447223981	 449740563
  26 M =  26624 K	 483610796	 486337093
  28 M =  28672 K	 519932856	 522868869
- 30 M =  30720 K	 556194824	 559340552
+ 30 M =  30720 K	 556194824	 559340552	<*** F29
  32 M =  32768 K	 592400738	 595756181	<*** Nov 2015: No ROE issues with a run of p = 595799947 [maxErr = 0.375], corr. to AsympConst ~= 0.4
  36 M =  36864 K	 664658102	 668432976
  40 M =  40960 K	 736728582	 740922886
@@ -2849,7 +2879,7 @@ With AsympConst = 0.6, this gives the following maxP values for various FFT leng
  48 M =  49152 K	 880380890	 885414055
  52 M =  53248 K	 951990950	 957443546
  56 M =  57344 K	1023472059	1029344085
- 60 M =  61440 K	1094833496	1101124952
+ 60 M =  61440 K	1094833496	1101124952	<*** F30
  64 M =  65536 K	1166083299	1172794185
  72 M =  73728 K	1308275271	1315825018
  80 M =  81920 K	1450095024	1458483632

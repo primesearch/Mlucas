@@ -202,7 +202,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 					s   =  0.86602540378443864675;
 #endif
 	// FMA-based DFT needs the tangent:
-#ifdef USE_AVX2
+#if defined(USE_AVX2) && !defined(USE_IMCI512)
 	static double tan = 0.41421356237309504879;
 #endif
 	double scale, dtmp, maxerr = 0.0;
@@ -567,7 +567,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = twid8; VEC_DBL_INIT(tmp,0); ++tmp; VEC_DBL_INIT(tmp,1); ++tmp; VEC_DBL_INIT(tmp, ISRT2); ++tmp; VEC_DBL_INIT(tmp,ISRT2); ++tmp; VEC_DBL_INIT(tmp, -ISRT2); ++tmp; VEC_DBL_INIT(tmp,ISRT2); ++tmp; VEC_DBL_INIT(tmp, c16); ++tmp; VEC_DBL_INIT(tmp,s16); ++tmp; VEC_DBL_INIT(tmp, -s16); ++tmp; VEC_DBL_INIT(tmp,c16); ++tmp; VEC_DBL_INIT(tmp, s16); ++tmp; VEC_DBL_INIT(tmp,c16); ++tmp; VEC_DBL_INIT(tmp, -c16); ++tmp; VEC_DBL_INIT(tmp,s16); ++tmp; VEC_DBL_INIT(tmp, c32_1); ++tmp; VEC_DBL_INIT(tmp,s32_1); ++tmp; VEC_DBL_INIT(tmp, -s32_1); ++tmp; VEC_DBL_INIT(tmp,c32_1); ++tmp; VEC_DBL_INIT(tmp, s32_3); ++tmp; VEC_DBL_INIT(tmp,c32_3); ++tmp; VEC_DBL_INIT(tmp, -c32_3); ++tmp; VEC_DBL_INIT(tmp,s32_3); ++tmp; VEC_DBL_INIT(tmp, c32_3); ++tmp; VEC_DBL_INIT(tmp,s32_3); ++tmp; VEC_DBL_INIT(tmp, -s32_3); ++tmp; VEC_DBL_INIT(tmp,c32_3); ++tmp; VEC_DBL_INIT(tmp, s32_1); ++tmp; VEC_DBL_INIT(tmp,c32_1); ++tmp; VEC_DBL_INIT(tmp, -c32_1); ++tmp; VEC_DBL_INIT(tmp,s32_1);
 
 		// The remaining 14 sets are inited differently depending on whether SIMD+FMA is used:
-	  #ifndef USE_AVX2
+	  #if !defined(USE_AVX2) || defined(USE_IMCI512)
 
 		tmp = twid4; VEC_DBL_INIT(tmp,ISRT2); ++tmp; VEC_DBL_INIT(tmp,ISRT2); ++tmp; VEC_DBL_INIT(tmp, c16); ++tmp; VEC_DBL_INIT(tmp,s16); ++tmp; VEC_DBL_INIT(tmp, s16); ++tmp; VEC_DBL_INIT(tmp,c16); ++tmp; VEC_DBL_INIT(tmp, c32_1); ++tmp; VEC_DBL_INIT(tmp,s32_1); ++tmp; VEC_DBL_INIT(tmp, s32_3); ++tmp; VEC_DBL_INIT(tmp,c32_3); ++tmp; VEC_DBL_INIT(tmp, c32_3); ++tmp; VEC_DBL_INIT(tmp,s32_3); ++tmp; VEC_DBL_INIT(tmp, s32_1); ++tmp; VEC_DBL_INIT(tmp,c32_1); ++tmp; VEC_DBL_INIT(tmp, c64_1); ++tmp; VEC_DBL_INIT(tmp,s64_1); ++tmp; VEC_DBL_INIT(tmp, s64_7); ++tmp; VEC_DBL_INIT(tmp,c64_7); ++tmp; VEC_DBL_INIT(tmp, c64_5); ++tmp; VEC_DBL_INIT(tmp,s64_5); ++tmp; VEC_DBL_INIT(tmp, s64_3); ++tmp; VEC_DBL_INIT(tmp,c64_3); ++tmp; VEC_DBL_INIT(tmp, c64_3); ++tmp; VEC_DBL_INIT(tmp,s64_3); ++tmp; VEC_DBL_INIT(tmp, s64_5); ++tmp; VEC_DBL_INIT(tmp,c64_5); ++tmp; VEC_DBL_INIT(tmp, c64_7); ++tmp; VEC_DBL_INIT(tmp,s64_7); ++tmp; VEC_DBL_INIT(tmp, s64_1); ++tmp; VEC_DBL_INIT(tmp,c64_1);
 		tmp = twidc; VEC_DBL_INIT(tmp,-ISRT2); ++tmp; VEC_DBL_INIT(tmp,ISRT2); ++tmp; VEC_DBL_INIT(tmp, s16); ++tmp; VEC_DBL_INIT(tmp,c16); ++tmp; VEC_DBL_INIT(tmp, -c16); ++tmp; VEC_DBL_INIT(tmp,-s16); ++tmp; VEC_DBL_INIT(tmp, c32_3); ++tmp; VEC_DBL_INIT(tmp,s32_3); ++tmp; VEC_DBL_INIT(tmp, -c32_1); ++tmp; VEC_DBL_INIT(tmp,s32_1); ++tmp; VEC_DBL_INIT(tmp, -s32_1); ++tmp; VEC_DBL_INIT(tmp,c32_1); ++tmp; VEC_DBL_INIT(tmp, -s32_3); ++tmp; VEC_DBL_INIT(tmp,-c32_3); ++tmp; VEC_DBL_INIT(tmp, c64_3); ++tmp; VEC_DBL_INIT(tmp,s64_3); ++tmp; VEC_DBL_INIT(tmp, -c64_5); ++tmp; VEC_DBL_INIT(tmp,s64_5); ++tmp; VEC_DBL_INIT(tmp, s64_1); ++tmp; VEC_DBL_INIT(tmp,c64_1); ++tmp; VEC_DBL_INIT(tmp, -c64_7); ++tmp; VEC_DBL_INIT(tmp,-s64_7); ++tmp; VEC_DBL_INIT(tmp, s64_7); ++tmp; VEC_DBL_INIT(tmp,c64_7); ++tmp; VEC_DBL_INIT(tmp, -c64_1); ++tmp; VEC_DBL_INIT(tmp,-s64_1); ++tmp; VEC_DBL_INIT(tmp, -s64_5); ++tmp; VEC_DBL_INIT(tmp,c64_5); ++tmp; VEC_DBL_INIT(tmp, -s64_3); ++tmp; VEC_DBL_INIT(tmp,-c64_3);
@@ -1401,7 +1401,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;

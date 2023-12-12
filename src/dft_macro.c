@@ -4475,11 +4475,11 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		tmp = r00;
 		for(i = 0; i < 8; i++) {
 			add0 = __A+off_ptr[0];add1 = __A+off_ptr[1];add2 = __A+off_ptr[2];add3 = __A+off_ptr[3];add4 = __A+off_ptr[4];add5 = __A+off_ptr[5];add6 = __A+off_ptr[6];add7 = __A+off_ptr[7];
-		  #ifdef USE_AVX2
+		#ifdef USE_AVX2
 			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
-		  #else
+		#else
 			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
-		  #endif
+		#endif
 			tmp += 16;
 			off_ptr += 8;
 		}
@@ -4686,20 +4686,20 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		/* 0-index block has all-unity twiddles: Remember, the twiddleless DIF bit-reverses both its in-and-outputs,
 		so swap index-offset pairs 1/4 and 3/6 in t*-inputs and a-outputs: */
 		SSE2_RADIX8_DIF_0TWIDDLE(
-		  #ifdef USE_ARM_V8_SIMD
+		#ifdef USE_ARM_V8_SIMD
 			tmp, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,	//	tmp,r40,r20,r60,r10,r50,r30,r70
-		  #elif defined(USE_AVX512)
+		#elif defined(USE_AVX512)
 			tmp,0x2000,0x1000,0x3000,0x0800,0x2800,0x1800,0x3800,
-		  #elif defined(USE_AVX)
+		#elif defined(USE_AVX)
 			tmp,0x1000,0x0800,0x1800,0x0400,0x1400,0x0c00,0x1c00,
-		  #else	// USE_SSE2
+		#else	// USE_SSE2
 			tmp, 0x800, 0x400, 0xc00, 0x200, 0xa00, 0x600, 0xe00,
-		  #endif
-		  #ifdef USE_AVX2
+		#endif
+		#ifdef USE_AVX2
 			add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two
-		  #else
+		#else
 			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
-		  #endif
+		#endif
 		);
 
 	   #ifdef USE_ARM_V8_SIMD

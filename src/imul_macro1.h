@@ -728,7 +728,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 
 
 /* Macros for 96/128/160/192-bit unsigned integer leading-zeros counting. For > 192-bit, call mi64_leadz instead.
-Cast the result of the high-part-equlas-zero test to a singed 32-bit (-1) because leadz* returns a 32-bit value for inputs of all sizes: */
+Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) because leadz* returns a 32-bit value for inputs of all sizes: */
 #define LEADZ128(__x)	( leadz64(__x.d1) + ((-(sint32)(__x.d1 == 0)) && leadz64(__x.d0)) )
 #define LEADZ96(__x)	( leadz32(__x.d1) + ((-(sint32)(__x.d1 == 0)) && leadz64(__x.d0)) )
 
@@ -3978,7 +3978,7 @@ On Alpha, this needs a total of 8 MUL instructions.
 */
 #ifdef MUL_LOHI64_SUBROUTINE
 
-    #define MUL_LOHI128_PROD256(__x, __y, __pr)\
+    #define MUL_LOHI128(__x, __y, __lo, __hi)\
     {\
 		uint64 __w0,__w1,__w2,__w3,__a,__b,__c,__d;\
 		\
@@ -3993,13 +3993,13 @@ On Alpha, this needs a total of 8 MUL instructions.
 		__w2 += __d + (__w1 < __c); /* Overflow into word2 is checked here. */\
 		__w3 +=       (__w2 < __d); /* Overflow into word3 is checked here. */\
 		/* Now store the result: */\
-		__pr.d0 =  __w0;	__pr.d1 = __w1;\
-		__pr.d2 =  __w2;	__pr.d3 = __w3;\
+		__lo.d0 =  __w0;	__lo.d1 = __w1;\
+		__hi.d0 =  __w2;	__hi.d1 = __w3;\
 	}
 
 #else
 
-    #define MUL_LOHI128_PROD256(__x, __y, __pr)\
+    #define MUL_LOHI128(__x, __y, __lo, __hi)\
     {\
 		uint64 __w0,__w1,__w2,__w3,__a,__b,__c,__d;\
 		\
@@ -4014,9 +4014,11 @@ On Alpha, this needs a total of 8 MUL instructions.
 		__w2 += __d + (__w1 < __c); /* Overflow into word2 is checked here. */\
 		__w3 +=       (__w2 < __d); /* Overflow into word3 is checked here. */\
 		/* Now store the result: */\
-		__pr.d0 =  __w0;	__pr.d1 = __w1;\
-		__pr.d2 =  __w2;	__pr.d3 = __w3;\
-    }
+		/* Now store the result: */\
+		__lo.d0 =  __w0;	__lo.d1 = __w1;\
+		__hi.d0 =  __w2;	__hi.d1 = __w3;\
+	}
+
 
 #endif
 

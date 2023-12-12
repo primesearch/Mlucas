@@ -161,7 +161,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #ifdef USE_AVX512
 	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7, *cdd4,*cdd5,*cdd6,*cdd7;
   #endif
-	vec_dbl *tmp, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
+	vec_dbl *tmp,*tm1, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
   #ifdef USE_AVX2
 	vec_dbl *bpt4,*bpt5,*bpt6,*bpt7;
   #endif
@@ -1715,7 +1715,173 @@ jump_in:	/* Entry point for all blocks but the first. */
 			memset(k2_arr, 0, 10*RE_IM_STRIDE*sizeof(uint32));
 		}
 
-	// *** To-do: Vectorize the index computations below! ***
+	   #ifdef USE_IMCI512	// Vectorized version below a no-go on 1st-gen Xeon Phi
+
+		#warning AVX-512: Using slower non-ASM-macro version of sincos-indexing in radix16_wrapper_square.c.
+		/*
+		IMCI512: SSE2_RADIX16_CALC_TWIDDLES_LOACC reads k[0|1]_arr[0-39] in 8-index chunks,
+			does gather-loads associated rt[0|1] elts, computes twiddles, writes to cc0+[0x4-...].
+			Pull the gather-loads out here and do in C, just do the 512-bit vector CMULs in asm-macro:
+		*/
+		// 1st set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d0 = rt0[k1].re; tm1->d0 = rt0[k1].im;	c_tmp->d0 = rt1[k2].re; s_tmp->d0 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 2nd set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d1 = rt0[k1].re; tm1->d1 = rt0[k1].im;	c_tmp->d1 = rt1[k2].re; s_tmp->d1 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+	  if(j1 > 64) {	// Sincos data for the initial done-in-scalar-mode data blocks get done in SSE2 mode, i.e. only using d0,d1
+		// 3rd set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d2 = rt0[k1].re; tm1->d2 = rt0[k1].im;	c_tmp->d2 = rt1[k2].re; s_tmp->d2 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 4th set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d3 = rt0[k1].re; tm1->d3 = rt0[k1].im;	c_tmp->d3 = rt1[k2].re; s_tmp->d3 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+	  }	// endif(j1 > 64)
+
+	  if(j1 > 160) {	// Must skip these sincos-inits until shift to SIMD-mode DFT, to keep array index k from being incremented
+		// 5th set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d4 = rt0[k1].re; tm1->d4 = rt0[k1].im;	c_tmp->d4 = rt1[k2].re; s_tmp->d4 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 6th set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d5 = rt0[k1].re; tm1->d5 = rt0[k1].im;	c_tmp->d5 = rt1[k2].re; s_tmp->d5 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 7th set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d6 = rt0[k1].re; tm1->d6 = rt0[k1].im;	c_tmp->d6 = rt1[k2].re; s_tmp->d6 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+
+		// 8th set:
+		iroot = index[k++];
+		l = iroot;
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp = cc0+0x4; tm1 = cc0+0x5;	c_tmp = cc0+0x6; s_tmp = cc0+0x7;
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += iroot;			/* 2*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 1);	/* 4*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += (iroot << 2);	/* 8*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+		l += 5*iroot;		/* 13*iroot */
+		k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+		tmp->d7 = rt0[k1].re; tm1->d7 = rt0[k1].im;	c_tmp->d7 = rt1[k2].re; s_tmp->d7 = rt1[k2].im;	tmp += 4; tm1 += 4; c_tmp += 4; s_tmp += 4;
+	  }	// endif(j1 > 160)
+
+	   #else
+
+		#warning Using AVX-512 code in radix16_wrapper_square.c
 		// 1st set:
 		iroot = index[k++];
 		l = iroot;
@@ -1830,6 +1996,8 @@ jump_in:	/* Entry point for all blocks but the first. */
 		l += 5*iroot;		/* 13*iroot */
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[39] = k1<<4;	k2_arr[39] = k2<<4;
 	  }	// endif(j1 > 160)
+
+	   #endif	// (IMCI512 or AVX512?) toggle
 
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
@@ -4033,6 +4201,36 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 			: "cc","memory","x0","x1","v0","v1","v2","v3"	/* Clobbered registers */\
 		);
 
+	  #elif defined(USE_IMCI512)
+		/* 1st-gen Xeon Phi (k1om) has no VSHUFPD:
+		VSHUFPD with imm8 = 0x55 = 01010101_2 and src2 = src1 = dest simply swaps even/odd doubles of each each 128-bit
+		[lo,hi]-double-pair. On k1om, effect this via VMOVAPD with register-to-self-copy using swap-inner-pair {cdab} swizzle:
+		*/
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"movq	%[tmp1],%%rbx\n\t"\
+			"movq	%[tmp2],%%rcx\n\t"\
+			"movq	%[tmp3],%%rdx\n\t"\
+			"vmovaps	(%%rax),%%zmm0\n\t"\
+			"vmovaps	(%%rbx),%%zmm1\n\t"\
+			"vmovaps	(%%rcx),%%zmm2\n\t"\
+			"vmovaps	(%%rdx),%%zmm3\n\t"\
+			"vmovapd	%%zmm0%{cdab%},%%zmm0\n\t"\
+			"vmovapd	%%zmm1%{cdab%},%%zmm1\n\t"\
+			"vmovapd	%%zmm2%{cdab%},%%zmm2\n\t"\
+			"vmovapd	%%zmm3%{cdab%},%%zmm3\n\t"\
+			"vmovaps	%%zmm0,(%%rax)\n\t"\
+			"vmovaps	%%zmm1,(%%rbx)\n\t"\
+			"vmovaps	%%zmm2,(%%rcx)\n\t"\
+			"vmovaps	%%zmm3,(%%rdx)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			 ,[tmp1] "m" (tmp1)
+			 ,[tmp2] "m" (tmp2)
+			 ,[tmp3] "m" (tmp3)
+			: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3"		/* Clobbered registers */\
+		);
+
 	#elif defined(USE_AVX512)
 		// AVX-512 version has shufpd immediate = 0x55 = 01010101_2, which is the fourfold analog of the SSE2 imm8 = 1 = 01_2:
 		__asm__ volatile (\
@@ -4301,6 +4499,36 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		tmp2->d1 = t1;		tmp3->d1 = t2;
 		tmp2->d0 = t4;		tmp3->d0 = t3;
 	  #endif
+
+	  #elif defined(USE_IMCI512)
+		/* 1st-gen Xeon Phi (k1om) has no VSHUFPD:
+		VSHUFPD with imm8 = 0x55 = 01010101_2 and src2 = src1 = dest simply swaps even/odd doubles of each each 128-bit
+		[lo,hi]-double-pair. On k1om, effect this via VMOVAPD with register-to-self-copy using swap-inner-pair {cdab} swizzle:
+		*/
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"movq	%[tmp1],%%rbx\n\t"\
+			"movq	%[tmp2],%%rcx\n\t"\
+			"movq	%[tmp3],%%rdx\n\t"\
+			"vmovaps	(%%rax),%%zmm0\n\t"\
+			"vmovaps	(%%rbx),%%zmm1\n\t"\
+			"vmovaps	(%%rcx),%%zmm2\n\t"\
+			"vmovaps	(%%rdx),%%zmm3\n\t"\
+			"vmovapd	%%zmm0%{cdab%},%%zmm0\n\t"\
+			"vmovapd	%%zmm1%{cdab%},%%zmm1\n\t"\
+			"vmovapd	%%zmm2%{cdab%},%%zmm2\n\t"\
+			"vmovapd	%%zmm3%{cdab%},%%zmm3\n\t"\
+			"vmovaps	%%zmm0,(%%rax)\n\t"\
+			"vmovaps	%%zmm1,(%%rbx)\n\t"\
+			"vmovaps	%%zmm2,(%%rcx)\n\t"\
+			"vmovaps	%%zmm3,(%%rdx)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			 ,[tmp1] "m" (tmp1)
+			 ,[tmp2] "m" (tmp2)
+			 ,[tmp3] "m" (tmp3)
+			: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3"		/* Clobbered registers */\
+		);
 
 	#elif defined(USE_AVX512)
 		// AVX-512 version has shufpd immediate = 0x55 = 01010101_2, which is the fourfold analog of the SSE2 imm8 = 1 = 01_2:

@@ -83,7 +83,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		#define OFF4	0x2000
 	  #endif
 
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) && !defined(USE_IMCI512)
 
 		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
 		// only last 62 of the 63 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
@@ -742,7 +742,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		const int off_arr[16] = {0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf};
 		const int*off_ptr = &(off_arr[0]);
 
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) && !defined(USE_IMCI512)
 
 		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
 		// only last 62 of the 63 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:

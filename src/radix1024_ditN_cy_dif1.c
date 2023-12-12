@@ -163,7 +163,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
   #endif
 	// FMA-based DFT needs the tangent:
-#ifdef USE_AVX2
+#if defined(USE_AVX2) && !defined(USE_IMCI512)
 	static double tan = 0.41421356237309504879;
 #endif
 	int NDIVR,i,incr,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
@@ -544,7 +544,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		// Since we copied the init-blocks here from the code below in which the twiddle-sets appear in BR order, init same way:
 
 		// Use loop-based init for codecompactness and extensibility to larger pow2 radices:
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) && !defined(USE_IMCI512)
 		// The first 2 sets (twid00/20) are processed in non-FMA fashion by both DIF/DIT macros, so init in non-FMA fashion:
 		for(l = 0; l < 2; l++) {
 	  #else
@@ -571,7 +571,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		}
 
 		// The remaining 14 sets are inited differently depending on whether SIMD+FMA is used:
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) && !defined(USE_IMCI512)
 
 		// Precompute the FMA-modified twiddles for the 2nd-pass radix-16 DFTs:
 		#ifdef USE_FMA
@@ -1287,7 +1287,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;

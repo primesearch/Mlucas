@@ -50,11 +50,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			i7 = p_id1[l]; i0 = i7&7; i1 = (i7>>3)&7; i2 = (i7>>6)&7; i3 = (i7>>9)&7; i4 = (i7>>12)&7; i5 = (i7>>15)&7; i6 = (i7>>18)&7; i7 = (i7>>21);
 			addr = &a[j1+poff[p_od1[l]]];
 			add0 = addr+pp07[i0]; add1 = addr+pp07[i1]; add2 = addr+pp07[i2]; add3 = addr+pp07[i3]; add4 = addr+pp07[i4]; add5 = addr+pp07[i5]; add6 = addr+pp07[i6]; add7 = addr+pp07[i7];
-		  #ifdef USE_AVX2
+		#ifdef USE_AVX2
 			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
-		  #else
+		#else
 			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
-		  #endif
+		#endif
 		}
 	/*...and now do 8 radix-5 transforms: */
 		// Bytewise array of output-pointer offsets w.r.to the s1p00 base-pointer.
@@ -255,7 +255,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < RADIX>>3; l++) {
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l+l];
-		  #ifdef USE_AVX512	// In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwie-unused sse2_rnd vec_dbl:
+		  #ifdef USE_AVX512	// In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwise-unused sse2_rnd vec_dbl:
 			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr);
 			tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
 		  #else	// USE_AVX:

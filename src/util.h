@@ -209,7 +209,11 @@ double	mlucas_getOptVal(const char*fname, char*optname);
 	void* 	ex_loop(void* data);
 	void*	PrintHello(void *threadid);
 	void*	do_loop(void*targ);
-	uint32	parseAffinityTriplet(char*istr);
+  #if INCLUDE_HWLOC
+	#include <hwloc.h>	// Not clear to me why needed to add this redundant include here ... above include of Mdata.h should include it.
+	int		num_sockets_of_core_set(hwloc_topology_t topology, int lidx_lo, int lidx_hi);
+  #endif
+	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
 
 #endif	// MULTITHREAD ?
@@ -245,6 +249,9 @@ DEV uint64	ishft64(uint64 x, int shift);
 
 DEV uint32	trailz32(uint32 x);
 DEV uint32	trailz64(uint64 x);
+DEV uint32	trailz128(uint128 i);
+DEV uint32	trailz192(uint192 i);
+DEV uint32	trailz256(uint256 i);
 
 DEV uint32	leadz32	(uint32  i);
 DEV uint32	leadz64	(uint64  i);

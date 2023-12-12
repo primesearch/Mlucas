@@ -1821,6 +1821,589 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 
   #else	// USE_16_REG = False, i.e. use default 32-SIMD-reg version of macro:
 
+   #ifdef USE_IMCI512	// 1st-gen Xeon Phi - Use modified 8x8 doubles-transpose algo [1a] from util.c:test_simd_transpose_8x8()
+
+	#define SSE2_RADIX32_WRAPPER_DIF(Xadd0,Xadd1,Xadd2,Xadd3,Xadd4,Xadd5,Xadd6,Xadd7,Xr00,Xr10,Xr20,Xr30,Xisrt2,Xcc0,Xc00,Xc01,Xc02,Xc03,Xc05,Xc07)\
+	{\
+	__asm__ volatile (\
+	/* Cf. IMCI512 8x8 doubles-transpose algo [1a] in util.c ...
+	do mask-register-setting first, so as to not clobber any GPRs used by compute section: */\
+		"movl $0b10101010,%%ebx	\n\t movl $0b11001100,%%ecx	\n\t movl $0b11110000,%%edx	\n\t"\
+		"kmov	%%ebx,%%k1		\n\t kmov	%%ecx,%%k3		\n\t kmov	%%edx,%%k5		\n\t"\
+		"knot	%%k1 ,%%k2		\n\t knot	%%k3 ,%%k4		\n\t"\
+	/**** Start with 8-way interleaving: ****/\
+		"movq	%[__add0],%%rax	\n\t"\
+		"movq	%[__add1],%%rbx	\n\t"\
+		"movq	%[__add2],%%rcx	\n\t"\
+		"movq	%[__add3],%%rdx	\n\t"\
+		"movq	%[__add4],%%r10	\n\t"\
+		"movq	%[__add5],%%r11	\n\t"\
+		"movq	%[__add6],%%r12	\n\t"\
+		"movq	%[__add7],%%r13	\n\t"\
+		"movq	%[__r00] ,%%rsi	\n\t"\
+	/* See above 16-register version for transpose using columnwise gather-loads. */\
+	/* a[j+p0]: Inputs from add0+[0,0x200,0x400,0x600,0x800,0xa00,0xc00,0xe00]. Outputs into local store at r0+[same byte offsets]: */\
+		/* Read contiguous (untransposed) row-data from the data array: */\
+		"vmovaps 		(%%rax),%%zmm0			\n\t	vmovaps		0x40(%%rax),%%zmm10	\n\t"\
+		"vmovaps 		(%%rbx),%%zmm1			\n\t	vmovaps		0x40(%%rbx),%%zmm11	\n\t"\
+		"vmovaps 		(%%rcx),%%zmm2			\n\t	vmovaps		0x40(%%rcx),%%zmm12	\n\t"\
+		"vmovaps 		(%%rdx),%%zmm3			\n\t	vmovaps		0x40(%%rdx),%%zmm13	\n\t"\
+		"vmovaps 		(%%r10),%%zmm4			\n\t	vmovaps		0x40(%%r10),%%zmm14	\n\t"\
+		"vmovaps 		(%%r11),%%zmm5			\n\t	vmovaps		0x40(%%r11),%%zmm15	\n\t"\
+		"vmovaps 		(%%r12),%%zmm6			\n\t	vmovaps		0x40(%%r12),%%zmm16	\n\t"\
+		"vmovaps 		(%%r13),%%zmm7			\n\t	vmovaps		0x40(%%r13),%%zmm17	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write transposed data to the local store: */\
+		"vmovaps		%%zmm5,0x000(%%rsi)		\n\t	vmovaps	%%zmm15,0x040(%%rsi)	\n\t"/* Out 0 */\
+		"vmovaps		%%zmm6,0x800(%%rsi)		\n\t	vmovaps	%%zmm16,0x840(%%rsi)	\n\t"/* Out 4 */\
+		"vmovaps		%%zmm8,0x400(%%rsi)		\n\t	vmovaps	%%zmm9 ,0x440(%%rsi)	\n\t"/* Out 2 */\
+		"vmovaps		%%zmm0,0xc00(%%rsi)		\n\t	vmovaps	%%zmm10,0xc40(%%rsi)	\n\t"/* Out 6 */\
+		"vmovaps		%%zmm1,0x200(%%rsi)		\n\t	vmovaps	%%zmm11,0x240(%%rsi)	\n\t"/* Out 1 */\
+		"vmovaps		%%zmm2,0xa00(%%rsi)		\n\t	vmovaps	%%zmm12,0xa40(%%rsi)	\n\t"/* Out 5 */\
+		"vmovaps		%%zmm4,0x600(%%rsi)		\n\t	vmovaps	%%zmm14,0x640(%%rsi)	\n\t"/* Out 3 */\
+		"vmovaps		%%zmm7,0xe00(%%rsi)		\n\t	vmovaps	%%zmm17,0xe40(%%rsi)	\n\t"/* Out 7 */\
+		"\n\t"\
+	/* a[j+p2]: Inputs from add0+[0,0x100,0x200,0x300,0x400,0x500,0x600,0x700]+0x80. Outputs into r1+[same byte offsets]: */\
+	"addq	$0x80 ,%%rax	\n\t"\
+	"addq	$0x80 ,%%rbx	\n\t"\
+	"addq	$0x80 ,%%rcx	\n\t"\
+	"addq	$0x80 ,%%rdx	\n\t"\
+	"addq	$0x80 ,%%r10	\n\t"\
+	"addq	$0x80 ,%%r11	\n\t"\
+	"addq	$0x80 ,%%r12	\n\t"\
+	"addq	$0x80 ,%%r13	\n\t"\
+	"addq	$0x100,%%rsi	\n\t"\
+		/* Read contiguous (untransposed) row-data from the data array: */\
+		"vmovaps 		(%%rax),%%zmm0			\n\t	vmovaps		0x40(%%rax),%%zmm10	\n\t"\
+		"vmovaps 		(%%rbx),%%zmm1			\n\t	vmovaps		0x40(%%rbx),%%zmm11	\n\t"\
+		"vmovaps 		(%%rcx),%%zmm2			\n\t	vmovaps		0x40(%%rcx),%%zmm12	\n\t"\
+		"vmovaps 		(%%rdx),%%zmm3			\n\t	vmovaps		0x40(%%rdx),%%zmm13	\n\t"\
+		"vmovaps 		(%%r10),%%zmm4			\n\t	vmovaps		0x40(%%r10),%%zmm14	\n\t"\
+		"vmovaps 		(%%r11),%%zmm5			\n\t	vmovaps		0x40(%%r11),%%zmm15	\n\t"\
+		"vmovaps 		(%%r12),%%zmm6			\n\t	vmovaps		0x40(%%r12),%%zmm16	\n\t"\
+		"vmovaps 		(%%r13),%%zmm7			\n\t	vmovaps		0x40(%%r13),%%zmm17	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write transposed data to the local store: */\
+		"vmovaps		%%zmm5,0x000(%%rsi)		\n\t	vmovaps	%%zmm15,0x040(%%rsi)	\n\t"/* Out 0 */\
+		"vmovaps		%%zmm6,0x800(%%rsi)		\n\t	vmovaps	%%zmm16,0x840(%%rsi)	\n\t"/* Out 4 */\
+		"vmovaps		%%zmm8,0x400(%%rsi)		\n\t	vmovaps	%%zmm9 ,0x440(%%rsi)	\n\t"/* Out 2 */\
+		"vmovaps		%%zmm0,0xc00(%%rsi)		\n\t	vmovaps	%%zmm10,0xc40(%%rsi)	\n\t"/* Out 6 */\
+		"vmovaps		%%zmm1,0x200(%%rsi)		\n\t	vmovaps	%%zmm11,0x240(%%rsi)	\n\t"/* Out 1 */\
+		"vmovaps		%%zmm2,0xa00(%%rsi)		\n\t	vmovaps	%%zmm12,0xa40(%%rsi)	\n\t"/* Out 5 */\
+		"vmovaps		%%zmm4,0x600(%%rsi)		\n\t	vmovaps	%%zmm14,0x640(%%rsi)	\n\t"/* Out 3 */\
+		"vmovaps		%%zmm7,0xe00(%%rsi)		\n\t	vmovaps	%%zmm17,0xe40(%%rsi)	\n\t"/* Out 7 */\
+		"\n\t"\
+	/* a[j+p4]: Inputs from add0+[0,0x100,0x200,0x300,0x400,0x500,0x600,0x700]+0x80. Outputs into r2+[same byte offsets]: */\
+	"addq	$0x80 ,%%rax	\n\t"\
+	"addq	$0x80 ,%%rbx	\n\t"\
+	"addq	$0x80 ,%%rcx	\n\t"\
+	"addq	$0x80 ,%%rdx	\n\t"\
+	"addq	$0x80 ,%%r10	\n\t"\
+	"addq	$0x80 ,%%r11	\n\t"\
+	"addq	$0x80 ,%%r12	\n\t"\
+	"addq	$0x80 ,%%r13	\n\t"\
+	"subq	$0x80,%%rsi	\n\t"\
+		/* Read contiguous (untransposed) row-data from the data array: */\
+		"vmovaps 		(%%rax),%%zmm0			\n\t	vmovaps		0x40(%%rax),%%zmm10	\n\t"\
+		"vmovaps 		(%%rbx),%%zmm1			\n\t	vmovaps		0x40(%%rbx),%%zmm11	\n\t"\
+		"vmovaps 		(%%rcx),%%zmm2			\n\t	vmovaps		0x40(%%rcx),%%zmm12	\n\t"\
+		"vmovaps 		(%%rdx),%%zmm3			\n\t	vmovaps		0x40(%%rdx),%%zmm13	\n\t"\
+		"vmovaps 		(%%r10),%%zmm4			\n\t	vmovaps		0x40(%%r10),%%zmm14	\n\t"\
+		"vmovaps 		(%%r11),%%zmm5			\n\t	vmovaps		0x40(%%r11),%%zmm15	\n\t"\
+		"vmovaps 		(%%r12),%%zmm6			\n\t	vmovaps		0x40(%%r12),%%zmm16	\n\t"\
+		"vmovaps 		(%%r13),%%zmm7			\n\t	vmovaps		0x40(%%r13),%%zmm17	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write transposed data to the local store: */\
+		"vmovaps		%%zmm5,0x000(%%rsi)		\n\t	vmovaps	%%zmm15,0x040(%%rsi)	\n\t"/* Out 0 */\
+		"vmovaps		%%zmm6,0x800(%%rsi)		\n\t	vmovaps	%%zmm16,0x840(%%rsi)	\n\t"/* Out 4 */\
+		"vmovaps		%%zmm8,0x400(%%rsi)		\n\t	vmovaps	%%zmm9 ,0x440(%%rsi)	\n\t"/* Out 2 */\
+		"vmovaps		%%zmm0,0xc00(%%rsi)		\n\t	vmovaps	%%zmm10,0xc40(%%rsi)	\n\t"/* Out 6 */\
+		"vmovaps		%%zmm1,0x200(%%rsi)		\n\t	vmovaps	%%zmm11,0x240(%%rsi)	\n\t"/* Out 1 */\
+		"vmovaps		%%zmm2,0xa00(%%rsi)		\n\t	vmovaps	%%zmm12,0xa40(%%rsi)	\n\t"/* Out 5 */\
+		"vmovaps		%%zmm4,0x600(%%rsi)		\n\t	vmovaps	%%zmm14,0x640(%%rsi)	\n\t"/* Out 3 */\
+		"vmovaps		%%zmm7,0xe00(%%rsi)		\n\t	vmovaps	%%zmm17,0xe40(%%rsi)	\n\t"/* Out 7 */\
+		"\n\t"\
+	/* a[j+p6]: Inputs from add0+[0,0x100,0x200,0x300,0x400,0x500,0x600,0x700]+0x180. Outputs into r3+[same byte offsets]: */\
+	"addq	$0x80 ,%%rax	\n\t"\
+	"addq	$0x80 ,%%rbx	\n\t"\
+	"addq	$0x80 ,%%rcx	\n\t"\
+	"addq	$0x80 ,%%rdx	\n\t"\
+	"addq	$0x80 ,%%r10	\n\t"\
+	"addq	$0x80 ,%%r11	\n\t"\
+	"addq	$0x80 ,%%r12	\n\t"\
+	"addq	$0x80 ,%%r13	\n\t"\
+	"addq	$0x100,%%rsi	\n\t"\
+		/* Read contiguous (untransposed) row-data from the data array: */\
+		"vmovaps 		(%%rax),%%zmm0			\n\t	vmovaps		0x40(%%rax),%%zmm10	\n\t"\
+		"vmovaps 		(%%rbx),%%zmm1			\n\t	vmovaps		0x40(%%rbx),%%zmm11	\n\t"\
+		"vmovaps 		(%%rcx),%%zmm2			\n\t	vmovaps		0x40(%%rcx),%%zmm12	\n\t"\
+		"vmovaps 		(%%rdx),%%zmm3			\n\t	vmovaps		0x40(%%rdx),%%zmm13	\n\t"\
+		"vmovaps 		(%%r10),%%zmm4			\n\t	vmovaps		0x40(%%r10),%%zmm14	\n\t"\
+		"vmovaps 		(%%r11),%%zmm5			\n\t	vmovaps		0x40(%%r11),%%zmm15	\n\t"\
+		"vmovaps 		(%%r12),%%zmm6			\n\t	vmovaps		0x40(%%r12),%%zmm16	\n\t"\
+		"vmovaps 		(%%r13),%%zmm7			\n\t	vmovaps		0x40(%%r13),%%zmm17	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write transposed data to the local store: */\
+		"vmovaps		%%zmm5,0x000(%%rsi)		\n\t	vmovaps	%%zmm15,0x040(%%rsi)	\n\t"/* Out 0 */\
+		"vmovaps		%%zmm6,0x800(%%rsi)		\n\t	vmovaps	%%zmm16,0x840(%%rsi)	\n\t"/* Out 4 */\
+		"vmovaps		%%zmm8,0x400(%%rsi)		\n\t	vmovaps	%%zmm9 ,0x440(%%rsi)	\n\t"/* Out 2 */\
+		"vmovaps		%%zmm0,0xc00(%%rsi)		\n\t	vmovaps	%%zmm10,0xc40(%%rsi)	\n\t"/* Out 6 */\
+		"vmovaps		%%zmm1,0x200(%%rsi)		\n\t	vmovaps	%%zmm11,0x240(%%rsi)	\n\t"/* Out 1 */\
+		"vmovaps		%%zmm2,0xa00(%%rsi)		\n\t	vmovaps	%%zmm12,0xa40(%%rsi)	\n\t"/* Out 5 */\
+		"vmovaps		%%zmm4,0x600(%%rsi)		\n\t	vmovaps	%%zmm14,0x640(%%rsi)	\n\t"/* Out 3 */\
+		"vmovaps		%%zmm7,0xe00(%%rsi)		\n\t	vmovaps	%%zmm17,0xe40(%%rsi)	\n\t"/* Out 7 */\
+		"\n\t"\
+		/************************************************************************/							/************************************************************************************************************/\
+		/* Forward DIF radix-32 pass on the interleaved block1 and block2 data: */							/* Next 2 blocks operate on odd-indexed elements from the unpck*pd commands which we stored to temporaries: */\
+		/************************************************************************/							/************************************************************************************************************/\
+	/*...Block 0: */																						/*...Block 3: */\
+		"movq	%[__isrt2],%%rsi				\n\t	leaq	0x11c0(%%rsi),%%rdi	/* two */	\n\t"\
+	/* SSE2_RADIX4_DIF_4WRAPPER(c00,c08,c10,c18,r00)...DIF_4WRAPPER_2NDOFTWO(c04,c0C,c14,c1C,r08)	SSE2_RADIX4_DIF_4TWIDDLE(r20,r24,r22,r26,r20,c01)...DIF_4TWIDDLE_2NDOFTWO(r28,r2C,r2A,r2E,r28,c05) */\
+		"movq		%[__r00],%%rcx				\n\t	/*addq		$0x200,%%rcx // __r08 */	\n\t	movq %[__r20],%%r10 \n\t movq %[__c01],%%r11 \n\t leaq 0x080(%%r10),%%r12 \n\t	movq %%r10,%%r13 \n\t"\
+		"movq		%[__c00],%%rdx				\n\t	/*addq		$0x200,%%rdx // __c04 */	\n\t	vmovaps		 (%%r10),%%zmm18 			\n\t	vmovaps		0x200(%%r10),%%zmm26		\n\t"\
+		"vmovaps			 (%%rcx),%%zmm0		\n\t	vmovaps		0x200(%%rcx),%%zmm8			\n\t	vmovaps		 (%%r12),%%zmm20			\n\t	vmovaps		0x200(%%r12),%%zmm28		\n\t"\
+		"vmovaps		0x040(%%rcx),%%zmm1		\n\t	vmovaps		0x240(%%rcx),%%zmm9			\n\t	vmovaps	0x040(%%r10),%%zmm19			\n\t	vmovaps		0x240(%%r10),%%zmm27		\n\t"\
+		"vmovaps		%%zmm0,%%zmm2			\n\t	vmovaps		%%zmm8,%%zmm10				\n\t	vmovaps	0x040(%%r12),%%zmm21			\n\t	vmovaps		0x240(%%r12),%%zmm29		\n\t"\
+		"vmovaps		%%zmm1,%%zmm3			\n\t	vmovaps		%%zmm9,%%zmm11				\n\t	vmovaps		 (%%r11),%%zmm22			\n\t	vmovaps		0x200(%%r11),%%zmm30		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm0,%%zmm0	\n\t	vmulpd		0x200(%%rdx),%%zmm8 ,%%zmm8	\n\t	vmovaps	0x040(%%r11),%%zmm23			\n\t	vmovaps		0x240(%%r11),%%zmm31		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm1,%%zmm1	\n\t	vmulpd		0x200(%%rdx),%%zmm9 ,%%zmm9	\n\t"\
+/********** Where do the zmm6,7 come from here? ***********/\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm0	\n\t vfnmadd231pd	0x240(%%rdx),%%zmm11,%%zmm8 \n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm1	\n\t vfmadd231pd	0x240(%%rdx),%%zmm10,%%zmm9 \n\t	vmulpd		%%zmm22,%%zmm18,%%zmm16		\n\t	vmulpd		%%zmm30,%%zmm26,%%zmm24	\n\t"\
+		"vmovaps		%%zmm0,%%zmm2			\n\t	vmovaps		%%zmm8,%%zmm10				\n\t	vmulpd		%%zmm22,%%zmm19,%%zmm17		\n\t	vmulpd		%%zmm30,%%zmm27,%%zmm25	\n\t"\
+		"vmovaps		%%zmm1,%%zmm3			\n\t	vmovaps		%%zmm9,%%zmm11				\n\t vfnmadd231pd	%%zmm23,%%zmm19,%%zmm16		\n\t vfnmadd231pd	%%zmm31,%%zmm27,%%zmm24		\n\t"\
+		"addq		$0x080,%%rdx																\n\t vfmadd231pd	%%zmm23,%%zmm18,%%zmm17		\n\t vfmadd231pd	%%zmm31,%%zmm26,%%zmm25		\n\t"\
+		"vmovaps		0x080(%%rcx),%%zmm6		\n\t	vmovaps		0x280(%%rcx),%%zmm14		\n\t	vmovaps		%%zmm20,%%zmm22				\n\t	vmovaps		%%zmm28,%%zmm30		\n\t"\
+		"vmovaps		0x0c0(%%rcx),%%zmm7		\n\t	vmovaps		0x2c0(%%rcx),%%zmm15		\n\t	vmovaps		%%zmm21,%%zmm23				\n\t	vmovaps		%%zmm29,%%zmm31		\n\t"\
+		"																								vmulpd	  0x080(%%r11),%%zmm20,%%zmm20	\n\t	vmulpd		0x280(%%r11),%%zmm28,%%zmm28\n\t"\
+		"																								vmulpd	  0x080(%%r11),%%zmm21,%%zmm21	\n\t	vmulpd		0x280(%%r11),%%zmm29,%%zmm29\n\t"\
+		"vmulpd			 (%%rdx),%%zmm6,%%zmm4	\n\t	vmulpd		0x200(%%rdx),%%zmm14,%%zmm12\n\t vfnmadd231pd 0x0c0(%%r11),%%zmm23,%%zmm20	\n\t vfnmadd231pd	0x2c0(%%r11),%%zmm31,%%zmm28\n\t"\
+		"vmulpd			 (%%rdx),%%zmm7,%%zmm5	\n\t	vmulpd		0x200(%%rdx),%%zmm15,%%zmm13\n\t vfmadd231pd  0x0c0(%%r11),%%zmm22,%%zmm21	\n\t vfmadd231pd	0x2c0(%%r11),%%zmm30,%%zmm29\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm4	\n\t vfnmadd231pd	0x240(%%rdx),%%zmm15,%%zmm12\n\t	vmovaps		%%zmm16,%%zmm18				\n\t	vmovaps		%%zmm24,%%zmm26		\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm5	\n\t vfmadd231pd	0x240(%%rdx),%%zmm14,%%zmm13\n\t	vmovaps		%%zmm17,%%zmm19				\n\t	vmovaps		%%zmm25,%%zmm27		\n\t"\
+		"vaddpd		%%zmm4,%%zmm0,%%zmm0		\n\t	vaddpd		%%zmm12,%%zmm8 ,%%zmm8		\n\t	addq		$0x100,%%r12				\n\t	addq		$0x180,%%r11			\n\t"\
+		"vaddpd		%%zmm5,%%zmm1,%%zmm1		\n\t	vaddpd		%%zmm13,%%zmm9 ,%%zmm9		\n\t	vmovaps			 (%%r12),%%zmm22		\n\t	vmovaps		0x200(%%r12),%%zmm30		\n\t"\
+		"vsubpd		%%zmm4,%%zmm2,%%zmm2		\n\t	vsubpd		%%zmm12,%%zmm10,%%zmm10		\n\t	vmovaps		0x040(%%r12),%%zmm23		\n\t	vmovaps		0x240(%%r12),%%zmm31		\n\t"\
+		"vsubpd		%%zmm5,%%zmm3,%%zmm3		\n\t	vsubpd		%%zmm13,%%zmm11,%%zmm11		\n\t	vaddpd		%%zmm20,%%zmm16,%%zmm16		\n\t	vaddpd		%%zmm28,%%zmm24,%%zmm24		\n\t"\
+		"addq		$0x100,%%rdx																\n\t	vaddpd		%%zmm21,%%zmm17,%%zmm17		\n\t	vaddpd		%%zmm29,%%zmm25,%%zmm25		\n\t"\
+		"vmovaps		0x180(%%rcx),%%zmm6		\n\t	vmovaps		0x380(%%rcx),%%zmm14		\n\t	vsubpd		%%zmm20,%%zmm18,%%zmm18		\n\t	vsubpd		%%zmm28,%%zmm26,%%zmm26		\n\t"\
+		"vmovaps		0x1c0(%%rcx),%%zmm7		\n\t	vmovaps		0x3c0(%%rcx),%%zmm15		\n\t	vsubpd		%%zmm21,%%zmm19,%%zmm19		\n\t	vsubpd		%%zmm29,%%zmm27,%%zmm27		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm6,%%zmm4	\n\t	vmulpd		0x200(%%rdx),%%zmm14,%%zmm12\n\t	vmulpd		   (%%r11),%%zmm22,%%zmm20	\n\t	vmulpd		0x200(%%r11),%%zmm30,%%zmm28\n\t"\
+		"vmulpd			 (%%rdx),%%zmm7,%%zmm5	\n\t	vmulpd		0x200(%%rdx),%%zmm15,%%zmm13\n\t	vmulpd		   (%%r11),%%zmm23,%%zmm21	\n\t	vmulpd		0x200(%%r11),%%zmm31,%%zmm29\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm4	\n\t vfnmadd231pd	0x240(%%rdx),%%zmm15,%%zmm12\n\t vfnmadd231pd 0x040(%%r11),%%zmm23,%%zmm20	\n\t vfnmadd231pd	0x240(%%r11),%%zmm31,%%zmm28\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm5	\n\t vfmadd231pd	0x240(%%rdx),%%zmm14,%%zmm13\n\t vfmadd231pd  0x040(%%r11),%%zmm22,%%zmm21	\n\t vfmadd231pd	0x240(%%r11),%%zmm30,%%zmm29\n\t"\
+		"vmovaps		%%zmm5,0x040(%%rcx)		\n\t	vmovaps		%%zmm13,0x240(%%rcx)		\n\t	vmovaps		%%zmm21,0x040(%%r13)		\n\t	vmovaps		%%zmm29,0x240(%%r13)		\n\t"\
+		"vmovaps		%%zmm4,     (%%rcx)		\n\t	vmovaps		%%zmm12,0x200(%%rcx)		\n\t	vmovaps		%%zmm20,     (%%r13)		\n\t	vmovaps		%%zmm28,0x200(%%r13)		\n\t"\
+		"subq		$0x080,%%rdx																\n\t	addq	$0x100,%%r10					\n\t	subq	$0x080,%%r11					\n\t"\
+		"vmovaps		0x100(%%rcx),%%zmm6		\n\t	vmovaps		0x300(%%rcx),%%zmm14		\n\t	vmovaps			 (%%r10),%%zmm22		\n\t	vmovaps		0x200(%%r10),%%zmm30		\n\t"\
+		"vmovaps		0x140(%%rcx),%%zmm7		\n\t	vmovaps		0x340(%%rcx),%%zmm15		\n\t	vmovaps		0x040(%%r10),%%zmm23		\n\t	vmovaps		0x240(%%r10),%%zmm31		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm6,%%zmm4	\n\t	vmulpd		0x200(%%rdx),%%zmm14,%%zmm12\n\t	vmulpd		   (%%r11),%%zmm22,%%zmm20	\n\t	vmulpd		0x200(%%r11),%%zmm30,%%zmm28\n\t"\
+		"vmulpd			 (%%rdx),%%zmm7,%%zmm5	\n\t	vmulpd		0x200(%%rdx),%%zmm15,%%zmm13\n\t	vmulpd		   (%%r11),%%zmm23,%%zmm21	\n\t	vmulpd		0x200(%%r11),%%zmm31,%%zmm29\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm4	\n\t vfnmadd231pd	0x240(%%rdx),%%zmm15,%%zmm12\n\t vfnmadd231pd 0x040(%%r11),%%zmm23,%%zmm20	\n\t vfnmadd231pd	0x240(%%r11),%%zmm31,%%zmm28\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm5	\n\t vfmadd231pd	0x240(%%rdx),%%zmm14,%%zmm13\n\t vfmadd231pd  0x040(%%r11),%%zmm22,%%zmm21	\n\t vfmadd231pd	0x240(%%r11),%%zmm30,%%zmm29\n\t"\
+		"vmovaps		%%zmm5,%%zmm7			\n\t	vmovaps		%%zmm13,%%zmm15				\n\t	vmovaps		%%zmm21,%%zmm23				\n\t	vmovaps		%%zmm29,%%zmm31		\n\t"\
+		"vmovaps		%%zmm4,%%zmm6			\n\t	vmovaps		%%zmm12,%%zmm14				\n\t	vmovaps		%%zmm20,%%zmm22				\n\t	vmovaps		%%zmm28,%%zmm30		\n\t"\
+		"vsubpd			 (%%rcx),%%zmm4,%%zmm4	\n\t	vsubpd		0x200(%%rcx),%%zmm12,%%zmm12\n\t	vsubpd			 (%%r13),%%zmm20,%%zmm20\n\t	vsubpd		0x200(%%r13),%%zmm28,%%zmm28\n\t"\
+		"vsubpd		0x040(%%rcx),%%zmm5,%%zmm5	\n\t	vsubpd		0x240(%%rcx),%%zmm13,%%zmm13\n\t	vsubpd		0x040(%%r13),%%zmm21,%%zmm21\n\t	vsubpd		0x240(%%r13),%%zmm29,%%zmm29\n\t"\
+		"vaddpd			 (%%rcx),%%zmm6,%%zmm6	\n\t	vaddpd		0x200(%%rcx),%%zmm14,%%zmm14\n\t	vaddpd			 (%%r13),%%zmm22,%%zmm22\n\t	vaddpd		0x200(%%r13),%%zmm30,%%zmm30\n\t"\
+		"vaddpd		0x040(%%rcx),%%zmm7,%%zmm7	\n\t	vaddpd		0x240(%%rcx),%%zmm15,%%zmm15\n\t	vaddpd		0x040(%%r13),%%zmm23,%%zmm23\n\t	vaddpd		0x240(%%r13),%%zmm31,%%zmm31\n\t"\
+		"vsubpd		%%zmm6,%%zmm0,%%zmm0		\n\t	vsubpd		%%zmm14,%%zmm8,%%zmm8		\n\t	vsubpd		%%zmm22,%%zmm16,%%zmm16		\n\t	vsubpd		%%zmm30,%%zmm24,%%zmm24\n\t"\
+		"vsubpd		%%zmm7,%%zmm1,%%zmm1		\n\t	vsubpd		%%zmm15,%%zmm9,%%zmm9		\n\t	vsubpd		%%zmm23,%%zmm17,%%zmm17		\n\t	vsubpd		%%zmm31,%%zmm25,%%zmm25\n\t"\
+		"vsubpd		%%zmm5,%%zmm2,%%zmm2		\n\t	vsubpd		%%zmm13,%%zmm10,%%zmm10		\n\t	vsubpd		%%zmm21,%%zmm18,%%zmm18		\n\t	vsubpd		%%zmm29,%%zmm26,%%zmm26\n\t"\
+		"vsubpd		%%zmm4,%%zmm3,%%zmm3		\n\t	vsubpd		%%zmm12,%%zmm11,%%zmm11		\n\t	vsubpd		%%zmm20,%%zmm19,%%zmm19		\n\t	vsubpd		%%zmm28,%%zmm27,%%zmm27\n\t"\
+	"vmovaps %%zmm28,(%%r13) \n\t"/* spill zmm28 to make room for two */"vmovaps (%%rdi),%%zmm28\n\t"/* two */\
+	"vfmadd132pd	%%zmm28,%%zmm0,%%zmm6		\n\t	vfmadd132pd	%%zmm28,%%zmm8 ,%%zmm14		\n\t	vfmadd132pd	%%zmm28,%%zmm16,%%zmm22		\n\t	vfmadd132pd	%%zmm28,%%zmm24,%%zmm30			\n\t"\
+	"vfmadd132pd	%%zmm28,%%zmm1,%%zmm7		\n\t	vfmadd132pd	%%zmm28,%%zmm9 ,%%zmm15		\n\t	vfmadd132pd	%%zmm28,%%zmm17,%%zmm23		\n\t	vfmadd132pd	%%zmm28,%%zmm25,%%zmm31			\n\t"\
+	"vfmadd132pd	%%zmm28,%%zmm2,%%zmm5		\n\t	vfmadd132pd	%%zmm28,%%zmm10,%%zmm13		\n\t	vfmadd132pd	%%zmm28,%%zmm18,%%zmm21		\n\t	vfmadd132pd	%%zmm28,%%zmm26,%%zmm29			\n\t"\
+	"vfmadd132pd	%%zmm28,%%zmm3,%%zmm4		\n\t	vfmadd132pd	%%zmm28,%%zmm11,%%zmm12		\n\t	vfmadd132pd	%%zmm28,%%zmm19,%%zmm20		\n\t	vfmadd132pd	(%%r13),%%zmm27,%%zmm28			\n\t"\
+		"												vmovaps		%%zmm14,0x200(%%rcx)		\n\t														vmovaps		%%zmm30,0x200(%%r13)			\n\t"\
+		"												vmovaps		%%zmm15,0x240(%%rcx)		\n\t														vmovaps		%%zmm31,0x240(%%r13)			\n\t"\
+		"												vmovaps		%%zmm10,%%zmm14				\n\t														vmovaps		%%zmm26,%%zmm30					\n\t"\
+		"												vmovaps		%%zmm13,%%zmm15				\n\t														vmovaps		%%zmm29,%%zmm31					\n\t"\
+		"												vsubpd		%%zmm12,%%zmm10,%%zmm10		\n\t														vsubpd		%%zmm28,%%zmm26,%%zmm26	\n\t"\
+		"												vsubpd		%%zmm11,%%zmm13,%%zmm13		\n\t														vsubpd		%%zmm27,%%zmm29,%%zmm29	\n\t"\
+		"												vaddpd		%%zmm12,%%zmm14,%%zmm14		\n\t														vaddpd		%%zmm28,%%zmm30,%%zmm30	\n\t"\
+		"												vaddpd		%%zmm11,%%zmm15,%%zmm15		\n\t														vaddpd		%%zmm27,%%zmm31,%%zmm31	\n\t"\
+		/*****	SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r00) *****/												/*****	SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r20) *****/\
+		"												vmovaps		0x200(%%rcx),%%zmm11			\n\t														vmovaps		0x200(%%r13),%%zmm27			\n\t"\
+		"												vmovaps		0x240(%%rcx),%%zmm12			\n\t														vmovaps		0x240(%%r13),%%zmm28			\n\t"\
+	"vmovaps %%zmm13,(%%rcx) \n\t"/* spill zmm13 to make room for isrt2 */"vmovaps (%%rsi),%%zmm13 	\n\t	vmovaps %%zmm29,(%%r13) \n\t"/* spill zmm29 to make room for isrt2 */"vmovaps (%%rsi),%%zmm29	\n\t"/*isrt2*/\
+		"vsubpd		%%zmm11,%%zmm6,%%zmm6		\n\t	vfnmadd231pd	%%zmm13,%%zmm10,%%zmm2		\n\t		vsubpd		%%zmm27,%%zmm22,%%zmm22	\n\t	vfnmadd231pd	%%zmm29,%%zmm26,%%zmm18		\n\t"\
+		"vsubpd		%%zmm9 ,%%zmm0,%%zmm0		\n\t	vfnmadd231pd	%%zmm13,%%zmm15,%%zmm5		\n\t		vsubpd		%%zmm25,%%zmm16,%%zmm16	\n\t	vfnmadd231pd	%%zmm29,%%zmm31,%%zmm21		\n\t"\
+		"vsubpd		%%zmm12,%%zmm7,%%zmm7		\n\t	vfnmadd231pd	%%zmm13,%%zmm14,%%zmm4		\n\t		vsubpd		%%zmm28,%%zmm23,%%zmm23	\n\t	vfnmadd231pd	%%zmm29,%%zmm30,%%zmm20		\n\t"\
+		"vsubpd		%%zmm8 ,%%zmm1,%%zmm1		\n\t	vfnmadd231pd	(%%rcx),%%zmm13,%%zmm3		\n\t		vsubpd		%%zmm24,%%zmm17,%%zmm17	\n\t	vfnmadd231pd	(%%r13),%%zmm29,%%zmm19		\n\t"\
+		"vmovaps		%%zmm6,0x200(%%rcx)		\n\t		vmovaps		%%zmm2,0x280(%%rcx)	\n\t		vmovaps		%%zmm22,0x200(%%r13)	\n\t		vmovaps		%%zmm18,0x280(%%r13)	\n\t"\
+		"vmovaps		%%zmm0,0x100(%%rcx)		\n\t		vmovaps		%%zmm5,0x180(%%rcx)	\n\t		vmovaps		%%zmm16,0x100(%%r13)	\n\t		vmovaps		%%zmm21,0x180(%%r13)	\n\t"\
+		"vmovaps		%%zmm7,0x240(%%rcx)		\n\t		vmovaps		%%zmm4,0x2c0(%%rcx)	\n\t		vmovaps		%%zmm23,0x240(%%r13)	\n\t		vmovaps		%%zmm20,0x2c0(%%r13)	\n\t"\
+		"vmovaps		%%zmm1,0x340(%%rcx)		\n\t		vmovaps		%%zmm3,0x3c0(%%rcx)	\n\t		vmovaps		%%zmm17,0x340(%%r13)	\n\t		vmovaps		%%zmm19,0x3c0(%%r13)	\n\t"\
+	"vmovaps	0x80(%%rdi),%%zmm13																	\n\t	vmovaps	0x80(%%rdi),%%zmm29 \n\t"/* sqrt2 *//* rcol: *2 => *sqrt2 due to above FMA leaving zmm26,13-15 unmultiplied-by-isrt2: */\
+	"vfmadd132pd	(%%rdi),%%zmm6,%%zmm11		\n\t	 vfmadd132pd	%%zmm13,%%zmm2,%%zmm10	\n\t	vfmadd132pd	(%%rdi),%%zmm22,%%zmm27	\n\t	 vfmadd132pd	%%zmm29,%%zmm18,%%zmm26	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm0,%%zmm9		\n\t	 vfmadd132pd	%%zmm13,%%zmm5,%%zmm15	\n\t	vfmadd132pd	(%%rdi),%%zmm16,%%zmm25	\n\t	 vfmadd132pd	%%zmm29,%%zmm21,%%zmm31	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm7,%%zmm12		\n\t	 vfmadd132pd	%%zmm13,%%zmm4,%%zmm14	\n\t	vfmadd132pd	(%%rdi),%%zmm23,%%zmm28	\n\t	 vfmadd132pd	%%zmm29,%%zmm20,%%zmm30	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm1,%%zmm8		\n\t	 vfmadd132pd	(%%rcx),%%zmm3,%%zmm13	\n\t	vfmadd132pd	(%%rdi),%%zmm17,%%zmm24	\n\t	 vfmadd132pd	(%%r13),%%zmm19,%%zmm29	\n\t"\
+		"vmovaps		%%zmm11,     (%%rcx)	\n\t		vmovaps		%%zmm10,0x080(%%rcx)	\n\t		vmovaps		%%zmm27,     (%%r13)	\n\t		vmovaps		%%zmm26,0x080(%%r13)	\n\t"\
+		"vmovaps		%%zmm9 ,0x300(%%rcx)	\n\t		vmovaps		%%zmm15,0x380(%%rcx)	\n\t		vmovaps		%%zmm25,0x300(%%r13)	\n\t		vmovaps		%%zmm31,0x380(%%r13)	\n\t"\
+		"vmovaps		%%zmm12,0x040(%%rcx)	\n\t		vmovaps		%%zmm14,0x0c0(%%rcx)	\n\t		vmovaps		%%zmm28,0x040(%%r13)	\n\t		vmovaps		%%zmm30,0x0c0(%%r13)	\n\t"\
+		"vmovaps		%%zmm8 ,0x140(%%rcx)	\n\t		vmovaps		%%zmm13,0x1c0(%%rcx)	\n\t		vmovaps		%%zmm24,0x140(%%r13)	\n\t		vmovaps		%%zmm29,0x1c0(%%r13)	\n\t"\
+	/*...Block 2: */	/*...Block 4: */\
+	/* SSE2_RADIX4_DIF_4WRAPPER(c02,c0A,c12,c1A,r10)	...DIF_4WRAPPER_2NDOFTWO(c06,c0E,c16,c1E,r18) */	/*	SSE2_RADIX4_DIF_4TWIDDLE(r30,r34,r32,r36,r30,c03)	...DIF_4TWIDDLE_2NDOFTWO(r38,r3C,r3A,r3E,r38,c07) */\
+		"movq		%[__r10],%%rcx				\n\t		/*addq		$0x200,%%rcx // __r18 */	\n\t		movq %[__r30],%%r10 \n\t movq %[__c03],%%r11 \n\t movq %%r10,%%r12 \n\t addq $0x080,%%r12	\n\t"\
+		"movq		%[__c02],%%rdx				\n\t		/*addq		$0x200,%%rdx // __c06 */	\n\t		vmovaps		 (%%r10),%%zmm16 \n\t movq %%r10,%%r13 \n\t vmovaps 0x200(%%r10),%%zmm24	\n\t"\
+		"vmovaps			 (%%rcx),%%zmm0		\n\t		vmovaps		0x200(%%rcx),%%zmm8			\n\t		vmovaps		 (%%r12),%%zmm20		\n\t		vmovaps		0x200(%%r12),%%zmm28		\n\t"\
+		"vmovaps		0x040(%%rcx),%%zmm1		\n\t		vmovaps		0x240(%%rcx),%%zmm9			\n\t		vmovaps	0x040(%%r10),%%zmm17		\n\t		vmovaps		0x240(%%r10),%%zmm25		\n\t"\
+		"vmovaps		%%zmm0,%%zmm2			\n\t		vmovaps		%%zmm8,%%zmm10				\n\t		vmovaps	0x040(%%r12),%%zmm21		\n\t		vmovaps		0x240(%%r12),%%zmm29		\n\t"\
+		"vmovaps		%%zmm1,%%zmm3			\n\t		vmovaps		%%zmm9,%%zmm11				\n\t		vmovaps		 (%%r11),%%zmm22		\n\t		vmovaps		0x200(%%r11),%%zmm30		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm0,%%zmm0	\n\t		vmulpd		0x200(%%rdx),%%zmm8,%%zmm8	\n\t		vmovaps	0x040(%%r11),%%zmm23		\n\t		vmovaps		0x240(%%r11),%%zmm31		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm1,%%zmm1	\n\t		vmulpd		0x200(%%rdx),%%zmm9,%%zmm9	\n\t		vmovaps	%%zmm16,%%zmm18		\n\t		vmovaps		%%zmm24,%%zmm26		\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm3,%%zmm0	\n\t	vfnmadd231pd	0x240(%%rdx),%%zmm11,%%zmm8 \n\t		vmovaps	%%zmm17,%%zmm19		\n\t		vmovaps		%%zmm25,%%zmm27		\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm2,%%zmm1	\n\t	 vfmadd231pd	0x240(%%rdx),%%zmm10,%%zmm9 \n\t		vmulpd		%%zmm22,%%zmm16,%%zmm16\n\t		vmulpd		%%zmm30,%%zmm24,%%zmm24\n\t"\
+		"vmovaps		%%zmm0,%%zmm2			\n\t		vmovaps		%%zmm8,%%zmm10				\n\t		vmulpd		%%zmm22,%%zmm17,%%zmm17\n\t		vmulpd		%%zmm30,%%zmm25,%%zmm25\n\t"\
+		"vmovaps		%%zmm1,%%zmm3			\n\t		vmovaps		%%zmm9,%%zmm11				\n\t	vfnmadd231pd	%%zmm23,%%zmm19,%%zmm16		\n\t	vfnmadd231pd	%%zmm31,%%zmm27,%%zmm24		\n\t"\
+		"addq		$0x080,%%rdx																\n\t	 vfmadd231pd	%%zmm23,%%zmm18,%%zmm17		\n\t	 vfmadd231pd	%%zmm31,%%zmm26,%%zmm25		\n\t"\
+		"vmovaps		0x080(%%rcx),%%zmm4		\n\t		vmovaps		0x280(%%rcx),%%zmm12		\n\t		vmovaps		%%zmm20,%%zmm22		\n\t		vmovaps		%%zmm28,%%zmm30		\n\t"\
+		"vmovaps		0x0c0(%%rcx),%%zmm5		\n\t		vmovaps		0x2c0(%%rcx),%%zmm13		\n\t		vmovaps		%%zmm21,%%zmm23		\n\t		vmovaps		%%zmm29,%%zmm31		\n\t"\
+		"vmovaps		%%zmm4,%%zmm6			\n\t		vmovaps		%%zmm12,%%zmm14				\n\t		vmulpd		0x080(%%r11),%%zmm20,%%zmm20\n\t		vmulpd		0x280(%%r11),%%zmm28,%%zmm28\n\t"\
+		"vmovaps		%%zmm5,%%zmm7			\n\t		vmovaps		%%zmm13,%%zmm15				\n\t		vmulpd		0x080(%%r11),%%zmm21,%%zmm21\n\t		vmulpd		0x280(%%r11),%%zmm29,%%zmm29\n\t"\
+		"vmulpd			 (%%rdx),%%zmm4,%%zmm4	\n\t		vmulpd		0x200(%%rdx),%%zmm12,%%zmm12\n\t		vmovaps		%%zmm16,%%zmm18		\n\t		vmovaps		%%zmm24,%%zmm26		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm5,%%zmm5	\n\t		vmulpd		0x200(%%rdx),%%zmm13,%%zmm13\n\t		vmovaps		%%zmm17,%%zmm19		\n\t		vmovaps		%%zmm25,%%zmm27		\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm4	\n\t	vfnmadd231pd	0x240(%%rdx),%%zmm15,%%zmm12\n\t	vfnmadd231pd	0x0c0(%%r11),%%zmm23,%%zmm20\n\t	vfnmadd231pd	0x2c0(%%r11),%%zmm31,%%zmm28\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm5	\n\t	 vfmadd231pd	0x240(%%rdx),%%zmm14,%%zmm13\n\t	 vfmadd231pd	0x0c0(%%r11),%%zmm22,%%zmm21\n\t	 vfmadd231pd	0x2c0(%%r11),%%zmm30,%%zmm29\n\t"\
+		"vaddpd		%%zmm4,%%zmm0,%%zmm0		\n\t		vaddpd		%%zmm12,%%zmm8,%%zmm8	\n\t		addq		$0x100,%%r12			\n\t		addq		$0x180,%%r11			\n\t"\
+		"vaddpd		%%zmm5,%%zmm1,%%zmm1		\n\t		vaddpd		%%zmm13,%%zmm9,%%zmm9	\n\t		vmovaps			 (%%r12),%%zmm22	\n\t		vaddpd		%%zmm28,%%zmm24,%%zmm24\n\t"\
+		"vsubpd		%%zmm4,%%zmm2,%%zmm2		\n\t		vsubpd		%%zmm12,%%zmm10,%%zmm10\n\t		vmovaps		0x040(%%r12),%%zmm23	\n\t		vaddpd		%%zmm29,%%zmm25,%%zmm25\n\t"\
+		"vsubpd		%%zmm5,%%zmm3,%%zmm3		\n\t		vsubpd		%%zmm13,%%zmm11,%%zmm11\n\t		vaddpd		%%zmm20,%%zmm16,%%zmm16\n\t		vsubpd		%%zmm28,%%zmm26,%%zmm26\n\t"\
+		"addq		$0x100,%%rdx																\n\t		vaddpd		%%zmm21,%%zmm17,%%zmm17\n\t		vsubpd		%%zmm29,%%zmm27,%%zmm27\n\t"\
+		"vmovaps		0x180(%%rcx),%%zmm4		\n\t		vmovaps		0x380(%%rcx),%%zmm12		\n\t		vsubpd		%%zmm20,%%zmm18,%%zmm18\n\t		vmovaps		0x200(%%r12),%%zmm28		\n\t"\
+		"vmovaps		0x1c0(%%rcx),%%zmm5		\n\t		vmovaps		0x3c0(%%rcx),%%zmm13		\n\t		vsubpd		%%zmm21,%%zmm19,%%zmm19\n\t		vmovaps		0x240(%%r12),%%zmm29		\n\t"\
+		"vmovaps		%%zmm4,%%zmm6			\n\t		vmovaps		%%zmm12,%%zmm14				\n\t		vmovaps		%%zmm22,%%zmm20		\n\t		vmovaps		0x200(%%r12),%%zmm30		\n\t"\
+		"vmovaps		%%zmm5,%%zmm7			\n\t		vmovaps		%%zmm13,%%zmm15				\n\t		vmovaps		%%zmm23,%%zmm21		\n\t		vmovaps		0x240(%%r12),%%zmm31		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm4,%%zmm4	\n\t		vmulpd		0x200(%%rdx),%%zmm12,%%zmm12\n\t		vmulpd			 (%%r11),%%zmm20,%%zmm20\n\t		vmulpd		0x200(%%r11),%%zmm28,%%zmm28\n\t"\
+		"vmulpd			 (%%rdx),%%zmm5,%%zmm5	\n\t		vmulpd		0x200(%%rdx),%%zmm13,%%zmm13\n\t		vmulpd			 (%%r11),%%zmm21,%%zmm21\n\t		vmulpd		0x200(%%r11),%%zmm29,%%zmm29\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm4	\n\t	vfnmadd231pd	0x240(%%rdx),%%zmm15,%%zmm12\n\t	vfnmadd231pd	0x040(%%r11),%%zmm23,%%zmm20\n\t	vfnmadd231pd	0x240(%%r11),%%zmm31,%%zmm28\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm5	\n\t	 vfmadd231pd	0x240(%%rdx),%%zmm14,%%zmm13\n\t	 vfmadd231pd	0x040(%%r11),%%zmm22,%%zmm21\n\t	 vfmadd231pd	0x240(%%r11),%%zmm30,%%zmm29\n\t"\
+		"vmovaps		%%zmm5,0x040(%%rcx)		\n\t		vmovaps		%%zmm13,0x240(%%rcx)		\n\t		vmovaps		%%zmm21,0x040(%%r13)	\n\t		vmovaps		%%zmm29,0x240(%%r13)		\n\t"\
+		"vmovaps		%%zmm4,     (%%rcx)		\n\t		vmovaps		%%zmm12,0x200(%%rcx)		\n\t		vmovaps		%%zmm20,     (%%r13)	\n\t		vmovaps		%%zmm28,0x200(%%r13)		\n\t"\
+		"subq		$0x080,%%rdx																\n\t		addq	$0x100,%%r10					\n\t		subq	$0x080,%%r11					\n\t"\
+		"vmovaps		0x100(%%rcx),%%zmm4		\n\t		vmovaps		0x300(%%rcx),%%zmm12		\n\t		vmovaps			 (%%r10),%%zmm20	\n\t		vmovaps		0x200(%%r10),%%zmm28		\n\t"\
+		"vmovaps		0x140(%%rcx),%%zmm5		\n\t		vmovaps		0x340(%%rcx),%%zmm13		\n\t		vmovaps		0x040(%%r10),%%zmm21	\n\t		vmovaps		0x240(%%r10),%%zmm29		\n\t"\
+		"vmovaps		%%zmm4,%%zmm6			\n\t		vmovaps		%%zmm12,%%zmm14				\n\t		vmovaps		%%zmm20,%%zmm22		\n\t		vmovaps		0x200(%%r10),%%zmm30		\n\t"\
+		"vmovaps		%%zmm5,%%zmm7			\n\t		vmovaps		%%zmm13,%%zmm15				\n\t		vmovaps		%%zmm21,%%zmm23		\n\t		vmovaps		0x240(%%r10),%%zmm31		\n\t"\
+		"vmulpd			 (%%rdx),%%zmm4,%%zmm4	\n\t		vmulpd		0x200(%%rdx),%%zmm12,%%zmm12\n\t		vmulpd			 (%%r11),%%zmm20,%%zmm20\n\t		vmulpd		0x200(%%r11),%%zmm28,%%zmm28\n\t"\
+		"vmulpd			 (%%rdx),%%zmm5,%%zmm5	\n\t		vmulpd		0x200(%%rdx),%%zmm13,%%zmm13\n\t		vmulpd			 (%%r11),%%zmm21,%%zmm21\n\t		vmulpd		0x200(%%r11),%%zmm29,%%zmm29\n\t"\
+	"vfnmadd231pd	0x040(%%rdx),%%zmm7,%%zmm4	\n\t	vfnmadd231pd	0x240(%%rdx),%%zmm15,%%zmm12\n\t	vfnmadd231pd	0x040(%%r11),%%zmm23,%%zmm20\n\t	vfnmadd231pd	0x240(%%r11),%%zmm31,%%zmm28\n\t"\
+	" vfmadd231pd	0x040(%%rdx),%%zmm6,%%zmm5	\n\t	 vfmadd231pd	0x240(%%rdx),%%zmm14,%%zmm13\n\t	 vfmadd231pd	0x040(%%r11),%%zmm22,%%zmm21\n\t	 vfmadd231pd	0x240(%%r11),%%zmm30,%%zmm29\n\t"\
+		"vmovaps		%%zmm5,%%zmm7			\n\t		vmovaps		%%zmm13,%%zmm15				\n\t		vmovaps		%%zmm21,%%zmm23		\n\t		vmovaps		%%zmm29,%%zmm31		\n\t"\
+		"vmovaps		%%zmm4,%%zmm6			\n\t		vmovaps		%%zmm12,%%zmm14				\n\t		vmovaps		%%zmm20,%%zmm22		\n\t		vmovaps		%%zmm28,%%zmm30		\n\t"\
+		"vsubpd			 (%%rcx),%%zmm4,%%zmm4	\n\t		vsubpd		0x200(%%rcx),%%zmm12,%%zmm12\n\t		vsubpd			 (%%r13),%%zmm20,%%zmm20\n\t		vsubpd		0x200(%%r13),%%zmm28,%%zmm28\n\t"\
+		"vsubpd		0x040(%%rcx),%%zmm5,%%zmm5	\n\t		vsubpd		0x240(%%rcx),%%zmm13,%%zmm13\n\t		vsubpd		0x040(%%r13),%%zmm21,%%zmm21\n\t		vsubpd		0x240(%%r13),%%zmm29,%%zmm29\n\t"\
+		"vaddpd			 (%%rcx),%%zmm6,%%zmm6	\n\t		vaddpd		0x200(%%rcx),%%zmm14,%%zmm14\n\t		vaddpd			 (%%r13),%%zmm22,%%zmm22\n\t		vaddpd		0x200(%%r13),%%zmm30,%%zmm30\n\t"\
+		"vaddpd		0x040(%%rcx),%%zmm7,%%zmm7	\n\t		vaddpd		0x240(%%rcx),%%zmm15,%%zmm15\n\t		vaddpd		0x040(%%r13),%%zmm23,%%zmm23\n\t		vaddpd		0x240(%%r13),%%zmm31,%%zmm31\n\t"\
+		"vsubpd		%%zmm6,%%zmm0,%%zmm0		\n\t		vsubpd		%%zmm14,%%zmm8,%%zmm8	\n\t		vsubpd		%%zmm22,%%zmm16,%%zmm16\n\t		vsubpd		%%zmm30,%%zmm24,%%zmm24\n\t"\
+		"vsubpd		%%zmm7,%%zmm1,%%zmm1		\n\t		vsubpd		%%zmm15,%%zmm9,%%zmm9	\n\t		vsubpd		%%zmm23,%%zmm17,%%zmm17\n\t		vsubpd		%%zmm31,%%zmm25,%%zmm25\n\t"\
+		"vsubpd		%%zmm5,%%zmm2,%%zmm2		\n\t		vsubpd		%%zmm13,%%zmm10,%%zmm10\n\t		vsubpd		%%zmm21,%%zmm18,%%zmm18\n\t		vsubpd		%%zmm29,%%zmm26,%%zmm26\n\t"\
+		"vsubpd		%%zmm4,%%zmm3,%%zmm3		\n\t		vsubpd		%%zmm12,%%zmm11,%%zmm11\n\t		vsubpd		%%zmm20,%%zmm19,%%zmm19\n\t		vsubpd		%%zmm28,%%zmm27,%%zmm27\n\t"\
+	"vmovaps	%%zmm12,(%%rcx) \n\t"/* spill zmm12 to make room for two */"vmovaps (%%rdi),%%zmm12	\n\t	vmovaps	%%zmm28,(%%r13) \n\t"/* spill zmm28 to make room for two */"vmovaps (%%rdi),%%zmm28	\n\t"/* two */\
+	"vfmadd132pd	%%zmm12,%%zmm0,%%zmm6		\n\t	vfmadd132pd	%%zmm12,%%zmm8 ,%%zmm14			\n\t	vfmadd132pd	%%zmm28,%%zmm16,%%zmm22		\n\t	vfmadd132pd	%%zmm28,%%zmm24,%%zmm30			\n\t"\
+	"vfmadd132pd	%%zmm12,%%zmm1,%%zmm7		\n\t	vfmadd132pd	%%zmm12,%%zmm9 ,%%zmm15			\n\t	vfmadd132pd	%%zmm28,%%zmm17,%%zmm23		\n\t	vfmadd132pd	%%zmm28,%%zmm25,%%zmm31			\n\t"\
+	"vfmadd132pd	%%zmm12,%%zmm2,%%zmm5		\n\t	vfmadd132pd	%%zmm12,%%zmm10,%%zmm13			\n\t	vfmadd132pd	%%zmm28,%%zmm18,%%zmm21		\n\t	vfmadd132pd	%%zmm28,%%zmm26,%%zmm29			\n\t"\
+	"vfmadd132pd	%%zmm12,%%zmm3,%%zmm4		\n\t	vfmadd132pd	(%%rcx),%%zmm11,%%zmm12			\n\t	vfmadd132pd	%%zmm28,%%zmm19,%%zmm20		\n\t	vfmadd132pd	(%%r13),%%zmm27,%%zmm28			\n\t"\
+		"												vmovaps		%%zmm14,0x200(%%rcx)			\n\t														vmovaps		%%zmm30,0x200(%%r13)			\n\t"\
+		"												vmovaps		%%zmm15,0x240(%%rcx)			\n\t														vmovaps		%%zmm31,0x240(%%r13)			\n\t"\
+		"												vmovaps		%%zmm10,%%zmm14					\n\t														vmovaps		%%zmm26,%%zmm30					\n\t"\
+		"												vmovaps		%%zmm13,%%zmm15					\n\t														vmovaps		%%zmm29,%%zmm31					\n\t"\
+		"												vsubpd		%%zmm12,%%zmm10,%%zmm10	\n\t														vsubpd		%%zmm28,%%zmm26,%%zmm26	\n\t"\
+		"												vsubpd		%%zmm11,%%zmm13,%%zmm13	\n\t														vsubpd		%%zmm27,%%zmm29,%%zmm29	\n\t"\
+		"												vaddpd		%%zmm12,%%zmm14,%%zmm14	\n\t														vaddpd		%%zmm28,%%zmm30,%%zmm30	\n\t"\
+		"												vaddpd		%%zmm11,%%zmm15,%%zmm15	\n\t														vaddpd		%%zmm27,%%zmm31,%%zmm31	\n\t"\
+		/*****	SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r10) *****/												/*****	SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r30) *****/\
+		"												vmovaps		0x200(%%rcx),%%zmm11			\n\t														vmovaps		0x200(%%r13),%%zmm27			\n\t"\
+		"												vmovaps		0x240(%%rcx),%%zmm12			\n\t														vmovaps		0x240(%%r13),%%zmm28			\n\t"\
+	"vmovaps %%zmm13,(%%rcx) \n\t"/* spill zmm13 to make room for isrt2 */"vmovaps (%%rsi),%%zmm13	\n\t	vmovaps %%zmm29,(%%r13) \n\t"/* spill zmm29 to make room for isrt2 */"vmovaps (%%rsi),%%zmm29	\n\t"/*isrt2*/\
+		"vsubpd		%%zmm11,%%zmm6,%%zmm6		\n\t	vfnmadd231pd	%%zmm13,%%zmm10,%%zmm2		\n\t		vsubpd		%%zmm27,%%zmm22,%%zmm22	\n\t	vfnmadd231pd	%%zmm29,%%zmm26,%%zmm18		\n\t"\
+		"vsubpd		%%zmm9,%%zmm0,%%zmm0		\n\t	vfnmadd231pd	%%zmm13,%%zmm15,%%zmm5		\n\t		vsubpd		%%zmm25,%%zmm16,%%zmm16	\n\t	vfnmadd231pd	%%zmm29,%%zmm31,%%zmm21		\n\t"\
+		"vsubpd		%%zmm12,%%zmm7,%%zmm7		\n\t	vfnmadd231pd	%%zmm13,%%zmm14,%%zmm4		\n\t		vsubpd		%%zmm28,%%zmm23,%%zmm23	\n\t	vfnmadd231pd	%%zmm29,%%zmm30,%%zmm20		\n\t"\
+		"vsubpd		%%zmm8 ,%%zmm1,%%zmm1		\n\t	vfnmadd231pd	(%%rcx),%%zmm13,%%zmm3		\n\t		vsubpd		%%zmm24,%%zmm17,%%zmm17	\n\t	vfnmadd231pd	(%%r13),%%zmm29,%%zmm19		\n\t"\
+		"vmovaps		%%zmm6,0x200(%%rcx)		\n\t		vmovaps		%%zmm2,0x280(%%rcx)	\n\t		vmovaps		%%zmm22,0x200(%%r13)	\n\t		vmovaps		%%zmm18,0x280(%%r13)	\n\t"\
+		"vmovaps		%%zmm0,0x100(%%rcx)		\n\t		vmovaps		%%zmm5,0x180(%%rcx)	\n\t		vmovaps		%%zmm16,0x100(%%r13)	\n\t		vmovaps		%%zmm21,0x180(%%r13)	\n\t"\
+		"vmovaps		%%zmm7,0x240(%%rcx)		\n\t		vmovaps		%%zmm4,0x2c0(%%rcx)	\n\t		vmovaps		%%zmm23,0x240(%%r13)	\n\t		vmovaps		%%zmm20,0x2c0(%%r13)	\n\t"\
+		"vmovaps		%%zmm1,0x340(%%rcx)		\n\t		vmovaps		%%zmm3,0x3c0(%%rcx)	\n\t		vmovaps		%%zmm17,0x340(%%r13)	\n\t		vmovaps		%%zmm19,0x3c0(%%r13)	\n\t"\
+	"vmovaps	0x80(%%rdi),%%zmm13																	\n\t	vmovaps	0x80(%%rdi),%%zmm29 \n\t"/* sqrt2 *//* rcol: *2 => *sqrt2 due to above FMA leaving zmm26,13-15 unmultiplied-by-isrt2: */\
+	"vfmadd132pd	(%%rdi),%%zmm6,%%zmm11		\n\t	 vfmadd132pd	%%zmm13,%%zmm2,%%zmm10	\n\t	vfmadd132pd	(%%rdi),%%zmm22,%%zmm27	\n\t	 vfmadd132pd	%%zmm29,%%zmm18,%%zmm26	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm0,%%zmm9		\n\t	 vfmadd132pd	%%zmm13,%%zmm5,%%zmm15	\n\t	vfmadd132pd	(%%rdi),%%zmm16,%%zmm25	\n\t	 vfmadd132pd	%%zmm29,%%zmm21,%%zmm31	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm7,%%zmm12		\n\t	 vfmadd132pd	%%zmm13,%%zmm4,%%zmm14	\n\t	vfmadd132pd	(%%rdi),%%zmm23,%%zmm28	\n\t	 vfmadd132pd	%%zmm29,%%zmm20,%%zmm30	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm1,%%zmm8		\n\t	 vfmadd132pd	(%%rcx),%%zmm3,%%zmm13	\n\t	vfmadd132pd	(%%rdi),%%zmm17,%%zmm24	\n\t	 vfmadd132pd	(%%r13),%%zmm19,%%zmm29	\n\t"\
+		"vmovaps		%%zmm11,     (%%rcx)	\n\t		vmovaps		%%zmm10,0x080(%%rcx)	\n\t		vmovaps		%%zmm27,     (%%r13)	\n\t		vmovaps		%%zmm26,0x080(%%r13)	\n\t"\
+		"vmovaps		%%zmm9 ,0x300(%%rcx)	\n\t		vmovaps		%%zmm15,0x380(%%rcx)	\n\t		vmovaps		%%zmm25,0x300(%%r13)	\n\t		vmovaps		%%zmm31,0x380(%%r13)	\n\t"\
+		"vmovaps		%%zmm12,0x040(%%rcx)	\n\t		vmovaps		%%zmm14,0x0c0(%%rcx)	\n\t		vmovaps		%%zmm28,0x040(%%r13)	\n\t		vmovaps		%%zmm30,0x0c0(%%r13)	\n\t"\
+		"vmovaps		%%zmm8 ,0x140(%%rcx)	\n\t		vmovaps		%%zmm13,0x1c0(%%rcx)	\n\t		vmovaps		%%zmm24,0x140(%%r13)	\n\t		vmovaps		%%zmm29,0x1c0(%%r13)	\n\t"\
+		"\n\t"\
+	/**********************************************************************************/\
+	/*...and now do eight radix-4 transforms, including the internal twiddle factors: */\
+	/**********************************************************************************/\
+		"movq		%[__isrt2],%%rsi			\n\t"\
+	/*...Block 1: t00,t10,t20,t30	*/					/*...Block 5: t08,t18,t28,t38	*/					/*...Block 3: t04,t14,t24,t34	*/			/*...Block 7: t0C,t1C,t2C,t3C	*/\
+		"movq		%[__r20],%%rcx				\n\t					leaq	0x100(%%rcx),%%r12	\n\t		vmovaps		 (%%r12),%%zmm20			\n\t		vmovaps		0x200(%%r12),%%zmm28		\n\t"\
+		"movq		%[__r30],%%rdx				\n\t					leaq	0x100(%%rdx),%%r13	\n\t		vmovaps	0x040(%%r12),%%zmm21			\n\t		vmovaps		0x240(%%r12),%%zmm29		\n\t"\
+		"movq		%[__r00],%%rax				\n\t					leaq	0x100(%%rax),%%r10	\n\t		vmovaps		 (%%r13),%%zmm22			\n\t		vmovaps		0x200(%%r13),%%zmm30		\n\t"\
+		"movq		%[__r10],%%rbx				\n\t					leaq	0x100(%%rbx),%%r11	\n\t		vmovaps	0x040(%%r13),%%zmm19			\n\t		vmovaps		0x240(%%r13),%%zmm27		\n\t"\
+		"vmovaps		 (%%rax),%%zmm0			\n\t		vmovaps		0x200(%%rax),%%zmm8			\n\t	vmovaps 0x080(%%rsi),%%zmm23\n\t vmovaps 0x040(%%rsi),%%zmm31 \n\t"/* Use 7,15 for s,c 2 cut loads */\
+		"vmovaps	0x040(%%rax),%%zmm1			\n\t		vmovaps		0x240(%%rax),%%zmm9			\n\t		vmulpd		%%zmm23,%%zmm21,%%zmm17	\n\t		vmulpd		 %%zmm31,%%zmm29,%%zmm25	\n\t"\
+		"vmovaps		 (%%rbx),%%zmm2			\n\t		vmovaps		0x200(%%rbx),%%zmm10		\n\t		vmulpd		%%zmm31,%%zmm19,%%zmm19	\n\t		vmulpd		 %%zmm23,%%zmm27,%%zmm27	\n\t"\
+		"vmovaps	0x040(%%rbx),%%zmm3			\n\t		vmovaps		0x240(%%rbx),%%zmm11		\n\t		vmulpd		%%zmm23,%%zmm20,%%zmm16	\n\t		vmulpd		 %%zmm31,%%zmm28,%%zmm24	\n\t"\
+		"vaddpd			  %%zmm0,%%zmm2,%%zmm2	\n\t		vaddpd		%%zmm9 ,%%zmm10,%%zmm10		\n\t		vmulpd		%%zmm31,%%zmm22,%%zmm18	\n\t		vmulpd		 %%zmm23,%%zmm30,%%zmm26	\n\t"\
+		"vaddpd			  %%zmm1,%%zmm3,%%zmm3	\n\t		vaddpd		%%zmm8 ,%%zmm11,%%zmm11		\n\t	vfmsub132pd	%%zmm31,%%zmm17,%%zmm20		\n\t	vfmsub132pd		 %%zmm23,%%zmm25,%%zmm28	\n\t"\
+		"vsubpd			 (%%rbx),%%zmm0,%%zmm0	\n\t		vsubpd		0x240(%%rbx),%%zmm8,%%zmm8	\n\t	vfmsub132pd	%%zmm23,%%zmm19,%%zmm22		\n\t	vfmsub132pd		 %%zmm31,%%zmm27,%%zmm30	\n\t"\
+		"vsubpd		0x040(%%rbx),%%zmm1,%%zmm1	\n\t		vsubpd		0x200(%%rbx),%%zmm9,%%zmm9	\n\t	vfmadd132pd	%%zmm31,%%zmm16,%%zmm21		\n\t	vfmadd132pd		 %%zmm23,%%zmm24,%%zmm29	\n\t"\
+		"vmovaps		 (%%rcx),%%zmm4			\n\t		vmovaps		0x200(%%rcx),%%zmm12		\n\t	vfmadd132pd 0x40(%%r13),%%zmm18,%%zmm23		\n\t	vfmadd132pd 0x240(%%r13),%%zmm26,%%zmm31	\n\t"\
+		"vmovaps	0x040(%%rcx),%%zmm5			\n\t		vmovaps		0x240(%%rcx),%%zmm13		\n\t		vsubpd		%%zmm22,%%zmm20,%%zmm20	\n\t		vsubpd		%%zmm30,%%zmm28,%%zmm28\n\t"\
+		"vmovaps		 (%%rdx),%%zmm6			\n\t		vmovaps		0x200(%%rdx),%%zmm14		\n\t		vsubpd		%%zmm23,%%zmm21,%%zmm21	\n\t		vsubpd		%%zmm31,%%zmm29,%%zmm29\n\t"\
+		"vmovaps	0x040(%%rdx),%%zmm7			\n\t		vmovaps		0x240(%%rdx),%%zmm15		\n\t		vmovaps		 (%%r11),%%zmm18			\n\t		vmovaps		0x200(%%r11),%%zmm26		\n\t"\
+		"vaddpd		%%zmm4,%%zmm6,%%zmm6		\n\t		vsubpd		%%zmm13,%%zmm12,%%zmm12		\n\t		vmovaps	0x040(%%r11),%%zmm19			\n\t		vmovaps		0x240(%%r11),%%zmm27		\n\t"\
+		"vaddpd		%%zmm5,%%zmm7,%%zmm7		\n\t		vaddpd		0x200(%%rcx),%%zmm13,%%zmm13\n\t	vfmadd132pd	(%%rdi),%%zmm20,%%zmm22	\n\t	vfmadd132pd		(%%rdi),%%zmm28,%%zmm30\n\t"\
+		"vsubpd			 (%%rdx),%%zmm4,%%zmm4	\n\t		vaddpd			 %%zmm15,%%zmm14,%%zmm14\n\t	vfmadd132pd	(%%rdi),%%zmm21,%%zmm23	\n\t	vfmadd132pd		(%%rdi),%%zmm29,%%zmm31\n\t"\
+		"vsubpd		0x040(%%rdx),%%zmm5,%%zmm5	\n\t		vsubpd		0x200(%%rdx),%%zmm15,%%zmm15\n\t		vsubpd		0x040(%%r11),%%zmm18,%%zmm18\n\t		vaddpd		0x240(%%r11),%%zmm26,%%zmm26\n\t"\
+		"vsubpd		%%zmm6,%%zmm2,%%zmm2		\n\t		vmulpd		(%%rsi),%%zmm12,%%zmm12\n\t		vaddpd			 (%%r11),%%zmm19,%%zmm19\n\t		vsubpd		0x200(%%r11),%%zmm27,%%zmm27\n\t"\
+		"vsubpd		%%zmm7,%%zmm3,%%zmm3		\n\t		vmulpd		(%%rsi),%%zmm13,%%zmm13\n\t	vmovaps %%zmm22,(%%r12) \n\t"/* spill zmm22 to make room for isrt2 */"vmovaps (%%rsi),%%zmm22	\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm2,%%zmm6		\n\t	vfnmadd231pd	(%%rsi),%%zmm14,%%zmm12\n\t		vmovaps		 (%%r10),%%zmm16			\n\t		vmovaps		 0x200(%%r10),%%zmm24		\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm3,%%zmm7		\n\t	vfnmadd231pd	(%%rsi),%%zmm15,%%zmm13\n\t		vmovaps	0x040(%%r10),%%zmm17			\n\t		vmovaps		 0x240(%%r10),%%zmm25		\n\t"\
+		"vmovaps		%%zmm2,      (%%rcx)	\n\t	 vfmadd132pd	0x80(%%rdi),%%zmm12,%%zmm14\n\t	vfnmadd231pd	%%zmm22,%%zmm18,%%zmm16		\n\t	vfnmadd231pd	%%zmm22,%%zmm26,%%zmm24		\n\t"\
+		"vmovaps		%%zmm3, 0x040(%%rcx)	\n\t	 vfmadd132pd	0x80(%%rdi),%%zmm13,%%zmm15\n\t	vfnmadd231pd	%%zmm22,%%zmm19,%%zmm17		\n\t	vfnmadd231pd	%%zmm22,%%zmm27,%%zmm25		\n\t"\
+		"										\n\t		vsubpd		%%zmm12,%%zmm8,%%zmm8	\n\t	 vfmadd213pd		 (%%r10),%%zmm22,%%zmm18\n\t	 vfmadd213pd	0x200(%%r10),%%zmm22,%%zmm26\n\t"\
+		"										\n\t		vsubpd		%%zmm13,%%zmm10,%%zmm10\n\t	 vfmadd213pd	0x040(%%r10),%%zmm22,%%zmm19\n\t	 vfmadd213pd	0x240(%%r10),%%zmm22,%%zmm27\n\t"\
+		"vmovaps		%%zmm6,      (%%rax)	\n\t	 vfmadd132pd	(%%rdi),%%zmm8,%%zmm12\n\t	vmovaps	(%%r12),%%zmm22	\n\t"/* restore spill */\
+		"vmovaps		%%zmm7, 0x040(%%rax)	\n\t	 vfmadd132pd	(%%rdi),%%zmm10,%%zmm13\n\t		vsubpd		%%zmm22,%%zmm18,%%zmm18	\n\t		vsubpd		%%zmm28,%%zmm24,%%zmm24\n\t"\
+		"vsubpd		%%zmm5,%%zmm0,%%zmm0		\n\t		vmovaps		%%zmm8 ,0x200(%%rcx)		\n\t		vsubpd		%%zmm23,%%zmm19,%%zmm19	\n\t		vsubpd		%%zmm29,%%zmm25,%%zmm25\n\t"\
+		"vsubpd		%%zmm4,%%zmm1,%%zmm1		\n\t		vmovaps		%%zmm10,0x240(%%rcx)		\n\t	vfmadd132pd	(%%rdi),%%zmm18,%%zmm22	\n\t	vfmadd132pd		(%%rdi),%%zmm24,%%zmm28\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm0,%%zmm5		\n\t		vmovaps		%%zmm12,0x200(%%rax)		\n\t	vfmadd132pd	(%%rdi),%%zmm19,%%zmm23	\n\t	vfmadd132pd		(%%rdi),%%zmm25,%%zmm29\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm1,%%zmm4		\n\t		vmovaps		%%zmm13,0x240(%%rax)		\n\t		vmovaps		%%zmm18,      (%%r12)		\n\t		vmovaps		%%zmm24,0x200(%%r12)		\n\t"\
+		"vmovaps		%%zmm0,      (%%rbx)	\n\t		vsubpd		%%zmm15,%%zmm11,%%zmm11\n\t		vmovaps		%%zmm19, 0x040(%%r12)		\n\t		vmovaps		%%zmm25,0x240(%%r12)		\n\t"\
+		"vmovaps		%%zmm1, 0x040(%%rdx)	\n\t		vsubpd		%%zmm14,%%zmm9,%%zmm9	\n\t		vmovaps		%%zmm22,      (%%r10)		\n\t		vmovaps		%%zmm28,0x200(%%r10)		\n\t"\
+		"										\n\t	 vfmadd132pd	(%%rdi),%%zmm11,%%zmm15\n\t		vmovaps		%%zmm23, 0x040(%%r10)		\n\t		vmovaps		%%zmm29,0x240(%%r10)		\n\t"\
+		"										\n\t	 vfmadd132pd	(%%rdi),%%zmm9 ,%%zmm14\n\t		vsubpd		%%zmm21,%%zmm16,%%zmm16	\n\t		vsubpd		%%zmm31,%%zmm26,%%zmm26\n\t"\
+		"vmovaps		%%zmm5,      (%%rdx)	\n\t		vmovaps		%%zmm11,0x200(%%rbx)		\n\t		vsubpd		%%zmm20,%%zmm17,%%zmm17	\n\t		vsubpd		%%zmm30,%%zmm27,%%zmm27\n\t"\
+		"vmovaps		%%zmm4, 0x040(%%rbx)	\n\t		vmovaps		%%zmm9 ,0x240(%%rdx)		\n\t	vfmadd132pd	(%%rdi),%%zmm16,%%zmm21	\n\t	vfmadd132pd		(%%rdi),%%zmm26,%%zmm31\n\t"\
+		"													vmovaps		%%zmm15,0x200(%%rdx)		\n\t	vfmadd132pd	(%%rdi),%%zmm17,%%zmm20	\n\t	vfmadd132pd		(%%rdi),%%zmm27,%%zmm30\n\t"\
+		"													vmovaps		%%zmm14,0x240(%%rbx)		\n\t		vmovaps		%%zmm16,      (%%r11)		\n\t		vmovaps		%%zmm26,0x200(%%r11)		\n\t"\
+		"																										vmovaps		%%zmm17, 0x040(%%r13)		\n\t		vmovaps		%%zmm27,0x240(%%r13)		\n\t"\
+		"																										vmovaps		%%zmm21,      (%%r13)		\n\t		vmovaps		%%zmm31,0x200(%%r13)		\n\t"\
+		"																										vmovaps		%%zmm20, 0x040(%%r11)		\n\t		vmovaps		%%zmm30,0x240(%%r11)		\n\t"\
+		"addq		$0x0c0,%%rsi	\n\t"/* cc1 */\
+	/*...Block 2: t02,t12,t22,t32	*/					/*...Block 6: t0A,t1A,t2A,t3A */					/*...Block 4: t06,t16,t26,t36	*/			/*...Block 8: t0E,t1E,t2E,t3E	*/\
+		"addq		$0x080,%%rcx				\n\t					addq	$0x080,%%r12	\n\t		vmovaps		 (%%r12),%%zmm20			\n\t		vmovaps		0x200(%%r12),%%zmm28		\n\t"\
+		"addq		$0x080,%%rdx				\n\t					addq	$0x080,%%r13	\n\t		vmovaps		 (%%r13),%%zmm22			\n\t		vmovaps		0x200(%%r13),%%zmm30		\n\t"\
+		"addq		$0x080,%%rax				\n\t					addq	$0x080,%%r10	\n\t		vmovaps	0x040(%%r12),%%zmm17			\n\t		vmovaps		0x240(%%r12),%%zmm29		\n\t"\
+		"addq		$0x080,%%rbx				\n\t					addq	$0x080,%%r11	\n\t		vmovaps	0x040(%%r13),%%zmm19			\n\t		vmovaps		0x240(%%r13),%%zmm27		\n\t"\
+		"vmovaps		 (%%rcx),%%zmm4			\n\t		vmovaps		0x200(%%rcx),%%zmm12		\n\t		vmovaps		 (%%rsi),%%zmm18			\n\t		vmovaps		0x040(%%rsi),%%zmm23		\n\t"\
+		"vmovaps		 (%%rdx),%%zmm6			\n\t		vmovaps		0x200(%%rdx),%%zmm14		\n\t		vmovaps	0x080(%%rsi),%%zmm21			\n\t		vmovaps		0x0c0(%%rsi),%%zmm31		\n\t"\
+		"vmovaps	0x040(%%rcx),%%zmm5			\n\t		vmovaps		0x240(%%rcx),%%zmm9			\n\t		vmulpd		%%zmm31,%%zmm17,%%zmm17	\n\t		vmulpd			%%zmm18,%%zmm29,%%zmm25	\n\t"\
+		"vmovaps	0x040(%%rdx),%%zmm3			\n\t		vmovaps		0x240(%%rdx),%%zmm11		\n\t		vmulpd		%%zmm18,%%zmm19,%%zmm19	\n\t		vmulpd			%%zmm21,%%zmm27,%%zmm27	\n\t"\
+		"vmovaps		 (%%rsi),%%zmm15		\n\t		vmovaps		0x040(%%rsi),%%zmm10		\n\t		vmulpd		%%zmm31,%%zmm20,%%zmm16	\n\t		vmulpd			%%zmm18,%%zmm28,%%zmm24	\n\t"\
+		"vmovaps	0x080(%%rsi),%%zmm7 		\n\t		vmovaps		0x0c0(%%rsi),%%zmm13		\n\t		vmulpd		 (%%r13),%%zmm18,%%zmm18	\n\t		vmulpd			%%zmm21,%%zmm30,%%zmm26	\n\t"\
+		"vmulpd		%%zmm10,%%zmm5,%%zmm1		\n\t		vmulpd			%%zmm7 ,%%zmm9 ,%%zmm9	\n\t	vfmsub132pd	%%zmm21,%%zmm17,%%zmm20		\n\t	vfmsub132pd			%%zmm23,%%zmm25,%%zmm28	\n\t"\
+		"vmulpd		%%zmm13,%%zmm3,%%zmm3		\n\t		vmulpd			%%zmm10,%%zmm11,%%zmm11	\n\t	vfmadd132pd	%%zmm23,%%zmm19,%%zmm22		\n\t	vfmsub132pd			%%zmm31,%%zmm27,%%zmm30	\n\t"\
+		"vmulpd		%%zmm10,%%zmm4,%%zmm0		\n\t		vmulpd			%%zmm7 ,%%zmm12,%%zmm8	\n\t	vfmadd132pd	0x040(%%r12),%%zmm16,%%zmm21	\n\t	vfmadd132pd			%%zmm23,%%zmm24,%%zmm29	\n\t"\
+		"vmulpd		%%zmm13,%%zmm6,%%zmm2		\n\t		vmulpd		0x200(%%rdx),%%zmm10,%%zmm10\n\t	vfmsub132pd	0x040(%%r13),%%zmm18,%%zmm23	\n\t	vfmadd132pd		0x240(%%r13),%%zmm26,%%zmm31\n\t"\
+	"vfmsub132pd	%%zmm15,%%zmm1,%%zmm4		\n\t	vfmsub132pd			%%zmm13,%%zmm9 ,%%zmm12	\n\t		vsubpd		%%zmm22,%%zmm20,%%zmm20	\n\t		vsubpd		%%zmm30,%%zmm28,%%zmm28\n\t"\
+	"vfmsub132pd	%%zmm7 ,%%zmm3,%%zmm6		\n\t	vfmadd132pd			%%zmm15,%%zmm11,%%zmm14	\n\t		vsubpd		%%zmm23,%%zmm21,%%zmm21	\n\t		vsubpd		%%zmm31,%%zmm29,%%zmm29\n\t"\
+	"vfmadd132pd	%%zmm15,%%zmm0,%%zmm5		\n\t	vfmadd132pd		0x240(%%rcx),%%zmm8 ,%%zmm13\n\t		vmovaps		 (%%r11),%%zmm18			\n\t		vmovaps		0x200(%%r11),%%zmm26		\n\t"\
+	"vfmadd132pd	0x040(%%rdx),%%zmm2,%%zmm7	\n\t	vfmsub132pd		0x240(%%rdx),%%zmm10,%%zmm15\n\t		vmovaps	0x040(%%r11),%%zmm16			\n\t		vmovaps		0x240(%%r11),%%zmm24		\n\t"\
+		"vsubpd		%%zmm6,%%zmm4,%%zmm4		\n\t		vsubpd		%%zmm14,%%zmm12,%%zmm12\n\t	vfmadd132pd	(%%rdi),%%zmm20,%%zmm22	\n\t	vfmadd132pd		(%%rdi),%%zmm28,%%zmm30\n\t"\
+		"vsubpd		%%zmm7,%%zmm5,%%zmm5		\n\t		vsubpd		%%zmm15,%%zmm13,%%zmm13\n\t	vfmadd132pd	(%%rdi),%%zmm21,%%zmm23	\n\t	vfmadd132pd		(%%rdi),%%zmm29,%%zmm31\n\t"\
+		"vmovaps		 (%%rbx),%%zmm2			\n\t		vmovaps		0x200(%%rbx),%%zmm10		\n\t		vmovaps		 (%%r11),%%zmm18			\n\t		vmovaps		0x200(%%r11),%%zmm26		\n\t"\
+		"vmovaps	0x040(%%rbx),%%zmm0			\n\t		vmovaps		0x240(%%rbx),%%zmm8			\n\t		vmovaps	0x040(%%r11),%%zmm16			\n\t		vmovaps		0x240(%%r11),%%zmm24		\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm4,%%zmm6		\n\t	vfmadd132pd		(%%rdi),%%zmm12,%%zmm14\n\t		vmovaps		 (%%r11),%%zmm17			\n\t		vmovaps		0x200(%%r11),%%zmm25		\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm5,%%zmm7		\n\t	vfmadd132pd		(%%rdi),%%zmm13,%%zmm15\n\t		vmovaps	0x040(%%r11),%%zmm19			\n\t		vmovaps		0x240(%%r11),%%zmm27		\n\t"\
+		"vmovaps		 (%%rbx),%%zmm1			\n\t		vmovaps		0x200(%%rbx),%%zmm9			\n\t		vmovaps		 (%%r11),%%zmm17			\n\t		vmovaps		0x200(%%r11),%%zmm25		\n\t"\
+		"vmovaps	-0x80(%%rsi),%%zmm3			\n\t		vmovaps		-0x40(%%rsi),%%zmm11		\n\t		vmovaps	-0x40(%%rsi),%%zmm19			\n\t		vmovaps		-0x80(%%rsi),%%zmm27		\n\t"\
+		"vmulpd		%%zmm11,%%zmm0,%%zmm0		\n\t		vmulpd			%%zmm3 ,%%zmm8 ,%%zmm8	\n\t		vmulpd		%%zmm27,%%zmm16,%%zmm16	\n\t		vmulpd			%%zmm19,%%zmm24,%%zmm24	\n\t"\
+		"vmulpd		%%zmm11,%%zmm1,%%zmm1		\n\t		vmulpd			%%zmm3 ,%%zmm9 ,%%zmm9	\n\t		vmulpd		%%zmm27,%%zmm17,%%zmm17	\n\t		vmulpd			%%zmm19,%%zmm25,%%zmm25	\n\t"\
+	"vfmsub132pd	%%zmm3 ,%%zmm0,%%zmm2		\n\t	vfmadd132pd			%%zmm11,%%zmm8 ,%%zmm10	\n\t	vfmsub132pd		%%zmm19,%%zmm16,%%zmm18		\n\t	vfmadd132pd			%%zmm27,%%zmm24,%%zmm26	\n\t"\
+	"vfmadd132pd	0x40(%%rbx),%%zmm1,%%zmm3	\n\t	vfmsub132pd		0x240(%%rbx),%%zmm9,%%zmm11	\n\t	vfmadd132pd	0x40(%%r11),%%zmm17,%%zmm19		\n\t	vfmsub132pd		0x240(%%r11),%%zmm25,%%zmm27\n\t"\
+		"vmovaps		 (%%rax),%%zmm0			\n\t		vmovaps		0x200(%%rax),%%zmm8			\n\t		vmovaps		 (%%r10),%%zmm16			\n\t		vmovaps		0x200(%%r10),%%zmm24		\n\t"\
+		"vmovaps	0x040(%%rax),%%zmm1			\n\t		vmovaps		0x240(%%rax),%%zmm9			\n\t		vmovaps	0x040(%%r10),%%zmm17			\n\t		vmovaps		0x240(%%r10),%%zmm25		\n\t"\
+		"vsubpd		%%zmm2,%%zmm0,%%zmm0		\n\t		vsubpd		%%zmm10,%%zmm8,%%zmm8	\n\t		vsubpd		%%zmm18,%%zmm16,%%zmm16	\n\t		vsubpd		%%zmm26,%%zmm24,%%zmm24\n\t"\
+		"vsubpd		%%zmm3,%%zmm1,%%zmm1		\n\t		vsubpd		%%zmm11,%%zmm9,%%zmm9	\n\t		vsubpd		%%zmm19,%%zmm17,%%zmm17	\n\t		vsubpd		%%zmm27,%%zmm25,%%zmm25\n\t"\
+		"vaddpd			 (%%rax),%%zmm2,%%zmm2	\n\t		vaddpd		0x200(%%rax),%%zmm10,%%zmm10\n\t		vaddpd			 (%%r10),%%zmm18,%%zmm18\n\t		vaddpd		0x200(%%r10),%%zmm26,%%zmm26\n\t"\
+		"vaddpd		0x040(%%rax),%%zmm3,%%zmm3	\n\t		vaddpd		0x240(%%rax),%%zmm11,%%zmm11\n\t		vaddpd		0x040(%%r10),%%zmm19,%%zmm19\n\t		vaddpd		0x240(%%r10),%%zmm27,%%zmm27\n\t"\
+		"vsubpd		%%zmm6,%%zmm2,%%zmm2		\n\t		vsubpd		%%zmm12,%%zmm8,%%zmm8	\n\t		vsubpd		%%zmm20,%%zmm18,%%zmm18	\n\t		vsubpd		%%zmm28,%%zmm24,%%zmm24\n\t"\
+		"vsubpd		%%zmm7,%%zmm3,%%zmm3		\n\t		vsubpd		%%zmm13,%%zmm9,%%zmm9	\n\t		vsubpd		%%zmm21,%%zmm19,%%zmm19	\n\t		vsubpd		%%zmm29,%%zmm25,%%zmm25\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm2,%%zmm6		\n\t	vfmadd132pd		(%%rdi),%%zmm8,%%zmm12\n\t	vfmadd132pd	(%%rdi),%%zmm18,%%zmm20	\n\t	vfmadd132pd		(%%rdi),%%zmm24,%%zmm28\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm3,%%zmm7		\n\t	vfmadd132pd		(%%rdi),%%zmm9,%%zmm13\n\t	vfmadd132pd	(%%rdi),%%zmm19,%%zmm21	\n\t	vfmadd132pd		(%%rdi),%%zmm25,%%zmm29\n\t"\
+		"vmovaps		%%zmm2,      (%%rcx)	\n\t		vmovaps		%%zmm8 ,0x200(%%rcx)		\n\t		vmovaps		%%zmm18,      (%%r12)		\n\t		vmovaps		%%zmm24,0x200(%%r12)		\n\t"\
+		"vmovaps		%%zmm3, 0x040(%%rcx)	\n\t		vmovaps		%%zmm9 ,0x240(%%rcx)		\n\t		vmovaps		%%zmm19, 0x040(%%r12)		\n\t		vmovaps		%%zmm25,0x240(%%r12)		\n\t"\
+		"vmovaps		%%zmm6,      (%%rax)	\n\t		vmovaps		%%zmm12,0x200(%%rax)		\n\t		vmovaps		%%zmm20,      (%%r10)		\n\t		vmovaps		%%zmm28,0x200(%%r10)		\n\t"\
+		"vmovaps		%%zmm7, 0x040(%%rax)	\n\t		vmovaps		%%zmm13,0x240(%%rax)		\n\t		vmovaps		%%zmm21, 0x040(%%r10)		\n\t		vmovaps		%%zmm29,0x240(%%r10)		\n\t"\
+		"vsubpd		%%zmm5,%%zmm0,%%zmm0		\n\t		vsubpd		%%zmm15,%%zmm10,%%zmm10\n\t		vsubpd		%%zmm23,%%zmm16,%%zmm16	\n\t		vsubpd		%%zmm31,%%zmm26,%%zmm26\n\t"\
+		"vsubpd		%%zmm4,%%zmm1,%%zmm1		\n\t		vsubpd		%%zmm14,%%zmm11,%%zmm11\n\t		vsubpd		%%zmm22,%%zmm17,%%zmm17	\n\t		vsubpd		%%zmm30,%%zmm27,%%zmm27\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm0,%%zmm5		\n\t	vfmadd132pd		(%%rdi),%%zmm10,%%zmm15\n\t	vfmadd132pd	(%%rdi),%%zmm16,%%zmm23	\n\t	vfmadd132pd		(%%rdi),%%zmm26,%%zmm31\n\t"\
+	"vfmadd132pd	(%%rdi),%%zmm1,%%zmm4		\n\t	vfmadd132pd		(%%rdi),%%zmm11,%%zmm14\n\t	vfmadd132pd	(%%rdi),%%zmm17,%%zmm22	\n\t	vfmadd132pd		(%%rdi),%%zmm27,%%zmm30\n\t"\
+		"vmovaps		%%zmm0,      (%%rbx)	\n\t		vmovaps		%%zmm10,0x200(%%rbx)		\n\t		vmovaps		%%zmm16,      (%%r11)		\n\t		vmovaps		%%zmm26,0x200(%%r11)		\n\t"\
+		"vmovaps		%%zmm1, 0x040(%%rdx)	\n\t		vmovaps		%%zmm11,0x240(%%rdx)		\n\t		vmovaps		%%zmm17, 0x040(%%r13)		\n\t		vmovaps		%%zmm27,0x240(%%r13)		\n\t"\
+		"vmovaps		%%zmm5,      (%%rdx)	\n\t		vmovaps		%%zmm15,0x200(%%rdx)		\n\t		vmovaps		%%zmm23,      (%%r13)		\n\t		vmovaps		%%zmm31,0x200(%%r13)		\n\t"\
+		"vmovaps		%%zmm4, 0x040(%%rbx)	\n\t		vmovaps		%%zmm14,0x240(%%rbx)		\n\t		vmovaps		%%zmm22, 0x040(%%r11)		\n\t		vmovaps		%%zmm30,0x240(%%r11)		\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		 ,[__add1] "m" (Xadd1)\
+		 ,[__add2] "m" (Xadd2)\
+		 ,[__add3] "m" (Xadd3)\
+		 ,[__add4] "m" (Xadd4)\
+		 ,[__add5] "m" (Xadd5)\
+		 ,[__add6] "m" (Xadd6)\
+		 ,[__add7] "m" (Xadd7)\
+		 ,[__r00] "m" (Xr00)\
+		 ,[__r10] "m" (Xr10)\
+		 ,[__r20] "m" (Xr20)\
+		 ,[__r30] "m" (Xr30)\
+		 ,[__isrt2] "m" (Xisrt2)\
+		 ,[__cc0] "m" (Xcc0)\
+		 ,[__c00] "m" (Xc00)\
+		 ,[__c01] "m" (Xc01)\
+		 ,[__c02] "m" (Xc02)\
+		 ,[__c03] "m" (Xc03)\
+		 ,[__c05] "m" (Xc05)\
+		 ,[__c07] "m" (Xc07)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+	);\
+	}
+
+   #else	// AVX-512 version:
+
 	// Cost [vector-ops only]: 740 MEM (128 in transpose section, 610 in DFT proper), 540 ARITHMETIC
 	#define SSE2_RADIX32_WRAPPER_DIF(Xadd0,Xadd1,Xadd2,Xadd3,Xadd4,Xadd5,Xadd6,Xadd7,Xr00,Xr10,Xr20,Xr30,Xisrt2,Xcc0,Xc00,Xc01,Xc02,Xc03,Xc05,Xc07)\
 	{\
@@ -2262,7 +2845,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		"movq		%[__r30],%%rdx				\n\t					leaq	0x100(%%rdx),%%r13	\n\t		vmovaps	0x040(%%r12),%%zmm21			\n\t		vmovaps		0x240(%%r12),%%zmm29		\n\t"\
 		"movq		%[__r00],%%rax				\n\t					leaq	0x100(%%rax),%%r10	\n\t		vmovaps		 (%%r13),%%zmm22			\n\t		vmovaps		0x200(%%r13),%%zmm30		\n\t"\
 		"movq		%[__r10],%%rbx				\n\t					leaq	0x100(%%rbx),%%r11	\n\t		vmovaps	0x040(%%r13),%%zmm19			\n\t		vmovaps		0x240(%%r13),%%zmm27		\n\t"\
-		"vmovaps		 (%%rax),%%zmm0			\n\t		vmovaps		0x200(%%rax),%%zmm8			\n\t	vmovaps 0x080(%%rsi),%%zmm23\n\t vmovaps 0x040(%%rsi),%%zmm31 \n\t"/* Use 7,15 for s,c 2 cut #load*/\
+		"vmovaps		 (%%rax),%%zmm0			\n\t		vmovaps		0x200(%%rax),%%zmm8			\n\t	vmovaps 0x080(%%rsi),%%zmm23\n\t vmovaps 0x040(%%rsi),%%zmm31 \n\t"/* Use 7,15 for s,c 2 cut loads */\
 		"vmovaps	0x040(%%rax),%%zmm1			\n\t		vmovaps		0x240(%%rax),%%zmm9			\n\t		vmulpd		%%zmm23,%%zmm21,%%zmm17	\n\t		vmulpd		 %%zmm31,%%zmm29,%%zmm25	\n\t"\
 		"vmovaps		 (%%rbx),%%zmm2			\n\t		vmovaps		0x200(%%rbx),%%zmm10		\n\t		vmulpd		%%zmm31,%%zmm19,%%zmm19	\n\t		vmulpd		 %%zmm23,%%zmm27,%%zmm27	\n\t"\
 		"vmovaps	0x040(%%rbx),%%zmm3			\n\t		vmovaps		0x240(%%rbx),%%zmm11		\n\t		vmulpd		%%zmm23,%%zmm20,%%zmm16	\n\t		vmulpd		 %%zmm31,%%zmm28,%%zmm24	\n\t"\
@@ -2381,6 +2964,8 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
+
+   #endif	// (IMCI512 or AVX512?) toggle
 
   #endif	// USE_16_REG ?
 
@@ -3221,6 +3806,789 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 
   #else	// USE_16_REG = False, i.e. use default 32-SIMD-reg version of macro:
 
+   #ifdef USE_IMCI512	// 1st-gen Xeon Phi - Use modified 8x8 doubles-transpose algo [1a] from util.c:test_simd_transpose_8x8()
+
+	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xadd2,Xadd3,Xadd4,Xadd5,Xadd6,Xadd7,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc01,Xc02,Xc04,Xc06,Xc0A,Xc10,Xc12,Xc1A)\
+	{\
+	__asm__ volatile (\
+	/* Cf. IMCI512 8x8 doubles-transpose algo [1a] in util.c ...
+	do mask-register-setting first, so as to not clobber any GPRs used by compute section: */\
+		"movl $0b10101010,%%ebx	\n\t movl $0b11001100,%%ecx	\n\t movl $0b11110000,%%edx	\n\t"\
+		"kmov	%%ebx,%%k1		\n\t kmov	%%ecx,%%k3		\n\t kmov	%%edx,%%k5		\n\t"\
+		"knot	%%k1 ,%%k2		\n\t knot	%%k3 ,%%k4		\n\t"\
+	/************************************************************************/\
+	/*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/\
+	/************************************************************************/\
+	/* Block 1: */\
+		"movq	%[__isrt2],%%rsi			\n\t	leaq	0x11c0(%%rsi),%%rdi		\n\t"/* two */\
+		"movq		%[__r00],%%rax			\n\t	vmovaps		 (%%rdi),%%zmm29	\n\t"/* 2.0*/	/* Next pair of 4-DFTs - Place these results in regs whose index is += 16 w.r.to the above 4-DFTs: */\
+	/**** SSE2_RADIX4_DIT_IN_PLACE() ****/	/* Block 2 has addr-offsets +0x100 w.r.to Block 1: */	/* Byte-offsets all +0x200 larger in this 4-DFT pair */\
+		"vmovaps	0x800(%%rax),%%zmm0		\n\t	vmovaps		0x900(%%rax),%%zmm8 		\n\t	vmovaps	0xa00(%%rax),%%zmm16		\n\t	vmovaps		0xb00(%%rax),%%zmm24		\n\t"\
+		"vmovaps	0x840(%%rax),%%zmm1		\n\t	vmovaps		0x940(%%rax),%%zmm9 		\n\t	vmovaps	0xa40(%%rax),%%zmm17		\n\t	vmovaps		0xb40(%%rax),%%zmm25		\n\t"\
+		"vmovaps		 (%%rax),%%zmm2		\n\t	vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps	0x200(%%rax),%%zmm18		\n\t	vmovaps		0x300(%%rax),%%zmm26		\n\t"\
+		"vmovaps	0x040(%%rax),%%zmm3		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t	vmovaps	0x240(%%rax),%%zmm19		\n\t	vmovaps		0x340(%%rax),%%zmm27		\n\t"\
+		"vsubpd		%%zmm0,%%zmm2,%%zmm2	\n\t	vsubpd		%%zmm8 ,%%zmm10,%%zmm10		\n\t	vsubpd		%%zmm16,%%zmm18,%%zmm18	\n\t	vsubpd		%%zmm24,%%zmm26,%%zmm26		\n\t"\
+		"vsubpd		%%zmm1,%%zmm3,%%zmm3	\n\t	vsubpd		%%zmm9 ,%%zmm11,%%zmm11		\n\t	vsubpd		%%zmm17,%%zmm19,%%zmm19	\n\t	vsubpd		%%zmm25,%%zmm27,%%zmm27		\n\t"\
+		"vmovaps	0xc00(%%rax),%%zmm4		\n\t	vmovaps		0xd00(%%rax),%%zmm12		\n\t	vmovaps	0xe00(%%rax),%%zmm20		\n\t	vmovaps		0xf00(%%rax),%%zmm28		\n\t"\
+		"vmovaps	0xc40(%%rax),%%zmm5		\n\t	vmovaps		0xd40(%%rax),%%zmm13		\n\t	vmovaps	0xe40(%%rax),%%zmm21		\n\t /* vmovaps		0xf40(%%rax),%%zmm29	*/	\n\t"\
+		"vmovaps	0x400(%%rax),%%zmm6		\n\t	vmovaps		0x500(%%rax),%%zmm14		\n\t	vmovaps	0x600(%%rax),%%zmm22		\n\t	vmovaps		0x700(%%rax),%%zmm30		\n\t"\
+		"vmovaps	0x440(%%rax),%%zmm7		\n\t	vmovaps		0x540(%%rax),%%zmm15		\n\t	vmovaps	0x640(%%rax),%%zmm23		\n\t	vmovaps		0x740(%%rax),%%zmm31		\n\t"\
+		"vsubpd		%%zmm4,%%zmm6,%%zmm6	\n\t	vsubpd		%%zmm12,%%zmm14,%%zmm14		\n\t	vsubpd		%%zmm20,%%zmm22,%%zmm22	\n\t	vsubpd		%%zmm28,%%zmm30,%%zmm30		\n\t"\
+		"vsubpd		%%zmm5,%%zmm7,%%zmm7	\n\t	vsubpd		%%zmm13,%%zmm15,%%zmm15		\n\t	vsubpd		%%zmm21,%%zmm23,%%zmm23	\n\t	vsubpd 0xf40(%%rax),%%zmm31,%%zmm31		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm2,%%zmm0	\n\t vfmadd132pd	%%zmm29,%%zmm10,%%zmm8 		\n\t vfmadd132pd	%%zmm29,%%zmm18,%%zmm16	\n\t vfmadd132pd	%%zmm29,%%zmm26,%%zmm24		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm3,%%zmm1	\n\t vfmadd132pd	%%zmm29,%%zmm11,%%zmm9 		\n\t vfmadd132pd	%%zmm29,%%zmm19,%%zmm17	\n\t vfmadd132pd	%%zmm29,%%zmm27,%%zmm25		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm6,%%zmm4	\n\t vfmadd132pd	%%zmm29,%%zmm14,%%zmm12		\n\t vfmadd132pd	%%zmm29,%%zmm22,%%zmm20	\n\t vfmadd132pd	%%zmm29,%%zmm30,%%zmm28		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm7,%%zmm5	\n\t vfmadd132pd	%%zmm29,%%zmm15,%%zmm13		\n\t vfmadd132pd	%%zmm29,%%zmm23,%%zmm21	\n\t vfmadd132pd 0xf40(%%rax),%%zmm31,%%zmm29	\n\t"\
+		"vsubpd		%%zmm4 ,%%zmm0,%%zmm0	\n\t	vsubpd		%%zmm12,%%zmm8 ,%%zmm8 		\n\t	vsubpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm28,%%zmm24,%%zmm24		\n\t"\
+		"vsubpd		%%zmm5 ,%%zmm1,%%zmm1	\n\t	vsubpd		%%zmm13,%%zmm9 ,%%zmm9 		\n\t	vsubpd		%%zmm21,%%zmm17,%%zmm17	\n\t	vsubpd		%%zmm29,%%zmm25,%%zmm25		\n\t"\
+		"vsubpd		%%zmm7 ,%%zmm2,%%zmm2	\n\t	vsubpd		%%zmm15,%%zmm10,%%zmm10		\n\t	vsubpd		%%zmm23,%%zmm18,%%zmm18	\n\t	vsubpd		%%zmm31,%%zmm26,%%zmm26		\n\t"\
+		"vsubpd		%%zmm6 ,%%zmm3,%%zmm3	\n\t	vsubpd		%%zmm14,%%zmm11,%%zmm11		\n\t	vsubpd		%%zmm22,%%zmm19,%%zmm19	\n\t	vsubpd		%%zmm30,%%zmm27,%%zmm27		\n\t"\
+	"vmovaps %%zmm30,0xf40(%%rax)\n\t"/* spill zmm30 to make room for two */"vmovaps (%%rdi),%%zmm30\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm0,%%zmm4	\n\t vfmadd132pd	%%zmm30,%%zmm8 ,%%zmm12		\n\t vfmadd132pd	%%zmm30,%%zmm16,%%zmm20	\n\t vfmadd132pd	%%zmm30,%%zmm24,%%zmm28		\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm1,%%zmm5	\n\t vfmadd132pd	%%zmm30,%%zmm9 ,%%zmm13		\n\t vfmadd132pd	%%zmm30,%%zmm17,%%zmm21	\n\t vfmadd132pd	%%zmm30,%%zmm25,%%zmm29		\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm2,%%zmm7	\n\t vfmadd132pd	%%zmm30,%%zmm10,%%zmm15		\n\t vfmadd132pd	%%zmm30,%%zmm18,%%zmm23	\n\t vfmadd132pd	%%zmm30,%%zmm26,%%zmm31		\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm3,%%zmm6	\n\t vfmadd132pd	%%zmm30,%%zmm11,%%zmm14		\n\t vfmadd132pd	%%zmm30,%%zmm19,%%zmm22	\n\t vfmadd132pd 0xf40(%%rax),%%zmm27,%%zmm30	\n\t"\
+	/**** SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS ****//**** SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS ****/	/* These are actually the final steps of the col3/4 4-DFTs, can do alongside */\
+	/* 0x200(r00,r10,r20,r30,r08,r18,r28,r38): *//* 0x200(r04,r14,r24,r34,r0C,r1C,r2C,r3C): */	/* first steps of the combine-subs in cols 1/2 due to nonoverlapping registers: */\
+		"vsubpd		%%zmm20,%%zmm4,%%zmm4	\n\t	vsubpd		%%zmm28,%%zmm12,%%zmm12		\n\t	vaddpd		%%zmm23,%%zmm19,%%zmm23	\n\t	vaddpd		%%zmm31,%%zmm27,%%zmm31		\n\t"\
+		"vsubpd		%%zmm17,%%zmm0,%%zmm0	\n\t	vsubpd		%%zmm25,%%zmm8 ,%%zmm8 		\n\t	vaddpd		%%zmm18,%%zmm22,%%zmm18	\n\t	vaddpd		%%zmm26,%%zmm30,%%zmm26		\n\t"\
+		"vsubpd		%%zmm21,%%zmm5,%%zmm5	\n\t	vsubpd		%%zmm29,%%zmm13,%%zmm13		\n\t vfmsub132pd	(%%rdi),%%zmm23,%%zmm19	\n\t vfmsub132pd	(%%rdi),%%zmm31,%%zmm27		\n\t"\
+		"vsubpd		%%zmm16,%%zmm1,%%zmm1	\n\t	vsubpd		%%zmm24,%%zmm9 ,%%zmm9 		\n\t vfmsub132pd	(%%rdi),%%zmm18,%%zmm22	\n\t vfmsub132pd	(%%rdi),%%zmm26,%%zmm30		\n\t"\
+		"vmovaps	%%zmm4 , 0x200(%%rax)	\n\t	vmovaps		%%zmm12, 0x300(%%rax)		\n\t"\
+		"vmovaps	%%zmm0 , 0xa00(%%rax)	\n\t	vmovaps		%%zmm8 , 0xb00(%%rax)		\n\t"\
+		"vmovaps	%%zmm5 , 0x240(%%rax)	\n\t	vmovaps		%%zmm13, 0x340(%%rax)		\n\t"\
+		"vmovaps	%%zmm1 , 0x840(%%rax)	\n\t	vmovaps		%%zmm9 , 0x940(%%rax)		\n\t"\
+	"vmovaps %%zmm24,0xb40(%%rax)\n\t"/* spill zmm24to make room for two */"vmovaps (%%rdi),%%zmm24\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm4,%%zmm20	\n\t vfmadd132pd	 %%zmm24,%%zmm12,%%zmm28	\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm0,%%zmm17	\n\t vfmadd132pd	 %%zmm24,%%zmm8 ,%%zmm25	\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm5,%%zmm21	\n\t vfmadd132pd	 %%zmm24,%%zmm13,%%zmm29	\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm1,%%zmm16	\n\t vfmadd132pd 0xb40(%%rax),%%zmm9 ,%%zmm24	\n\t"\
+		"vmovaps	%%zmm20,      (%%rax)	\n\t	vmovaps		%%zmm28, 0x100(%%rax)		\n\t"\
+		"vmovaps	%%zmm17, 0x800(%%rax)	\n\t	vmovaps		%%zmm25, 0x900(%%rax)		\n\t"\
+		"vmovaps	%%zmm21, 0x040(%%rax)	\n\t	vmovaps		%%zmm29, 0x140(%%rax)		\n\t"\
+		"vmovaps	%%zmm16, 0xa40(%%rax)	\n\t	vmovaps		%%zmm24, 0xb40(%%rax)		\n\t"\
+	"vmovaps %%zmm14,0xf40(%%rax)\n\t"/* spill zmm14to make room for isrt2 */"vmovaps (%%rsi),%%zmm14\n\t"\
+	"vfnmadd231pd	%%zmm23,%%zmm14,%%zmm7	\n\t vfnmadd231pd	%%zmm31,%%zmm14,%%zmm15		\n\t"\
+	"vfnmadd231pd	%%zmm22,%%zmm14,%%zmm2	\n\t vfnmadd231pd	%%zmm30,%%zmm14,%%zmm10		\n\t"\
+	"vfnmadd231pd	%%zmm19,%%zmm14,%%zmm3	\n\t vfnmadd231pd	%%zmm27,%%zmm14,%%zmm11		\n\t"\
+	"vfnmadd231pd	%%zmm18,%%zmm14,%%zmm6	\n\t vfnmadd213pd 0xf40(%%rax),%%zmm26,%%zmm14	\n\t"\
+		"vmovaps	%%zmm7 , 0x600(%%rax)	\n\t	vmovaps		%%zmm15, 0x700(%%rax)		\n\t"\
+		"vmovaps	%%zmm2 , 0xe00(%%rax)	\n\t	vmovaps		%%zmm10, 0xf00(%%rax)		\n\t"\
+		"vmovaps	%%zmm3 , 0x640(%%rax)	\n\t	vmovaps		%%zmm11, 0x740(%%rax)		\n\t"\
+		"vmovaps	%%zmm6 , 0xc40(%%rax)	\n\t	vmovaps		%%zmm14, 0xd40(%%rax)		\n\t"\
+	"vmovaps %%zmm26,0xf40(%%rax)\n\t"/* spill zmm26to make room for sqrt2 */"vmovaps 0x80(%%rdi),%%zmm26\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm7,%%zmm23	\n\t vfmadd132pd	 %%zmm26,%%zmm15,%%zmm31	\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm2,%%zmm22	\n\t vfmadd132pd	 %%zmm26,%%zmm10,%%zmm30	\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm3,%%zmm19	\n\t vfmadd132pd	 %%zmm26,%%zmm11,%%zmm27	\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm6,%%zmm18	\n\t vfmadd132pd 0xf40(%%rax),%%zmm14,%%zmm26	\n\t"\
+		"vmovaps	%%zmm23, 0x400(%%rax)	\n\t	vmovaps		%%zmm31, 0x500(%%rax)		\n\t"\
+		"vmovaps	%%zmm22, 0xc00(%%rax)	\n\t	vmovaps		%%zmm30, 0xd00(%%rax)		\n\t"\
+		"vmovaps	%%zmm19, 0x440(%%rax)	\n\t	vmovaps		%%zmm27, 0x540(%%rax)		\n\t"\
+		"vmovaps	%%zmm18, 0xe40(%%rax)	\n\t	vmovaps		%%zmm26, 0xf40(%%rax)		\n\t"\
+	/*****	SSE2_RADIX4_DIT_IN_PLACE()	*****/	/* Rcol has tmp-addr offset +0x100 w.r.to lcol:  */\
+	/* Blocks 3,4 have tmp-addresses offset +0x80 w.r.to Blocks 1,2, respectively. */\
+		"											vmovaps		 (%%rdi),%%zmm29	\n\t"/* 2.0*/\
+		"vmovaps	0x880(%%rax),%%zmm0		\n\t	vmovaps		0x980(%%rax),%%zmm8 		\n\t	vmovaps	0xa80(%%rax),%%zmm16		\n\t	vmovaps		0xb80(%%rax),%%zmm24		\n\t"\
+		"vmovaps	0x8c0(%%rax),%%zmm1		\n\t	vmovaps		0x9c0(%%rax),%%zmm9 		\n\t	vmovaps	0xac0(%%rax),%%zmm17		\n\t	vmovaps		0xbc0(%%rax),%%zmm25		\n\t"\
+		"vmovaps	0x080(%%rax),%%zmm2		\n\t	vmovaps		0x180(%%rax),%%zmm10		\n\t	vmovaps	0x280(%%rax),%%zmm18		\n\t	vmovaps		0x380(%%rax),%%zmm26		\n\t"\
+		"vmovaps	0x0c0(%%rax),%%zmm3		\n\t	vmovaps		0x1c0(%%rax),%%zmm11		\n\t	vmovaps	0x2c0(%%rax),%%zmm19		\n\t	vmovaps		0x3c0(%%rax),%%zmm27		\n\t"\
+		"vsubpd		%%zmm0,%%zmm2,%%zmm2	\n\t	vsubpd		%%zmm8 ,%%zmm10,%%zmm10		\n\t	vsubpd		%%zmm16,%%zmm18,%%zmm18	\n\t	vsubpd		%%zmm24,%%zmm26,%%zmm26		\n\t"\
+		"vsubpd		%%zmm1,%%zmm3,%%zmm3	\n\t	vsubpd		%%zmm9 ,%%zmm11,%%zmm11		\n\t	vsubpd		%%zmm17,%%zmm19,%%zmm19	\n\t	vsubpd		%%zmm25,%%zmm27,%%zmm27		\n\t"\
+		"vmovaps	0xc80(%%rax),%%zmm4		\n\t	vmovaps		0xd80(%%rax),%%zmm12		\n\t	vmovaps	0xe80(%%rax),%%zmm20		\n\t	vmovaps		0xf80(%%rax),%%zmm28		\n\t"\
+		"vmovaps	0xcc0(%%rax),%%zmm5		\n\t	vmovaps		0xdc0(%%rax),%%zmm13		\n\t	vmovaps	0xec0(%%rax),%%zmm21		\n\t /* vmovaps		0xfc0(%%rax),%%zmm29	*/	\n\t"\
+		"vmovaps	0x480(%%rax),%%zmm6		\n\t	vmovaps		0x580(%%rax),%%zmm14		\n\t	vmovaps	0x680(%%rax),%%zmm22		\n\t	vmovaps		0x780(%%rax),%%zmm30		\n\t"\
+		"vmovaps	0x4c0(%%rax),%%zmm7		\n\t	vmovaps		0x5c0(%%rax),%%zmm15		\n\t	vmovaps	0x6c0(%%rax),%%zmm23		\n\t	vmovaps		0x7c0(%%rax),%%zmm31		\n\t"\
+		"vsubpd		%%zmm4,%%zmm6,%%zmm6	\n\t	vsubpd		%%zmm12,%%zmm14,%%zmm14		\n\t	vsubpd		%%zmm20,%%zmm22,%%zmm22	\n\t	vsubpd		%%zmm28,%%zmm30,%%zmm30		\n\t"\
+		"vsubpd		%%zmm5,%%zmm7,%%zmm7	\n\t	vsubpd		%%zmm13,%%zmm15,%%zmm15		\n\t	vsubpd		%%zmm21,%%zmm23,%%zmm23	\n\t	vsubpd 0xfc0(%%rax),%%zmm31,%%zmm31		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm2,%%zmm0	\n\t vfmadd132pd	%%zmm29,%%zmm10,%%zmm8 		\n\t vfmadd132pd	%%zmm29,%%zmm18,%%zmm16	\n\t vfmadd132pd	%%zmm29,%%zmm26,%%zmm24		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm3,%%zmm1	\n\t vfmadd132pd	%%zmm29,%%zmm11,%%zmm9 		\n\t vfmadd132pd	%%zmm29,%%zmm19,%%zmm17	\n\t vfmadd132pd	%%zmm29,%%zmm27,%%zmm25		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm6,%%zmm4	\n\t vfmadd132pd	%%zmm29,%%zmm14,%%zmm12		\n\t vfmadd132pd	%%zmm29,%%zmm22,%%zmm20	\n\t vfmadd132pd	%%zmm29,%%zmm30,%%zmm28		\n\t"\
+	"vfmadd132pd	%%zmm29,%%zmm7,%%zmm5	\n\t vfmadd132pd	%%zmm29,%%zmm15,%%zmm13		\n\t vfmadd132pd	%%zmm29,%%zmm23,%%zmm21	\n\t vfmadd132pd 0xfc0(%%rax),%%zmm31,%%zmm29	\n\t"\
+		"vsubpd		%%zmm4 ,%%zmm0,%%zmm0	\n\t	vsubpd		%%zmm12,%%zmm8 ,%%zmm8 		\n\t	vsubpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm28,%%zmm24,%%zmm24		\n\t"\
+		"vsubpd		%%zmm5 ,%%zmm1,%%zmm1	\n\t	vsubpd		%%zmm13,%%zmm9 ,%%zmm9 		\n\t	vsubpd		%%zmm21,%%zmm17,%%zmm17	\n\t	vsubpd		%%zmm29,%%zmm25,%%zmm25		\n\t"\
+		"vsubpd		%%zmm7 ,%%zmm2,%%zmm2	\n\t	vsubpd		%%zmm15,%%zmm10,%%zmm10		\n\t	vsubpd		%%zmm23,%%zmm18,%%zmm18	\n\t	vsubpd		%%zmm31,%%zmm26,%%zmm26		\n\t"\
+		"vsubpd		%%zmm6 ,%%zmm3,%%zmm3	\n\t	vsubpd		%%zmm14,%%zmm11,%%zmm11		\n\t	vsubpd		%%zmm22,%%zmm19,%%zmm19	\n\t	vsubpd		%%zmm30,%%zmm27,%%zmm27		\n\t"\
+	"vmovaps %%zmm30,0xfc0(%%rax)\n\t"/* spill zmm30 to make room for two */"vmovaps (%%rdi),%%zmm30\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm0,%%zmm4	\n\t vfmadd132pd	%%zmm30,%%zmm8 ,%%zmm12		\n\t vfmadd132pd	%%zmm30,%%zmm16,%%zmm20	\n\t vfmadd132pd	%%zmm30,%%zmm24,%%zmm28		\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm1,%%zmm5	\n\t vfmadd132pd	%%zmm30,%%zmm9 ,%%zmm13		\n\t vfmadd132pd	%%zmm30,%%zmm17,%%zmm21	\n\t vfmadd132pd	%%zmm30,%%zmm25,%%zmm29		\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm2,%%zmm7	\n\t vfmadd132pd	%%zmm30,%%zmm10,%%zmm15		\n\t vfmadd132pd	%%zmm30,%%zmm18,%%zmm23	\n\t vfmadd132pd	%%zmm30,%%zmm26,%%zmm31		\n\t"\
+	"vfmadd132pd	%%zmm30,%%zmm3,%%zmm6	\n\t vfmadd132pd	%%zmm30,%%zmm11,%%zmm14		\n\t vfmadd132pd	%%zmm30,%%zmm19,%%zmm22	\n\t vfmadd132pd 0xfc0(%%rax),%%zmm27,%%zmm30	\n\t"\
+	/**** SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS ****//**** SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS ****/	/* These are actually the final steps of the col3/4 4-DFTs, can do alongside */\
+	/* 0x200(r00,r10,r20,r30,r08,r18,r28,r38): *//* 0x200(r04,r14,r24,r34,r0C,r1C,r2C,r3C): */	/* first steps of the combine-subs in cols 1/2 due to nonoverlapping registers: */\
+		"vsubpd		%%zmm20,%%zmm4,%%zmm4	\n\t	vsubpd		%%zmm28,%%zmm12,%%zmm12		\n\t	vaddpd		%%zmm23,%%zmm19,%%zmm23	\n\t	vaddpd		%%zmm31,%%zmm27,%%zmm31		\n\t"\
+		"vsubpd		%%zmm17,%%zmm0,%%zmm0	\n\t	vsubpd		%%zmm25,%%zmm8 ,%%zmm8 		\n\t	vaddpd		%%zmm18,%%zmm22,%%zmm18	\n\t	vaddpd		%%zmm26,%%zmm30,%%zmm26		\n\t"\
+		"vsubpd		%%zmm21,%%zmm5,%%zmm5	\n\t	vsubpd		%%zmm29,%%zmm13,%%zmm13		\n\t vfmsub132pd	(%%rdi),%%zmm23,%%zmm19	\n\t vfmsub132pd	(%%rdi),%%zmm31,%%zmm27		\n\t"\
+		"vsubpd		%%zmm16,%%zmm1,%%zmm1	\n\t	vsubpd		%%zmm24,%%zmm9 ,%%zmm9 		\n\t vfmsub132pd	(%%rdi),%%zmm18,%%zmm22	\n\t vfmsub132pd	(%%rdi),%%zmm26,%%zmm30		\n\t"\
+		"vmovaps	%%zmm4 , 0x280(%%rax)	\n\t	vmovaps		%%zmm12, 0x380(%%rax)		\n\t"\
+		"vmovaps	%%zmm0 , 0xa80(%%rax)	\n\t	vmovaps		%%zmm8 , 0xb80(%%rax)		\n\t"\
+		"vmovaps	%%zmm5 , 0x2c0(%%rax)	\n\t	vmovaps		%%zmm13, 0x3c0(%%rax)		\n\t"\
+		"vmovaps	%%zmm1 , 0x8c0(%%rax)	\n\t	vmovaps		%%zmm9 , 0x9c0(%%rax)		\n\t"\
+	"vmovaps %%zmm24,0xbc0(%%rax)\n\t"/* spill zmm24to make room for two */"vmovaps (%%rdi),%%zmm24\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm4,%%zmm20	\n\t vfmadd132pd	 %%zmm24,%%zmm12,%%zmm28	\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm0,%%zmm17	\n\t vfmadd132pd	 %%zmm24,%%zmm8 ,%%zmm25	\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm5,%%zmm21	\n\t vfmadd132pd	 %%zmm24,%%zmm13,%%zmm29	\n\t"\
+	"vfmadd132pd	%%zmm24,%%zmm1,%%zmm16	\n\t vfmadd132pd 0xbc0(%%rax),%%zmm9 ,%%zmm24	\n\t"\
+		"vmovaps	%%zmm20, 0x080(%%rax)	\n\t	vmovaps		%%zmm28, 0x180(%%rax)		\n\t"\
+		"vmovaps	%%zmm17, 0x880(%%rax)	\n\t	vmovaps		%%zmm25, 0x980(%%rax)		\n\t"\
+		"vmovaps	%%zmm21, 0x0c0(%%rax)	\n\t	vmovaps		%%zmm29, 0x1c0(%%rax)		\n\t"\
+		"vmovaps	%%zmm16, 0xac0(%%rax)	\n\t	vmovaps		%%zmm24, 0xbc0(%%rax)		\n\t"\
+	"vmovaps %%zmm14,0xfc0(%%rax)\n\t"/* spill zmm14to make room for isrt2 */"vmovaps (%%rsi),%%zmm14\n\t"\
+	"vfnmadd231pd	%%zmm23,%%zmm14,%%zmm7	\n\t vfnmadd231pd	%%zmm31,%%zmm14,%%zmm15		\n\t"\
+	"vfnmadd231pd	%%zmm22,%%zmm14,%%zmm2	\n\t vfnmadd231pd	%%zmm30,%%zmm14,%%zmm10		\n\t"\
+	"vfnmadd231pd	%%zmm19,%%zmm14,%%zmm3	\n\t vfnmadd231pd	%%zmm27,%%zmm14,%%zmm11		\n\t"\
+	"vfnmadd231pd	%%zmm18,%%zmm14,%%zmm6	\n\t vfnmadd213pd 0xfc0(%%rax),%%zmm26,%%zmm14	\n\t"\
+		"vmovaps	%%zmm7 , 0x680(%%rax)	\n\t	vmovaps		%%zmm15, 0x780(%%rax)		\n\t"\
+		"vmovaps	%%zmm2 , 0xe80(%%rax)	\n\t	vmovaps		%%zmm10, 0xf80(%%rax)		\n\t"\
+		"vmovaps	%%zmm3 , 0x6c0(%%rax)	\n\t	vmovaps		%%zmm11, 0x7c0(%%rax)		\n\t"\
+		"vmovaps	%%zmm6 , 0xcc0(%%rax)	\n\t	vmovaps		%%zmm14, 0xdc0(%%rax)		\n\t"\
+	"vmovaps %%zmm26,0xfc0(%%rax)\n\t"/* spill zmm26to make room for sqrt2 */"vmovaps 0x80(%%rdi),%%zmm26\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm7,%%zmm23	\n\t vfmadd132pd	 %%zmm26,%%zmm15,%%zmm31	\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm2,%%zmm22	\n\t vfmadd132pd	 %%zmm26,%%zmm10,%%zmm30	\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm3,%%zmm19	\n\t vfmadd132pd	 %%zmm26,%%zmm11,%%zmm27	\n\t"\
+	"vfmadd132pd	%%zmm26,%%zmm6,%%zmm18	\n\t vfmadd132pd 0xfc0(%%rax),%%zmm14,%%zmm26	\n\t"\
+		"vmovaps	%%zmm23, 0x480(%%rax)	\n\t	vmovaps		%%zmm31, 0x580(%%rax)		\n\t"\
+		"vmovaps	%%zmm22, 0xc80(%%rax)	\n\t	vmovaps		%%zmm30, 0xd80(%%rax)		\n\t"\
+		"vmovaps	%%zmm19, 0x4c0(%%rax)	\n\t	vmovaps		%%zmm27, 0x5c0(%%rax)		\n\t"\
+		"vmovaps	%%zmm18, 0xec0(%%rax)	\n\t	vmovaps		%%zmm26, 0xfc0(%%rax)		\n\t"\
+		"\n\t"\
+	/***************************************************************************************/\
+	/* Now do eight more radix-4 transforms, including the internal and external twiddles: */\
+	/***************************************************************************************/\
+		"\n\t"\
+	/*
+	Using upper block(s) of main array for temp-storage in section below led to a nasty AVX bug to track down:
+	In fermat-mod mode, 4 block addresses in ascending order are add0,1,2,3 with no 'gaps' between blocks; for
+	mersenne-mod addresses in asc. order are add0,2,3,1 with gaps between contiguous-data-block pairs 0,2 & 3,1.
+	Thus for ferm-mod need [add2] as base-address of 'high-half' block for temp-storage; for mers-mod need [add3].
+	In both cases have (add2 < add3) so instead use (add2 - add1) to differentiate: > 0 for fermat, < 0 for mersenne.
+	*/\
+		"movq	%[__add2],%%rsi		\n\t"/* destroyable copy of add2 */\
+		"movq	%[__add2],%%rbx		\n\t"\
+		"subq	%[__add1],%%rsi		\n\t"/* rsi = (add2 - add1); if this yields a borrow (i.e. sets CF) it's mersenne, else fermat. */\
+	/*	"cmovcq %[__add3],%%rbx	\n\t" // CMOV not supported on k1om, so emulate using jump-if-CF-not-set: */\
+	"jnc skip	\n\t"\
+		"movq	%[__add3],%%rbx	\n\t" /* if CF set (i.e. h > l), copy source [add3] into dest (rbx), else leave dest = [add2]. */\
+	"skip:	\n\t"\
+		"movq	%[__isrt2],%%rsi				\n\t	vmovaps		 (%%rdi),%%zmm31	\n\t"/* 2.0*/\
+													/* base-addr [rax] and sincos-ptr [r10] in rcol both offset +0x200 vs lcol */\
+	/********************************************/	/********************************************/\
+	/* Block 2: t02,t12,t22,t32 -> r10,14,12,16 */	/* Block 6: t0A,t1A,t2A,t3A -> r18,1C,1A,1E */\
+	/********************************************/	/********************************************/\
+		"movq	%[__r00],%%rax					\n\t"\
+		"movq	%%rsi,%%rcx					\n\t"\
+		"movq	%%rsi,%%rdx					\n\t"\
+		"movq	%[__c01],%%r10					\n\t"\
+		"addq	$0x040,%%rcx	/* cc0 */		\n\t"\
+		"addq	$0x0c0,%%rdx	/* cc1 */		\n\t"\
+		"vmovaps		0x480(%%rax),%%zmm4		\n\t		vmovaps		 0x680(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x580(%%rax),%%zmm0		\n\t		vmovaps		 0x780(%%rax),%%zmm8 		\n\t"\
+		"vmovaps		0x4c0(%%rax),%%zmm5		\n\t		vmovaps		 0x6c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x5c0(%%rax),%%zmm3		\n\t		vmovaps		 0x7c0(%%rax),%%zmm11		\n\t"\
+	/* Strategic register-usage for sincos consts here cuts loads from 16 to 4: */\
+		"vmovaps			 (%%rdx),%%zmm9 	\n\t		vmovaps		0x040(%%rdx),%%zmm10		\n\t"\
+		"vmovaps		0x080(%%rdx),%%zmm1 	\n\t		vmovaps		0x0c0(%%rdx),%%zmm13		\n\t"\
+		"vmulpd			%%zmm10,%%zmm5,%%zmm7	\n\t		vmulpd			 %%zmm1 ,%%zmm15,%%zmm15\n\t"\
+		"vmulpd			%%zmm13,%%zmm3,%%zmm3	\n\t		vmulpd			 %%zmm10,%%zmm11,%%zmm11\n\t"\
+		"vmulpd			%%zmm10,%%zmm4,%%zmm6	\n\t		vmulpd			 %%zmm1 ,%%zmm12,%%zmm14\n\t"\
+		"vmulpd			%%zmm13,%%zmm0,%%zmm2	\n\t		vmulpd		0x780(%%rax),%%zmm10,%%zmm10\n\t"\
+	"vfmadd132pd		%%zmm9 ,%%zmm7,%%zmm4	\n\t	vfmadd132pd	 		 %%zmm13,%%zmm15,%%zmm12\n\t"\
+	"vfmadd132pd		%%zmm1 ,%%zmm3,%%zmm0	\n\t	vfmsub132pd	 		 %%zmm9 ,%%zmm11,%%zmm8 \n\t"\
+	"vfmsub132pd		%%zmm9 ,%%zmm6,%%zmm5	\n\t	vfmsub132pd	 	0x6c0(%%rax),%%zmm14,%%zmm13\n\t"\
+	"vfmsub132pd   0x5c0(%%rax),%%zmm2,%%zmm1	\n\t	vfmadd132pd	 	0x7c0(%%rax),%%zmm10,%%zmm9 \n\t"\
+		"vaddpd			%%zmm0,%%zmm4,%%zmm6	\n\t		vsubpd		%%zmm8 ,%%zmm12,%%zmm14		\n\t"\
+		"vaddpd			%%zmm1,%%zmm5,%%zmm7	\n\t		vsubpd		%%zmm9 ,%%zmm13,%%zmm15		\n\t"\
+		"vsubpd			%%zmm0,%%zmm4,%%zmm4	\n\t		vaddpd		%%zmm8 ,%%zmm12,%%zmm12		\n\t"\
+		"vsubpd			%%zmm1,%%zmm5,%%zmm5	\n\t		vaddpd		%%zmm9 ,%%zmm13,%%zmm13		\n\t"\
+		"vmovaps		 0x500(%%rax),%%zmm2	\n\t		vmovaps		0x700(%%rax),%%zmm10		\n\t"\
+		"vmovaps		 0x540(%%rax),%%zmm3	\n\t		vmovaps		0x740(%%rax),%%zmm11		\n\t"\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps	 0x040(%%rcx),%%zmm17	\n\t"/* twiddle */\
+		"vmulpd			%%zmm17,%%zmm2,%%zmm0	\n\t		vmulpd		%%zmm16,%%zmm10,%%zmm8	 	\n\t"\
+		"vmulpd			%%zmm17,%%zmm3,%%zmm1	\n\t		vmulpd		%%zmm16,%%zmm11,%%zmm9 		\n\t"\
+	"vfmsub132pd		%%zmm16,%%zmm0,%%zmm3	\n\t	vfmadd132pd		%%zmm17,%%zmm8 ,%%zmm11		\n\t"\
+	"vfmadd132pd		%%zmm16,%%zmm1,%%zmm2	\n\t	vfmsub132pd		%%zmm17,%%zmm9 ,%%zmm10		\n\t"\
+		"vmovaps		 0x400(%%rax),%%zmm0	\n\t		vmovaps		0x600(%%rax),%%zmm8 		\n\t"\
+		"vmovaps		 0x440(%%rax),%%zmm1	\n\t		vmovaps		0x640(%%rax),%%zmm9 		\n\t"\
+		"vsubpd			%%zmm2,%%zmm0,%%zmm0	\n\t		vsubpd		%%zmm10,%%zmm8 ,%%zmm8 		\n\t"\
+		"vsubpd			%%zmm3,%%zmm1,%%zmm1	\n\t		vsubpd		%%zmm11,%%zmm9 ,%%zmm9 		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm2	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm10		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm3	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm11		\n\t"\
+		"vsubpd			%%zmm6,%%zmm2,%%zmm2	\n\t		vsubpd		%%zmm14,%%zmm8 ,%%zmm8 		\n\t"\
+		"vsubpd			%%zmm7,%%zmm3,%%zmm3	\n\t		vsubpd		%%zmm15,%%zmm9 ,%%zmm9 		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm2,%%zmm6	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm14		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm3,%%zmm7	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm15		\n\t"\
+/*** Use regs m16-23 here to avoid 16-reg spill/fill crud: ***/\
+		"vmovaps		  (%%r10),%%zmm20		\n\t		vmovaps		0x200(%%r10),%%zmm22		\n\t"\
+		"vmovaps	 0x040(%%r10),%%zmm21		\n\t		vmovaps		0x240(%%r10),%%zmm23		\n\t"\
+		"vmulpd			%%zmm20,%%zmm6,%%zmm16	\n\t		vmulpd		%%zmm22,%%zmm14,%%zmm18		\n\t"\
+		"vmulpd			%%zmm20,%%zmm7,%%zmm17	\n\t		vmulpd		%%zmm22,%%zmm15,%%zmm19		\n\t"\
+	" vfmadd231pd		%%zmm21,%%zmm7,%%zmm16	\n\t	 vfmadd231pd	%%zmm23,%%zmm15,%%zmm18		\n\t"\
+	"vfnmadd231pd		%%zmm21,%%zmm6,%%zmm17	\n\t	vfnmadd231pd	%%zmm23,%%zmm14,%%zmm19		\n\t"\
+		"vmovaps	 0x080(%%r10),%%zmm20		\n\t		vmovaps		0x280(%%r10),%%zmm22		\n\t"\
+		"vmovaps	 0x0c0(%%r10),%%zmm21		\n\t		vmovaps		0x2c0(%%r10),%%zmm23		\n\t"\
+		"vmovaps		%%zmm16, 0x400(%%rax)	\n\t		vmovaps		%%zmm18, 0x600(%%rax)		\n\t"\
+		"vmovaps		%%zmm17, 0x440(%%rax)	\n\t		vmovaps		%%zmm19, 0x640(%%rax)		\n\t"\
+		"vmulpd			%%zmm20,%%zmm2,%%zmm16	\n\t		vmulpd		%%zmm22,%%zmm8 ,%%zmm18		\n\t"\
+		"vmulpd			%%zmm20,%%zmm3,%%zmm17	\n\t		vmulpd		%%zmm22,%%zmm9 ,%%zmm19		\n\t"\
+		"vsubpd			%%zmm5,%%zmm0,%%zmm0	\n\t		vsubpd		%%zmm13,%%zmm10,%%zmm10		\n\t"\
+		"vsubpd			%%zmm4,%%zmm1,%%zmm1	\n\t		vsubpd		%%zmm12,%%zmm11,%%zmm11		\n\t"\
+	" vfmadd231pd		%%zmm21,%%zmm3,%%zmm16	\n\t	 vfmadd231pd	%%zmm23,%%zmm9 ,%%zmm18		\n\t"\
+	"vfnmadd231pd		%%zmm21,%%zmm2,%%zmm17	\n\t	vfnmadd231pd	%%zmm23,%%zmm8 ,%%zmm19		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm5	\n\t	vfmadd132pd		%%zmm31,%%zmm10,%%zmm13		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm4	\n\t	vfmadd132pd		%%zmm31,%%zmm11,%%zmm12		\n\t"\
+		"vmovaps		%%zmm16,0x480(%%rax)	\n\t		vmovaps		%%zmm18, 0x680(%%rax)		\n\t"\
+		"vmovaps		%%zmm17,0x4c0(%%rax)	\n\t		vmovaps		%%zmm19, 0x6c0(%%rax)		\n\t"\
+		"addq		$0x100,%%r10				\n\t"\
+		"vmovaps		  (%%r10),%%zmm16		\n\t		vmovaps		0x200(%%r10),%%zmm20		\n\t"\
+		"vmovaps	 0x080(%%r10),%%zmm17		\n\t		vmovaps		0x280(%%r10),%%zmm21		\n\t"\
+		"vmovaps	 0x040(%%r10),%%zmm18		\n\t		vmovaps		0x240(%%r10),%%zmm22		\n\t"\
+		"vmovaps	 0x0c0(%%r10),%%zmm19		\n\t		vmovaps		0x2c0(%%r10),%%zmm23		\n\t"\
+		"vmulpd			%%zmm16,%%zmm5,%%zmm2	\n\t		vmulpd		%%zmm20,%%zmm13,%%zmm8 		\n\t"\
+		"vmulpd			%%zmm17,%%zmm0,%%zmm6	\n\t		vmulpd		%%zmm21,%%zmm10,%%zmm14		\n\t"\
+		"vmulpd			%%zmm16,%%zmm1,%%zmm3	\n\t		vmulpd		%%zmm20,%%zmm11,%%zmm9 		\n\t"\
+		"vmulpd			%%zmm17,%%zmm4,%%zmm7	\n\t		vmulpd		%%zmm21,%%zmm12,%%zmm15		\n\t"\
+	" vfmadd231pd		%%zmm18,%%zmm1,%%zmm2	\n\t	 vfmadd231pd	%%zmm22,%%zmm11,%%zmm8 		\n\t"\
+	" vfmadd231pd		%%zmm19,%%zmm4,%%zmm6	\n\t	 vfmadd231pd	%%zmm23,%%zmm12,%%zmm14		\n\t"\
+	"vfnmadd231pd		%%zmm18,%%zmm5,%%zmm3	\n\t	vfnmadd231pd	%%zmm22,%%zmm13,%%zmm9 		\n\t"\
+	"vfnmadd231pd		%%zmm19,%%zmm0,%%zmm7	\n\t	vfnmadd231pd	%%zmm23,%%zmm10,%%zmm15		\n\t"\
+		"vmovaps		%%zmm2, 0x500(%%rax)	\n\t		vmovaps		%%zmm8 , 0x700(%%rax)		\n\t"\
+		"vmovaps		%%zmm3, 0x540(%%rax)	\n\t		vmovaps		%%zmm9 , 0x740(%%rax)		\n\t"\
+		"vmovaps		%%zmm6, 0x580(%%rax)	\n\t		vmovaps		%%zmm14, 0x780(%%rax)		\n\t"\
+		"vmovaps		%%zmm7, 0x5c0(%%rax)	\n\t		vmovaps		%%zmm15, 0x7c0(%%rax)		\n\t"\
+		"\n\t"\
+	/********************************************/	/********************************************/\
+	/* Block 4: t06,t16,t26,t36 -> r30,34,32,36 */	/* Block 8: t0E,t1E,t2E,t3E -> r38,3C,3A,3E */\
+	/********************************************/	/********************************************/\
+		"													addq		$0x200,%%r10				\n\t"\
+		"vmovaps		0xc80(%%rax),%%zmm4		\n\t		vmovaps		0xe80(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0xd80(%%rax),%%zmm0		\n\t		vmovaps		0xf80(%%rax),%%zmm10		\n\t"\
+		"vmovaps		0xcc0(%%rax),%%zmm7		\n\t		vmovaps		0xec0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0xdc0(%%rax),%%zmm1		\n\t		vmovaps		0xfc0(%%rax),%%zmm9 		\n\t"\
+	/* Strategic register-usage for sincos consts here cuts loads from 16 to 4: */\
+		"vmovaps			 (%%rdx),%%zmm14	\n\t		vmovaps		0x040(%%rdx),%%zmm13		\n\t"\
+		"vmovaps		0x080(%%rdx),%%zmm5 	\n\t		vmovaps		0x0c0(%%rdx),%%zmm8 		\n\t"\
+	/* Cyclic-permute 4 paired-MUL lines so as to put a '...(%%rax)' in the SRC3 slot of last line'srcol: */\
+		"vmulpd		 	 %%zmm14,%%zmm0,%%zmm2	\n\t		vmulpd			 %%zmm5 ,%%zmm10,%%zmm10\n\t"\
+		"vmulpd		 	 %%zmm8 ,%%zmm7,%%zmm7	\n\t		vmulpd			 %%zmm14,%%zmm15,%%zmm15\n\t"\
+		"vmulpd		 	 %%zmm14,%%zmm1,%%zmm3	\n\t		vmulpd			 %%zmm5 ,%%zmm9 ,%%zmm11\n\t"\
+		"vmulpd		 	 %%zmm8 ,%%zmm4,%%zmm6	\n\t		vmulpd		0xe80(%%rax),%%zmm14,%%zmm14\n\t"\
+	/* Also Cyclic-permute these 4 lines so middle (SRC2) op's reg-index order matches that of abovefour: */\
+	"vfmadd132pd	 	 %%zmm13,%%zmm2,%%zmm1	\n\t	vfmsub132pd	 		 %%zmm8 ,%%zmm10,%%zmm9 \n\t"\
+	"vfmadd132pd	 	 %%zmm5 ,%%zmm7,%%zmm4	\n\t	vfmadd132pd	 		 %%zmm13,%%zmm15,%%zmm12\n\t"\
+	"vfmsub132pd	 	 %%zmm13,%%zmm3,%%zmm0	\n\t	vfmadd132pd	 	0xf80(%%rax),%%zmm11,%%zmm8 \n\t"\
+	"vfmsub132pd	0xcc0(%%rax),%%zmm6,%%zmm5	\n\t	vfmsub132pd	 	0xec0(%%rax),%%zmm14,%%zmm13\n\t"\
+		"vsubpd			%%zmm0,%%zmm4,%%zmm6	\n\t		vsubpd		%%zmm8 ,%%zmm12,%%zmm14		\n\t"\
+		"vsubpd			%%zmm1,%%zmm5,%%zmm7	\n\t		vsubpd		%%zmm9 ,%%zmm13,%%zmm15		\n\t"\
+		"vaddpd			%%zmm0,%%zmm4,%%zmm4	\n\t		vaddpd		%%zmm8 ,%%zmm12,%%zmm12		\n\t"\
+		"vaddpd			%%zmm1,%%zmm5,%%zmm5	\n\t		vaddpd		%%zmm9 ,%%zmm13,%%zmm13		\n\t"\
+		"vmovaps		 0xd00(%%rax),%%zmm2	\n\t		vmovaps		0xf00(%%rax),%%zmm10		\n\t"\
+		"vmovaps		 0xd40(%%rax),%%zmm3	\n\t		vmovaps		0xf40(%%rax),%%zmm11		\n\t"\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps	 0x040(%%rcx),%%zmm17	\n\t"/* twiddle */\
+		"vmulpd			%%zmm16,%%zmm2,%%zmm0	\n\t		vmulpd		%%zmm17,%%zmm10,%%zmm8	 	\n\t"\
+		"vmulpd			%%zmm16,%%zmm3,%%zmm1	\n\t		vmulpd		%%zmm17,%%zmm11,%%zmm9 		\n\t"\
+	"vfmsub132pd		%%zmm17,%%zmm0,%%zmm3	\n\t	vfmadd132pd		%%zmm16,%%zmm8 ,%%zmm11		\n\t"\
+	"vfmadd132pd		%%zmm17,%%zmm1,%%zmm2	\n\t	vfmsub132pd		%%zmm16,%%zmm9 ,%%zmm10		\n\t"\
+		"vmovaps		 0xc00(%%rax),%%zmm0	\n\t		vmovaps		0xe00(%%rax),%%zmm8 		\n\t"\
+		"vmovaps		 0xc40(%%rax),%%zmm1	\n\t		vmovaps		0xe40(%%rax),%%zmm9 		\n\t"\
+		"vsubpd			%%zmm2,%%zmm0,%%zmm0	\n\t		vsubpd		%%zmm10,%%zmm8 ,%%zmm8 		\n\t"\
+		"vsubpd			%%zmm3,%%zmm1,%%zmm1	\n\t		vsubpd		%%zmm11,%%zmm9 ,%%zmm9 		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm2	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm10		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm3	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm11		\n\t"\
+		"vsubpd			%%zmm6,%%zmm2,%%zmm2	\n\t		vsubpd		%%zmm14,%%zmm8 ,%%zmm8 		\n\t"\
+		"vsubpd			%%zmm7,%%zmm3,%%zmm3	\n\t		vsubpd		%%zmm15,%%zmm9 ,%%zmm9 		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm2,%%zmm6	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm14		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm3,%%zmm7	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm15		\n\t"\
+		"addq		$0x100,%%r10				\n\t"\
+		"vmovaps		  (%%r10),%%zmm20		\n\t		vmovaps		0x200(%%r10),%%zmm22		\n\t"\
+		"vmovaps	 0x040(%%r10),%%zmm21		\n\t		vmovaps		0x240(%%r10),%%zmm23		\n\t"\
+		"vmulpd			%%zmm20,%%zmm6,%%zmm16	\n\t		vmulpd		%%zmm22,%%zmm14,%%zmm18		\n\t"\
+		"vmulpd			%%zmm20,%%zmm7,%%zmm17	\n\t		vmulpd		%%zmm22,%%zmm15,%%zmm19		\n\t"\
+	" vfmadd231pd		%%zmm21,%%zmm7,%%zmm16	\n\t	 vfmadd231pd	%%zmm23,%%zmm15,%%zmm18		\n\t"\
+	"vfnmadd231pd		%%zmm21,%%zmm6,%%zmm17	\n\t	vfnmadd231pd	%%zmm23,%%zmm14,%%zmm19		\n\t"\
+		"vmovaps	 0x080(%%r10),%%zmm20		\n\t		vmovaps		0x280(%%r10),%%zmm22		\n\t"\
+		"vmovaps	 0x0c0(%%r10),%%zmm21		\n\t		vmovaps		0x2c0(%%r10),%%zmm23		\n\t"\
+		"vmulpd			%%zmm20,%%zmm2,%%zmm6	\n\t		vmulpd		%%zmm22,%%zmm8 ,%%zmm14		\n\t"\
+		"vmulpd			%%zmm20,%%zmm3,%%zmm7	\n\t		vmulpd		%%zmm22,%%zmm9 ,%%zmm15		\n\t"\
+		"vsubpd			%%zmm5,%%zmm0,%%zmm0	\n\t		vsubpd		%%zmm13,%%zmm10,%%zmm10		\n\t"\
+		"vsubpd			%%zmm4,%%zmm1,%%zmm1	\n\t		vsubpd		%%zmm12,%%zmm11,%%zmm11		\n\t"\
+	" vfmadd231pd		%%zmm21,%%zmm3,%%zmm6	\n\t	 vfmadd231pd	%%zmm23,%%zmm9 ,%%zmm14		\n\t"\
+	"vfnmadd231pd		%%zmm21,%%zmm2,%%zmm7	\n\t	vfnmadd231pd	%%zmm23,%%zmm8 ,%%zmm15		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm5	\n\t	vfmadd132pd		%%zmm31,%%zmm10,%%zmm13		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm4	\n\t	vfmadd132pd		%%zmm31,%%zmm11,%%zmm12		\n\t"\
+		"vmovaps		%%zmm16, 0xc00(%%rax)	\n\t		vmovaps		%%zmm18, 0xe00(%%rax)		\n\t"\
+		"vmovaps		%%zmm17, 0xc40(%%rax)	\n\t		vmovaps		%%zmm19, 0xe40(%%rax)		\n\t"\
+		"vmovaps		%%zmm6 , 0xc80(%%rax)	\n\t		vmovaps		%%zmm14, 0xe80(%%rax)		\n\t"\
+		"vmovaps		%%zmm7 , 0xcc0(%%rax)	\n\t		vmovaps		%%zmm15, 0xec0(%%rax)		\n\t"\
+		"addq		$0x100,%%r10				\n\t"\
+		"vmovaps		  (%%r10),%%zmm16		\n\t		vmovaps		0x200(%%r10),%%zmm20		\n\t"\
+		"vmovaps	 0x080(%%r10),%%zmm17		\n\t		vmovaps		0x280(%%r10),%%zmm21		\n\t"\
+		"vmovaps	 0x040(%%r10),%%zmm18		\n\t		vmovaps		0x240(%%r10),%%zmm22		\n\t"\
+		"vmovaps	 0x0c0(%%r10),%%zmm19		\n\t		vmovaps		0x2c0(%%r10),%%zmm23		\n\t"\
+		"vmulpd			%%zmm16,%%zmm5,%%zmm2	\n\t		vmulpd		%%zmm20,%%zmm13,%%zmm8 		\n\t"\
+		"vmulpd			%%zmm16,%%zmm1,%%zmm3	\n\t		vmulpd		%%zmm20,%%zmm11,%%zmm9 		\n\t"\
+		"vmulpd			%%zmm17,%%zmm0,%%zmm6	\n\t		vmulpd		%%zmm21,%%zmm10,%%zmm14		\n\t"\
+		"vmulpd			%%zmm17,%%zmm4,%%zmm7	\n\t		vmulpd		%%zmm21,%%zmm12,%%zmm15		\n\t"\
+	" vfmadd231pd		%%zmm18,%%zmm1,%%zmm2	\n\t	 vfmadd231pd	%%zmm22,%%zmm11,%%zmm8 		\n\t"\
+	"vfnmadd231pd		%%zmm18,%%zmm5,%%zmm3	\n\t	vfnmadd231pd	%%zmm22,%%zmm13,%%zmm9 		\n\t"\
+	" vfmadd231pd		%%zmm19,%%zmm4,%%zmm6	\n\t	 vfmadd231pd	%%zmm23,%%zmm12,%%zmm14		\n\t"\
+	"vfnmadd231pd		%%zmm19,%%zmm0,%%zmm7	\n\t	vfnmadd231pd	%%zmm23,%%zmm10,%%zmm15		\n\t"\
+		"vmovaps		%%zmm2, 0xd00(%%rax)	\n\t		vmovaps		%%zmm8 , 0xf00(%%rax)		\n\t"\
+		"vmovaps		%%zmm3, 0xd40(%%rax)	\n\t		vmovaps		%%zmm9 , 0xf40(%%rax)		\n\t"\
+		"vmovaps		%%zmm6, 0xd80(%%rax)	\n\t		vmovaps		%%zmm14, 0xf80(%%rax)		\n\t"\
+		"vmovaps		%%zmm7, 0xdc0(%%rax)	\n\t		vmovaps		%%zmm15, 0xfc0(%%rax)		\n\t"\
+		"\n\t"\
+	/********************************************/	/********************************************/\
+	/* Block 1: t00,t10,t20,t30 -> r00,04,02,06 */	/* Block 5: t08,t18,t28,t38 -> r08,0C,0A,0E */\
+	/********************************************/	/********************************************/\
+		"													vmovaps	(%%rsi),%%zmm10	\n\t"/* isrt2 */\
+		"vmovaps			  (%%rax),%%zmm0	\n\t		vmovaps		 0x280(%%rax),%%zmm12		\n\t"\
+		"vmovaps		 0x040(%%rax),%%zmm1	\n\t		vmovaps		 0x2c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		 0x100(%%rax),%%zmm2	\n\t		vmovaps		 0x380(%%rax),%%zmm8 		\n\t"\
+		"vmovaps		 0x140(%%rax),%%zmm3	\n\t		vmovaps		 0x3c0(%%rax),%%zmm9 		\n\t"\
+		"vsubpd			%%zmm2 ,%%zmm0,%%zmm0	\n\t		vsubpd		%%zmm12,%%zmm13,%%zmm13		\n\t"\
+		"vsubpd			%%zmm3 ,%%zmm1,%%zmm1	\n\t	vfmadd132pd		%%zmm31,%%zmm13,%%zmm12		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm2	\n\t		vsubpd		%%zmm9 ,%%zmm8 ,%%zmm8 		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm3	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm9 		\n\t"\
+		"vmovaps		 0x080(%%rax),%%zmm4	\n\t		vmulpd		%%zmm10,%%zmm8 ,%%zmm8 		\n\t"\
+		"vmovaps		 0x0c0(%%rax),%%zmm5	\n\t		vmulpd		%%zmm10,%%zmm9 ,%%zmm9 		\n\t"\
+		"vmovaps		 0x180(%%rax),%%zmm6	\n\t		vmovaps		%%zmm12,%%zmm14				\n\t"\
+		"vmovaps		 0x1c0(%%rax),%%zmm7	\n\t		vmovaps		%%zmm13,%%zmm15				\n\t"\
+		"vsubpd			%%zmm6 ,%%zmm4,%%zmm4	\n\t	vfmsub132pd		%%zmm10,%%zmm8 ,%%zmm12		\n\t"\
+		"vsubpd			%%zmm7 ,%%zmm5,%%zmm5	\n\t	vfmsub132pd		%%zmm10,%%zmm9 ,%%zmm13		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm4,%%zmm6	\n\t	vfmadd132pd		%%zmm10,%%zmm8 ,%%zmm14		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm5,%%zmm7	\n\t	vfmadd132pd		%%zmm10,%%zmm9 ,%%zmm15		\n\t"\
+		"movq		%[__c10],%%rcx			\n\t"/* base-twiddle in l/rcol = c00/c04 ==> rcx+0x200 in rcol */\
+		"vaddpd			%%zmm6,%%zmm2,%%zmm2	\n\t		vmovaps		 0x200(%%rax),%%zmm8 		\n\t"\
+		"vaddpd			%%zmm7,%%zmm3,%%zmm3	\n\t		vmovaps		 0x240(%%rax),%%zmm9 		\n\t"\
+		"vmovaps		%%zmm2,      (%%rax)	\n\t		vmovaps		 0x300(%%rax),%%zmm10		\n\t"\
+		"vmovaps		%%zmm3, 0x040(%%rax)	\n\t		vmovaps		 0x340(%%rax),%%zmm11		\n\t"\
+		"													vsubpd		%%zmm11,%%zmm8 ,%%zmm8 		\n\t"\
+		"													vsubpd		%%zmm10,%%zmm9 ,%%zmm9 		\n\t"\
+	"vfnmadd231pd		%%zmm31,%%zmm6,%%zmm2	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm11		\n\t"\
+	"vfnmadd231pd		%%zmm31,%%zmm7,%%zmm3	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm10		\n\t"\
+		"vmovaps		%%zmm2,%%zmm6			\n\t		vsubpd		%%zmm12,%%zmm11,%%zmm11		\n\t"\
+		"vmovaps		%%zmm3,%%zmm7			\n\t		vsubpd		%%zmm13,%%zmm9 ,%%zmm9 		\n\t"\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps		0x180(%%rcx),%%zmm20		\n\t"\
+		"vmovaps	 0x040(%%rcx),%%zmm17		\n\t		vmovaps		0x1c0(%%rcx),%%zmm21		\n\t"\
+		"													vmovaps		0x200(%%rcx),%%zmm22		\n\t"\
+		"													vmovaps		0x240(%%rcx),%%zmm23		\n\t"\
+		"subq $0x80,%%rcx		\n\t"/* put c00 in rcx to ease bookkeeping */\
+/*c10:*/"vmulpd			%%zmm16,%%zmm2,%%zmm2	\n\t	vfmadd132pd		%%zmm31,%%zmm11,%%zmm12		\n\t"\
+		"vmulpd			%%zmm16,%%zmm3,%%zmm3	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm13		\n\t"\
+	" vfmadd231pd		%%zmm17,%%zmm7,%%zmm2	\n\t		vmulpd		%%zmm20,%%zmm12,%%zmm16		\n\t"/* c04:*/\
+	"vfnmadd231pd		%%zmm17,%%zmm6,%%zmm3	\n\t		vmulpd		%%zmm20,%%zmm13,%%zmm17		\n\t"\
+		"												 vfmadd231pd	%%zmm21,%%zmm13,%%zmm16		\n\t"\
+		"												vfnmadd231pd	%%zmm21,%%zmm12,%%zmm17		\n\t"\
+		"													vmulpd	 %%zmm22,%%zmm11,%%zmm12		\n\t"/* c14 */\
+		"													vmulpd	 %%zmm22,%%zmm9 ,%%zmm13		\n\t"\
+		"												 vfmadd231pd %%zmm23,%%zmm9 ,%%zmm12		\n\t"\
+		"												vfnmadd231pd %%zmm23,%%zmm11,%%zmm13		\n\t"\
+		"vaddpd			%%zmm5,%%zmm0,%%zmm0	\n\t		vmovaps	%%zmm12,0x280(%%rax)			\n\t"/* r0a,0b */\
+		"vsubpd			%%zmm4,%%zmm1,%%zmm1	\n\t		vmovaps	%%zmm13,0x2c0(%%rax)			\n\t"\
+		"vmovaps	%%zmm2,0x080(%%rax)	/* r02,03 */\n\t	vmovaps	%%zmm16,0x200(%%rax)			\n\t"/* r08,09 */\
+		"vmovaps	%%zmm3,0x0c0(%%rax)				\n\t	vmovaps	%%zmm17,0x240(%%rax)			\n\t"\
+		"vmovaps	 0x100(%%rcx),%%zmm16		\n\t		vmovaps		0x300(%%rcx),%%zmm20		\n\t"\
+		"vmovaps	 0x140(%%rcx),%%zmm17		\n\t		vmovaps		0x340(%%rcx),%%zmm21		\n\t"\
+		"vmovaps	 0x180(%%rcx),%%zmm18		\n\t		vmovaps		0x380(%%rcx),%%zmm22		\n\t"\
+		"vmovaps	 0x1c0(%%rcx),%%zmm19		\n\t		vmovaps		0x3c0(%%rcx),%%zmm23		\n\t"\
+	"vfnmadd132pd	%%zmm31,%%zmm0,%%zmm5		\n\t		vsubpd			%%zmm15,%%zmm8 ,%%zmm8 	\n\t"\
+	" vfmadd132pd	%%zmm31,%%zmm1,%%zmm4		\n\t		vsubpd			%%zmm14,%%zmm10,%%zmm10	\n\t"\
+		"vmulpd		%%zmm16,%%zmm0,%%zmm2 /*c08*/\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm15		\n\t"\
+		"vmulpd		%%zmm16,%%zmm1,%%zmm3		\n\t	vfmadd132pd		%%zmm31,%%zmm10,%%zmm14		\n\t"\
+	" vfmadd231pd	%%zmm17,%%zmm1,%%zmm2		\n\t		vmulpd		%%zmm20,%%zmm15,%%zmm12		\n\t"/* c0C */\
+	"vfnmadd231pd	%%zmm17,%%zmm0,%%zmm3		\n\t		vmulpd		%%zmm20,%%zmm10,%%zmm13		\n\t"\
+		"												 vfmadd231pd	%%zmm21,%%zmm10,%%zmm12		\n\t"\
+		"												vfnmadd231pd	%%zmm21,%%zmm15,%%zmm13		\n\t"\
+		"vmulpd		%%zmm18,%%zmm5,%%zmm0	/* c18*/\n\t	vmulpd		%%zmm22,%%zmm8 ,%%zmm15		\n\t"/* c1C */\
+		"vmulpd		%%zmm18,%%zmm4,%%zmm1		\n\t		vmulpd		%%zmm22,%%zmm14,%%zmm10		\n\t"\
+	" vfmadd231pd	%%zmm19,%%zmm4,%%zmm0		\n\t	 vfmadd231pd	%%zmm23,%%zmm14,%%zmm15		\n\t"\
+	"vfnmadd231pd	%%zmm19,%%zmm5,%%zmm1		\n\t	vfnmadd231pd	%%zmm23,%%zmm8 ,%%zmm10		\n\t"\
+		"vmovaps	%%zmm2,0x100(%%rax)	/* r04,05 */\n\t	vmovaps	%%zmm12,0x300(%%rax)			\n\t"/* r0c,0d */\
+		"vmovaps	%%zmm3,0x140(%%rax)				\n\t	vmovaps	%%zmm13,0x340(%%rax)			\n\t"\
+		"vmovaps	%%zmm0,0x180(%%rax)	/* r06,07 */\n\t	vmovaps	%%zmm15,0x380(%%rax)			\n\t"/* r0e,0f */\
+		"vmovaps	%%zmm1,0x1c0(%%rax)			\n\t		vmovaps	%%zmm10,0x3c0(%%rax)			\n\t"\
+		"\n\t"\
+	/********************************************/	/********************************************/\
+	/* Block 3: t04,t14,t24,t34 -> r20,24,22,26 */	/* Block 7: t0C,t1C,t2C,t3C -> r28,2C,2A,2E */\
+	/********************************************/	/********************************************/\
+		"leaq	0x040(%%rsi),%%rcx	\n\t"/* cc0; Note cc0/ss0 are shared between lcol/rcol, so no rcx-offset until get to twiddles*/\
+		"vmovaps		0x880(%%rax),%%zmm4		\n\t		vmovaps		 0xa80(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x980(%%rax),%%zmm0		\n\t		vmovaps		 0xb80(%%rax),%%zmm8 		\n\t"\
+		"vmovaps		0x8c0(%%rax),%%zmm5		\n\t		vmovaps		 0xac0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x9c0(%%rax),%%zmm3		\n\t		vmovaps		 0xbc0(%%rax),%%zmm11		\n\t"\
+		"vmovaps			%%zmm4 ,%%zmm6		\n\t		vmovaps		 	%%zmm12,%%zmm14			\n\t"\
+		"vmovaps			%%zmm0 ,%%zmm2		\n\t		vmovaps		 	%%zmm8 ,%%zmm10			\n\t"\
+		"vmovaps			%%zmm5 ,%%zmm7		\n\t		vmovaps		 	%%zmm13,%%zmm15			\n\t"\
+	/*	"vmovaps			%%zmm1 ,%%zmm3		\n\t		vmovaps		 	%%zmm9 ,%%zmm11			\n\t"*/\
+	/* Strategic register-usage for sincos consts here cuts loads from 16 to 4: */\
+		"vmovaps			 (%%rcx),%%zmm9 	\n\t		vmovaps		0x040(%%rcx),%%zmm1 		\n\t"\
+		"vmulpd		 	 %%zmm1 ,%%zmm7,%%zmm7	\n\t		vmulpd			 %%zmm9 ,%%zmm15,%%zmm15\n\t"\
+		"vmulpd		 	 %%zmm9 ,%%zmm3,%%zmm3	\n\t		vmulpd			 %%zmm1 ,%%zmm11,%%zmm11\n\t"\
+		"vmulpd		 	 %%zmm1 ,%%zmm6,%%zmm6	\n\t		vmulpd			 %%zmm9 ,%%zmm14,%%zmm14\n\t"\
+		"vmulpd		 	 %%zmm9 ,%%zmm2,%%zmm2	\n\t		vmulpd			 %%zmm1 ,%%zmm10,%%zmm10\n\t"\
+	"vfmadd132pd	 	 %%zmm9 ,%%zmm7,%%zmm4	\n\t	vfmadd132pd			 %%zmm1 ,%%zmm15,%%zmm12\n\t"\
+	"vfmadd132pd	 	 %%zmm1 ,%%zmm3,%%zmm0	\n\t	vfmadd132pd			 %%zmm9 ,%%zmm11,%%zmm8 \n\t"\
+	"vfmsub132pd	 	 %%zmm9 ,%%zmm6,%%zmm5	\n\t	vfmsub132pd			 %%zmm1 ,%%zmm14,%%zmm13\n\t"\
+	"vfmsub132pd	0x9c0(%%rax),%%zmm2,%%zmm1	\n\t	vfmsub132pd		0xbc0(%%rax),%%zmm10,%%zmm9 \n\t"\
+		"vsubpd			%%zmm0,%%zmm4,%%zmm6	\n\t		vsubpd			%%zmm8 ,%%zmm12,%%zmm14	\n\t"\
+		"vsubpd			%%zmm1,%%zmm5,%%zmm7	\n\t		vsubpd			%%zmm9 ,%%zmm13,%%zmm15	\n\t"\
+		"vaddpd			%%zmm0,%%zmm4,%%zmm4	\n\t		vaddpd			%%zmm8 ,%%zmm12,%%zmm12	\n\t"\
+		"vaddpd			%%zmm1,%%zmm5,%%zmm5	\n\t		vaddpd			%%zmm9 ,%%zmm13,%%zmm13	\n\t"\
+		"vmovaps		 0x900(%%rax),%%zmm2	\n\t		vmovaps		0xb00(%%rax),%%zmm10		\n\t"\
+		"vmovaps		 0x940(%%rax),%%zmm3	\n\t		vmovaps		0xb40(%%rax),%%zmm11		\n\t"\
+		"vmovaps		 0x800(%%rax),%%zmm0	\n\t		vmovaps		0xa00(%%rax),%%zmm8 		\n\t"\
+		"vmovaps		 0x840(%%rax),%%zmm1	\n\t		vmovaps		0xa40(%%rax),%%zmm9 		\n\t"\
+		"vaddpd		 0x940(%%rax),%%zmm2,%%zmm2	\n\t		vsubpd		0xb40(%%rax),%%zmm10,%%zmm10\n\t"\
+		"vsubpd		 0x900(%%rax),%%zmm3,%%zmm3	\n\t		vaddpd		0xb00(%%rax),%%zmm11,%%zmm11\n\t"\
+		"vmulpd			  (%%rsi),%%zmm2,%%zmm2	\n\t		vmulpd			 (%%rsi),%%zmm10,%%zmm10\n\t"\
+		"vmulpd			  (%%rsi),%%zmm3,%%zmm3	\n\t		vmulpd			 (%%rsi),%%zmm11,%%zmm11\n\t"\
+		"vsubpd			%%zmm2 ,%%zmm0,%%zmm0	\n\t		vsubpd			%%zmm10,%%zmm8 ,%%zmm8 	\n\t"\
+		"vsubpd			%%zmm3 ,%%zmm1,%%zmm1	\n\t		vsubpd			%%zmm11,%%zmm9 ,%%zmm9 	\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm2	\n\t	vfmadd132pd		 %%zmm31,%%zmm8 ,%%zmm10	\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm3	\n\t	vfmadd132pd		 %%zmm31,%%zmm9 ,%%zmm11	\n\t"\
+		"movq		%[__c02],%%rcx				\n\t"/* base-twiddle addr in rcol = c06, so rcx offset +0x200 vs lcol */\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps		0x200(%%rcx),%%zmm20		\n\t"\
+		"vmovaps	 0x040(%%rcx),%%zmm17		\n\t		vmovaps		0x240(%%rcx),%%zmm21		\n\t"\
+		"vsubpd			%%zmm4,%%zmm2,%%zmm2	\n\t		vsubpd			%%zmm14,%%zmm8 ,%%zmm8 	\n\t"\
+		"vsubpd			%%zmm5,%%zmm3,%%zmm3	\n\t		vsubpd			%%zmm15,%%zmm9 ,%%zmm9 	\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm2,%%zmm4	\n\t	vfmadd132pd		%%zmm31,%%zmm8 ,%%zmm14	\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm3,%%zmm5	\n\t	vfmadd132pd		%%zmm31,%%zmm9 ,%%zmm15	\n\t"\
+		"vmovaps		%%zmm2, 0x880(%%rax)	\n\t		vmovaps		%%zmm8 , 0xa80(%%rax)		\n\t"\
+		"vmovaps		%%zmm3, 0x8c0(%%rax)	\n\t		vmovaps		%%zmm9 , 0xac0(%%rax)		\n\t"\
+		"vmulpd			%%zmm16,%%zmm4,%%zmm2	\n\t		vmulpd			%%zmm20,%%zmm14,%%zmm8	\n\t"\
+		"vmulpd			%%zmm16,%%zmm5,%%zmm3	\n\t		vmulpd			%%zmm20,%%zmm15,%%zmm9	\n\t"\
+	" vfmadd231pd		%%zmm17,%%zmm5,%%zmm2	\n\t	 vfmadd231pd		%%zmm21,%%zmm15,%%zmm8	\n\t"\
+	"vfnmadd231pd		%%zmm17,%%zmm4,%%zmm3	\n\t	vfnmadd231pd		%%zmm21,%%zmm14,%%zmm9	\n\t"\
+		"movq		%[__c12],%%rcx				\n\t"		/* rcol uses c16 */\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps		0x200(%%rcx),%%zmm20		\n\t"\
+		"vmovaps	 0x040(%%rcx),%%zmm17		\n\t		vmovaps		0x240(%%rcx),%%zmm21		\n\t"\
+		"vmovaps		 0x880(%%rax),%%zmm4	\n\t		vmovaps		 0xa80(%%rax),%%zmm14		\n\t"\
+		"vmovaps		 0x8c0(%%rax),%%zmm5	\n\t		vmovaps		 0xac0(%%rax),%%zmm15		\n\t"\
+		"vmovaps	%%zmm2,0x800(%%rax)	/* r20,21 */\n\t	vmovaps	%%zmm8 ,0xa00(%%rax)			\n\t"/* r28,29 */\
+		"vmovaps	%%zmm3,0x840(%%rax)			\n\t		vmovaps	%%zmm9 ,0xa40(%%rax)			\n\t"\
+		"vmulpd			%%zmm16,%%zmm4,%%zmm2	\n\t		vmulpd			%%zmm20,%%zmm14,%%zmm8	\n\t"\
+		"vmulpd			%%zmm16,%%zmm5,%%zmm3	\n\t		vmulpd			%%zmm20,%%zmm15,%%zmm9	\n\t"\
+	" vfmadd231pd		%%zmm17,%%zmm5,%%zmm2	\n\t	 vfmadd231pd		%%zmm21,%%zmm15,%%zmm8	\n\t"\
+	"vfnmadd231pd		%%zmm17,%%zmm4,%%zmm3	\n\t	vfnmadd231pd		%%zmm21,%%zmm14,%%zmm9	\n\t"\
+		"movq		%[__c0A],%%rcx				\n\t"		/* rcol uses c0E */\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps		0x200(%%rcx),%%zmm20		\n\t"\
+		"vmovaps	 0x040(%%rcx),%%zmm17		\n\t		vmovaps		0x240(%%rcx),%%zmm21		\n\t"\
+		"vsubpd			%%zmm7,%%zmm0,%%zmm0	\n\t		vsubpd			%%zmm13,%%zmm10,%%zmm10	\n\t"\
+		"vsubpd			%%zmm6,%%zmm1,%%zmm1	\n\t		vsubpd			%%zmm12,%%zmm11,%%zmm11	\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm0,%%zmm7	\n\t	vfmadd132pd		%%zmm31,%%zmm10,%%zmm13		\n\t"\
+	"vfmadd132pd		%%zmm31,%%zmm1,%%zmm6	\n\t	vfmadd132pd		%%zmm31,%%zmm11,%%zmm12		\n\t"\
+		"vmovaps	%%zmm2,0x880(%%rax)	/* r22,23 */\n\t	vmovaps	%%zmm8 ,0xa80(%%rax)			\n\t"/* r2a,2b */\
+		"vmovaps	%%zmm3,0x8c0(%%rax)			\n\t		vmovaps	%%zmm9 ,0xac0(%%rax)			\n\t"\
+		"vmulpd			%%zmm16,%%zmm7,%%zmm4	\n\t		vmulpd			%%zmm20,%%zmm13,%%zmm8	\n\t"\
+		"vmulpd			%%zmm16,%%zmm1,%%zmm5	\n\t		vmulpd			%%zmm20,%%zmm11,%%zmm9	\n\t"\
+	" vfmadd231pd		%%zmm17,%%zmm1,%%zmm4	\n\t	 vfmadd231pd		%%zmm21,%%zmm11,%%zmm8	\n\t"\
+	"vfnmadd231pd		%%zmm17,%%zmm7,%%zmm5	\n\t	vfnmadd231pd		%%zmm21,%%zmm13,%%zmm9	\n\t"\
+		"movq		%[__c1A],%%rcx				\n\t"		/* rcol uses c1E */\
+		"vmovaps		  (%%rcx),%%zmm16		\n\t		vmovaps		0x200(%%rcx),%%zmm20		\n\t"\
+		"vmovaps	 0x040(%%rcx),%%zmm17		\n\t		vmovaps		0x240(%%rcx),%%zmm21		\n\t"\
+		"vmovaps	%%zmm4,0x900(%%rax)	/* r24,25 */\n\t	vmovaps	%%zmm8 ,0xb00(%%rax)			\n\t"/* r2c,2d */\
+		"vmovaps	%%zmm5,0x940(%%rax)			\n\t		vmovaps	%%zmm9 ,0xb40(%%rax)			\n\t"\
+		"vmulpd			%%zmm16,%%zmm0,%%zmm4	\n\t		vmulpd			%%zmm20,%%zmm10,%%zmm8	\n\t"\
+		"vmulpd			%%zmm16,%%zmm6,%%zmm5	\n\t		vmulpd			%%zmm20,%%zmm12,%%zmm9	\n\t"\
+	" vfmadd231pd		%%zmm17,%%zmm6,%%zmm4	\n\t	 vfmadd231pd		%%zmm21,%%zmm12,%%zmm8	\n\t"\
+	"vfnmadd231pd		%%zmm17,%%zmm0,%%zmm5	\n\t	vfnmadd231pd		%%zmm21,%%zmm10,%%zmm9	\n\t"\
+		"vmovaps	%%zmm4,0x980(%%rax)	/* r26,27 */\n\t	vmovaps	%%zmm8 ,0xb80(%%rax)			\n\t"/* r2e,2f */\
+		"vmovaps	%%zmm5,0x9c0(%%rax)			\n\t		vmovaps	%%zmm9 ,0xbc0(%%rax)			\n\t"\
+	/*******************************************
+	/**** Finish with 8-way 'un'terleaving: ****
+	Using the AVX-512 data layout, the rcol pattern is:
+		a[ 0- 7] = re[ 0, 8,16,24, 4,12,20,28].d0	a[ 8-15] = im[ 0, 8,16,24, 4,12,20,28].d0
+		a[16-23] = re[ 2,10,18,26, 6,14,22,30].d0	a[24-31] = im[ 2,10,18,26, 6,14,22,30].d0
+		a[32-39] = re[ 1, 9,17,25, 5,13,21,29].d0	a[40-47] = im[ 1, 9,17,25, 5,13,21,29].d0
+		a[48-55] = re[ 3,11,19,27, 7,15,23,31].d0	a[56-63] = im[ 3,11,19,27, 7,15,23,31].d0 ,
+	and remaining seven 64-double blocks repeat same pattern with elts d1-d7 of the vector-doubles.
+	*******************************************/\
+		"movq	%[__add0],%%rax	\n\t"\
+		"movq	%[__add1],%%rbx	\n\t"\
+		"movq	%[__add2],%%rcx	\n\t"\
+		"movq	%[__add3],%%rdx	\n\t"\
+		"movq	%[__add4],%%r10	\n\t"\
+		"movq	%[__add5],%%r11	\n\t"\
+		"movq	%[__add6],%%r12	\n\t"\
+		"movq	%[__add7],%%r13	\n\t"\
+	"movq	%[__r00] ,%%rsi	\n\t"\
+	/**** See above USE_16_REG version of this macro for closing transposition using columnwise scatter-stores. ****/\
+	/**** a[ 0- 7] = re[ 0, 8,16,24, 4,12,20,28].d0	a[ 8-15] = im[ 0, 8,16,24, 4,12,20,28].d0 : ****/\
+		/* Read transposed row-data from the local store: */\
+		"vmovaps 		 (%%rsi),%%zmm0			\n\t	vmovaps 0x040(%%rsi),%%zmm10	\n\t"\
+		"vmovaps 	0x400(%%rsi),%%zmm1			\n\t	vmovaps 0x440(%%rsi),%%zmm11	\n\t"\
+		"vmovaps 	0x800(%%rsi),%%zmm2			\n\t	vmovaps 0x840(%%rsi),%%zmm12	\n\t"\
+		"vmovaps 	0xc00(%%rsi),%%zmm3			\n\t	vmovaps 0xc40(%%rsi),%%zmm13	\n\t"\
+		"vmovaps 	0x200(%%rsi),%%zmm4			\n\t	vmovaps 0x240(%%rsi),%%zmm14	\n\t"\
+		"vmovaps 	0x600(%%rsi),%%zmm5			\n\t	vmovaps 0x640(%%rsi),%%zmm15	\n\t"\
+		"vmovaps 	0xa00(%%rsi),%%zmm6			\n\t	vmovaps 0xa40(%%rsi),%%zmm16	\n\t"\
+		"vmovaps 	0xe00(%%rsi),%%zmm7			\n\t	vmovaps 0xe40(%%rsi),%%zmm17	\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write resulting 8 vec-cmplx data to eight 512[0x200]-byte-separated slots of main data array: */\
+		"vmovaps		%%zmm5,(%%rax)		\n\t	vmovaps	%%zmm15,0x40(%%rax)	\n\t"\
+		"vmovaps		%%zmm6,(%%rbx)		\n\t	vmovaps	%%zmm16,0x40(%%rbx)	\n\t"\
+		"vmovaps		%%zmm8,(%%rcx)		\n\t	vmovaps	%%zmm9 ,0x40(%%rcx)	\n\t"\
+		"vmovaps		%%zmm0,(%%rdx)		\n\t	vmovaps	%%zmm10,0x40(%%rdx)	\n\t"\
+		"vmovaps		%%zmm1,(%%r10)		\n\t	vmovaps	%%zmm11,0x40(%%r10)	\n\t"\
+		"vmovaps		%%zmm2,(%%r11)		\n\t	vmovaps	%%zmm12,0x40(%%r11)	\n\t"\
+		"vmovaps		%%zmm4,(%%r12)		\n\t	vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
+		"vmovaps		%%zmm7,(%%r13)		\n\t	vmovaps	%%zmm17,0x40(%%r13)	\n\t"\
+	/**** a[16-23] = re[ 2,10,18,26, 6,14,22,30].d0	a[24-31] = im[ 2,10,18,26, 6,14,22,30].d0 : ****/\
+	"addq	$0x80 ,%%rax	\n\t"\
+	"addq	$0x80 ,%%rbx	\n\t"\
+	"addq	$0x80 ,%%rcx	\n\t"\
+	"addq	$0x80 ,%%rdx	\n\t"\
+	"addq	$0x80 ,%%r10	\n\t"\
+	"addq	$0x80 ,%%r11	\n\t"\
+	"addq	$0x80 ,%%r12	\n\t"\
+	"addq	$0x80 ,%%r13	\n\t"\
+	"addq	$0x100,%%rsi	\n\t"\
+		/* Read transposed row-data from the local store: */\
+		"vmovaps 		 (%%rsi),%%zmm0			\n\t	vmovaps 0x040(%%rsi),%%zmm10	\n\t"\
+		"vmovaps 	0x400(%%rsi),%%zmm1			\n\t	vmovaps 0x440(%%rsi),%%zmm11	\n\t"\
+		"vmovaps 	0x800(%%rsi),%%zmm2			\n\t	vmovaps 0x840(%%rsi),%%zmm12	\n\t"\
+		"vmovaps 	0xc00(%%rsi),%%zmm3			\n\t	vmovaps 0xc40(%%rsi),%%zmm13	\n\t"\
+		"vmovaps 	0x200(%%rsi),%%zmm4			\n\t	vmovaps 0x240(%%rsi),%%zmm14	\n\t"\
+		"vmovaps 	0x600(%%rsi),%%zmm5			\n\t	vmovaps 0x640(%%rsi),%%zmm15	\n\t"\
+		"vmovaps 	0xa00(%%rsi),%%zmm6			\n\t	vmovaps 0xa40(%%rsi),%%zmm16	\n\t"\
+		"vmovaps 	0xe00(%%rsi),%%zmm7			\n\t	vmovaps 0xe40(%%rsi),%%zmm17	\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write resulting 8 vec-cmplx data to eight 512[0x200]-byte-separated slots of main data array: */\
+		"vmovaps		%%zmm5,(%%rax)		\n\t	vmovaps	%%zmm15,0x40(%%rax)	\n\t"\
+		"vmovaps		%%zmm6,(%%rbx)		\n\t	vmovaps	%%zmm16,0x40(%%rbx)	\n\t"\
+		"vmovaps		%%zmm8,(%%rcx)		\n\t	vmovaps	%%zmm9 ,0x40(%%rcx)	\n\t"\
+		"vmovaps		%%zmm0,(%%rdx)		\n\t	vmovaps	%%zmm10,0x40(%%rdx)	\n\t"\
+		"vmovaps		%%zmm1,(%%r10)		\n\t	vmovaps	%%zmm11,0x40(%%r10)	\n\t"\
+		"vmovaps		%%zmm2,(%%r11)		\n\t	vmovaps	%%zmm12,0x40(%%r11)	\n\t"\
+		"vmovaps		%%zmm4,(%%r12)		\n\t	vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
+		"vmovaps		%%zmm7,(%%r13)		\n\t	vmovaps	%%zmm17,0x40(%%r13)	\n\t"\
+	/**** a[32-39] = re[ 1, 9,17,25, 5,13,21,29].d0	a[40-47] = im[ 1, 9,17,25, 5,13,21,29].d0 : ****/\
+	"addq	$0x80 ,%%rax	\n\t"\
+	"addq	$0x80 ,%%rbx	\n\t"\
+	"addq	$0x80 ,%%rcx	\n\t"\
+	"addq	$0x80 ,%%rdx	\n\t"\
+	"addq	$0x80 ,%%r10	\n\t"\
+	"addq	$0x80 ,%%r11	\n\t"\
+	"addq	$0x80 ,%%r12	\n\t"\
+	"addq	$0x80 ,%%r13	\n\t"\
+	"subq	$0x80,%%rsi	\n\t"\
+		/* Read transposed row-data from the local store: */\
+		"vmovaps 		 (%%rsi),%%zmm0			\n\t	vmovaps 0x040(%%rsi),%%zmm10	\n\t"\
+		"vmovaps 	0x400(%%rsi),%%zmm1			\n\t	vmovaps 0x440(%%rsi),%%zmm11	\n\t"\
+		"vmovaps 	0x800(%%rsi),%%zmm2			\n\t	vmovaps 0x840(%%rsi),%%zmm12	\n\t"\
+		"vmovaps 	0xc00(%%rsi),%%zmm3			\n\t	vmovaps 0xc40(%%rsi),%%zmm13	\n\t"\
+		"vmovaps 	0x200(%%rsi),%%zmm4			\n\t	vmovaps 0x240(%%rsi),%%zmm14	\n\t"\
+		"vmovaps 	0x600(%%rsi),%%zmm5			\n\t	vmovaps 0x640(%%rsi),%%zmm15	\n\t"\
+		"vmovaps 	0xa00(%%rsi),%%zmm6			\n\t	vmovaps 0xa40(%%rsi),%%zmm16	\n\t"\
+		"vmovaps 	0xe00(%%rsi),%%zmm7			\n\t	vmovaps 0xe40(%%rsi),%%zmm17	\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write resulting 8 vec-cmplx data to eight 512[0x200]-byte-separated slots of main data array: */\
+		"vmovaps		%%zmm5,(%%rax)		\n\t	vmovaps	%%zmm15,0x40(%%rax)	\n\t"\
+		"vmovaps		%%zmm6,(%%rbx)		\n\t	vmovaps	%%zmm16,0x40(%%rbx)	\n\t"\
+		"vmovaps		%%zmm8,(%%rcx)		\n\t	vmovaps	%%zmm9 ,0x40(%%rcx)	\n\t"\
+		"vmovaps		%%zmm0,(%%rdx)		\n\t	vmovaps	%%zmm10,0x40(%%rdx)	\n\t"\
+		"vmovaps		%%zmm1,(%%r10)		\n\t	vmovaps	%%zmm11,0x40(%%r10)	\n\t"\
+		"vmovaps		%%zmm2,(%%r11)		\n\t	vmovaps	%%zmm12,0x40(%%r11)	\n\t"\
+		"vmovaps		%%zmm4,(%%r12)		\n\t	vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
+		"vmovaps		%%zmm7,(%%r13)		\n\t	vmovaps	%%zmm17,0x40(%%r13)	\n\t"\
+	/**** a[48-55] = re[ 3,11,19,27, 7,15,23,31].d0	a[56-63] = im[ 3,11,19,27, 7,15,23,31].d0 : ****/\
+	"addq	$0x80 ,%%rax	\n\t"\
+	"addq	$0x80 ,%%rbx	\n\t"\
+	"addq	$0x80 ,%%rcx	\n\t"\
+	"addq	$0x80 ,%%rdx	\n\t"\
+	"addq	$0x80 ,%%r10	\n\t"\
+	"addq	$0x80 ,%%r11	\n\t"\
+	"addq	$0x80 ,%%r12	\n\t"\
+	"addq	$0x80 ,%%r13	\n\t"\
+	"addq	$0x100,%%rsi	\n\t"\
+		/* Read transposed row-data from the local store: */\
+		"vmovaps 		 (%%rsi),%%zmm0			\n\t	vmovaps 0x040(%%rsi),%%zmm10	\n\t"\
+		"vmovaps 	0x400(%%rsi),%%zmm1			\n\t	vmovaps 0x440(%%rsi),%%zmm11	\n\t"\
+		"vmovaps 	0x800(%%rsi),%%zmm2			\n\t	vmovaps 0x840(%%rsi),%%zmm12	\n\t"\
+		"vmovaps 	0xc00(%%rsi),%%zmm3			\n\t	vmovaps 0xc40(%%rsi),%%zmm13	\n\t"\
+		"vmovaps 	0x200(%%rsi),%%zmm4			\n\t	vmovaps 0x240(%%rsi),%%zmm14	\n\t"\
+		"vmovaps 	0x600(%%rsi),%%zmm5			\n\t	vmovaps 0x640(%%rsi),%%zmm15	\n\t"\
+		"vmovaps 	0xa00(%%rsi),%%zmm6			\n\t	vmovaps 0xa40(%%rsi),%%zmm16	\n\t"\
+		"vmovaps 	0xe00(%%rsi),%%zmm7			\n\t	vmovaps 0xe40(%%rsi),%%zmm17	\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"\n\t"\
+		"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t	vblendmpd		%%zmm11%{cdab%},%%zmm10,%%zmm9 %{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t	vblendmpd		%%zmm10%{cdab%},%%zmm11,%%zmm11%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t	vblendmpd		%%zmm13%{cdab%},%%zmm12,%%zmm10%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t	vblendmpd		%%zmm12%{cdab%},%%zmm13,%%zmm13%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t	vblendmpd		%%zmm15%{cdab%},%%zmm14,%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t	vblendmpd		%%zmm14%{cdab%},%%zmm15,%%zmm15%{%%k2%}	\n\t"\
+		"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t	vblendmpd		%%zmm17%{cdab%},%%zmm16,%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t	vblendmpd		%%zmm16%{cdab%},%%zmm17,%%zmm17%{%%k2%}	\n\t"\
+		"\n\t"\
+		"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t	vblendmpd		%%zmm10%{badc%},%%zmm9 ,%%zmm16%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t	vblendmpd		%%zmm9 %{badc%},%%zmm10,%%zmm10%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t	vblendmpd		%%zmm13%{badc%},%%zmm11,%%zmm9 %{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t	vblendmpd		%%zmm11%{badc%},%%zmm13,%%zmm13%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t	vblendmpd		%%zmm14%{badc%},%%zmm12,%%zmm11%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t	vblendmpd		%%zmm12%{badc%},%%zmm14,%%zmm14%{%%k4%}	\n\t"\
+		"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t	vblendmpd		%%zmm17%{badc%},%%zmm15,%%zmm12%{%%k3%}	\n\t"\
+		"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t	vblendmpd		%%zmm15%{badc%},%%zmm17,%%zmm17%{%%k4%}	\n\t"\
+		"\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}			\n\t	vblendmpd		%%zmm11,%%zmm16,%%zmm15%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}			\n\t	vblendmpd		%%zmm16,%%zmm11,%%zmm11%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}			\n\t	vblendmpd		%%zmm12,%%zmm9 ,%%zmm16%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}			\n\t	vblendmpd		%%zmm9 ,%%zmm12,%%zmm12%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}			\n\t	vblendmpd		%%zmm14,%%zmm10,%%zmm9 %{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}			\n\t	vblendmpd		%%zmm10,%%zmm14,%%zmm14%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}			\n\t	vblendmpd		%%zmm17,%%zmm13,%%zmm10%{%%k5%}			\n\t"\
+		"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}			\n\t	vblendmpd		%%zmm13,%%zmm17,%%zmm17%{%%k5%}			\n\t"\
+		"vpermf32x4	$78,%%zmm1,%%zmm1							\n\t	vpermf32x4	$78,%%zmm11,%%zmm11							\n\t"\
+		"vpermf32x4	$78,%%zmm2,%%zmm2							\n\t	vpermf32x4	$78,%%zmm12,%%zmm12							\n\t"\
+		"vpermf32x4	$78,%%zmm4,%%zmm4							\n\t	vpermf32x4	$78,%%zmm14,%%zmm14							\n\t"\
+		"vpermf32x4	$78,%%zmm7,%%zmm7							\n\t	vpermf32x4	$78,%%zmm17,%%zmm17							\n\t"\
+		/* Write resulting 8 vec-cmplx data to eight 512[0x200]-byte-separated slots of main data array: */\
+		"vmovaps		%%zmm5,(%%rax)		\n\t	vmovaps	%%zmm15,0x40(%%rax)	\n\t"\
+		"vmovaps		%%zmm6,(%%rbx)		\n\t	vmovaps	%%zmm16,0x40(%%rbx)	\n\t"\
+		"vmovaps		%%zmm8,(%%rcx)		\n\t	vmovaps	%%zmm9 ,0x40(%%rcx)	\n\t"\
+		"vmovaps		%%zmm0,(%%rdx)		\n\t	vmovaps	%%zmm10,0x40(%%rdx)	\n\t"\
+		"vmovaps		%%zmm1,(%%r10)		\n\t	vmovaps	%%zmm11,0x40(%%r10)	\n\t"\
+		"vmovaps		%%zmm2,(%%r11)		\n\t	vmovaps	%%zmm12,0x40(%%r11)	\n\t"\
+		"vmovaps		%%zmm4,(%%r12)		\n\t	vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
+		"vmovaps		%%zmm7,(%%r13)		\n\t	vmovaps	%%zmm17,0x40(%%r13)	\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		 ,[__add1] "m" (Xadd1)\
+		 ,[__add2] "m" (Xadd2)\
+		 ,[__add3] "m" (Xadd3)\
+		 ,[__add4] "m" (Xadd4)\
+		 ,[__add5] "m" (Xadd5)\
+		 ,[__add6] "m" (Xadd6)\
+		 ,[__add7] "m" (Xadd7)\
+		 ,[__isrt2] "m" (Xisrt2)\
+		 ,[__r00] "m" (Xr00)\
+		 ,[__r08] "m" (Xr08)\
+		 ,[__r10] "m" (Xr10)\
+		 ,[__r20] "m" (Xr20)\
+		 ,[__r28] "m" (Xr28)\
+		 ,[__r30] "m" (Xr30)\
+		 ,[__c01] "m" (Xc01)\
+		 ,[__c02] "m" (Xc02)\
+		 ,[__c04] "m" (Xc04)\
+		 ,[__c06] "m" (Xc06)\
+		 ,[__c0A] "m" (Xc0A)\
+		 ,[__c10] "m" (Xc10)\
+		 ,[__c12] "m" (Xc12)\
+		 ,[__c1A] "m" (Xc1A)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+	);\
+	}
+
+   #else	// AVX-512 version:
+
 	// Cost [vector-ops only] : 528 MEM (400 in DFT proper), 370 MUL (270 FMA), 168 ADD/SUB	<*** 32-DIT MEM-ops reduced by more than half vs 16-reg version ***
 	// Compare to AVX2 version: 992 MEM (864 in DFT proper), 352 MUL (236 FMA), 204 ADD/SUB
 	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xadd2,Xadd3,Xadd4,Xadd5,Xadd6,Xadd7,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc01,Xc02,Xc04,Xc06,Xc0A,Xc10,Xc12,Xc1A)\
@@ -3978,6 +5346,9 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
+
+   #endif	// (IMCI512 or AVX512?) toggle
+
   #endif	// USE_16_REG ?
 
 #elif defined(USE_AVX2)	// FMA-based versions of selected macros in this file for Intel AVX2/FMA3

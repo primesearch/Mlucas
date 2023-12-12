@@ -163,15 +163,15 @@ logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
 #define ARRAYS_OVERLAP(x, lenx, y, leny)	( (x <= y) && (x+lenx) > y ) || ( (x > y) && (y+leny) > x )
 */
 
-// 32 and 64-bit 2s-comp integer mod-add/sub macros, compute z = (x +- y)%q. Assume inputs properly
-// typed and normalized x,y < q. Allow in-place: any or all of x,y,z may refer to same operand.
+// 32 and 64-bit 2s-comp integer mod-add/sub macros, compute z = (x +- y)%q. Cast-enforces required uint32 typing.
+// Assumes inputs properly normalized x,y < q. Allow in-place: any or all of x,y,z may refer to same operand.
 #define MOD_ADD32(__x, __y, __q, __z) {\
 	uint32 cy,tmp;\
 	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
 	Inputs can actually be typed signed-int32 in calling code - only the compares care about that, force uint32 there. */\
-	tmp = __x + __y;	cy = tmp < (uint32)__x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^31, thus */\
-	__z = tmp - __q;	cy -= (uint32)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
-	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
+	tmp = (uint32)__x + (uint32)__y;	cy = tmp < (uint32)__x;	/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^31, thus */\
+	__z = tmp - (uint32)__q;	cy -= (uint32)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
+	__z = (uint32)__z + (cy & (uint32)__q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
 }
 #define MOD_SUB32(__x, __y, __q, __z) MOD_ADD32(__x, __q - __y, __q, __z)
 
@@ -179,9 +179,9 @@ logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
 	uint64 cy,tmp;\
 	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
 	Inputs can actually be typed signed-int64 in calling code - only the compares care about that, force uint64 there. */\
-	tmp = __x + __y;	cy = tmp < (uint64)__x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
-	__z = tmp - __q;	cy -= (uint64)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
-	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
+	tmp = (uint64)__x + (uint64)__y;	cy = tmp < (uint64)__x;	/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
+	__z = tmp - (uint64)__q;	cy -= (uint64)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
+	__z = (uint64)__z + (cy & (uint64)__q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
 }
 #define MOD_SUB64(__x, __y, __q, __z) MOD_ADD64(__x, __q - __y, __q, __z)
 

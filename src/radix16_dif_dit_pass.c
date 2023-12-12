@@ -152,7 +152,9 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
 
 #ifdef USE_SSE2
-	// v20: Coeffs of 6-term [even|odd] Chebyshev approximation to [cos(x)|sin(x)], x in [0,Pi/4], IEEE64-doubles stored as uint64 bitfields:
+  #if 0
+	#error Experimental code: needs debug!
+	// Experimental: Coeffs of 6-term [even|odd] Chebyshev approximation to [cos(x)|sin(x)], x in [0,Pi/4], IEEE64-doubles stored as uint64 bitfields:
 	const uint64 cheb_c[6] = {
 					0x3feffffffffffe0bull,	// d[ 0]
 					0xbfdffffffffe3763ull,	// d[ 2]
@@ -167,6 +169,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 					0xbf2a019f8a207d3full,	// d[ 7]
 					0x3ec71d7317b8ee33ull,	// d[ 9]
 					0xbe5a9507f3711e2dull};	// d[11]
+  #endif
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0, *add1, *add2;	/* Addresses into array sections */
 	const double *cd_ptr0, *cd_ptr1;
@@ -270,10 +273,13 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 					*flt_ptr++ = (float)j;
 			//		*dbl_ptr++ = (double)j;	<*** Just init these slots to [0-15]*twopin at same runtime-spot below - in fact instead of - where we init twopin
 				}
+			   #if 0
+				#error Experimental code: needs debug!
 				// Chebyshev-expansion coeffs for cos & sin start at (sign_mask+18) = (sc_ptr + 0x5a)...
 				// use the uint64 sign_mask pointer to init const-vec_dbl as paired-uint64 bitfields:
 				for(j =  0; j < 12; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_c[j>>1]; }
 				for(j = 12; j < 24; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_s[j>>1]; }
+			   #endif
 			  #endif
 				isrt2 += 104;	/* Move on to next thread's local store */
 				cc0   += 104;
@@ -310,11 +316,13 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 				*flt_ptr++ = (float)j;
 		//		*dbl_ptr++ = (double)j;	<*** Just init these slots to [0-15]*twopin at same runtime-spot below - in fact instead of - where we init twopin
 			}
+		   #if 0
+			#error Experimental code: needs debug!
 			// Chebyshev-expansion coeffs for cos & sin start at (sign_mask+18) = (sc_ptr + 0x5a)...
 			// use the uint64 sign_mask pointer to init const-vec_dbl as paired-uint64 bitfields:
 			for(j =  0; j < 12; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_c[j>>1]; }
 			for(j = 12; j < 24; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_s[j>>1]; }
-
+		   #endif
 		#else
 		  #error Non-GCC-compatible compilers not supported for SIMD builds!
 		#endif

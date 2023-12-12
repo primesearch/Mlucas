@@ -174,7 +174,7 @@ The resulting bounds are set in form of the globals B1 and B2.
 Return value != 0 indicates success; return 0 indicates an error of some kind, in which case B1 and B2 are set = 0.
 On successful execution, B2 > B1 > 0 and PM1_S2_NBUF will have been set based on available RAM and FFT-length-in-doubles, n.
 */
-uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved)
+uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const double tests_saved)
 {
 	const double inv100k = 1./100000, inv1m = 1./1000000;
 /* NB: Since GIMPS testing will all soon be 1-shot PRP-with-proof-of-correctness, no need to make use of tests_saved. */

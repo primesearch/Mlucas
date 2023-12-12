@@ -213,7 +213,11 @@ int radix48_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int col,co2,co3;
   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
-	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #ifdef CARRY_16_WAY
+	static struct uint32x16 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #else
+	static struct uint32x8  *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #endif
   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
   #else
@@ -339,7 +343,13 @@ int radix48_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
 
-	  #ifdef USE_AVX	// AVX LOACC: Make CARRY_8_WAY default here:
+	  #ifdef USE_AVX512
+	   #ifdef CARRY_16_WAY
+		i = 16;
+	   #else
+		i = 8;
+	   #endif
+	  #elif defined(USE_AVX)	// AVX LOACC: Make CARRY_8_WAY default here:
 		i = 8;
 	  #elif defined(USE_SSE2)	// AVX and SSE2 modes use 4-way carry macros
 		i = 4;
@@ -795,19 +805,27 @@ int radix48_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 		nbytes = 4 << L2_SZ_VD;
 
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
+	   #ifdef CARRY_16_WAY
+		n_minus_sil   = (struct uint32x16*)sse_n + 1;
+		n_minus_silp1 = (struct uint32x16*)sse_n + 2;
+		sinwt         = (struct uint32x16*)sse_n + 3;
+		sinwtm1       = (struct uint32x16*)sse_n + 4;
+		nbytes += 256;
+	   #else
 		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
 		sinwt         = (struct uint32x8 *)sse_n + 3;
 		sinwtm1       = (struct uint32x8 *)sse_n + 4;
 		nbytes += 128;
-	#elif defined(USE_AVX)
+	   #endif
+	  #elif defined(USE_AVX)
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
-		nbytes += 64;;
-	#endif
+		nbytes += 64;
+	  #endif
 
 		// Propagate the above consts to the remaining threads:
 		tmp = (vec_dbl *)sm_ptr;
@@ -964,7 +982,7 @@ int radix48_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		} else {
 			target_idx = target_set = 0;
 			target_cy = -2.0;
@@ -1653,7 +1671,11 @@ void radix48_dit_pass1(double a[], int n)
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;
-		struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #ifdef CARRY_16_WAY
+		struct uint32x16 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #else
+		struct uint32x8  *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #endif
 	#elif defined(USE_AVX)
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
 	#else
@@ -1871,10 +1893,17 @@ void radix48_dit_pass1(double a[], int n)
 		sse_sw  = sse_bw    + RE_IM_STRIDE;
 		sse_n   = sse_sw    + RE_IM_STRIDE;
 	  #ifdef USE_AVX512
+	   #ifdef CARRY_16_WAY
+		n_minus_sil   = (struct uint32x16*)sse_n + 1;
+		n_minus_silp1 = (struct uint32x16*)sse_n + 2;
+		sinwt         = (struct uint32x16*)sse_n + 3;
+		sinwtm1       = (struct uint32x16*)sse_n + 4;
+	   #else
 		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
 		sinwt         = (struct uint32x8 *)sse_n + 3;
 		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+	   #endif
 	  #elif defined(USE_AVX)
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;

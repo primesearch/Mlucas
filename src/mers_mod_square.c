@@ -1980,7 +1980,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				mlucas_fprint(cbuf,scrnFlag);	// Echo output to stderr
 			// v20: For == 0.4375, in PRP-test mode, if already at shortest chain length, simply allow further 0.4375 errors,
 			// since Gerbicz check will catch rare cases of a wrong-way digit rounding, i.e. 0.4375 really being a 0.5625 in disguise:
-			} else if(fracmax == 0.4375 && TEST_TYPE == TEST_TYPE_PRP) {
+			} else if(fracmax == 0.4375 && DO_GCHECK) {
 				/* No-op */
 			} else if(fracmax >= 0.4375 ) {	// already at shortest chain length
 				// In range test mode, any fractional part > 0.4375 is cause for error exit, triggering switch to next-larger FFT length:
