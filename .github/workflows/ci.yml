@@ -1,0 +1,244 @@
+name: CI
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron:  '0 0 1 * *'
+
+jobs:
+  Linux:
+    name: Mlucas Linux
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.cc == 'clang' }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        sudo apt-get -yqq update
+        sudo apt-get -yqq install libhwloc-dev
+    - name: Before script
+      run: |
+        sed -i 's/-j/-O -j/' makemake.sh
+        $CC --version
+    - name: Script
+      run: |
+        set -x
+        set -o pipefail
+        lscpu
+        cat /proc/cpuinfo
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        (cd obj; make clean)
+        for arg in '' '1word' '2word' '3word' '4word' 'nword'; do echo -e "\nMfactor $arg\n"; bash -e -o pipefail -- makemake.sh mfac $arg use_hwloc; (cd obj_mfac; make clean); done
+        cd obj
+        echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
+        path: ${{ github.workspace }}
+
+  ASan-Linux:
+    name: AddressSanitizer Linux
+
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.cc == 'clang' }}
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        sudo apt-get -yqq update
+        sudo apt-get -yqq install libhwloc-dev
+    - name: Before script
+      run: |
+        sed -i 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i 's/-j/-O -j/' makemake.sh
+        $CC --version
+    - name: Script
+      run: |
+        set -x
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        cd obj
+        make clean
+        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
+      continue-on-error: true
+
+  TSan-Linux:
+    name: ThreadSanitizer Linux
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cc: [clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        sudo apt-get -yqq update
+        sudo apt-get -yqq install libhwloc-dev
+    - name: Before script
+      run: |
+        sed -i 's/-O3/-Og -fsanitize=thread/' makemake.sh
+        sed -i 's/-j/-O -j/' makemake.sh
+        $CC --version
+    - name: Script
+      run: |
+        set -x
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        cd obj
+        make clean
+        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
+      continue-on-error: true
+
+  GCC-analyzer:
+    name: GCC analyzer
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: GCC analyzer
+      run: |
+        set -x
+        set -o pipefail
+        gcc -c -fdiagnostics-color -g -O3 -march=native -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
+        rm -- *.o
+        echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  Clang-Tidy:
+    name: Clang-Tidy
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Clang-Tidy
+      run: |
+        set -x
+        set -o pipefail
+        clang-tidy --use-color -checks='bugprone-*,cert-*,clang-analyzer-*,concurrency-*,misc-const-correctness,misc-redundant-expression,misc-unused-*,modernize-*,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-anyofallof' -header-filter='.*' src/*.c -- -Wall -O3 -march=native -DUSE_THREADS |& tee clang-tidy.log
+        echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  Cppcheck:
+    name: Cppcheck
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        sudo apt-get -yqq update
+        sudo apt-get -yqq install cppcheck
+    - name: Cppcheck
+      run: |
+        mkdir build
+        cppcheck --enable=all -DUSE_THREADS --force --cppcheck-build-dir=build -j "$(nproc)" --clang .
+        cppcheck --enable=all -DUSE_THREADS --force --cppcheck-build-dir=build --clang . &> cppcheck.log
+        echo -e '## Cppcheck\n```' >> $GITHUB_STEP_SUMMARY
+        grep '\(error\|warning\|style\|performance\|portability\|information\):' cppcheck.log | awk '{ print $2, $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  ShellCheck:
+    name: ShellCheck
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: ShellCheck
+      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-extra-masked-returns,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
+      continue-on-error: true
+
+  macOS:
+    name: Mlucas macOS
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-11, macos-12, macos-13]
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        brew install hwloc
+    - name: Script
+      run: |
+        set -x
+        set -o pipefail
+        sysctl -a
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        (cd obj; make clean)
+        for arg in '' '1word' '2word' '3word' '4word' 'nword'; do echo -e "\nMfactor $arg\n"; bash -e -o pipefail -- makemake.sh mfac $arg use_hwloc; (cd obj_mfac; make clean); done
+        cd obj
+        echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ matrix.os }}_mlucas
+        path: ${{ github.workspace }}
+
+  ASan-macOS:
+    name: AddressSanitizer macOS
+
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        brew install hwloc
+    - name: Before script
+      run: |
+        sed -i '' 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+    - name: Script
+      run: |
+        set -x
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        cd obj
+        make clean
+        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+      continue-on-error: true
+
+  TSan-macOS:
+    name: ThreadSanitizer macOS
+
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        brew install hwloc
+    - name: Before script
+      run: |
+        sed -i '' 's/-O3/-Og -fsanitize=thread/' makemake.sh
+    - name: Script
+      run: |
+        set -x
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        cd obj
+        make clean
+        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+      continue-on-error: true
