@@ -5255,7 +5255,7 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 		}
 	}
 #if 0
-Above pow' = 2^(2^30 - 1) (mod p-1) = 433448099512320 = 2^35.3.5.29^2 example:
+/* Above pow' = 2^(2^30 - 1) (mod p-1) = 433448099512320 = 2^35.3.5.29^2 example:
 My 2^-p (mod q) code needs q odd ... we note q = (p-1) = 2^32.103.1447 = 2^32.149041, so first try positive-power version:
 q = 2^32.qodd, so compute r' = 2^(p-32) (mod qodd = 149041) = 100920 = 2^3.3.5.29^2, whence r = 2^32.r' = 433448099512320
 The inverse of r' (mod qodd) = 38455, and that is just the output of the negative-powering r'' = 2^(-(p-32)) (mod 149041).
@@ -5263,7 +5263,7 @@ Thus r'.r'' = 100920.38455 == 1 (mod 149041), BUT (2^32.r').(2^32.r'') = 4334480
 Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 1. Compute negative-power r'' = 2^(-(p-k)) (mod qodd);
 2. Compute mod-inverse r' = (r'')^-1 (mod qodd);
-3. Then 2^k.r' = 2^p (mod q = 2^k.qodd).
+3. Then 2^k.r' = 2^p (mod q = 2^k.qodd). */
 #endif
 
 	// FFT length in K (3 bytes) - first added this in v18:

@@ -1828,8 +1828,8 @@ for(outer=0; outer <= 1; outer++)
 		tmp = tdat[ithread].half_arr;
 	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
 		ASSERT(HERE, ((tmp-1)->d0 == base[0] && (tmp-1)->d1 == baseinv[1] && (tmp-1)->d2 == wts_mult[1] && (tmp-1)->d3 == inv_mult[0]), "thread-local memcheck failed!");
-		ASSERT(HERE, ((tmp+0)->d0 == 0.50 && (tmp+0)->d1 == 0.50 && (tmp+0)->d2 == 0.50 && (tmp+0)->d3 == 0.50 && (tmp+0)->d4 == 0.50 && (tmp+0)->d5 == 0.50 && (tmp+0)->d6 == 0.50 && (tmp+0)->d7 == 0.50, "thread-local memcheck failed!");
-		ASSERT(HERE, ((tmp+1)->d0 == 0.25 && (tmp+1)->d1 == 0.25 && (tmp+1)->d2 == 0.25 && (tmp+1)->d3 == 0.25 && (tmp+1)->d4 == 0.25 && (tmp+1)->d5 == 0.25 && (tmp+1)->d6 == 0.25 && (tmp+1)->d7 == 0.25, "thread-local memcheck failed!");
+		// ASSERT(HERE, ((tmp+0)->d0 == 0.50 && (tmp+0)->d1 == 0.50 && (tmp+0)->d2 == 0.50 && (tmp+0)->d3 == 0.50 && (tmp+0)->d4 == 0.50 && (tmp+0)->d5 == 0.50 && (tmp+0)->d6 == 0.50 && (tmp+0)->d7 == 0.50, "thread-local memcheck failed!");
+		// ASSERT(HERE, ((tmp+1)->d0 == 0.25 && (tmp+1)->d1 == 0.25 && (tmp+1)->d2 == 0.25 && (tmp+1)->d3 == 0.25 && (tmp+1)->d4 == 0.25 && (tmp+1)->d5 == 0.25 && (tmp+1)->d6 == 0.25 && (tmp+1)->d7 == 0.25, "thread-local memcheck failed!");
 	  #else
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
 	  #endif
