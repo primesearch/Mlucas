@@ -34,9 +34,16 @@ jobs:
         set -o pipefail
         lscpu
         cat /proc/cpuinfo
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        (cd obj; make clean)
-        for arg in '' '1word' '2word' '3word' '4word' 'nword'; do echo -e "\nMfactor $arg\n"; bash -e -o pipefail -- makemake.sh mfac $arg use_hwloc; (cd obj_mfac; make clean); done
+        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            (cd obj${mode:+_$mode}; make clean)
+            for word in '' 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode
+                (cd obj_mfac${mode:+_$mode}; make clean)
+            done
+        done
         cd obj
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
@@ -187,9 +194,16 @@ jobs:
         set -x
         set -o pipefail
         sysctl -a
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        (cd obj; make clean)
-        for arg in '' '1word' '2word' '3word' '4word' 'nword'; do echo -e "\nMfactor $arg\n"; bash -e -o pipefail -- makemake.sh mfac $arg use_hwloc; (cd obj_mfac; make clean); done
+        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            (cd obj${mode:+_$mode}; make clean)
+            for word in '' 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode
+                (cd obj_mfac${mode:+_$mode}; make clean)
+            done
+        done
         cd obj
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY

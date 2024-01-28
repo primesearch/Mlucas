@@ -96,7 +96,7 @@ for arg in "$@"; do
 		'use_hwloc')
 			HWLOC=1
 			;;
-		'avx512_skylake' | 'avx512_knl' | 'k1om' | 'avx2' | 'avx' | 'sse2' | 'asimd' | 'nosimd')
+		'avx512_skylake' | 'avx512_knl' | 'avx512' | 'k1om' | 'avx2' | 'avx' | 'sse2' | 'asimd' | 'nosimd')
 			MODES+=("$arg")
 			;;
 		'mfac')
@@ -108,7 +108,7 @@ for arg in "$@"; do
 		*)
 			echo "Usage: $0 [SIMD build mode]" >&2
 			echo "Optional arguments must be 'no_gmp', 'use_hwloc' or one and only one of the supported SIMD-arithmetic types:" >&2
-			echo -e "\t[x86_64: avx512_skylake avx512_knl k1om avx2 avx sse2]; [Armv8: asimd]; or 'nosimd' for scalar-double build.\n" >&2
+			echo -e "\t[x86_64: avx512 k1om avx2 avx sse2]; [Armv8: asimd]; or 'nosimd' for scalar-double build.\n" >&2
 			exit 1
 			;;
 	esac
@@ -166,11 +166,17 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 	case ${arg} in
 		'avx512_skylake')
 			echo "Building for avx512_skylake SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Warning: The 'avx512_skylake' option is deprecated, use 'avx512' instead."
 			ARGS+=(-DUSE_AVX512 -march=skylake-avx512)
 			;;
 		'avx512_knl')
 			echo "Building for avx512_knl SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Warning: The 'avx512_knl' option is deprecated, use 'avx512' instead."
 			ARGS+=(-DUSE_AVX512 -march=knl)
+			;;
+		'avx512')
+			echo "Building for avx512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			ARGS+=(-DUSE_AVX512 -mavx512f)
 			;;
 		'k1om')
 			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
@@ -186,7 +192,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			;;
 		'sse2')
 			echo "Building for sse2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_SSE2)
+			ARGS+=(-DUSE_SSE2 -msse2)
 			;;
 		'asimd')
 			echo "Building for asimd SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
@@ -254,7 +260,7 @@ else
 fi
 
 if [[ -d $DIR ]]; then
-	echo "Warning: '$DIR' already exists"
+	echo "Warning: Directory '$DIR' already exists"
 fi
 
 # -p prevents "File exists" warning if obj-dir already exists:
