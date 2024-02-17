@@ -213,24 +213,24 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 elif echo "$OSTYPE" | grep -iq 'darwin'; then
 
 	# MacOS:
-	if sysctl -a | grep machdep.cpu.features | grep -iq 'avx512'; then
+	if (($(sysctl -n hw.optional.avx512f))); then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native)
-	elif sysctl -a | grep machdep.cpu.features | grep -iq 'avx2'; then
+	elif (($(sysctl -n hw.optional.avx2_0))); then
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2)
-	elif sysctl -a | grep machdep.cpu.features | grep -iq 'avx'; then
+	elif (($(sysctl -n hw.optional.avx1_0))); then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX -march=native -mavx)
-	elif sysctl -a | grep machdep.cpu.features | grep -iq 'sse2'; then
+	elif (($(sysctl -n hw.optional.sse2))); then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
 		ARGS+=(-DUSE_SSE2 -march=core2)
-	elif sysctl -a | grep machdep.cpu.features | grep -iq 'asimd'; then
+	elif (($(sysctl -n hw.optional.AdvSIMD))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
+		ARGS+=(-DUSE_ARM_V8_SIMD) # -march=native
 	else
-		echo -e "The CPU supports no Mlucas-recognized ASIMD build mode ... building in scalar-double mode.\n"
+		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		ARGS+=(-march=native)
 	fi
 
@@ -253,7 +253,7 @@ else
 		echo -e "The CPU supports the ASIMD build mode.\n"
 		ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
 	else
-		echo -e "The CPU supports no Mlucas-recognized ASIMD build mode ... building in scalar-double mode.\n"
+		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		ARGS+=(-march=native)
 	fi
 
@@ -279,10 +279,11 @@ fi
 # crashes/segfaults, one can rerun with GDB (gdb -ex=r ./Mlucas) to see the filename, line number and
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
-CC?=gcc
-CFLAGS=-fdiagnostics-color -Wall -g -O3 # -flto=auto
-CPPFLAGS=-I/usr/local/include
-LDLIBS=$(echo "$OSTYPE" | grep -iq 'darwin' || echo "-lm -lpthread -lrt") ${LARG[@]}
+CC ?= gcc
+CFLAGS = -fdiagnostics-color -Wall -g -O3 # -flto=auto
+CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
+LDFLAGS ?= -L/opt/homebrew/lib
+LDLIBS = $(echo "$OSTYPE" | grep -iq '^darwin' || echo "-lm -lpthread -lrt") ${LARG[@]}
 
 OBJS=br.o dft_macro.o fermat_mod_square.o fgt_m61.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o get_preferred_fft_radix.o getRealTime.o imul_macro.o mers_mod_square.o mi64.o Mlucas.o pairFFT_mul.o pair_square.o pm1.o qfloat.o radix1008_ditN_cy_dif1.o radix1024_ditN_cy_dif1.o radix104_ditN_cy_dif1.o radix10_ditN_cy_dif1.o radix112_ditN_cy_dif1.o radix11_ditN_cy_dif1.o radix120_ditN_cy_dif1.o radix128_ditN_cy_dif1.o radix12_ditN_cy_dif1.o radix13_ditN_cy_dif1.o radix144_ditN_cy_dif1.o radix14_ditN_cy_dif1.o radix15_ditN_cy_dif1.o radix160_ditN_cy_dif1.o radix16_dif_dit_pass.o radix16_ditN_cy_dif1.o radix16_dyadic_square.o radix16_pairFFT_mul.o radix16_wrapper_ini.o radix16_wrapper_square.o radix176_ditN_cy_dif1.o radix17_ditN_cy_dif1.o radix18_ditN_cy_dif1.o radix192_ditN_cy_dif1.o radix208_ditN_cy_dif1.o radix20_ditN_cy_dif1.o radix224_ditN_cy_dif1.o radix22_ditN_cy_dif1.o radix240_ditN_cy_dif1.o radix24_ditN_cy_dif1.o radix256_ditN_cy_dif1.o radix26_ditN_cy_dif1.o radix288_ditN_cy_dif1.o radix28_ditN_cy_dif1.o radix30_ditN_cy_dif1.o radix31_ditN_cy_dif1.o radix320_ditN_cy_dif1.o radix32_dif_dit_pass.o radix32_ditN_cy_dif1.o radix32_dyadic_square.o radix32_wrapper_ini.o radix32_wrapper_square.o radix352_ditN_cy_dif1.o radix36_ditN_cy_dif1.o radix384_ditN_cy_dif1.o radix4032_ditN_cy_dif1.o radix40_ditN_cy_dif1.o radix44_ditN_cy_dif1.o radix48_ditN_cy_dif1.o radix512_ditN_cy_dif1.o radix52_ditN_cy_dif1.o radix56_ditN_cy_dif1.o radix5_ditN_cy_dif1.o radix60_ditN_cy_dif1.o radix63_ditN_cy_dif1.o radix64_ditN_cy_dif1.o radix6_ditN_cy_dif1.o radix72_ditN_cy_dif1.o radix768_ditN_cy_dif1.o radix7_ditN_cy_dif1.o radix80_ditN_cy_dif1.o radix88_ditN_cy_dif1.o radix8_dif_dit_pass.o radix8_ditN_cy_dif1.o radix960_ditN_cy_dif1.o radix96_ditN_cy_dif1.o radix992_ditN_cy_dif1.o radix9_ditN_cy_dif1.o rng_isaac.o threadpool.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o
 OBJS_MFAC=getRealTime.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o imul_macro.o mi64.o qfloat.o rng_isaac.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o threadpool.o factor.o

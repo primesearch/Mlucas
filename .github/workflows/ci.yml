@@ -182,7 +182,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-11, macos-12, macos-13]
+        os: [macos-11, macos-12, macos-13, macos-14]
       fail-fast: false
     steps:
     - uses: actions/checkout@v4
@@ -194,7 +194,13 @@ jobs:
         set -x
         set -o pipefail
         sysctl -a
-        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+        MODES=( '' NOSIMD )
+        if [[ ${{ matrix.os }} == macos-14 ]]; then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
@@ -218,7 +224,7 @@ jobs:
   ASan-macOS:
     name: AddressSanitizer macOS
 
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
     - uses: actions/checkout@v4
     - name: Install
@@ -239,7 +245,7 @@ jobs:
   TSan-macOS:
     name: ThreadSanitizer macOS
 
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
     - uses: actions/checkout@v4
     - name: Install
