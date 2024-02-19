@@ -1144,7 +1144,7 @@
 	#define	SSE2_RADIX8_DIT_0TWIDDLE(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xout, Xisrt2)\
 	{\
 	__asm__ volatile (\
-		"ldr x14,%[__out]	\n\t	ldr x10,%[__isrt2]	\n\t	ld1r {v29.2d},[x10]	\n\t"\
+		"ldr x14,%[___out]	\n\t	ldr x10,%[__isrt2]	\n\t	ld1r {v29.2d},[x10]	\n\t"\
 	/* 1st of 2 radix-4 subtransforms: *//* 2nd of 2 radix-4 subtransforms: */\
 		"ldr	x0,%[__i0]			\n\t	ldr	x4,%[__i4]			\n\t"\
 		"ldr	x1,%[__i1]			\n\t	ldr	x5,%[__i5]			\n\t"\
@@ -1197,7 +1197,7 @@
 		 ,[__i5] "m" (Xi5)\
 		 ,[__i6] "m" (Xi6)\
 		 ,[__i7] "m" (Xi7)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x10","x14",\
 		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v29"	/* Clobbered registers */\
@@ -3600,7 +3600,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	__asm__ volatile (\
 		"movq	%[__isrt2],%%rdi				\n\t		movq	%[__two],%%r9	\n\t"\
 		"vmovaps	(%%rdi),%%zmm30				\n\t		vmovaps	(%%r9),%%zmm31	\n\t"/* zmm30 = isrt2, zmm31 = 2.0 */\
-		"movq	%[__out],%%rsi	\n\t"\
+		"movq	%[___out],%%rsi	\n\t"\
 	/* 1st of 2 radix-4 subtransforms, data in zmm0-7: *//* 2nd of 2 radix-4 subtransforms, data in zmm8-15: */\
 		"movq	%[__i0],%%rax					\n\t		movq	%[__i4],%%r10					\n\t"\
 		"movq	%[__i1],%%rbx					\n\t		movq	%[__i5],%%r11					\n\t"\
@@ -3662,7 +3662,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		 ,[__i5] "m" (Xi5)\
 		 ,[__i6] "m" (Xi6)\
 		 ,[__i7] "m" (Xi7)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__two] "m" (Xtwo)\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm30","xmm31"	/* Clobbered registers */\
@@ -8925,7 +8925,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	{\
 	__asm__ volatile (\
 		"movq	%[__isrt2],%%rdi				\n\t		movq	%[__two],%%r9	\n\t"/* r9 holds 2.0 throughout */\
-		"movq	%[__out],%%rsi	\n\t"\
+		"movq	%[___out],%%rsi	\n\t"\
 	/* 1st of 2 radix-4 subtransforms, data in ymm0-7: *//* 2nd of 2 radix-4 subtransforms, data in ymm8-15: */\
 		"movq	%[__i0],%%rax					\n\t		movq	%[__i4],%%r10					\n\t"\
 		"movq	%[__i1],%%rbx					\n\t		movq	%[__i5],%%r11					\n\t"\
@@ -8989,7 +8989,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		 ,[__i5] "m" (Xi5)\
 		 ,[__i6] "m" (Xi6)\
 		 ,[__i7] "m" (Xi7)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__two] "m" (Xtwo)\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
@@ -11035,7 +11035,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vmovaps      (%%rax),%%ymm14/* reload spill */\n\t	vsubpd   %%ymm10,%%ymm2	,%%ymm2			\n\t"\
 		"vmovaps 0x020(%%rax),%%ymm15/* reload spill */\n\t	vsubpd   %%ymm12,%%ymm6	,%%ymm6			\n\t"\
 		"													vaddpd   %%ymm10,%%ymm10,%%ymm10		\n\t"\
-		"movq	%[__out],%%rax					\n\t		vaddpd   %%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"movq	%[___out],%%rax					\n\t		vaddpd   %%ymm12,%%ymm12,%%ymm12		\n\t"\
 		"										\n\t		vaddpd   %%ymm2 ,%%ymm10,%%ymm10		\n\t"\
 		"vsubpd   %%ymm11,%%ymm7 ,%%ymm7 		\n\t		vaddpd   %%ymm6 ,%%ymm12,%%ymm12		\n\t"\
 		"vsubpd   %%ymm13,%%ymm3 ,%%ymm3 		\n\t"\
@@ -11075,7 +11075,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		 ,[__i5] "m" (Xi5)\
 		 ,[__i6] "m" (Xi6)\
 		 ,[__i7] "m" (Xi7)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
 	);\
@@ -19124,7 +19124,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"movaps	    (%%rax),%%xmm14	/* restore spilled */\n\t	subpd   %%xmm10,%%xmm2					\n\t"\
 		"movaps	0x10(%%rax),%%xmm15	/* restore spilled */\n\t	subpd   %%xmm12,%%xmm6					\n\t"\
 		"														addpd   %%xmm10,%%xmm10					\n\t"\
-		"movq	%[__out],%%rax					\n\t			addpd   %%xmm12,%%xmm12					\n\t"\
+		"movq	%[___out],%%rax					\n\t			addpd   %%xmm12,%%xmm12					\n\t"\
 		"										\n\t			addpd   %%xmm2,%%xmm10					\n\t"\
 		"subpd   %%xmm11,%%xmm7					\n\t			addpd   %%xmm6,%%xmm12					\n\t"\
 		"subpd   %%xmm13,%%xmm3					\n\t													\n\t"\
@@ -19165,7 +19165,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		 ,[__i5] "m" (Xi5)\
 		 ,[__i6] "m" (Xi6)\
 		 ,[__i7] "m" (Xi7)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
 	);\

@@ -43,7 +43,7 @@
 		"leaq	(%%rax,%%rbx,8),%%rbx	/* eax <- add0+p05 */\n\t"\
 		"leaq	(%%rax,%%rcx,8),%%rcx	/* ebx <- add0+p06 */\n\t"\
 		"leaq	(%%rax,%%rdx,8),%%rdx	/* ecx <- add0+p07 */\n\t"\
-		"movq	%[__out],%%rsi	/* s1p00r */\n\t"\
+		"movq	%[___out],%%rsi	/* s1p00r */\n\t"\
 		"/* MSVC macro has add8+p[7654] in abcd, here add0+p[4567], so swap a/d and b/c: */\n\t"\
 		"/* Do the p0,p4 combo: */\n\t"\
 		"vmovaps	     (%%rdx),%%ymm0			\n\t"\
@@ -786,7 +786,7 @@
 		 ,[__p04] "m" (Xp04)\
 		 ,[__p08] "m" (Xp08)\
 		 ,[__p16] "m" (Xp16)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc3] "m" (Xcc3)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
@@ -796,7 +796,7 @@
 	#define	SSE2_RADIX24_DIF_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp05,Xp06,Xp07,Xp08,Xp16,Xout,Xisrt2,Xcc3)\
 	{\
 	__asm__ volatile (\
-		"movq	%[__out],%%rax	/* s1p00r */\n\t"\
+		"movq	%[___out],%%rax	/* s1p00r */\n\t"\
 		"movq	 %%rax,%%rbx	/* s1p00r */\n\t"\
 		"movq	 %%rax,%%rcx	/* s1p08r */\n\t"\
 		"movq	%[__cc3],%%rdx				\n\t"\
@@ -1107,7 +1107,7 @@
 		"movq	%[__isrt2],%%rsi			\n\t"\
 	"/* For the radix-8 DIF DFTs, the input offsets always have the same pattern; outputs are permuted */\n\t"\
 	"/* SSE2_RADIX8_DIF_0TWIDDLE( i[0-7] = s1p00r + 0x[0a4e82c6]0, o[0-7] = add0 + p[01235476]) */\n\t"\
-		"movq	%[__out],%%rax	/* i0 = s1p00r */\n\t"\
+		"movq	%[___out],%%rax	/* i0 = s1p00r */\n\t"\
 		"movq	$0x080  ,%%rbx	/* i2 */	\n\t"\
 		"movq	$0x100  ,%%rcx	/* i4 */	\n\t"\
 		"movq	$0x180  ,%%rdx	/* i6 */	\n\t"\
@@ -1649,7 +1649,7 @@
 		 ,[__p07] "m" (Xp07)\
 		 ,[__p08] "m" (Xp08)\
 		 ,[__p16] "m" (Xp16)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc3] "m" (Xcc3)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
@@ -1673,7 +1673,7 @@
 		"leaq	(%%rax,%%rbx,8),%%rbx	/* eax <- add0+p05 */\n\t"\
 		"leaq	(%%rax,%%rcx,8),%%rcx	/* ebx <- add0+p06 */\n\t"\
 		"leaq	(%%rax,%%rdx,8),%%rdx	/* ecx <- add0+p07 */\n\t"\
-		"movq	%[__out],%%rsi	/* s1p00r */\n\t"\
+		"movq	%[___out],%%rsi	/* s1p00r */\n\t"\
 		"/* MSVC macro assumes add8+p[7654] in abcd, but here get add0+p[4,5,6,7], so swap a/d and b/c: */\n\t"\
 		"/* Do the p0,p4 combo: */\n\t"\
 		"movaps	    (%%rdx),%%xmm0			\n\t"\
@@ -2416,7 +2416,7 @@
 		 ,[__p04] "m" (Xp04)\
 		 ,[__p08] "m" (Xp08)\
 		 ,[__p16] "m" (Xp16)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc3] "m" (Xcc3)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
@@ -2426,7 +2426,7 @@
 	#define	SSE2_RADIX24_DIF_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp05,Xp06,Xp07,Xp08,Xp16,Xout,Xisrt2,Xcc3)\
 	{\
 	__asm__ volatile (\
-		"movq	%[__out],%%rax	/* s1p00r */\n\t"\
+		"movq	%[___out],%%rax	/* s1p00r */\n\t"\
 		"movq	 %%rax,%%rbx	/* s1p00r */\n\t"\
 		"movq	 %%rax,%%rcx	/* s1p08r */\n\t"\
 		"movq	%[__cc3],%%rdx				\n\t"\
@@ -2737,7 +2737,7 @@
 		"movq	%[__isrt2],%%rsi			\n\t"\
 	"/* For the radix-8 DIF DFTs, the input offsets always have the same pattern; outputs are permuted */\n\t"\
 	"/* SSE2_RADIX8_DIF_0TWIDDLE( i[0-7] = s1p00r + 0x[0a4e82c6]0, o[0-7] = add0 + p[01235476]) */\n\t"\
-		"movq	%[__out],%%rax	/* i0 = s1p00r */\n\t"\
+		"movq	%[___out],%%rax	/* i0 = s1p00r */\n\t"\
 		"movq	$0x40  ,%%rbx	/* i2 */	\n\t"\
 		"movq	$0x80  ,%%rcx	/* i4 */	\n\t"\
 		"movq	$0xc0  ,%%rdx	/* i6 */	\n\t"\
@@ -3279,7 +3279,7 @@
 		 ,[__p07] "m" (Xp07)\
 		 ,[__p08] "m" (Xp08)\
 		 ,[__p16] "m" (Xp16)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc3] "m" (Xcc3)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\

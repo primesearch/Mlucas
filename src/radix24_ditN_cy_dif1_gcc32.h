@@ -45,7 +45,7 @@
 			"addl	%%eax,%%ebx		/* eax <- add0+p05 */\n\t"\
 			"addl	%%eax,%%ecx		/* ebx <- add0+p06 */\n\t"\
 			"addl	%%eax,%%edx		/* ecx <- add0+p07 */\n\t"\
-			"movl	%[__out],%%esi	/* s1p00r */\n\t"\
+			"movl	%[___out],%%esi	/* s1p00r */\n\t"\
 			"/* MSVC macro assumes add8+p[7,6,5,4] in eax,ebx,ecx,edx, but here get add0+p[4,5,6,7], so replace eax <-> edx and ebx <-> ecx: */\n\t"\
 			"/* Do the p0,p4 combo: */\n\t"\
 			"movaps	    (%%edx),%%xmm0			\n\t"\
@@ -903,7 +903,7 @@
 			 ,[__p04] "m" (Xp04)\
 			 ,[__p08] "m" (Xp08)\
 			 ,[__p16] "m" (Xp16)\
-			 ,[__out] "m" (Xout)\
+			 ,[___out] "m" (Xout)\
 			 ,[__isrt2] "m" (Xisrt2)\
 			 ,[__cc3] "m" (Xcc3)\
 			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
@@ -914,7 +914,7 @@
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
-			"movl	%[__out],%%eax	/* s1p00r */\n\t"\
+			"movl	%[___out],%%eax	/* s1p00r */\n\t"\
 			"movl	 %%eax,%%ebx	/* s1p00r */\n\t"\
 			"movl	 %%eax,%%ecx	/* s1p08r */\n\t"\
 			"movl	%[__cc3],%%edx				\n\t"\
@@ -1282,7 +1282,7 @@
 			"\n\t"\
 		"/* For the radix-8 DIF DFTs, the input offsets always have the same pattern; outputs are permuted */\n\t"\
 		"/* SSE2_RADIX8_DIF_0TWIDDLE( i[0-7] = s1p00r + 0x[0a4e82c6]0, o[0-7] = add0 + p[01235476]) */\n\t"\
-			"movl	%[__out],%%eax	/* i0 = s1p00r */\n\t"\
+			"movl	%[___out],%%eax	/* i0 = s1p00r */\n\t"\
 			"movl	$0x40  ,%%ebx	/* i2 */	\n\t"\
 			"movl	$0x80  ,%%ecx	/* i4 */	\n\t"\
 			"movl	$0xc0  ,%%edx	/* i6 */	\n\t"\
@@ -1911,7 +1911,7 @@
 			 ,[__p07] "m" (Xp07)\
 			 ,[__p08] "m" (Xp08)\
 			 ,[__p16] "m" (Xp16)\
-			 ,[__out] "m" (Xout)\
+			 ,[___out] "m" (Xout)\
 			 ,[__isrt2] "m" (Xisrt2)\
 			 ,[__cc3] "m" (Xcc3)\
 			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\

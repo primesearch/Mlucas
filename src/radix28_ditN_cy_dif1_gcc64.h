@@ -32,7 +32,7 @@
 	{\
 	__asm__ volatile (\
 	"/* 1:SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add00+p0132, s1p00,03,02,01): */	\n\t"\
-		"movq	%[__out],%%rsi												\n\t"\
+		"movq	%[___out],%%rsi												\n\t"\
 		"movq	%[__add],%%rax												\n\t"\
 		"movslq	%[__p01],%%rbx												\n\t"\
 		"movslq	%[__p02],%%rcx												\n\t"\
@@ -222,7 +222,7 @@
 		"/*...and now do 4 radix-7 transforms...*/							\n\t"\
 		"/***************************************/							\n\t"\
 	"/* SSE2_RADIX_07_DFT(00,04,08,12,16,20,24 -> 00,08,16,24,04,12,20): */	\n\t"\
-		"movq	%[__out],%%rdi					\n\t"\
+		"movq	%[___out],%%rdi					\n\t"\
 		"movq	%[__cc0],%%rax					\n\t"\
 		"movq	$0x040,%%rbx					\n\t"\
 		"movq	$0x080,%%rcx					\n\t"\
@@ -529,7 +529,7 @@
 		 ,[__p16] "m" (Xp16)\
 		 ,[__p20] "m" (Xp20)\
 		 ,[__p24] "m" (Xp24)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__cc0] "m" (Xcc0)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
 	);\
@@ -539,7 +539,7 @@
 	{\
 	__asm__ volatile (\
 	"/* SSE2_RADIX_07_DFT(00,24,20,16,12,08,04r -> 00,04,08,12,16,20,24): */\n\t"\
-		"movq	%[__out],%%rdi					\n\t"\
+		"movq	%[___out],%%rdi					\n\t"\
 		"movq	%[__cc0],%%rax					\n\t"\
 		"movq	$0x040,%%rbx					\n\t"\
 		"movq	$0x080,%%rcx					\n\t"\
@@ -839,7 +839,7 @@
 	"/* Since doing radix-7 in-place here, inputs of radix-4 are in consecutive memory locs, i.e. 0x40 bytes apart, e.g. the distance between s1p00r and s1p01r: */\n\t"\
 		"\n\t"\
 	"/* 1:SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_E(s1p00,01,02,03 -> add00+p0123): */	\n\t"\
-		"movq	%[__out],%%rsi	/* s1p00r */									\n\t"\
+		"movq	%[___out],%%rsi	/* s1p00r */									\n\t"\
 		"movq	%[__add],%%rax													\n\t"\
 		"movslq	%[__p01],%%rbx													\n\t"\
 		"movslq	%[__p02],%%rcx													\n\t"\
@@ -1032,7 +1032,7 @@
 		 ,[__p16] "m" (Xp16)\
 		 ,[__p20] "m" (Xp20)\
 		 ,[__p24] "m" (Xp24)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__cc0] "m" (Xcc0)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
 	);\
@@ -1044,7 +1044,7 @@
 	{\
 	__asm__ volatile (\
 	"/* 1:SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add00+p0132, s1p00,03,02,01): */	\n\t"\
-		"movq	%[__out],%%rsi										\n\t"\
+		"movq	%[___out],%%rsi										\n\t"\
 		"movq	%[__add],%%rax										\n\t"\
 		"movslq	%[__p01],%%rbx										\n\t"\
 		"movslq	%[__p02],%%rcx										\n\t"\
@@ -1234,7 +1234,7 @@
 		"/*...and now do 4 radix-7 transforms...*/					\n\t"\
 		"/***************************************/					\n\t"\
 	"/* SSE2_RADIX_07_DFT(00,04,08,12,16,20,24 -> 00,08,16,24,04,12,20): */	\n\t"\
-		"movq	%[__out],%%rdi			\n\t"\
+		"movq	%[___out],%%rdi			\n\t"\
 		"movq	%[__cc0],%%rax			\n\t"\
 		"movq	$0x020,%%rbx			\n\t"\
 		"movq	$0x040,%%rcx			\n\t"\
@@ -1541,7 +1541,7 @@
 		 ,[__p16] "m" (Xp16)\
 		 ,[__p20] "m" (Xp20)\
 		 ,[__p24] "m" (Xp24)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__cc0] "m" (Xcc0)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
 	);\
@@ -1551,7 +1551,7 @@
 	{\
 	__asm__ volatile (\
 	"/* SSE2_RADIX_07_DFT(00,24,20,16,12,08,04r -> 00,04,08,12,16,20,24): */\n\t"\
-		"movq	%[__out],%%rdi			\n\t"\
+		"movq	%[___out],%%rdi			\n\t"\
 		"movq	%[__cc0],%%rax			\n\t"\
 		"movq	$0x020,%%rbx			\n\t"\
 		"movq	$0x040,%%rcx			\n\t"\
@@ -1851,7 +1851,7 @@
 	"/* Since doing radix-7 in-place here, inputs of radix-4 are in consecutive memory locs, i.e. 0x20 bytes apart, e.g. the distance between s1p00r and s1p01r: */\n\t"\
 		"\n\t"\
 	"/* 1:SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_E(s1p00,01,02,03 -> add00+p0123): */	\n\t"\
-		"movq	%[__out],%%rsi	/* s1p00r */						\n\t"\
+		"movq	%[___out],%%rsi	/* s1p00r */						\n\t"\
 		"movq	%[__add],%%rax										\n\t"\
 		"movslq	%[__p01],%%rbx										\n\t"\
 		"movslq	%[__p02],%%rcx										\n\t"\
@@ -2044,7 +2044,7 @@
 		 ,[__p16] "m" (Xp16)\
 		 ,[__p20] "m" (Xp20)\
 		 ,[__p24] "m" (Xp24)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__cc0] "m" (Xcc0)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
 	);\

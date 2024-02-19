@@ -31,7 +31,7 @@
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/* SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_E(add00+p[0,1,3,2], s1p00r,s1p03r,s1p02r,s1p01r): */\n\t"\
-			"movl	%[__out],%%esi	/* s1p00r */\n\t"\
+			"movl	%[___out],%%esi	/* s1p00r */\n\t"\
 			"movl	%[__add],%%eax\n\t"\
 			"movl	%[__p01],%%ebx\n\t"\
 			"movl	%[__p02],%%ecx\n\t"\
@@ -394,7 +394,7 @@
 			"t1r=A1r+A6r;	t2r=A2r+A5r;	t3r=A3r+A4r;\n\t"\
 			"t6r=A1r-A6r;	t5r=A2r-A5r;	t4r=A3r-A4r;\n\t"\
 			"*/\n\t"\
-			"movl	%[__out],%%edi	/* s1p00r */\n\t"\
+			"movl	%[___out],%%edi	/* s1p00r */\n\t"\
 			"movl	%[__cc0],%%eax	/* cc0 */\n\t"\
 			"movl	$0x20,%%ebx\n\t"\
 			"movl	$0x40,%%ecx\n\t"\
@@ -1155,7 +1155,7 @@
 			 ,[__p16] "m" (Xp16)\
 			 ,[__p20] "m" (Xp20)\
 			 ,[__p24] "m" (Xp24)\
-			 ,[__out] "m" (Xout)\
+			 ,[___out] "m" (Xout)\
 			 ,[__cc0] "m" (Xcc0)\
 			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
@@ -1167,7 +1167,7 @@
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/* SSE2_RADIX_07_DFT(s1p00r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r,cc0,s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r): */\n\t"\
-			"movl	%[__out],%%edi	/* s1p00r */\n\t"\
+			"movl	%[___out],%%edi	/* s1p00r */\n\t"\
 			"movl	%[__cc0],%%eax	/* cc0 */\n\t"\
 			"movl	$0x20,%%ebx\n\t"\
 			"movl	$0x40,%%ecx\n\t"\
@@ -1882,7 +1882,7 @@
 		"/* Since doing radix-7 in-place here, inputs of radix-4 are in consecutive memory locs, i.e. 0x20 bytes apart, e.g. the distance between s1p00r and s1p01r: */\n\t"\
 			"\n\t"\
 		"/* SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_E(s1p00r,s1p01r,s1p02r,s1p03r, add00+p[0,1,2,3]): */\n\t"\
-			"movl	%[__out],%%esi	/* s1p00r */\n\t"\
+			"movl	%[___out],%%esi	/* s1p00r */\n\t"\
 			"movl	%[__add],%%eax\n\t"\
 			"movl	%[__p01],%%ebx\n\t"\
 			"movl	%[__p02],%%ecx\n\t"\
@@ -2255,7 +2255,7 @@
 			 ,[__p16] "m" (Xp16)\
 			 ,[__p20] "m" (Xp20)\
 			 ,[__p24] "m" (Xp24)\
-			 ,[__out] "m" (Xout)\
+			 ,[___out] "m" (Xout)\
 			 ,[__cc0] "m" (Xcc0)\
 			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\

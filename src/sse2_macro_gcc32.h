@@ -1329,7 +1329,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"movl	%[__in5],%%ebx	\n\t"\
 		"movl	%[__in6],%%ecx	\n\t"\
 		"movl	%[__in7],%%edx	\n\t"\
-		"movl	%[__out],%%esi	\n\t"\
+		"movl	%[___out],%%esi	\n\t"\
 		"movaps	    (%%eax),%%xmm0			\n\t"\
 		"movaps	0x10(%%eax),%%xmm1			\n\t"\
 		"movaps	%%xmm0,%%xmm2				\n\t"\
@@ -1476,7 +1476,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__in5] "m" (Xin5)\
 		 ,[__in6] "m" (Xin6)\
 		 ,[__in7] "m" (Xin7)\
-		 ,[__out] "m" (Xout)\
+		 ,[___out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
