@@ -2009,6 +2009,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		fprintf(stderr,"Can't catch SIGINT.\n");
 	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
 		fprintf(stderr,"Can't catch SIGTERM.\n");
+	#ifndef __MINGW32__
 	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
 		fprintf(stderr,"Can't catch SIGHUP.\n");
 	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
@@ -2017,6 +2018,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		fprintf(stderr,"Can't catch SIGUSR1.\n");
 	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
 		fprintf(stderr,"Can't catch SIGUSR2.\n");
+	#endif
 #endif
 }	/* End of main for(iter....) loop	*/
 

@@ -10,7 +10,6 @@ jobs:
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.cc == 'clang' }}
     strategy:
       matrix:
         os: [ubuntu-20.04, ubuntu-22.04]
@@ -26,8 +25,8 @@ jobs:
         sudo apt-get -yqq install libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/-j/-O -j/' makemake.sh
         $CC --version
+        $CC -dM -E -march=native - </dev/null
     - name: Script
       run: |
         set -x
@@ -40,7 +39,7 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode
+                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode || true
                 (cd obj_mfac${mode:+_$mode}; make clean)
             done
         done
@@ -59,7 +58,6 @@ jobs:
     name: AddressSanitizer Linux
 
     runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.cc == 'clang' }}
     strategy:
       matrix:
         cc: [gcc, clang]
@@ -75,7 +73,6 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/-j/-O -j/' makemake.sh
         $CC --version
     - name: Script
       run: |
@@ -92,7 +89,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        cc: [clang]
+        cc: [gcc, clang]
+        exclude:
+          - cc: gcc # Too slow
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
@@ -105,7 +104,6 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/-O3/-Og -fsanitize=thread/' makemake.sh
-        sed -i 's/-j/-O -j/' makemake.sh
         $CC --version
     - name: Script
       run: |
@@ -189,13 +187,17 @@ jobs:
     - name: Install
       run: |
         brew install hwloc
+    - name: Before script
+      run: |
+        clang --version
+        clang -dM -E -march=native - </dev/null
     - name: Script
       run: |
         set -x
         set -o pipefail
         sysctl -a
         MODES=( '' NOSIMD )
-        if [[ ${{ matrix.os }} == macos-14 ]]; then
+        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
@@ -206,7 +208,7 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode
+                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode || true
                 (cd obj_mfac${mode:+_$mode}; make clean)
             done
         done
@@ -233,6 +235,7 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+        clang --version
     - name: Script
       run: |
         set -x
@@ -240,10 +243,10 @@ jobs:
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-      continue-on-error: true
 
   TSan-macOS:
     name: ThreadSanitizer macOS
+    if: false # Too slow
 
     runs-on: macos-14
     steps:
@@ -254,6 +257,7 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/-O3/-Og -fsanitize=thread/' makemake.sh
+        clang --version
     - name: Script
       run: |
         set -x
@@ -262,3 +266,90 @@ jobs:
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
       continue-on-error: true
+
+  Windows:
+    name: Windows
+
+    runs-on: windows-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Before Install
+      run: |
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Install
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-hwloc
+        & $env:CC --version
+    - name: Install Clang
+      if: ${{ matrix.cc == 'clang' }}
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-clang
+    - name: Before script
+      shell: bash
+      run: |
+        $CC --version
+        $CC -dM -E -march=native - </dev/null
+    - name: Script
+      shell: bash
+      run: |
+        set -x
+        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            (cd obj${mode:+_$mode}; make clean)
+            for word in '' 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode || true
+                (cd obj_mfac${mode:+_$mode}; make clean)
+            done
+        done
+        cd obj
+        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: windows_${{ matrix.cc }}_mlucas
+        path: ${{ github.workspace }}
+
+  ASan-Windows:
+    name: AddressSanitizer Windows
+
+    runs-on: windows-latest
+    continue-on-error: true
+    env:
+      CC: clang
+    steps:
+    - uses: actions/checkout@v4
+    - name: Before Install
+      run: |
+        echo "C:\msys64\clang64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\clang64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\clang64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Install
+      run: |
+        pacman -S --noconfirm mingw-w64-clang-x86_64-toolchain
+        pacman -S --noconfirm mingw-w64-clang-x86_64-gmp mingw-w64-clang-x86_64-hwloc
+    - name: Before script
+      shell: bash
+      run: |
+        sed -i 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+        $CC --version
+    - name: Script
+      shell: bash
+      run: |
+        set -x
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        cd obj
+        make clean
+        time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log

@@ -46,21 +46,34 @@ TARGET=$Mlucas
 ARGS=(-DUSE_THREADS) # Optional compile args
 WORDS=''
 # Optional link args
-LARG=()
+LD_ARGS=()
+# Optional Make args
+MAKE_ARGS=()
 
 MODES=()
 GMP=1
 HWLOC=0
 
-if echo "$OSTYPE" | grep -iq 'darwin'; then
-	echo -e "MacOS detected for build host.\n"
-	CPU_THREADS=$(sysctl -n hw.ncpu)
-else # echo "$OSTYPE" | grep -iq 'linux'
-	echo -e "Assuming OS = Linux for build host.\n"
-	CPU_THREADS=$(nproc --all)
-fi
+case $OSTYPE in
+	darwin*)
+		echo -e "MacOS detected for build host.\n"
+		CPU_THREADS=$(sysctl -n hw.ncpu)
+		;;
+	msys)
+		echo -e "Windows detected for build host.\n"
+		CPU_THREADS=$NUMBER_OF_PROCESSORS
+		;;
+	linux* | *)
+		echo -e "Assuming OS = Linux for build host.\n"
+		CPU_THREADS=$(nproc --all)
+		;;
+esac
 
-if ! command -v make >/dev/null; then
+MAKE=make
+if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
+	MAKE=mingw32-make
+fi
+if ! command -v $MAKE >/dev/null; then
 	echo "Error: This script requires Make" >&2
 	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install build-essential -y'" >&2
 	exit 1
@@ -75,6 +88,15 @@ elif ! command -v gcc >/dev/null; then
 	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install build-essential -y'" >&2
 	exit 1
 fi
+
+if [[ ! $OSTYPE =~ ^darwin ]]; then
+	MAKE_ARGS+=(-O)
+	LD_ARGS+=(-lm -lpthread)
+	if [[ $OSTYPE != msys ]]; then
+		LD_ARGS+=(-lrt)
+	fi
+fi
+MAKE_ARGS+=(-j "$CPU_THREADS")
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
 echo "Total number of input parameters = $#"
@@ -116,7 +138,7 @@ for arg in "$@"; do
 done
 
 if ((GMP)); then
-	LARG+=(-lgmp)
+	LD_ARGS+=(-lgmp)
 else
 	echo "Building sans Gnu-MP ... this means no GCDs will be taken in p-1 work."
 	ARGS+=(-DINCLUDE_GMP=0)
@@ -125,7 +147,7 @@ fi
 if ((HWLOC)); then
 	echo "Building with HWLOC hardware-topology support."
 	ARGS+=(-DINCLUDE_HWLOC=1)
-	LARG+=(-lhwloc)
+	LD_ARGS+=(-lhwloc)
 fi
 
 if [[ $TARGET == "$Mfactor" ]]; then
@@ -175,7 +197,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_AVX512 -march=knl)
 			;;
 		'avx512')
-			echo "Building for avx512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_AVX512 -mavx512f)
 			;;
 		'k1om')
@@ -183,19 +205,19 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_IMCI512)
 			;;
 		'avx2')
-			echo "Building for avx2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Building for AVX2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_AVX2 -mavx2)
 			;;
 		'avx')
-			echo "Building for avx SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Building for AVX SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_AVX -mavx)
 			;;
 		'sse2')
-			echo "Building for sse2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Building for SSE2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_SSE2 -msse2)
 			;;
 		'asimd')
-			echo "Building for asimd SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Building for ASIMD SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_ARM_V8_SIMD)
 			;;
 		'nosimd')
@@ -210,7 +232,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 
 	DIR+="_$arg"
 
-elif echo "$OSTYPE" | grep -iq 'darwin'; then
+elif [[ $OSTYPE =~ ^darwin ]]; then
 
 	# MacOS:
 	if (($(sysctl -n hw.optional.avx512f))); then
@@ -234,7 +256,7 @@ elif echo "$OSTYPE" | grep -iq 'darwin'; then
 		ARGS+=(-march=native)
 	fi
 
-else
+elif [[ $OSTYPE =~ ^linux ]]; then
 
 	# Linux:
 	if grep -iq 'avx512' /proc/cpuinfo; then
@@ -251,12 +273,61 @@ else
 		ARGS+=(-DUSE_SSE2 -march=native)
 	elif grep -iq 'asimd' /proc/cpuinfo; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
+		ARGS+=(-DUSE_ARM_V8_SIMD) # -march=native
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		ARGS+=(-march=native)
 	fi
 
+else
+
+	# Adapted from: https://stackoverflow.com/a/28939692
+	cat <<EOF >/tmp/simd.c
+#include <stdio.h>
+int main()
+{
+// defined(__amd64) || defined(__amd64__) || defined(_M_AMD64) || defined(_M_EMT64) || defined(__x86_64) || defined(__x86_64__)
+#ifdef __x86_64__
+	#ifdef __AVX512F__
+		fputs("The CPU supports the AVX512 SIMD build mode.\n\n", stderr);
+		puts("-DUSE_AVX512 -march=native");
+	#elif defined __AVX2__
+		fputs("The CPU supports the AVX2 SIMD build mode.\n\n", stderr);
+		puts("-DUSE_AVX2 -march=native -mavx2");
+	#elif defined __AVX__
+		fputs("The CPU supports the AVX SIMD build mode.\n\n", stderr);
+		puts("-DUSE_AVX -march=native -mavx");
+	#elif defined __SSE2__
+		fputs("The CPU supports the SSE2 SIMD build mode.\n\n", stderr);
+		puts("-DUSE_SSE2 -march=native");
+	#else
+		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
+		puts("-march=native");
+	#endif
+#elif defined(__aarch64__)
+	#ifdef __ARM_NEON
+		fputs("The CPU supports the ASIMD build mode.\n\n", stderr);
+		puts("-DUSE_ARM_V8_SIMD"); // -march=native
+	#else
+		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
+		puts("-march=native");
+	#endif
+#else
+	fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
+	puts("-march=native");
+#endif
+	return 0;
+}
+EOF
+
+	trap 'rm /tmp/simd{.c,}' EXIT
+	"${CC:-gcc}" -Wall -g -O3 -march=native -o /tmp/simd /tmp/simd.c
+	if ! args=$(/tmp/simd); then
+		echo "$args"
+		echo "Error: Unable to detect the SIMD build mode" >&2
+		exit 1
+	fi
+	ARGS+=($args)
 fi
 
 if [[ -d $DIR ]]; then
@@ -283,7 +354,7 @@ CC ?= gcc
 CFLAGS = -fdiagnostics-color -Wall -g -O3 # -flto=auto
 CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS ?= -L/opt/homebrew/lib
-LDLIBS = $(echo "$OSTYPE" | grep -iq '^darwin' || echo "-lm -lpthread -lrt") ${LARG[@]}
+LDLIBS = ${LD_ARGS[@]} # -static
 
 OBJS=br.o dft_macro.o fermat_mod_square.o fgt_m61.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o get_preferred_fft_radix.o getRealTime.o imul_macro.o mers_mod_square.o mi64.o Mlucas.o pairFFT_mul.o pair_square.o pm1.o qfloat.o radix1008_ditN_cy_dif1.o radix1024_ditN_cy_dif1.o radix104_ditN_cy_dif1.o radix10_ditN_cy_dif1.o radix112_ditN_cy_dif1.o radix11_ditN_cy_dif1.o radix120_ditN_cy_dif1.o radix128_ditN_cy_dif1.o radix12_ditN_cy_dif1.o radix13_ditN_cy_dif1.o radix144_ditN_cy_dif1.o radix14_ditN_cy_dif1.o radix15_ditN_cy_dif1.o radix160_ditN_cy_dif1.o radix16_dif_dit_pass.o radix16_ditN_cy_dif1.o radix16_dyadic_square.o radix16_pairFFT_mul.o radix16_wrapper_ini.o radix16_wrapper_square.o radix176_ditN_cy_dif1.o radix17_ditN_cy_dif1.o radix18_ditN_cy_dif1.o radix192_ditN_cy_dif1.o radix208_ditN_cy_dif1.o radix20_ditN_cy_dif1.o radix224_ditN_cy_dif1.o radix22_ditN_cy_dif1.o radix240_ditN_cy_dif1.o radix24_ditN_cy_dif1.o radix256_ditN_cy_dif1.o radix26_ditN_cy_dif1.o radix288_ditN_cy_dif1.o radix28_ditN_cy_dif1.o radix30_ditN_cy_dif1.o radix31_ditN_cy_dif1.o radix320_ditN_cy_dif1.o radix32_dif_dit_pass.o radix32_ditN_cy_dif1.o radix32_dyadic_square.o radix32_wrapper_ini.o radix32_wrapper_square.o radix352_ditN_cy_dif1.o radix36_ditN_cy_dif1.o radix384_ditN_cy_dif1.o radix4032_ditN_cy_dif1.o radix40_ditN_cy_dif1.o radix44_ditN_cy_dif1.o radix48_ditN_cy_dif1.o radix512_ditN_cy_dif1.o radix52_ditN_cy_dif1.o radix56_ditN_cy_dif1.o radix5_ditN_cy_dif1.o radix60_ditN_cy_dif1.o radix63_ditN_cy_dif1.o radix64_ditN_cy_dif1.o radix6_ditN_cy_dif1.o radix72_ditN_cy_dif1.o radix768_ditN_cy_dif1.o radix7_ditN_cy_dif1.o radix80_ditN_cy_dif1.o radix88_ditN_cy_dif1.o radix8_dif_dit_pass.o radix8_ditN_cy_dif1.o radix960_ditN_cy_dif1.o radix96_ditN_cy_dif1.o radix992_ditN_cy_dif1.o radix9_ditN_cy_dif1.o rng_isaac.o threadpool.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o
 OBJS_MFAC=getRealTime.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o imul_macro.o mi64.o qfloat.o rng_isaac.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o threadpool.o factor.o
@@ -308,14 +379,14 @@ EOF
 
 echo -e "Building $TARGET"
 printf "%'d CPU cores detected ... parallel-building using that number of make threads.\n" "$CPU_THREADS"
-if ! time make -j "$CPU_THREADS" "$TARGET" >build.log 2>&1; then
+if ! time $MAKE "${MAKE_ARGS[@]}" "$TARGET" >build.log 2>&1; then
 	echo -e "\n*** There were build errors - see '${DIR}/build.log' for details. ***\n" >&2
 	grep -A 2 'error:' build.log || tail build.log
-	# exit 1
+	exit 1
 fi
 
 echo -e "\nWarnings:\n"
-grep 'warning:' build.log | awk '{ print $NF }' | sort | uniq -c | sort -nr
+grep 'warning:' build.log | awk '{ print $NF }' | sort | uniq -c | sort -nr || echo "None"
 
 echo -e "\nErrors:\n"
 grep -A 2 'error:' build.log || echo "None"

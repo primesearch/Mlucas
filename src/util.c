@@ -1943,7 +1943,7 @@ void set_stacklimit_restart(char *argv[])
 
 // Return available system RAM in MB:
 uint32 get_system_ram(void) {
-#ifdef OS_TYPE_LINUX
+#if defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 
 	#include <sys/sysinfo.h>
 	/* Here the syntax of the sysinfo() call, and the components of the sysinfo struct:
@@ -1970,6 +1970,16 @@ uint32 get_system_ram(void) {
 	sysinfo(&info);
 	fprintf(stderr,"System total RAM = %lu, free RAM = %lu\n",info.totalram>>20,info.freeram>>20);
 	return (info.freeram)>>20;
+
+#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+
+	#include "windows.h"
+
+	MEMORYSTATUSEX memInfo;
+	memInfo.dwLength = sizeof(memInfo);
+	GlobalMemoryStatusEx(&memInfo);
+	fprintf(stderr, "System total RAM = %llu, free RAM = %llu\n", memInfo.ullTotalPhys>>20, memInfo.ullAvailPhys>>20);
+	return memInfo.ullAvailPhys>>20;
 
 #elif defined(OS_TYPE_MACOSX)
 
@@ -8917,25 +8927,20 @@ exit(0);
 
   #else	// This is alleged to be Win/Linux portable: http://stackoverflow.com/questions/4586405/get-number-of-cpus-in-linux-using-c
 
-	#ifdef OS_TYPE_WINDOWS	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
-
-		#include <windows.h>
-
-		#ifndef _SC_NPROCESSORS_ONLN
-			SYSTEM_INFO info;
-			GetSystemInfo(&info);
-			#define sysconf(a) info.dwNumberOfProcessors
-			#define _SC_NPROCESSORS_ONLN
-		#endif
-
-	#endif
-
 	int get_num_cores(void)
 	{
 		long nprocs = -1;
 		long nprocs_max = -1;
 
-	#ifdef _SC_NPROCESSORS_ONLN
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
+
+		#include <windows.h>
+
+		SYSTEM_INFO info;
+		GetSystemInfo(&info);
+		nprocs = info.dwNumberOfProcessors;
+
+	#elif defined(_SC_NPROCESSORS_ONLN)
 
 		nprocs = sysconf(_SC_NPROCESSORS_ONLN);
 		if(nprocs < 1) {

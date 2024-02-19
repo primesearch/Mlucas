@@ -301,7 +301,7 @@ me at: heber.tomer@gmail.com
 			perror("cpuset_setaffinity");
 		}
 
-	#elif defined(OS_TYPE_LINUX)
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 
 	  #if 0
 	  /*

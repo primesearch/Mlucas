@@ -1303,7 +1303,7 @@ extern int NTHREADS;
 // Nov 2020: Under MacOS, use of sysctlbyname call in util.c::print_host_info needs this moved outside #ifdef USE_THREADS.
 // Feb 2021: Under Linux, per this [url=https://github.com/open5gs/open5gs/issues/600]Github discussion[/url],
 // "sysctl() is deprecated and may break build with glibc >= 2.30", so add an appropriate GLIBC-version clause:
-#if defined(OS_TYPE_MACOSX) || !defined(OS_TYPE_GNU_HURD) && ((__GLIBC__ < 2) || (__GLIBC_MINOR__ < 30))
+#if defined(OS_TYPE_MACOSX) || !defined(OS_TYPE_GNU_HURD) && !defined(__MINGW32__) && ((__GLIBC__ < 2) || (__GLIBC_MINOR__ < 30))
   #ifdef OS_TYPE_LINUX
 	#warning GLIBC either not defined or version < 2.30 ... including <sys/sysctl.h> header.
   #endif
@@ -1359,7 +1359,7 @@ extern int NTHREADS;
 		#include <sched.h>
 
 		#include <unistd.h>	// Needed for Posix sleep() command, among other things
-		#ifdef OS_TYPE_LINUX
+		#if defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 
 			// These additional Linux-only includes make sure __NR_gettid, used in our syscall-based get-thread-ID, is defined:
 			#include <linux/unistd.h>
@@ -1377,7 +1377,7 @@ extern int NTHREADS;
 
 		#include <pthread.h>
 		// Found pthread header?
-		#if(defined(_PTHREAD_H) || defined(_PTHREAD_H_))	// Apr 2018: Thanks to Elias Mariani for the OpenBSD mods
+		#if(defined(_PTHREAD_H) || defined(_PTHREAD_H_) || defined(WIN_PTHREADS_H))	// Apr 2018: Thanks to Elias Mariani for the OpenBSD mods
 			#define MULTITHREAD
 			#define USE_PTHREAD
 		#else

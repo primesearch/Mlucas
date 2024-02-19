@@ -231,6 +231,7 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 			fprintf(stderr,"received SIGINT signal.\n");	sprintf(cbuf,"received SIGINT signal.\n");
 		} else if(signo == SIGTERM) {
 			fprintf(stderr,"received SIGTERM signal.\n");	sprintf(cbuf,"received SIGTERM signal.\n");
+	#ifndef __MINGW32__
 		} else if(signo == SIGHUP) {
 			fprintf(stderr,"received SIGHUP signal.\n");	sprintf(cbuf,"received SIGHUP signal.\n");
 		} else if(signo == SIGALRM) {
@@ -239,6 +240,7 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 			fprintf(stderr,"received SIGUSR1 signal.\n");	sprintf(cbuf,"received SIGUSR1 signal.\n");
 		} else if(signo == SIGUSR2) {
 			fprintf(stderr,"received SIGUSR2 signal.\n");	sprintf(cbuf,"received SIGUSR2 signal.\n");
+	#endif
 		}
 	// Dec 2021: Until resolve run-to-run inconsistencies in signal handling, kill it with fire:
 	exit(1);
