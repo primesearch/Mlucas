@@ -475,7 +475,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
+				if( ((intptr_t)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy = &tdat[ithread].cy_dat[l];
 				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
@@ -487,8 +487,8 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	#ifdef USE_SSE2
 
-		ASSERT(HERE, ((long)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
-		ASSERT(HERE, ((long)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
 
 		// Use double-complex type size (16 bytes) to alloc a block of local storage
 		// consisting of radix44_creals_in_local_store dcomplex and (12+RADIX/2) uint64 element slots per thread
@@ -496,9 +496,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		cslots_in_local_store = radix44_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
 		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix44_creals_in_local_store);
-		ASSERT(HERE, ((long)sm_ptr & 0x1f) == 0, "sm_ptr not 32-byte aligned!");
+		ASSERT(HERE, ((intptr_t)sm_ptr & 0x1f) == 0, "sm_ptr not 32-byte aligned!");
 
 	/* Use low 88x2 16-byte slots of sc_arr for temporaries, next 21 for the constants needed by the radix-11 DFT,
 	next RADIX/2 = 22 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the half_arr table lookup stuff,
@@ -552,7 +552,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*odd_radix] x 16 for Fermat-mod */
 	  #endif
 
-		ASSERT(HERE, (radix44_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix44_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix44_creals_in_local_store << L2_SZ_VD) >= ((intptr_t)half_arr - (intptr_t)r00) + (20 << L2_SZ_VD), "radix44_creals_in_local_store checksum failed!");
 	  #if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD)
 	  	/* no-op */
 	  #else
@@ -711,7 +711,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #endif
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (long)cy - (long)two;
+		nbytes = (intptr_t)cy - (intptr_t)two;
 		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1081,7 +1081,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tdat[ithread].bjmodn0 = _bjmodnini[ithread];
 		#ifdef USE_SSE2
 			tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
-			tdat[ithread].half_arr = (vec_dbl *)((long)tdat[ithread].r00 + ((long)half_arr - (long)r00));
+			tdat[ithread].half_arr = (vec_dbl *)((intptr_t)tdat[ithread].r00 + ((intptr_t)half_arr - (intptr_t)r00));
 		#else	// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
 			tdat[ithread].r00      = (double *)base;
 			tdat[ithread].half_arr = (double *)baseinv;

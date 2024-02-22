@@ -3041,7 +3041,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 8);
 			if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(HERE, ((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Remember, rhese are POINTERS-TO-DOUBLES, so need an increment of 4 to span an AVX register: */
 			tmp = (double *)sc_ptr;
 			ax  = tmp + 0;	bx  = tmp + 1;	cx  = tmp + 2;	dx  = tmp + 3;	tmp += 4;

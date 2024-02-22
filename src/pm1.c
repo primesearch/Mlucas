@@ -1139,13 +1139,13 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		sprintf(cbuf, "ERROR: unable to allocate the needed %u buffers of p-1 Stage 2 storage.\n",num_b*m + use_pp1);
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(HERE, 0,cbuf);
 	}
-	a      = ALIGN_DOUBLE(a_ptmp);	ASSERT(HERE, ((long)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
+	a      = ALIGN_DOUBLE(a_ptmp);	ASSERT(HERE, ((intptr_t)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
 	buf = (double **)calloc(num_b*m,sizeof(double *));
 	// ...and num_b*m "buffers" for precomputed bigstep-coprime odd-square powers of the stage 1 residue:
 	for(i = 0; i < num_b*m; i++) {
 		buf[i] = a + i*npad;
 //		fprintf(stderr,"buf[%3d] = 0x%llX\n",i,(uint64)buf[i]);
-		ASSERT(HERE, ((long)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
+		ASSERT(HERE, ((intptr_t)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
 	}
 	// Still do fwdFFT(1) as init-FFT step in non-(p+1) build, but use uppermost buf[] entry to hold as throwaway result:
 	vone = a + (i - 1 + use_pp1)*npad;
@@ -1168,8 +1168,8 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	const int nbytes_simd_align = (RE_IM_STRIDE*8) - 1;	// And per-thread data chunk addresses with this to check SIMD alignment
-	ASSERT(HERE, ((long)mult[0] & nbytes_simd_align) == 0x0,"mult[0] not aligned on 64-byte boundary!");
-	ASSERT(HERE, ((long)buf [0] & nbytes_simd_align) == 0x0,"buf [0] not aligned on 64-byte boundary!");	// Since npad a multiple of RE_IM_STRIDE, only need to check buf[0] alignment
+	ASSERT(HERE, ((intptr_t)mult[0] & nbytes_simd_align) == 0x0,"mult[0] not aligned on 64-byte boundary!");
+	ASSERT(HERE, ((intptr_t)buf [0] & nbytes_simd_align) == 0x0,"buf [0] not aligned on 64-byte boundary!");	// Since npad a multiple of RE_IM_STRIDE, only need to check buf[0] alignment
 	j = npad / NTHREADS;	// j = #doubles in each thread-processed chunk
 	/* Fiddle up-or-downward to make it a multiple of RE_IM_STRIDE; say this == 8. Since j == (npad/NTHREADS) - [0 or 1]
 	due to truncation-on-integer-div, if jmod := (j % RE_IM_STRIDE) < RE_IM_STRIDE/2, subtract jmod from j, otherwise
@@ -1185,7 +1185,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		tdat[i].retval = &thr_ret[i];
 		tdat[i].arr0 =       a + k;	// a[]-array (alias for mult[3]) takes output, a[] = (mult[0][] - buf[i][])
 		tdat[i].arr1 = mult[0] + k;	// k = i*j = doubles-offset for this thread's pair of array pointers
-		tdat[i].arr2 = (double *)(long)k;	// For array-pointer 2, init the fixed offsets, then add fixed base-pointer offset buf[i] to
+		tdat[i].arr2 = (double *)(intptr_t)k;	// For array-pointer 2, init the fixed offsets, then add fixed base-pointer offset buf[i] to
 									// each k-index offset at thread-dispatch time, re-subtract buf[i] after pool work completion
 		tdat[i].n = j;	// Chunksize
 	}
@@ -1414,7 +1414,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 			fprintf(stderr,"%u^2.",j);
 		#endif
 //			fprintf(stderr,"buf[%3d] = 0x%llX\n",i,(uint64)buf[i]);
-			ASSERT(HERE, ((long)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
+			ASSERT(HERE, ((intptr_t)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
 			memcpy(buf[i++],mult[0],nbytes);	// buf[i++] = mult[0] = fwd-FFT-pass-1-done(A^1,9,25,...)
 		}
 		// Up-multiply the fwd-FFT-pass-1-done(A^8,16,24,...) by fixed multiplier fwd-FFT(A^8):
@@ -2559,7 +2559,7 @@ ERR_RETURN:
 			// Add fixed-offset represented by the address of the subtrahend-array c[] to each
 			// precomputed datachunk offset index. Pointer arithmetic takes case of the *= 8 scaling,
 			// but first cast index stored in tdat[i].arr2 to int to avoid illegal operation addition of pointers:
-			tdat[i].arr2 = c + (long)(tdat[i].arr2);
+			tdat[i].arr2 = c + (intptr_t)(tdat[i].arr2);
 			task_control.data = (void*)(&tdat[i]);
 		//	printf("adding pool task %d\n",i);
 			threadpool_add_task(tpool, &task_control, task_is_blocking);

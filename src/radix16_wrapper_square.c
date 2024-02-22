@@ -237,12 +237,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
 			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sm_ptr = ALIGN_INT(sm_arr);
-			ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+			ASSERT(HERE, ((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 			// Twiddles-array: Need 0x47 slots for data, plus need to leave room to pad-align.
 			// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 32 added vec_dbl, thus 0x4c ==> 0x6c:
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x6c*max_threads);	ASSERT(HERE, sc_arr != 0,"ERROR: unable to allocate sc_arr!");
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Use low 32 16-byte slots of sc_arr for temporaries, next 4 for const = 1/4 and nontrivial complex 16th roots,
 			last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array: */
 		  #ifdef MULTITHREAD
@@ -3644,7 +3644,7 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	{
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [4 vec_dbl = 4 x 8 = 32 doubles] each in AVX512 mode, total = 32 vec_dbl = 16 vec_cmplx
-		nbytes = (long)r5 - (long)r1;
+		nbytes = (intptr_t)r5 - (intptr_t)r1;
 		memcpy(add0, r1 , nbytes);	// add0 = a + j1pad;
 		memcpy(add2, r9 , nbytes);	// add2 = add0 + 32;	// add2 = add0 + [32 doubles, equiv to 4 AVX-512 registers]
 		memcpy(add4, r17, nbytes);	// add4 = add2 + 32;
@@ -3656,14 +3656,14 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
 	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
 		// process 4 main-array blocks of [8 vec_dbl = 8 x 4 = 32 doubles] each in AVX mode, total = 32 vec_dbl = 16 vec_cmplx
-		nbytes = (long)r9 - (long)r1;
+		nbytes = (intptr_t)r9 - (intptr_t)r1;
 		memcpy(add0, r1 , nbytes);	// add0 = a + j1pad;
 		memcpy(add1, r9 , nbytes);	// add1 = a + j2pad;
 		memcpy(add2, r17, nbytes);	// add2 = add0 + 32;	// add2 = add0 + [32 doubles, equiv to 8 AVX registers]
 		memcpy(add3, r25, nbytes);	// add3 = add1 - 32;	// Last 2 offsets run in descending order for Mers-mod
 	  #else	// SSE2:
 		// process 2 main-array blocks of [16 vec_dbl = 16 x 2 = 32 doubles] each in SSE2 mode, total = 32 vec_dbl = 16 vec_cmplx
-		nbytes = (long)r17 - (long)r1;
+		nbytes = (intptr_t)r17 - (intptr_t)r1;
 		memcpy(add0, r1 , nbytes);	// add0 = a + j1pad;
 		memcpy(add1, r17, nbytes);	// add1 = a + j2pad;``
 	  #endif
@@ -3675,7 +3675,7 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	  {
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [4 vec_dbl = 4 x 8 = 32 doubles] each in AVX512 mode, total = 32 vec_dbl = 16 vec_cmplx
-		nbytes = (long)r5 - (long)r1;
+		nbytes = (intptr_t)r5 - (intptr_t)r1;
 		memcpy(r1 , add0, nbytes);	// add0 = a + j1pad;
 		memcpy(r9 , add2, nbytes);	// add2 = add0 + 32;	// add2 = add0 + [32 doubles, equiv to 4 AVX-512 registers]
 		memcpy(r17, add4, nbytes);	// add4 = add2 + 32;
@@ -3687,14 +3687,14 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
 	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
 		// process 4 main-array blocks of [8 vec_dbl = 8 x 4 = 32 doubles] each in AVX mode, total = 32 vec_dbl = 16 vec_cmplx
-		nbytes = (long)r9 - (long)r1;
+		nbytes = (intptr_t)r9 - (intptr_t)r1;
 		memcpy(r1 , add0, nbytes);	// add0 = a + j1pad;
 		memcpy(r9 , add1, nbytes);	// add1 = a + j2pad;
 		memcpy(r17, add2, nbytes);	// add2 = add0 + 32;	// add2 = add0 + [32 doubles, equiv to 8 AVX registers]
 		memcpy(r25, add3, nbytes);	// add3 = add1 - 32;	// Last 2 offsets run in descending order for Mers-mod
 	  #else	// SSE2:
 		// process 2 main-array blocks of [16 vec_dbl = 16 x 2 = 32 doubles] each in SSE2 mode, total = 32 vec_dbl = 16 vec_cmplx
-		nbytes = (long)r17 - (long)r1;
+		nbytes = (intptr_t)r17 - (intptr_t)r1;
 		memcpy(r1 , add0, nbytes);	// add0 = a + j1pad;
 		memcpy(r17, add1, nbytes);	// add1 = a + j2pad;``
 	  #endif

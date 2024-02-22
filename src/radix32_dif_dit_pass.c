@@ -107,7 +107,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
 	last 64 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -1485,7 +1485,7 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
 	last 64 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.

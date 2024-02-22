@@ -769,10 +769,10 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 			2. if x,y have different 16-byte[SSE2/AVX] or 32-byte[AVX2] alignment, skip the ASM-loop;
 			3. if x,y have same 16-byte[SSE2/AVX] or 32-byte[AVX2] alignment, find i0 >= 1 such that x[i0] is SIMD-aligned.
 		*/
-		if( ((uint32)x & 0x7) != 0 || ((uint32)y & 0x7) != 0 )
+		if( ((uintptr_t)x & 0x7) != 0 || ((uintptr_t)y & 0x7) != 0 )
 			ASSERT(HERE, 0, "require 8-byte alignment of x,y!");
 		// In SIMD-ASM case, x_misalign = (0,1,2, or 3) how many words x[0] is above next-lower alignment boundary:
-		x_misalign = ((uint32)x & BASEADDRMASK)>>3;	y_misalign = ((uint32)y & BASEADDRMASK)>>3;
+		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;	y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
 
 		if(len >= minlen) {	// Low-end clean-up loop runs from i = i0 downward thru i = 1 ... x[0] handled separately:
 		  #ifdef USE_AVX2
@@ -1222,9 +1222,9 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 			2. if x,y have different 16-byte[SSE2/AVX] or 32-byte[AVX2] alignment, skip the ASM-loop;
 			3. if x,y have same 16-byte[SSE2/AVX] or 32-byte[AVX2] alignment, find i0 >= 0 such that x[i0] is SIMD-aligned.
 		*/
-		if( ((uint32)x & 0x7) != 0 || ((uint32)y & 0x7) != 0 )
+		if( ((uintptr_t)x & 0x7) != 0 || ((uintptr_t)y & 0x7) != 0 )
 			ASSERT(HERE, 0, "require 8-byte alignment of x,y!");
-		x_misalign = ((uint32)x & BASEADDRMASK)>>3;	y_misalign = ((uint32)y & BASEADDRMASK)>>3;
+		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;	y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
 
 		// minlen may have been incr. for alignment purposes, so use_asm not an unconditional TRUE here
 		if(len >= minlen && x_misalign != 0) {	// Low-end clean-up loop runs from i = 0 upward thru i = i0-1

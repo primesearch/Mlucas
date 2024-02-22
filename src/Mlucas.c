@@ -543,7 +543,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	if(!BASE_MULTIPLIER_BITS) {
 		j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6) + 1;	// Add 1 pad element in case compiler does not 64-bit align
 		BASE_MULTIPLIER_BITS = ALLOC_UINT64(BASE_MULTIPLIER_BITS, j);	if(!BASE_MULTIPLIER_BITS){ sprintf(cbuf, "ERROR: unable to allocate BASE_MULTIPLIER_BITS array in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		BASE_MULTIPLIER_BITS = ALIGN_UINT64(BASE_MULTIPLIER_BITS);	ASSERT(HERE, ((long)BASE_MULTIPLIER_BITS & 63) == 0x0,"BASE_MULTIPLIER_BITS[] not aligned on 64-byte boundary!");
+		BASE_MULTIPLIER_BITS = ALIGN_UINT64(BASE_MULTIPLIER_BITS);	ASSERT(HERE, ((intptr_t)BASE_MULTIPLIER_BITS & 63) == 0x0,"BASE_MULTIPLIER_BITS[] not aligned on 64-byte boundary!");
 		for(i = 0; i < j; i++) { BASE_MULTIPLIER_BITS[i] = 0ull; }	// v20: Init = 0 here, in case we jump directly into p-1 stage 2 on restart
 	}
 
@@ -1415,9 +1415,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 		a_ptmp = ALLOC_DOUBLE(a_ptmp, j*nalloc);	if(!a_ptmp){ sprintf(cbuf, "ERROR: unable to allocate array A in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		a      = ALIGN_DOUBLE(a_ptmp);
-		ASSERT(HERE, ((long)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
-		if(((long)a & 127) != 0x0)
-			fprintf(stderr, "WARN: a[] = 0x%08lX not aligned on 128-byte boundary!\n", (long)a);
+		ASSERT(HERE, ((intptr_t)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
+		if(((intptr_t)a & 127) != 0x0)
+			fprintf(stderr, "WARN: a[] = 0x%08lX not aligned on 128-byte boundary!\n", (intptr_t)a);
 		// v19: Add three more full-residue arrays to support 2-input FFT-modmul needed for Gerbicz check (and later, p-1 support):
 		if(use_lowmem < 2) {
 			b = a + nalloc;	c = b + nalloc;	d = c + nalloc, e = d + nalloc;

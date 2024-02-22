@@ -537,8 +537,8 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 
 	#ifdef USE_SSE2
 
-		ASSERT(HERE, ((long)wt0 & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
-		ASSERT(HERE, ((long)wt1 & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)wt0 & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)wt1 & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
 
 		// Use vector-double type size (16 bytes for SSE2, 32 for AVX) to alloc a block of local storage
 		// consisting of 128 dcomplex and (12+RADIX/2) uint64 element slots per thread
@@ -546,9 +546,9 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		cslots_in_local_store = radix16_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
 		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix16_creals_in_local_store);
-		ASSERT(HERE, ((long)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((intptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	next 16 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the half_arr table lookup stuff,
@@ -621,7 +621,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	  #endif
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (long)ss0 - (long)isrt2 + SZ_VD;	// #bytes in 1st of above block of consts
+		nbytes = (intptr_t)ss0 - (intptr_t)isrt2 + SZ_VD;	// #bytes in 1st of above block of consts
 		tmp = isrt2;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1055,7 +1055,7 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		{
 		#ifdef USE_SSE2
 			tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
-			tdat[ithread].half_arr = (vec_dbl *)((long)tdat[ithread].r00 + ((long)half_arr - (long)r00));
+			tdat[ithread].half_arr = (vec_dbl *)((intptr_t)tdat[ithread].r00 + ((intptr_t)half_arr - (intptr_t)r00));
 		#else	// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
 			tdat[ithread].r00      = (double *)base;
 			tdat[ithread].half_arr = (double *)baseinv;

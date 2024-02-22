@@ -258,11 +258,11 @@ void radix16_dyadic_square(
 		// Index vectors used in SIMD roots-computation.
 		sm_arr = ALLOC_INT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
-		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array:
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -1242,14 +1242,14 @@ locations, just with local-store address offsets doubled due to the double data 
 	  // v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
 	  if(fwd_fft_only == 1)
 	  {
-		nbytes = ((long)r17 - (long)r1)<<1;
+		nbytes = ((intptr_t)r17 - (intptr_t)r1)<<1;
 		memcpy(add0, r1, nbytes);	// add0 = a + j1pad;
 		goto loop;	// Skip dyadic-mul and iFFT
 
 	  } else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
 
 	  if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
-		nbytes = ((long)r17 - (long)r1)<<1;
+		nbytes = ((intptr_t)r17 - (intptr_t)r1)<<1;
 		memcpy(r1, add0, nbytes);	// add0 = a + j1pad;
 	  }
 		bdd0 = b + j1;	// No reverse-running addresses as in Mers-mod/real-vector-FFT case, just need single B-array base address
