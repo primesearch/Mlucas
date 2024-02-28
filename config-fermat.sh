@@ -12,8 +12,8 @@ for ((n = 0; n < 16; ++n)); do              # Then, from small up to egregious F
     m=$((1 << n))                           # The largest FFT reached is 512M, if MAX is set to 33.
     f=$((18 + n))                           # Note that large FFTs require considerable runtime at 10000 iterations.
     for k in 15 16; do
-        if [[ $k -eq 15 && $n -lt 10 ]]; then
-            FFTS[14 * m]=$f                 # k = 7 multiples (7K, 14K, ...) become unworkable after F27 (14M).
+        if [[ $k -eq 15 && $n -lt 11 ]]; then
+            FFTS[14 * m]=$f                 # k = 7 multiples (7K, 14K, ...) become unworkable after F28 (14M).
         fi
         FFTS[k * m]=$f                      # k = 15, 16 should both be supported up to at least F32.
         if [[ $k -eq 15 && $n -gt 5 ]]; then
