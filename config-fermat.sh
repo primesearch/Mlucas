@@ -40,7 +40,7 @@ MAX=29
 # Mlucas arguments
 ARGS=(
 	"$@"
-	# Add desired -cpu or -core settings here, or as following arguments, e.g. ./config-fermat.sh -cpu 0:3
+	# Add desired -cpu or -core settings here, or as following arguments, e.g. ../config-fermat.sh -cpu 0:3
 
 )
 
