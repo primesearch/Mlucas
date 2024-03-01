@@ -48,6 +48,7 @@ jobs:
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -81,6 +82,7 @@ jobs:
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
+        bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
       continue-on-error: true
 
   TSan-Linux:
@@ -217,6 +219,10 @@ jobs:
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+            cd ../obj_NOSIMD
+        fi
+        bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -243,6 +249,9 @@ jobs:
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        if ! (( $(sysctl -n hw.optional.AdvSIMD) )); then
+            bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        fi
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -315,6 +324,7 @@ jobs:
         done
         cd obj
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -353,3 +363,4 @@ jobs:
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+        bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
