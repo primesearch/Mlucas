@@ -31,10 +31,10 @@ set -e
 
 shopt -s nocasematch
 
-# for mode in avx512 avx2 avx sse2; do
+# for mode in AVX512 AVX2 AVX SSE2; do
 	# if grep -iq "$mode" /proc/cpuinfo; then
-		# echo -e "The CPU supports the ${mode^^} SIMD build mode.\n"
-		# ARGS+=( "-DUSE_${mode^^}" )
+		# echo -e "The CPU supports the ${mode} SIMD build mode.\n"
+		# ARGS+=( "-DUSE_${mode}" )
 		# break
 	# fi
 # done
@@ -172,6 +172,12 @@ if [[ -n $WORDS ]]; then
 	fi
 fi
 
+if [[ $OSTYPE == msys ]]; then
+	Mlucas+=.exe
+	Mfactor+=.exe
+	TARGET+=.exe
+fi
+
 # First if/elif clause handles cross-platform builds and non-default values for "Use GMP?" and "Use HWLOC?":
 # o "Use GMP" = TRUE is default in link step, 'no_gmp' overrides;
 # o "Use HWLOC" = FALSE is default, 'use_hwloc' overrides.
@@ -250,9 +256,10 @@ elif [[ $OSTYPE =~ ^darwin ]]; then
 		ARGS+=(-DUSE_SSE2 -march=core2)
 	elif (($(sysctl -n hw.optional.AdvSIMD))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD) # -march=native
+		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
+		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
 		ARGS+=(-march=native)
 	fi
 
@@ -271,11 +278,12 @@ elif [[ $OSTYPE =~ ^linux ]]; then
 	elif grep -iq 'sse2' /proc/cpuinfo; then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		ARGS+=(-DUSE_SSE2 -march=native)
-	elif grep -iq 'asimd' /proc/cpuinfo; then
+	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD) # -march=native
+		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
+		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
 		ARGS+=(-march=native)
 	fi
 
@@ -302,15 +310,17 @@ int main()
 		puts("-DUSE_SSE2 -march=native");
 	#else
 		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
+		fputs("Warning: This likely means there is a bug in this script. Please report!\n", stderr);
 		puts("-march=native");
 	#endif
 #elif defined(__aarch64__)
 	#ifdef __ARM_NEON
 		fputs("The CPU supports the ASIMD build mode.\n\n", stderr);
-		puts("-DUSE_ARM_V8_SIMD"); // -march=native
+		puts("-DUSE_ARM_V8_SIMD -mcpu=native"); // -march=native
 	#else
 		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
-		puts("-march=native");
+		fputs("Warning: This likely means there is a bug in this script. Please report!\n", stderr);
+		puts("-mcpu=native"); // -march=native
 	#endif
 #else
 	fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
@@ -321,13 +331,22 @@ int main()
 EOF
 
 	trap 'rm /tmp/simd{.c,}' EXIT
-	"${CC:-gcc}" -Wall -g -O3 -march=native -o /tmp/simd /tmp/simd.c
-	if ! args=$(/tmp/simd); then
-		echo "$args"
+	args=()
+	case $HOSTTYPE in
+		aarch64 | arm*)
+			args+=(-mcpu=native)
+			;;
+		x86_64 | *)
+			args+=(-march=native)
+			;;
+	esac
+	"${CC:-gcc}" -Wall -g -O3 "${args[@]}" -o /tmp/simd /tmp/simd.c
+	if ! output=$(/tmp/simd); then
+		echo "$output"
 		echo "Error: Unable to detect the SIMD build mode" >&2
 		exit 1
 	fi
-	ARGS+=($args)
+	ARGS+=($output)
 fi
 
 if [[ -d $DIR ]]; then

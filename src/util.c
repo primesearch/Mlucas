@@ -34,6 +34,9 @@
 #ifdef USE_GPU
 	#include "gpu_iface.h"
 #endif
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <windows.h>
+#endif
 
 #if 0
 	#define USE_FMADD
@@ -1972,8 +1975,6 @@ uint32 get_system_ram(void) {
 	return (info.freeram)>>20;
 
 #elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
-
-	#include "windows.h"
 
 	MEMORYSTATUSEX memInfo;
 	memInfo.dwLength = sizeof(memInfo);
@@ -8933,8 +8934,6 @@ exit(0);
 		long nprocs_max = -1;
 
 	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
-
-		#include <windows.h>
 
 		SYSTEM_INFO info;
 		GetSystemInfo(&info);
