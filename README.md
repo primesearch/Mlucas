@@ -9,6 +9,33 @@ Mlucas and Mfactor are 100% open source programs. Mlucas is for [primality](http
 
 The original [Mlucas README](https://mersenneforum.org/mayer/README.html) is available for posterity and contains a lot of information, but note that it is no longer up to date. For more information about Mlucas v21, please see the [Ernst's Mlucas - the future](https://www.mersenneforum.org/showthread.php?t=28926) thread on the Mersenne Forum.
 
+Feature | | Mlucas | Prime95/MPrime
+--- | --- | ---: | ---:
+**Architectures** | x86 | ✔️ | ✔️
+\- | ARM | ✔️ | 
+\- | Other | ✔️ | 
+**Worktypes** | LL | ✔️ | ✔️
+\- | PRP | ✔️ | ✔️
+\- | P-1 | ✔️ | ✔️
+\- | P+1 | | ✔️
+\- | ECM | | ✔️
+\- | Pépin | ✔️ | 
+**PRP** | Proofs | | ✔️
+\- | Certs | | ✔️
+**Error Checking** | Jacobi | | ✔️
+\- | Gerbicz | ✔️ | ✔️
+**Random Shifts** | | ✔️ | ✔️
+**Interface** | CLI | ✔️ | MPrime only
+\- | GUI | | Prime95 only
+**Multiple Workers** | | Separate runs | ✔️
+**PrimeNet Support** | | Separate script | ✔️
+**Max FFT Length** | | 256M<br>(**512M** with 0 shift) | 32M (AVX) -<br>64M (AVX512)
+**Largest Exponent** | | 4,294,967,231<br>(**8,937,021,911** with 0 shift) | 595,700,000 (AVX) -<br>1,169,000,000 (AVX512)
+**Performance** | | ~50-90% | **100%**
+**Free** 🆓 | | **Yes**, GPL | No, EULA
+**100% Open Source** | | ✔️ | Mostly
+**Claim Full EFF Awards** | | ✔️ | 
+
 ## Usage
 
 ### Automatic method
