@@ -1258,7 +1258,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	FFT-lengths ratio permitted under this schema, 9/8:
 	*/
 	kblocks = get_default_fft_length(p);
-	if(!fft_length || (!INTERACT && 8*fft_length > 9*kblocks && MODULUS_TYPE == MODULUS_TYPE_MERSENNE)) {
+	if(!fft_length || (!INTERACT && MODULUS_TYPE == MODULUS_TYPE_MERSENNE && 8*fft_length > 9*kblocks)) {
 		if(!kblocks) {
 			fprintf(stderr,"ERROR detected in get_default_fft_length for p = %llu.\n",p);
 			return ERR_FFTLENGTH_ILLEGAL;
@@ -1307,8 +1307,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		/* Look for a best-FFT-radix-set entry in the .cfg file: */
 		dum = get_preferred_fft_radix(kblocks);
 		if(!dum) {	// Need to run a timing self-test at this FFT length before proceeding:
-			sprintf(cbuf,"INFO: FFT length %d = %d K not found in the '%s' file.\n", n, kblocks, CONFIGFILE);
-			fprintf(stderr,"%s", cbuf);
+			sprintf(cbuf, "INFO: FFT length %d = %d K not found in the '%s' file.\n", n, kblocks, CONFIGFILE);
+			fprintf(stderr, "%s", cbuf);
 			if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 		}
 		else if(dum != kblocks)
@@ -1661,16 +1661,16 @@ READ_RESTART_FILE:
 			ASSERT(HERE, (itmp64 & 255) < ceil((double)p/n), "Return value of shift_word(): bit-in-array-word value out of range!");
 		}
 	} else if(DO_GCHECK) {
-//		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && !INTERACT) {	// Allow shift in timing-test mode
-//			ASSERT(HERE, RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
-//			exit(1);
-//		}
+		/* if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && !INTERACT) {	// Allow shift in timing-test mode
+			ASSERT(HERE, RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
+			exit(1);
+		} */
 		memcpy(d, b, nbytes);	// If doing a PRP test, init redundant copy d[] Gerbicz residue-product accumulator b[].
 	}
 
 	if(restart) {
-		if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) {snprintf_nowarn(cbuf,STR_MAX_LEN, "Restarting %s at iteration = %u, residue shift count = %llu.\nRes64,Res35m1,Res36m1: %016llX,%llu,%llu\n",PSTRING,ilo,RES_SHIFT,Res64,Res35m1,Res36m1);}
-		else {snprintf_nowarn(cbuf,STR_MAX_LEN, "Restarting %s at iteration = %u. Res64: %016llX, residue shift count = %llu\n",PSTRING,ilo,Res64,RES_SHIFT);}
+		if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf_nowarn(cbuf,STR_MAX_LEN, "Restarting %s at iteration = %u, residue shift count = %llu.\nRes64,Res35m1,Res36m1: %016llX,%llu,%llu\n",PSTRING,ilo,RES_SHIFT,Res64,Res35m1,Res36m1);
+		else snprintf_nowarn(cbuf,STR_MAX_LEN, "Restarting %s at iteration = %u. Res64: %016llX, residue shift count = %llu\n",PSTRING,ilo,Res64,RES_SHIFT);
 		mlucas_fprint(cbuf,0);
 	}
 
@@ -2515,8 +2515,8 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// just to the exponent-specific logfile, and the server-expected JSON-formatted result to the results file:
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is not prime. Program: E%s. Final residue shift count = %llu.\n",PSTRING,VERSION,RES_SHIFT);
 				mlucas_fprint(cbuf,1);
-				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) {snprintf_nowarn(cbuf,STR_MAX_LEN, "Selfridge-Hurwitz residues Res64,Res35m1,Res36m1 = %016llX,%11llu,%11llu.\n",Res64,Res35m1,Res36m1);}
-				else {snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);}
+				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf_nowarn(cbuf,STR_MAX_LEN, "Selfridge-Hurwitz residues Res64,Res35m1,Res36m1 = %016llX,%11llu,%11llu.\n",Res64,Res35m1,Res36m1);
+				else snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 				mlucas_fprint(cbuf,1);
 				// v19: Finish with the JSON-formatted result line:
 				fp = mlucas_fopen(OFILE,"a");
