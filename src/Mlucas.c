@@ -1308,7 +1308,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		dum = get_preferred_fft_radix(kblocks);
 		if(!dum) {	// Need to run a timing self-test at this FFT length before proceeding:
 			sprintf(cbuf, "INFO: FFT length %d = %d K not found in the '%s' file.\n", n, kblocks, CONFIGFILE);
-			fprintf(stderr, "%s", cbuf);
+			fprintf(stderr, "%s", cbuf); // Extra information on the default FFT selected. The following line allows the FFT to be overridden for Fermat exponents; see https://github.com/tdulcet/Mlucas/pull/11
 			if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 		}
 		else if(dum != kblocks)
@@ -1663,7 +1663,7 @@ READ_RESTART_FILE:
 	} else if(DO_GCHECK) {
 		/* if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && !INTERACT) {	// Allow shift in timing-test mode
 			ASSERT(HERE, RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
-			exit(1);
+			exit(1); // This assertion that shifted residues are unsupported for Pepin test with GEC does not seem factual. See https://github.com/tdulcet/Mlucas/pull/11
 		} */
 		memcpy(d, b, nbytes);	// If doing a PRP test, init redundant copy d[] Gerbicz residue-product accumulator b[].
 	}
@@ -2058,6 +2058,7 @@ READ_RESTART_FILE:
 		// Do not save a final residue unless p-1 (if not, still leave penultimate residue file intact).
 		// We don't save "final residue" in cofactor-PRP mode, since in the (mod M(p)) case this is for p+1 squarings (G-check needs this),
 		// i.e. needs a mod-div-by-base^2 postprocessing step to put in form of the p-1 squarings of the standard Fermat-PRP test:
+		// Comment by Catherine Cowie, 2024: for Pepin tests we actually do need a final residue saved, as the worktodo format for a Pepin test does not include possibility of cofactor testing. See https://github.com/tdulcet/Mlucas/pull/11 for more information.
 		if ((ihi == maxiter) && (INTERACT || (TEST_TYPE != TEST_TYPE_PM1 && !(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT))))
 				break;
 
@@ -2221,6 +2222,7 @@ READ_RESTART_FILE:
 	WRITE_RESTART_FILE:
 
 		itmp64 = ihi;
+		// If Pepin test is at final iteration, change PRP base to 3 for final write to file (cf. earlier assignment at line 1214). More info: https://github.com/tdulcet/Mlucas/pull/11
 		if (ihi == maxiter && TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT) PRP_BASE = 3;
 		fp = mlucas_fopen(RESTARTFILE, "wb");
 		if(fp) {		// In the non-PRP-test case, write_ppm1_savefiles() treats the latter 4 args as null:
@@ -2513,6 +2515,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			else {
 				// Otherwise, write the 64-bit hex residue. As of v19, we write the old-style HRF-formatted result
 				// just to the exponent-specific logfile, and the server-expected JSON-formatted result to the results file:
+				// Note that Fermat primality tests are not submitted to server, so accordingly we slightly modify the output. More info: https://github.com/tdulcet/Mlucas/pull/11
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is not prime. Program: E%s. Final residue shift count = %llu.\n",PSTRING,VERSION,RES_SHIFT);
 				mlucas_fprint(cbuf,1);
 				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf_nowarn(cbuf,STR_MAX_LEN, "Selfridge-Hurwitz residues Res64,Res35m1,Res36m1 = %016llX,%11llu,%11llu.\n",Res64,Res35m1,Res36m1);
