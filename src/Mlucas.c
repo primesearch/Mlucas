@@ -1663,7 +1663,6 @@ READ_RESTART_FILE:
 	} else if(DO_GCHECK) {
 		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && !INTERACT) {	// Allow shift in timing-test mode
 			ASSERT(HERE, RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
-			exit(1);
 		}
 		memcpy(d, b, nbytes);	// If doing a PRP test, init redundant copy d[] Gerbicz residue-product accumulator b[].
 	}
