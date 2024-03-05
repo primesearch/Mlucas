@@ -1661,7 +1661,7 @@ READ_RESTART_FILE:
 			ASSERT(HERE, (itmp64 & 255) < ceil((double)p/n), "Return value of shift_word(): bit-in-array-word value out of range!");
 		}
 	} else if(DO_GCHECK) {
-		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && !INTERACT) {	// Allow shift in timing-test mode
+		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && !INTERACT) {	// Allow shift in timing-test mode
 			ASSERT(HERE, RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
 			exit(1);
 		}
