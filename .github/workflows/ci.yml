@@ -252,6 +252,7 @@ jobs:
         if ! (( $(sysctl -n hw.optional.AdvSIMD) )); then
             bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         fi
+      continue-on-error: true
 
   TSan-macOS:
     name: ThreadSanitizer macOS

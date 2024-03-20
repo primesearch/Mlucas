@@ -1,4 +1,4 @@
-[![Actions Status](https://github.com/tdulcet/Mlucas/workflows/CI/badge.svg?branch=main)](https://github.com/tdulcet/Mlucas/actions)
+[![Actions Status](https://github.com/primesearch/Mlucas/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/primesearch/Mlucas/actions/workflows/ci.yml)
 
 # Mlucas
 Ernst Mayer's Mlucas and Mfactor programs for GIMPS
@@ -58,13 +58,13 @@ Dependencies:
 ##### Linux
 
 1. Verify that the dependencies above are installed. On Debian and Ubuntu, run: `sudo apt update` and `sudo apt install build-essential libgmp-dev libhwloc-dev`.
-2. If one has git installed, just run: `git clone https://github.com/tdulcet/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/tdulcet/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
+2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
 3. To download the PrimeNet script, run: `wget -nv https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
 
 ##### macOS
 
 1. Verify that the dependencies above are installed. Run: `brew install gmp hwloc`.
-2. If one has git installed, just run: `git clone https://github.com/tdulcet/Mlucas.git`. Otherwise, download the latest archive: `curl -LO https://github.com/tdulcet/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
+2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `curl -LO https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
 3. To download the PrimeNet script, run: `curl -sSLO https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
 
 ##### Windows
@@ -73,7 +73,7 @@ Native Windows builds are experimental. For now, Windows users should use the [W
 
 1. Download and install [MSYS2](https://www.msys2.org/).
 2. Verify that the dependencies above are installed. With the MINGW64 environment, run: `pacman -S mingw-w64-x86_64-gmp mingw-w64-x86_64-hwloc`.
-3. If one has git installed, just run: `git clone https://github.com/tdulcet/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/tdulcet/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
+3. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
 4. To download the PrimeNet script, run: `wget -nv https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
 
 #### Build
