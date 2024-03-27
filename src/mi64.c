@@ -428,7 +428,7 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 	static uint32 dimU = 0;
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases).
 	// Use #words in modulus (as opposed to #words-in-shift) for needs-realloc check here:
-	if(dimU < nwmod) {
+	if(dimU < 2*(nwmod+1)) {                // GG: fixed bug in comparison
 		dimU = 2*(nwmod+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if needed size increases incrementally
 		u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
@@ -2932,7 +2932,7 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 	} else {
 	#ifndef __CUDA_ARCH__
 		// Does scratch array need allocating or reallocating? (Use realloc for both cases):
-		if(dimU < (lenA+1)) {
+		if(dimU < 2*(lenA+1)) {         // GG: fixed bug in comparison
 			dimU = 2*(lenA+1);
 			// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 			u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
@@ -3048,7 +3048,7 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 	static uint64 *u = 0x0;
 	static uint32 dimU = 0;
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
-	if(dimU < (len+1)) {
+	if(dimU < 2*(len+1)) {          // GG: fixed bug in comparison
 		dimU = 2*(len+1);
 	  #if MI64_SQR_DBG
 		if(dbg) printf("realloc to dimU = %u\n",dimU);
@@ -3154,7 +3154,7 @@ void	mi64_mul_vector_lo_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	ASSERT(HERE, x && y && z, "Null array pointer!");
 	ASSERT(HERE, len != 0, "zero-length X-array!");
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
-	if(dimU < (len+1)) {
+	if(dimU < 2*(len+1)) {          // GG: fixed bug in comparison
 		dimU = 2*(len+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, 2*(len+1)*sizeof(uint64));	// NB: realloc leaves newly-alloc'ed size fraction uninited
@@ -3200,7 +3200,7 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	static uint64 *u = 0x0, *v = 0x0;
 	static uint32 dimU = 0;
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
-	if(dimU < (len+1)) {
+	if(dimU < 2*(len+1)) {          // GG: fixed bug in comparison
 	#if MI64_MULHI_DBG
 		if(dbg) { printf("mi64_mul_vector_hi_half: allocs with dimU = %d, len+1 = %d\n",dimU,len+1); }
 	#endif
@@ -3352,7 +3352,7 @@ void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], ui
 	static uint32 dimU = 0;
 	ASSERT(HERE, len != 0, "zero-length X-array!");
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
-	if(dimU < (len+1)) {
+	if(dimU < 2*(len+1)) {          // GG: fixed bug in comparison
 		dimU = 2*(len+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, (len+1)<<4);	// Realloc with 2*(len+1)*sizeof(uint64) bytes
@@ -5633,7 +5633,8 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 
 	// Allocate the needed auxiliary storage - the 2 yloc = ... / mi64_set_eq calls below copy (lenX + lenY) limbs into scratch, so alloc at least that much:
 	if(lens < (lenX + lenY)) {
-		lens = MAX(1024,lenX + lenY);	// Alloc yloc same as x to allow for left-justification of y-copy
+		// lens = MAX(1024,lenX + lenY);	// Alloc yloc same as x to allow for left-justification of y-copy
+		lens = lenX + lenY + 16;        // GG: bug fix: Always add some extra buffer length. 16 is arbitrary and conservative.
 		/*** May 2022: In preparing for the cofactor-is-prime-power GCD on F25/[known factors], build on Linux
 		with GCC 9.2.1, hit SIGABRT 		here with 'realloc(): invalid next size'. Step-thru debug showed
 		the #limbs-allocated counter lens increasing from 0 to 4 to 9, next jump from 9 to 1048574 triggered
