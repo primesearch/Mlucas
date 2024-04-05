@@ -188,7 +188,7 @@ of the leading 3 characters of the two version strings in question.
 A version suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
 A third index following release # indicates a patch number relative to that release. No 3rd index can be read as "patch number 0".
 */
-const char VERSION   [] = "20.1.1";
+const char VERSION   [] = "21.0.1";
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -1308,7 +1308,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		dum = get_preferred_fft_radix(kblocks);
 		if(!dum) {	// Need to run a timing self-test at this FFT length before proceeding:
 			sprintf(cbuf, "INFO: FFT length %d = %d K not found in the '%s' file.\n", n, kblocks, CONFIGFILE);
-			fprintf(stderr, "%s", cbuf); // Extra information on the default FFT selected. The following line allows the FFT to be overridden for Fermat exponents; see https://github.com/tdulcet/Mlucas/pull/11
+			fprintf(stderr, "%s", cbuf); // Extra information on the default FFT selected. The following line allows the FFT to be overridden for Fermat exponents; see https://github.com/primesearch/Mlucas/pull/11
 			if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 		}
 		else if(dum != kblocks)
@@ -2057,7 +2057,7 @@ READ_RESTART_FILE:
 		// Do not save a final residue unless p-1 (if not, still leave penultimate residue file intact).
 		// We don't save "final residue" in cofactor-PRP mode, since in the (mod M(p)) case this is for p+1 squarings (G-check needs this),
 		// i.e. needs a mod-div-by-base^2 postprocessing step to put in form of the p-1 squarings of the standard Fermat-PRP test:
-		// Comment by Catherine Cowie, 2024: for Pepin tests we actually do need a final residue saved, as the worktodo format for a Pepin test does not include possibility of cofactor testing. See https://github.com/tdulcet/Mlucas/pull/11 for more information.
+		// Comment by Catherine Cowie, 2024: for Pepin tests we actually do need a final residue saved, as the worktodo format for a Pepin test does not include possibility of cofactor testing. See https://github.com/primesearch/Mlucas/pull/11 for more information.
 		if ((ihi == maxiter) && (INTERACT || (TEST_TYPE != TEST_TYPE_PM1 && !(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT))))
 				break;
 
@@ -2221,7 +2221,7 @@ READ_RESTART_FILE:
 	WRITE_RESTART_FILE:
 
 		itmp64 = ihi;
-		// If Pepin test is at final iteration, change PRP base to 3 for final write to file (cf. earlier assignment at line 1214). More info: https://github.com/tdulcet/Mlucas/pull/11
+		// If Pepin test is at final iteration, change PRP base to 3 for final write to file (cf. earlier assignment at line 1214). More info: https://github.com/primesearch/Mlucas/pull/11
 		if (ihi == maxiter && TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT) PRP_BASE = 3;
 		fp = mlucas_fopen(RESTARTFILE, "wb");
 		if(fp) {		// In the non-PRP-test case, write_ppm1_savefiles() treats the latter 4 args as null:
@@ -2435,10 +2435,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			res_SH(arrtmp,i,&Res64,&Res35m1,&Res36m1);
 			// Now that residue is standard Fermat-PRP-test one, check if == 1:
 			isprime = (arrtmp[0] == 1ull);
-			if(isprime) {
-				for(i = 1; i < n; i++) {
-					j = i + ( (i >> DAT_BITS) << PAD_BITS );
-					if(a[j] != 0.0) { isprime = 0; break; }
+			if(isprime) { // Check the arrtmp[] array for non-zero elements; see https://github.com/primesearch/Mlucas/issues/15
+				for(i = 1; i < j; i++) {
+					if(arrtmp[i] != 0x0) { isprime = 0; break; }
 				}
 			}
 		} else {	// older impl. of LL-test isprime parsed the entire double-float residue array:
@@ -2514,19 +2513,21 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			else {
 				// Otherwise, write the 64-bit hex residue. As of v19, we write the old-style HRF-formatted result
 				// just to the exponent-specific logfile, and the server-expected JSON-formatted result to the results file:
-				// Note that Fermat primality tests are not submitted to server, so accordingly we slightly modify the output. More info: https://github.com/tdulcet/Mlucas/pull/11
+				// Note that Fermat primality tests are not submitted to server, so accordingly we slightly modify the output. More info: https://github.com/primesearch/Mlucas/pull/11
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is not prime. Program: E%s. Final residue shift count = %llu.\n",PSTRING,VERSION,RES_SHIFT);
 				mlucas_fprint(cbuf,1);
 				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf_nowarn(cbuf,STR_MAX_LEN, "Selfridge-Hurwitz residues Res64,Res35m1,Res36m1 = %016llX,%11llu,%11llu.\n",Res64,Res35m1,Res36m1);
-				else snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
-				mlucas_fprint(cbuf,1);
-				// v19: Finish with the JSON-formatted result line:
-				fp = mlucas_fopen(OFILE,"a");
-				if(fp) {
-					fprintf(fp,"\n%s",cstr); fclose(fp); fp = 0x0;
+				else {
+					snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+					// v19: Finish with the JSON-formatted result line:
+					fp = mlucas_fopen(OFILE,"a");
+					if(fp) {
+						fprintf(fp,"\n%s",cstr); fclose(fp); fp = 0x0;
+					}
 				}
+				mlucas_fprint(cbuf,1);
 			}
-		} else {	// Cofactor-PRP run:
+		} else if (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {	// Cofactor-PRP run:
 			snprintf_nowarn(cbuf,STR_MAX_LEN,"If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 			mlucas_fprint(cbuf,1);
 			// Write JSON-formatted result line to results file:
@@ -3293,8 +3294,8 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 	uint32 kblocks = n>>10, npad = n + ( (n >> DAT_BITS) << PAD_BITS );	// npad = length of padded data array
 	uint64 itmp64, Res35m1, Res36m1;	// Res64 from original PRP passed in via pointer; these are locally-def'd
 	cbuf[0] = '\0';
-	snprintf_nowarn(cbuf,STR_MAX_LEN,"Suyama-PRP on cofactors of %s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);	strcat(cbuf,cstr);
-	sprintf(cstr, " this gives an average %20.15f bits per digit\n",1.0*p/n);	strcat(cbuf,cstr);
+	snprintf_nowarn(cbuf,STR_MAX_LEN,"Suyama-PRP on cofactors of %s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);//	strcat(cbuf,cstr);
+//	sprintf(cstr, " this gives an average %20.15f bits per digit\n",1.0*p/n);	strcat(cbuf,cstr);
 	mlucas_fprint(cbuf,1);
 	// Pepin-test output = P, vs Mersenne-PRP (type 1) residue = A; thus only need an initial mod-squaring for:
 	// the former. Compute Fermat-PRP residue [A] from Euler-PRP (= Pepin-test) residue via a single mod-squaring:
@@ -3358,7 +3359,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 	itmp64 = mi64_sub(ai,bi, ai,j);
 	// If result < 0, need to add Modulus - for N = Fm,Mp this means +-1 in LSW, respectively.
 	// For Fermat case, the borrow out of the high limb in the preceding vector-sub is canceled by the
-	// leading binary '1' in F[m}; in the Mersenne case, need to explicitly add 2^(p%64) to high limb:
+	// leading binary '1' in F[m]; in the Mersenne case, need to explicitly add 2^(p%64) to high limb:
 	if(itmp64) {
 		ASSERT(HERE, itmp64 == 1ull,"Carryout = 1 expected!");
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
@@ -3425,13 +3426,13 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 			"Take the GCD of the difference of these two residues (A - B) with C. If the GCD is equal to 1,
 			C cannot be a prime power. (If it is not equal to 1, we have discovered a new factor of C.)"
 		*/
-		sprintf(cbuf,"This cofactor is COMPOSITE [C%u]. Checking prime-power-ness via GCD(A - B,C) ... ",i);
+		sprintf(cbuf,"This cofactor is COMPOSITE [C%u]. Checking prime-power-ness via GCD(A - B,C) ... \n",i); mlucas_fprint(cbuf,1);
 		i = gcd(0,0ull,ai,ci,j,gcd_str);	// 1st arg = stage of (p-1 or ecm) just completed, does not apply here
 		if(i)
-			sprintf(cstr,"Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
+			sprintf(cbuf,"Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
 		else
-			sprintf(cstr,"Cofactor is not a prime power.\n");
-		strcat(cbuf,cstr);	mlucas_fprint(cbuf,1);
+			sprintf(cbuf,"Cofactor is not a prime power.\n");
+		mlucas_fprint(cbuf,1);
 	}
 	return isprime;
 }
@@ -5236,10 +5237,10 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT(HERE, (itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
 		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
 			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
-			printf("Computing %llu-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] );
+			sprintf(cstr,"Computing %llu-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] ); mlucas_fprint(cstr,1);
 			mi64_div(avec,KNOWN_FACTORS+i, len,j, 0x0,rem);	// R (mod p) returned in rem[]
 			k = mi64_getlen(rem,4);	// j = number of nonzero limbs in remainder
-			printf("\tA: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, rem, k, 0)] );
+			sprintf(cstr,"\tA: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, rem, k, 0)] ); mlucas_fprint(cstr,1);
 			if(j == 1) {
 				exp[0] = twopmmodq64(nsquares,KNOWN_FACTORS[i]-1);	// pow' = 2^nsquares (mod p-1)
 			} else if(j == 2) {
@@ -5261,7 +5262,7 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 				ASSERT(HERE, 0, "Only known-factors < 2^256 supported!");
 			// Raise 3 to the just-computed power; result in 4-limb local-array pow[]:
 			mi64_scalar_modpow_lr(3ull, exp, KNOWN_FACTORS+i, j, pow);
-			printf("\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] );
+			sprintf(cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(cstr,1);
 			ASSERT(HERE, mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k), "Full-residue == 3^nsquares (mod q) check fails!");
 		}
 	}
