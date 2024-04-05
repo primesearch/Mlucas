@@ -2435,9 +2435,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			res_SH(arrtmp,i,&Res64,&Res35m1,&Res36m1);
 			// Now that residue is standard Fermat-PRP-test one, check if == 1:
 			isprime = (arrtmp[0] == 1ull);
-			if(isprime) {
+			if(isprime) { // Check the arrtmp[] array for non-zero elements; see https://github.com/primesearch/Mlucas/issues/15
 				for(i = 1; i < j; i++) {
-					if(arrtmp[j] != 0x0) { isprime = 0; break; }
+					if(arrtmp[i] != 0x0) { isprime = 0; break; }
 				}
 			}
 		} else {	// older impl. of LL-test isprime parsed the entire double-float residue array:
