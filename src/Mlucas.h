@@ -79,7 +79,7 @@ uint64	parse_cmd_args_get_shift_value(void);
 int		is_hex_string(char*s, int len);
 char*	check_kbnc(char*in_str, uint64*p);
 void	generate_JSON_report(
-	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer,
+	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char* Res2048, const char*timebuffer,
 	const uint32 B1, const uint64 B2, const char*factor, const uint32 s2_partial, char*cstr
 );
 void	print_help(void);
