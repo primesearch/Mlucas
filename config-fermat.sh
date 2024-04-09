@@ -73,10 +73,10 @@ for fft in "${!FFTS[@]}"; do
 	elif [[ -n $MAX && $f -gt $MAX ]]; then
 		break
 	fi
-	printf '\n\tTesting F%s (%s),\tFFT length: %sK\n\n' "$f" $((1 << f)) "$fft"
+	printf '\n\tTesting F%s (2^%s + 1),\tFFT length: %sK\n\n' "$f" $((1 << f)) "$fft"
 	args=("${ARGS[@]}")
 	if [[ $f -le 17 || $f -ge 32 ]]; then
 		args+=(-shift 0)
 	fi
-	time $MLUCAS -f "$f" -fft "$fft" -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing'
+	time $MLUCAS -f "$f" -fft "$fft" -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
 done

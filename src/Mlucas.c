@@ -21,7 +21,7 @@
 *******************************************************************************/
 
 /******************************************************************************************
-*   COMPILING AND RUNNING THE PROGRAM: see http://www.mersenneforum.org/mayer/README.html *
+*   COMPILING AND RUNNING THE PROGRAM: see https://www.mersenneforum.org/mayer/README.html *
 ******************************************************************************************/
 #include "Mlucas.h"
 #ifndef imul_macro_h_included
@@ -169,7 +169,7 @@ uint32 TEST_TYPE		= 0;
 uint32 MODULUS_TYPE		= 0;
 uint32 TRANSFORM_TYPE	= 0;
 
-const char HOMEPAGE  [] = "http://www.mersenneforum.org/mayer/README.html";
+const char HOMEPAGE  [] = "https://www.mersenneforum.org/mayer/README.html";
 
 /* Program version with patch suffix:
 
@@ -265,7 +265,7 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 !
 !   modulo N = 2^p - 1. If N divides s(p-2) (specifically, the (p-2)th residue == 0 modulo N), N is prime.
 !
-!   See http://www.mersenneforum.org/mayer/README.html for build instructions, recent revision history
+!   See https://www.mersenneforum.org/mayer/README.html for build instructions, recent revision history
 !   of the code and a summary of what has been changed/added/deleted in the latest release.
 !
 !***TO DO LIST:
@@ -321,7 +321,7 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 !
 !***For UPDATES, PATCHES and USAGE INSTRUCTIONS, see
 !
-!    http://www.mersenneforum.org/mayer/README.html
+!    https://www.mersenneforum.org/mayer/README.html
 !
 !***Send QUESTIONS, COMMENTS or SUGGESTIONS to me at <ewmayer@aol.com>.
 !
@@ -2477,7 +2477,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 			// Trio of p-1 fields all 0; cstr holds the formatted output line here. Need to differentiate
 			// between this PRP-CF result and the preceding PRP; set the otherwise-unused s2_partial flag:
-			generate_JSON_report(isprime,p,n,Res64,timebuffer, 0,0ull,0x0,s2_partial, cstr);
+			char Res2048[513];
+			for (int i = 31; i >= 0; i--) sprintf(Res2048+496-i*16, "%016llX", arrtmp[i]);
+			generate_JSON_report(isprime,p,n,Res64,Res2048,timebuffer, 0,0ull,0x0,s2_partial, cstr);
 		}
 		// For Non-cofactor LL/PRP runs, print summary status to logfile:
 		if(!KNOWN_FACTORS[0]) {
@@ -2555,7 +2557,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
 					gm_time = localtime(&calendar_time);
 				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
-				generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
+				generate_JSON_report(0,p,n,0ull,NULL,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 				mlucas_fprint(cbuf,0);
 				fp = mlucas_fopen(OFILE,"a");
@@ -2687,7 +2689,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
 					gm_time = localtime(&calendar_time);
 				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
-				generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
+				generate_JSON_report(0,p,n,0ull,NULL,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 				mlucas_fprint(cbuf,0);
 				fp = mlucas_fopen(OFILE,"a");
@@ -5981,7 +5983,7 @@ uint32 get_default_factoring_depth(uint64 p)
 
 	uint32 qbitsmax;
 /* These default depths are designed to match those of Prime95 v24, as described here:
-	http://www.mersenneforum.org/showthread.php?t=4213
+	https://www.mersenneforum.org/showthread.php?t=4213
 **** To-do: reverse order, add cases for > pmax, < pmin *****/
 	     if(p <=23390000)
 		qbitsmax = 66;
@@ -6139,7 +6141,7 @@ No factor found:
 Need to differentiate between PRP-CF results and the preceding PRP; set the otherwise-unused s2_partial flag to indicate PRP-CF.
 */
 void generate_JSON_report(
-	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer,
+	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char* Res2048, const char*timebuffer,
 	const uint32 B1, const uint64 B2, const char*factor, const uint32 s2_partial,	// Quartet of p-1 fields
 	char*cstr)	// cstr, takes the formatted output line; the preceding const-ones are inputs for that:
 {
@@ -6195,16 +6197,16 @@ void generate_JSON_report(
 		strcat( cbuf, "]");
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
 		if(*aid) {
-			snprintf_nowarn(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":5, \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer,aid);
+			snprintf_nowarn(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer,aid);
 		} else {
-			snprintf_nowarn(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":5, \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer);
+			snprintf_nowarn(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {	// Only support type-1 PRP tests, so hardcode that subfield:
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":1, \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer,aid);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":1, \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PM1) {	// For p-1 assume there was an AID in the assignment, even if an all-0s one:
 		snprintf(ttype,10,"PM1");
