@@ -223,7 +223,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	double *addr, *addi;
+	const double *addr, *addi;
 	struct complex t[RADIX], *tptr;
 	int *itmp,*itm2;	// Pointer into the bjmodn array
 	int err;

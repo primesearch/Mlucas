@@ -263,7 +263,7 @@ int radix256_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
 	struct complex t[RADIX], *tptr;
-	double *addr,*addi;
+	const double *addr,*addi;
 	int *itmp,*itm2;	// Pointer into the bjmodn array
 	int err;
 	static int first_entry=TRUE;

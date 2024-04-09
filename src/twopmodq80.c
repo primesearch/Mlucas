@@ -5386,7 +5386,7 @@ if(~pshift != p+78) {
 			static uint64 psave = 0, pshift;
 			static uint32 start_index, zshift, first_entry = TRUE;
 			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
-			uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
+			const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		#ifdef USE_AVX512_I
 		  #error AVX-512 IFMA instruction extensions not yet supported!
@@ -6133,7 +6133,7 @@ if(~pshift != p+78) {
 			static uint64 psave = 0, pshift;
 			static uint32 start_index, zshift, first_entry = TRUE;
 			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
-			uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
+			const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		#ifdef USE_AVX512_I
 		  #error AVX-512 IFMA instruction extensions not yet supported!

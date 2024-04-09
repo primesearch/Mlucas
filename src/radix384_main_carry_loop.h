@@ -229,8 +229,8 @@ if(tid == 1) {
 		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
 		if(target_idx == j) {
 		#ifdef USE_SSE2
-			addr = (double *)s1p000 + target_set;
-			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+			double *addr_ = (double *)s1p000 + target_set;
+			*addr_ += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
 		#else
 			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
 			l = target_set&1;	target_set >>= 1;
@@ -529,26 +529,28 @@ if(tid == 1) {
 	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
-		l = 0; addr = cy; itmp = bjmodn;
+		l = 0; itmp = bjmodn;
+		double *addr_ = cy;
 		for(l1 = 0; l1 < RADIX>>2; l1++) {
 			jt = j1 + poff[l1]; jp = j2 + poff[l1];	// poff[] = p04,08,...
 			// Re-init weights every 4th macro invocation to keep errors under control:
-			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p1],a[jp+p1],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p2],a[jp+p2],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p3],a[jp+p3],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
 		}
 
 	  } else {	// HiACC:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
-		l = 0; addr = cy; itmp = bjmodn;
+		l = 0; itmp = bjmodn;
+		double *addr_ = cy;
 		for(l1 = 0; l1 < RADIX>>2; l1++) {
 			jt = j1 + poff[l1]; jp = j2 + poff[l1];	// poff[] = p04,08,...
-			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p1],a[jp+p1],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p2],a[jp+p2],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p3],a[jp+p3],*addr_,*itmp,l,prp_mult); ++l; ++addr_; ++itmp;
 		}
 
 	  }	// LOACC or HIACC?

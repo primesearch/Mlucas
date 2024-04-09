@@ -3014,7 +3014,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 		int i,j,k, pow2;
 		double pow2_dmult,pow2_imult;
 		uint32 nerr = 0, itmp32;
-		const double crnd = 3.0*0x4000000*0x2000000, crnd50 = crnd*TWO50FLOAT;	// Consts used to emulate DNINT(x) and 2^50 * DNINT(x*2^-50)
+		const double crnd = 3.0*0x4000000*0x2000000; double crnd50 = crnd*TWO50FLOAT;	// Consts used to emulate DNINT(x) and 2^50 * DNINT(x*2^-50)
 										// (i.e. round-to-nearest-multiple-of-2^50 ... alas the AVX-512 VRNDSCALEPD instruction only supports
 										// round-to-nearest-multiple-of-negative-power-of-2, and said power is further restricted to pow < 16.
 		static vec_dbl *sc_arr = 0x0;
@@ -3022,7 +3022,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 		double *tmp, *dptr1,*dptr2,*dptr3,*dptr4, l2lo,l2hi, dblo,dbhi, sqr100lo[4],sqr100hi[4], dtmp,cy_max;
 		static double *ax,*bx,*cx,*dx, *ay,*by,*cy,*dy, *alo,*blo,*clo,*dlo, *ahi,*bhi,*chi,*dhi, *acy,*alo_norm,*ahi_norm;
 		uint64 itmp64, iax,ibx,icx,idx, iay,iby,icy,idy, ialo,iblo,iclo,idlo, iahi,ibhi,ichi,idhi;
-		const double prod1_adj = 3.0;	// Const to multiply by base and add to prod[1] to ensure latter >= 0
+		/* const */ double prod1_adj = 3.0;	// Const to multiply by base and add to prod[1] to ensure latter >= 0
 		if(!sc_arr) {
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 8);
 			if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }

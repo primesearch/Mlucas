@@ -56,7 +56,7 @@ void radix512_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	double *addr,*addi;
+	const double *addr,*addi;
 	#include "radix1024_twiddles.h"	// Can share radix-1024 table, just use first 31 of 63 rows here
 	struct complex t[RADIX], *tptr;
 
@@ -350,7 +350,7 @@ void radix512_dit_pass1(double a[], int n)
 	static int poffs[16],po_br[32];
 	// We prefer pointer-based array-element access, because that allows our radix16 DFT-with-twiddles
 	// to look the same in terms of array-element arglists:
-	double *addr,*addi;
+	const double *addr,*addi;
 	struct complex *tptr;
 	#include "radix1024_twiddles.h"
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
