@@ -43,7 +43,7 @@ Then to run, e.g.
 	uint32 PM1_S2_NBUF = 0;	// # of floating-double residue-length memblocks available for Stage 2
 	uint32 B1 = 0;
 	uint64 B2 = 0ull, B2_start = 0ull;
-	char cbuf[STR_MAX_LEN];
+	char cbuf[STR_MAX_LEN*2];
 	uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
 	double MME;
 #else
@@ -393,7 +393,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
   #ifndef PM1_STANDALONE
 		// Write result to savefile:
 		if(!write_pm1_s1_prod(savefile, p, PM1_S1_PROD_BITS, PM1_S1_PRODUCT, PM1_S1_PROD_RES64)) {
-			snprintf_nowarn(cbuf,STR_MAX_LEN,"WARN: Unable to write precomputed/bit-reversed Stage 1 prime-powers product to savefile %s.\n",savefile);
+			snprintf(cbuf,STR_MAX_LEN*2,"WARN: Unable to write precomputed/bit-reversed Stage 1 prime-powers product to savefile %s.\n",savefile);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
 	} 	// endif(read_pm1_s1_prod)
@@ -1446,14 +1446,14 @@ fprintf(stderr,"#1: vec1 = A^+1 checksums = %llu,%llu,%llu; FP(A)[0:1] = %10.2f,
 			if(strstr(cbuf, "read_ppm1_savefiles"))
 				mlucas_fprint(cbuf,pm1_standlone+1);
 			// And now for the official spokesmessage:
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "Read of stage 1 residue-inverse savefile %s failed for reasons unknown. Computing inverse...\n",inv_file);
+			snprintf(cbuf,STR_MAX_LEN*2, "Read of stage 1 residue-inverse savefile %s failed for reasons unknown. Computing inverse...\n",inv_file);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		} else {
 			s1_inverse = TRUE;
 		}
 	}
 	if(!s1_inverse) {
-		snprintf(cbuf,STR_MAX_LEN, "Stage 2: Computing mod-inverse of Stage 1 residue...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
+		snprintf(cbuf,STR_MAX_LEN*2, "Stage 2: Computing mod-inverse of Stage 1 residue...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
 		modinv(p,vec1,vec2,nlimb);	// Result in vec2
 		Res64 = vec2[0];
 		Res35m1 = mi64_div_by_scalar64(vec2,two35m1,nlimb,0x0);
@@ -1464,7 +1464,7 @@ fprintf(stderr,"#1: vec1 = A^+1 checksums = %llu,%llu,%llu; FP(A)[0:1] = %10.2f,
 			write_ppm1_savefiles(inv_file,p,n,fp, 0ull, (uint8*)vec2,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
 			fclose(fp);	fp = 0x0;
 		} else {
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: unable to open restart file %s for write of checkpoint data.\n",inv_file);
+			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",inv_file);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(HERE, 0,cbuf);
 		}
 	}
@@ -1708,7 +1708,7 @@ MME = 0;
 	clock2 = getRealTime();
   #endif
 	*tdiff = clock2 - clock1; clock1 = clock2;
-	snprintf_nowarn(cbuf,STR_MAX_LEN, "Buffer-init done; clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
+	snprintf(cbuf,STR_MAX_LEN*2, "Buffer-init done; clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 
 	/********************* RESTART FILE STUFF: **********************/
@@ -1739,9 +1739,9 @@ MME = 0;
 			}
 			// If nsquares > B2_start, arrtmp holds the S2 interim residue for q = nsquares; set up to restart S2 at that point.
 			if(qlo >= B2_start) {
-				snprintf_nowarn(cbuf,STR_MAX_LEN, "Read stage 2 savefile %s ... restarting stage 2 from q = %llu.\n",savefile,qlo);
+				snprintf(cbuf,STR_MAX_LEN*2, "Read stage 2 savefile %s ... restarting stage 2 from q = %llu.\n",savefile,qlo);
 			} else {	// If user running a new partial S2 interval with bounds larger than a previous S2 run, allow but info-print to that effect:
-				snprintf_nowarn(cbuf,STR_MAX_LEN, "INFO: %s savefile has qlo[%llu] <= B2_start[%llu] ... Stage 2 interval will skip intervening primes.\n",func,qlo,B2_start);
+				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile has qlo[%llu] <= B2_start[%llu] ... Stage 2 interval will skip intervening primes.\n",func,qlo,B2_start);
 			}
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			restart = TRUE;
@@ -1813,7 +1813,7 @@ MME = 0;
 	*/
 	// At this point pow = A[stage 1 residue]; need either A^(D^2) or (A^D + A^-D), where D = bigstep:
 #ifndef PM1_STANDALONE
-	snprintf_nowarn(cbuf,STR_MAX_LEN, "Computing Stage 2 loop-multipliers...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
+	snprintf(cbuf,STR_MAX_LEN*2, "Computing Stage 2 loop-multipliers...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
 	MME = 0.0;	// Reset maxROE
 	// Raise A to power D^2, using mult[0] as a scratch array; again crap-API forces us to specify an "input is pure-int?" flag:
 	input_is_int = TRUE;
@@ -1990,7 +1990,7 @@ MME = 0;
 
 	if(restart) {	// If restart, convert bytewise-residue S2 accumulator read from file to floating-point form:
 		if(!convert_res_bytewise_FP((uint8*)arrtmp, pow, n, p)) {
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",savefile);
+			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",savefile);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(HERE, 0,cbuf);
 		}
 		// Restart-file-read S2 interim residue in pow[] needs fwd-weight and FFT-pass1-done:
@@ -2003,7 +2003,7 @@ MME = 0;
 	   #if 0	// A: No, because pow = A^(k0*D) + A^-(k0*D) is perfectly fine as S2 init-accumulator
 		vec1[nlimb-1] = 0ull;
 		if(!convert_res_bytewise_FP((uint8*)vec1, pow, n, p)) {
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: convert_res_bytewise_FP Failed on S1 residue in vec1!\n");
+			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: convert_res_bytewise_FP Failed on S1 residue in vec1!\n");
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(HERE, 0,cbuf);
 		}
 		// Pure-int S1 residue in pow[] needs fwd-weight and FFT-pass1-done:
@@ -2029,7 +2029,7 @@ MME = 0;
 	clock2 = getRealTime();
   #endif
 	*tdiff = clock2 - clock1; clock1 = clock2;
-	snprintf_nowarn(cbuf,STR_MAX_LEN, "Stage 2 loop-multipliers: clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
+	snprintf(cbuf,STR_MAX_LEN*2, "Stage 2 loop-multipliers: clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	*tdiff = AME = MME = 0.0;	// Reset timer and maxROE, now also init AvgROE
 	AME_ITER_START = 0;	// For p-1 stage 2, start collecting AvgROE data immediately, no need t wait for residue to "fill in"
@@ -2446,7 +2446,7 @@ MME = 0;
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",local_time);
 			AME /= (nmodmul - nmodmul_save);
 			// Print [date in hh:mm:ss | p | stage progress | %-complete | time | per-iter time | Res64 | max ROE:
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "[%s] %s %s = %llu [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016llX. AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
+			snprintf(cbuf,STR_MAX_LEN*2, "[%s] %s %s = %llu [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016llX. AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
 				, timebuffer, PSTRING, "S2 at q", q+bigstep, (float)(q-B2_start)/(float)(B2-B2_start) * 100,get_time_str(*tdiff)
 				, 1000*get_time(*tdiff)/(nmodmul - nmodmul_save), Res64, AME, MME);
 			mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
@@ -2458,7 +2458,7 @@ MME = 0;
 				write_ppm1_savefiles(savefile,p,n,fp, ((uint64)psmall<<56) + q + bigstep, (uint8*)arrtmp,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
 				fclose(fp);	fp = 0x0;
 			} else {
-				snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: unable to open restart file %s for write of checkpoint data.\n",savefile);
+				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",savefile);
 				mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(HERE, 0,cbuf);
 			}
 			// If interim-GCDs enabled (default) and latest S2 interval crossed a 10M mark, take a GCD; if factor found, early-return;
@@ -2491,7 +2491,7 @@ S2_RETURN:
 #endif
 	// (k - k0) = #bigstep-blocks (passes thru above loop) used in stage 2; np + ns + 2*(k - k0) = #modmul:
 	nmodmul = np + ns + 2*(k - k0);	// This is actually redundant, but just to spell it out
-	snprintf(cbuf,STR_MAX_LEN,"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,100.0*2*np/(2*np+ns),k-k0,nmodmul);
+	snprintf(cbuf,STR_MAX_LEN*2,"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,100.0*2*np/(2*np+ns),k-k0,nmodmul);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 #ifndef PM1_STANDALONE
 
@@ -2522,9 +2522,9 @@ S2_RETURN:
 
 	// In case of normal (non-early) return, caller will handle the GCD:
 	if(strlen(gcd_str)) {
-		snprintf_nowarn(cbuf,STR_MAX_LEN, "Stage 2 early-return due to factor found; MaxErr = %10.9f.\n",MME);
+		snprintf(cbuf,STR_MAX_LEN*2, "Stage 2 early-return due to factor found; MaxErr = %10.9f.\n",MME);
 	} else {
-		snprintf_nowarn(cbuf,STR_MAX_LEN, "Stage 2 done; MaxErr = %10.9f. Taking GCD...\n",MME);
+		snprintf(cbuf,STR_MAX_LEN*2, "Stage 2 done; MaxErr = %10.9f. Taking GCD...\n",MME);
 	}
 	mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
 #endif

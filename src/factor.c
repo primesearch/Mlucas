@@ -196,7 +196,7 @@ int restart;
 	uint64 PMIN;	/* minimum #bits allowed for FFT-based mul */
 	uint64 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
 					  and will be determined at runtime, via call to given_N_get_maxP(). */
-	char cbuf[STR_MAX_LEN],cstr[STR_MAX_LEN];
+	char cbuf[STR_MAX_LEN*2],cstr[STR_MAX_LEN];
 	char in_line[STR_MAX_LEN];
 	/* Declare a blank STATFILE string to ease program logic: */
 	char STATFILE[] = "";
@@ -2686,7 +2686,7 @@ MFACTOR_HELP:
 	#ifdef P4WORD
 		uint256 p256,q256,t256;
 	#endif
-		char cbuf[STR_MAX_LEN], cbuf2[STR_MAX_LEN];
+		char cbuf[STR_MAX_LEN*2], cbuf2[STR_MAX_LEN*2];
 	#ifdef CTIME
 		clock_t clock1, clock2;
 	#else	// Multithreaded needs wall-clock, not CPU time:
@@ -2750,7 +2750,7 @@ MFACTOR_HELP:
 
 			/* bmin */
 			++curr_line;
-			fgets(cbuf, STR_MAX_LEN, fp);
+			fgets(cbuf, STR_MAX_LEN*2, fp);
 			itmp = sscanf(cbuf, "%lf", &bmin_file);
 			if(itmp != 1) {
 				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
@@ -2758,7 +2758,7 @@ MFACTOR_HELP:
 
 			/* bmax */
 			++curr_line;
-			fgets(cbuf, STR_MAX_LEN, fp);
+			fgets(cbuf, STR_MAX_LEN*2, fp);
 			itmp = sscanf(cbuf, "%lf", &bmax_file);
 			if(itmp != 1) {
 				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");

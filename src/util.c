@@ -9172,14 +9172,14 @@ exit(0);
 		nobjs1 = hwloc_get_nbobjs_by_type (topology, HWLOC_OBJ_CORE);
 		nobjs2 = hwloc_get_nbobjs_by_depth(topology, depth);
 		if(nobjs1 != nobjs2) {
-			snprintf(cbuf,STR_MAX_LEN,"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
+			snprintf(cbuf,STR_MAX_LEN*2,"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
 			ASSERT(HERE,0,cbuf);
 		}
 		// Loop over HWLOC_OBJ_CORE objects corr. to index range:
 		for (i = lidx_lo; i <= lidx_hi; i++) {
 			hwloc_obj_t obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_CORE, i);
 			if (!obj) {
-				snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
+				snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
 			}
 			ASSERT(HERE, obj->type == HWLOC_OBJ_CORE, "[hwloc] Error: Object not of expected type CORE.");
 			while(obj && (obj->type != HWLOC_OBJ_PACKAGE)) {
@@ -9241,7 +9241,7 @@ exit(0);
 				hwloc_obj_t obj_core, obj_pu;
 				obj_core = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CORE, i);
 				if (!obj_core) {
-					snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
+					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
 				}
 				// 2. for each HWLOC_OBJ_CORE object in the above set, verify that it has at least (n) children
 				/*
@@ -9252,7 +9252,7 @@ exit(0);
 					'-cpu 0:11', or even more simply '-nthread 12') to use all 12 threads.
 				*/
 				if (obj_core->arity < incr) {
-					snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(HERE,0,cbuf);
+					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(HERE,0,cbuf);
 				}
 				for (j = 0; j < incr; j++) {
 					obj_pu = obj_core->children[j];
@@ -9338,7 +9338,7 @@ double get_time(double tdiff)
 
 char*get_time_str(double tdiff)
 {
-	static char cbuf[STR_MAX_LEN];
+	static char cbuf[STR_MAX_LEN*2];
 #ifndef MULTITHREAD	// In || mode the mod_square routines use getRealTime() to accumulate wall-clock time, thus CLOCKS_PER_SEC not needed
 	tdiff /= CLOCKS_PER_SEC;	/* NB: CLOCKS_PER_SEC may be a phony value used to scale clock() ranges */
 #endif
