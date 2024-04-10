@@ -87,8 +87,8 @@ that is advantageous on at least an appreciable set of CPUs.
 
 #define ADD160(__x, __y, __sum)\
 {\
-	DBG_ASSERT(HERE, (__x.d2 >> 32) == 0,"ADD160: (__x.d2 >> 32) == 0");\
-	DBG_ASSERT(HERE, (__y.d2 >> 32) == 0,"ADD160: (__y.d2 >> 32) == 0");\
+	DBG_ASSERT((__x.d2 >> 32) == 0,"ADD160: (__x.d2 >> 32) == 0");\
+	DBG_ASSERT((__y.d2 >> 32) == 0,"ADD160: (__y.d2 >> 32) == 0");\
 	ADD192(__x, __y, __sum);\
 	__sum.d2 &= 0x00000000ffffffff;	/* In case of add need to take care to get proper mod-2^160 result */\
 }
@@ -192,8 +192,8 @@ that is advantageous on at least an appreciable set of CPUs.
 
 #define SUB160(__x, __y, __dif)\
 {\
-	DBG_ASSERT(HERE, (__x.d2 >> 32) == 0,"SUB160: (__x.d2 >> 32) == 0");\
-	DBG_ASSERT(HERE, (__y.d2 >> 32) == 0,"SUB160: (__y.d2 >> 32) == 0");\
+	DBG_ASSERT((__x.d2 >> 32) == 0,"SUB160: (__x.d2 >> 32) == 0");\
+	DBG_ASSERT((__y.d2 >> 32) == 0,"SUB160: (__y.d2 >> 32) == 0");\
 	SUB192(__x, __y, __dif);\
 	__dif.d2 &= 0x00000000ffffffff;	/* In case of add need to take care to get proper mod-2^160 result */\
 }
@@ -301,7 +301,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 /* Left-shifts: */
 #define LSHIFT128(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT128: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"LSHIFT128: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -326,7 +326,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define LSHIFT96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT96: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"LSHIFT96: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -357,7 +357,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 
 #define LSHIFT192(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT192: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"LSHIFT192: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -398,14 +398,14 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define LSHIFT160(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d2 >> 32) == 0,"LSHIFT160: ((uint64)__x.d2 >> 32) == 0");\
+	DBG_ASSERT(((uint64)__x.d2 >> 32) == 0,"LSHIFT160: ((uint64)__x.d2 >> 32) == 0");\
 	LSHIFT192(__x,__n, __y);\
 	__y.d2 &= 0x00000000ffffffff;\
 }
 
 #define LSHIFT256(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT256: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"LSHIFT256: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -469,7 +469,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 /* (Logical) Right-shifts: */
 #define RSHIFT128(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"RSHIFT128: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"RSHIFT128: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -494,7 +494,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define RSHIFT96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"RSHIFT96: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"RSHIFT96: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -530,7 +530,7 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 #define RSHIFT192(__x, __n, __y)\
 {\
 	int __lsh,__rsh;\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"RSHIFT192: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"RSHIFT192: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -576,14 +576,14 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define RSHIFT160(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d2 >> 32) == 0,"RSHIFT160: ((uint64)__x.d2 >> 32) == 0");\
+	DBG_ASSERT(((uint64)__x.d2 >> 32) == 0,"RSHIFT160: ((uint64)__x.d2 >> 32) == 0");\
 	RSHIFT192(__x,__n, __y);\
-	DBG_ASSERT(HERE, (uint64)__y.d2 <= (uint64)__x.d2,"RSHIFT160: (uint64)__y.d2 <= (uint64)__x.d2");\
+	DBG_ASSERT((uint64)__y.d2 <= (uint64)__x.d2,"RSHIFT160: (uint64)__y.d2 <= (uint64)__x.d2");\
 }
 
 #define RSHIFT256(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"RSHIFT256: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"RSHIFT256: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -647,38 +647,38 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 /* Left-shifts: */
 #define LSHIFT_FAST128(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (uint64)__n != 0,"LSHIFT_FAST128: (uint64)__n != 0");\
-	DBG_ASSERT(HERE, (uint64)__n < 64,"LSHIFT_FAST128: (uint64)__n < 64");\
+	DBG_ASSERT((uint64)__n != 0,"LSHIFT_FAST128: (uint64)__n != 0");\
+	DBG_ASSERT((uint64)__n < 64,"LSHIFT_FAST128: (uint64)__n < 64");\
 	__y.d1 = ((uint64)__x.d1 << __n) + ((uint64)__x.d0 >> (64-__n));\
 	__y.d0 = ((uint64)__x.d0 << __n);\
 }
 #define LSHIFT_FAST96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >  0,"LSHIFT96: (int64)__n >  0");\
-	DBG_ASSERT(HERE, (int64)__n < 32,"LSHIFT96: (int64)__n < 32");\
+	DBG_ASSERT((int64)__n >  0,"LSHIFT96: (int64)__n >  0");\
+	DBG_ASSERT((int64)__n < 32,"LSHIFT96: (int64)__n < 32");\
 	__y.d1 = ((uint32)__x.d1 << __n) + (uint32)((uint64)__x.d0 >> (64-__n));\
 	__y.d0 = ((uint64)__x.d0 << __n);\
 }
 
 #define LSHIFT_FAST192(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (uint64)__n != 0,"LSHIFT_FAST192: (uint64)__n != 0");\
-	DBG_ASSERT(HERE, (uint64)__n < 64,"LSHIFT_FAST192: (uint64)__n < 64");\
+	DBG_ASSERT((uint64)__n != 0,"LSHIFT_FAST192: (uint64)__n != 0");\
+	DBG_ASSERT((uint64)__n < 64,"LSHIFT_FAST192: (uint64)__n < 64");\
 	__y.d2 = ((uint64)__x.d2 << __n) + ((uint64)__x.d1 >> (64-__n));\
 	__y.d1 = ((uint64)__x.d1 << __n) + ((uint64)__x.d0 >> (64-__n));\
 	__y.d0 = ((uint64)__x.d0 << __n);\
 }
 #define LSHIFT_FAST160(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d2 >> 32) == 0,"LSHIFT_FAST160: ((uint64)__x.d2 >> 32) == 0");\
+	DBG_ASSERT(((uint64)__x.d2 >> 32) == 0,"LSHIFT_FAST160: ((uint64)__x.d2 >> 32) == 0");\
 	LSHIFT_FAST192(__x,__n, __y);\
 	__y.d2 &= 0x00000000ffffffff;\
 }
 
 #define LSHIFT_FAST256(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (uint64)__n != 0,"LSHIFT_FAST256: (uint64)__n != 0");\
-	DBG_ASSERT(HERE, (uint64)__n < 64,"LSHIFT_FAST256: (uint64)__n < 64");\
+	DBG_ASSERT((uint64)__n != 0,"LSHIFT_FAST256: (uint64)__n != 0");\
+	DBG_ASSERT((uint64)__n < 64,"LSHIFT_FAST256: (uint64)__n < 64");\
 	__y.d3 = ((uint64)__x.d3 << __n) + ((uint64)__x.d2 >> (64-__n));\
 	__y.d2 = ((uint64)__x.d2 << __n) + ((uint64)__x.d1 >> (64-__n));\
 	__y.d1 = ((uint64)__x.d1 << __n) + ((uint64)__x.d0 >> (64-__n));\
@@ -688,38 +688,38 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 /* (Logical) Right-shifts: */
 #define RSHIFT_FAST128(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (uint64)__n != 0,"RSHIFT_FAST128: (uint64)__n != 0");\
-	DBG_ASSERT(HERE, (uint64)__n < 64,"RSHIFT_FAST128: (uint64)__n < 64");\
+	DBG_ASSERT((uint64)__n != 0,"RSHIFT_FAST128: (uint64)__n != 0");\
+	DBG_ASSERT((uint64)__n < 64,"RSHIFT_FAST128: (uint64)__n < 64");\
 	__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
 	__y.d1 = ((uint64)__x.d1 >> __n);\
 }
 #define RSHIFT_FAST96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >  0,"RSHIFT96: (int64)__n >  0");\
-	DBG_ASSERT(HERE, (int64)__n < 32,"RSHIFT96: (int64)__n < 32");\
+	DBG_ASSERT((int64)__n >  0,"RSHIFT96: (int64)__n >  0");\
+	DBG_ASSERT((int64)__n < 32,"RSHIFT96: (int64)__n < 32");\
 	__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
 	__y.d1 = ((uint32)__x.d1 >> __n);\
 }
 
 #define RSHIFT_FAST192(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (uint64)__n != 0,"RSHIFT_FAST192: (uint64)__n != 0");\
-	DBG_ASSERT(HERE, (uint64)__n < 64,"RSHIFT_FAST192: (uint64)__n < 64");\
+	DBG_ASSERT((uint64)__n != 0,"RSHIFT_FAST192: (uint64)__n != 0");\
+	DBG_ASSERT((uint64)__n < 64,"RSHIFT_FAST192: (uint64)__n < 64");\
 	__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
 	__y.d1 = ((uint64)__x.d1 >> __n) + ((uint64)__x.d2 << (64-__n));\
 	__y.d2 = ((uint64)__x.d2 >> __n);\
 }
 #define RSHIFT_FAST160(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d2 >> 32) == 0,"RSHIFT_FAST160: ((uint64)__x.d2 >> 32) == 0");\
+	DBG_ASSERT(((uint64)__x.d2 >> 32) == 0,"RSHIFT_FAST160: ((uint64)__x.d2 >> 32) == 0");\
 	RSHIFT_FAST192(__x,__n, __y);\
 	__y.d2 &= 0x00000000ffffffff;\
 }
 
 #define RSHIFT_FAST256(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (uint64)__n != 0,"RSHIFT_FAST256: (uint64)__n != 0");\
-	DBG_ASSERT(HERE, (uint64)__n < 64,"RSHIFT_FAST256: (uint64)__n < 64");\
+	DBG_ASSERT((uint64)__n != 0,"RSHIFT_FAST256: (uint64)__n != 0");\
+	DBG_ASSERT((uint64)__n < 64,"RSHIFT_FAST256: (uint64)__n < 64");\
 	__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
 	__y.d1 = ((uint64)__x.d1 >> __n) + ((uint64)__x.d2 << (64-__n));\
 	__y.d2 = ((uint64)__x.d2 >> __n) + ((uint64)__x.d3 << (64-__n));\
@@ -751,7 +751,7 @@ Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) becaus
 
 #define LSHIFT96_PTR(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT96_PTR: (int64)__n >= 0");\
+	DBG_ASSERT((int64)__n >= 0,"LSHIFT96_PTR: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -896,7 +896,7 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
     {\
 		uint64 __l,__m,__h,__a,__b,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SQR_LOHI96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"SQR_LOHI96: (__x.d1 >> 32) == 0");\
 		__t   = (uint64)(__x.d1);\
 		__h   = __t*__t;\
 		SQR_LOHI64(__x.d0,    &__l,&__m);\
@@ -914,7 +914,7 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
     {\
 		uint64 __l,__m,__h,__a,__b,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 31) == 0,"SQR_LOHI95: (__x.d1 >> 31) == 0");\
+		DBG_ASSERT((__x.d1 >> 31) == 0,"SQR_LOHI95: (__x.d1 >> 31) == 0");\
 		__t   = (uint64)(__x.d1);\
 		__h   = __t*__t;\
 		SQR_LOHI64(__x.d0,         &__l,&__m);\
@@ -998,7 +998,7 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
     {\
 		uint64 __l,__m,__h,__a,__b;\
 		uint32 __tt = __x.d1, __hl32,__hh32;\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SQR_LOHI96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"SQR_LOHI96: (__x.d1 >> 32) == 0");\
 		MUL64x32(__x.d0,__tt, __a, __b);\
 		SQR_LOHI64(__x.d0,     __l, __m);\
 		MUL_LOHI32(__tt,__tt,__hl32,__hh32);\
@@ -1025,10 +1025,10 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		uint64	__a0,__a1,__a2,__a3,\
 				__b0,__b1,__b2,__b3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x3.d1 >> 32) == 0");\
 		\
 		SQR_LOHI    (__x0.d0,                             __a0 ,     __b0 );\
 		SQR_LOHI    (__x1.d0,                             __a1 ,     __b1 );\
@@ -1091,10 +1091,10 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 				__b0,__b1,__b2,__b3,\
 				__s0,__s1,__s2,__s3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x3.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -1229,10 +1229,10 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 				__b0,__b1,__b2,__b3,\
 				__s0,__s1,__s2,__s3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x0.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x1.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x2.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x3.d1 >> 31) == 0");\
+		DBG_ASSERT((__x0.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x0.d1 >> 31) == 0");\
+		DBG_ASSERT((__x1.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x1.d1 >> 31) == 0");\
+		DBG_ASSERT((__x2.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x2.d1 >> 31) == 0");\
+		DBG_ASSERT((__x3.d1 >> 31) == 0,"SQR_LOHI95_q4: (__x3.d1 >> 31) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -1296,14 +1296,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		uint64	__a0,__a1,__a2,__a3,__a4,__a5,__a6,__a7,\
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI    (__x0.d0,                             __a0 ,     __b0 );\
 		SQR_LOHI    (__x1.d0,                             __a1 ,     __b1 );\
@@ -1406,14 +1406,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -1529,14 +1529,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"SQR_LOHI96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,              __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,              __a1 ,     __b1 );\
@@ -1646,14 +1646,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x0.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x1.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x2.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x3.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x4.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x5.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x6.d1 >> 31) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x7.d1 >> 31) == 0");\
+		DBG_ASSERT((__x0.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x0.d1 >> 31) == 0");\
+		DBG_ASSERT((__x1.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x1.d1 >> 31) == 0");\
+		DBG_ASSERT((__x2.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x2.d1 >> 31) == 0");\
+		DBG_ASSERT((__x3.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x3.d1 >> 31) == 0");\
+		DBG_ASSERT((__x4.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x4.d1 >> 31) == 0");\
+		DBG_ASSERT((__x5.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x5.d1 >> 31) == 0");\
+		DBG_ASSERT((__x6.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x6.d1 >> 31) == 0");\
+		DBG_ASSERT((__x7.d1 >> 31) == 0,"SQR_LOHI95_q8: (__x7.d1 >> 31) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -1743,8 +1743,8 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
     {\
 		uint64 __l,__m,__h,__a,__b,__c,__d,__s,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
 		__s   = (uint64)(__x.d1);\
 		__t   = (uint64)(__y.d1);\
 		__h   = __s*__t;\
@@ -1766,8 +1766,8 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
     {\
 		uint64 __l,__m,__h,__a,__b,__c,__d,__s,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
 		__s   = (uint64)(__x.d1);\
 		__t   = (uint64)(__y.d1);\
 		__h   = __s*__t;\
@@ -1795,8 +1795,8 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
     {\
 		uint64 __l,__m,__h,__a,__b,__c,__d,__s,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
 		__s   = (uint64)(__x.d1);\
 		__t   = (uint64)(__y.d1);\
 		__h   = __s*__t;\
@@ -1817,8 +1817,8 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
     {\
 		uint64 __l,__m,__h,__a,__b,__c,__d,__s,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MUL_LOHI96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MUL_LOHI96: (__y.d1 >> 32) == 0");\
 		__s   = (uint64)(__x.d1);\
 		__t   = (uint64)(__y.d1);\
 		__h   = __s*__t;\
@@ -1847,8 +1847,8 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
     {\
 		uint64 __l,__m;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MULL96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULL96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MULL96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULL96: (__y.d1 >> 32) == 0");\
 		MUL_LOHI64(__x.d0,__y.d0,&__l,&__m);\
 		__m += __MULL32(__x.d1,__y.d0) + __MULL32(__y.d1,__x.d0);	/* Only need the bottom 32 bits of each product here */\
 		__lo.d0 =  __l;	__lo.d1 = __m & 0x00000000ffffffff;\
@@ -1894,8 +1894,8 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
     {\
 		uint64 __l,__m;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MULL96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULL96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MULL96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULL96: (__y.d1 >> 32) == 0");\
 		MUL_LOHI64(__x.d0,__y.d0, __l, __m);\
 		__m += __MULL32(__x.d1,__y.d0) + __MULL32(__y.d1,__x.d0);	/* Only need the bottom 32 bits of each product here */\
 		__lo.d0 =  __l;	__lo.d1 = __m & 0x00000000ffffffff;\
@@ -1913,15 +1913,15 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
 		uint64	__a0,__a1,__a2,__a3,\
 				__b0,__b1,__b2,__b3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"MULL96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"MULL96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"MULL96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"MULL96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"MULL96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"MULL96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"MULL96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"MULL96_q4: (__x3.d1 >> 32) == 0");\
 		\
-		DBG_ASSERT(HERE, (__y0.d1 >> 32) == 0,"MULL96_q4: (__y0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y1.d1 >> 32) == 0,"MULL96_q4: (__y1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULL96_q4: (__y2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULL96_q4: (__y3.d1 >> 32) == 0");\
+		DBG_ASSERT((__y0.d1 >> 32) == 0,"MULL96_q4: (__y0.d1 >> 32) == 0");\
+		DBG_ASSERT((__y1.d1 >> 32) == 0,"MULL96_q4: (__y1.d1 >> 32) == 0");\
+		DBG_ASSERT((__y2.d1 >> 32) == 0,"MULL96_q4: (__y2.d1 >> 32) == 0");\
+		DBG_ASSERT((__y3.d1 >> 32) == 0,"MULL96_q4: (__y3.d1 >> 32) == 0");\
 		\
 		MUL_LOHI64(__x0.d0,__y0.d0, __a0, __b0);\
 		MUL_LOHI64(__x1.d0,__y1.d0, __a1, __b1);\
@@ -1955,23 +1955,23 @@ On Alpha, this needs a total of 7 MUL, 12 ALU op.
 		uint64	__a0,__a1,__a2,__a3,__a4,__a5,__a6,__a7,\
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"MULL96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"MULL96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"MULL96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"MULL96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"MULL96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"MULL96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"MULL96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"MULL96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"MULL96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"MULL96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"MULL96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"MULL96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"MULL96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"MULL96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"MULL96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"MULL96_q8: (__x7.d1 >> 32) == 0");\
 		\
-		DBG_ASSERT(HERE, (__y0.d1 >> 32) == 0,"MULL96_q8: (__y0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y1.d1 >> 32) == 0,"MULL96_q8: (__y1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULL96_q8: (__y2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULL96_q8: (__y3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y4.d1 >> 32) == 0,"MULL96_q8: (__y4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y5.d1 >> 32) == 0,"MULL96_q8: (__y5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y6.d1 >> 32) == 0,"MULL96_q8: (__y6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y7.d1 >> 32) == 0,"MULL96_q8: (__y7.d1 >> 32) == 0");\
+		DBG_ASSERT((__y0.d1 >> 32) == 0,"MULL96_q8: (__y0.d1 >> 32) == 0");\
+		DBG_ASSERT((__y1.d1 >> 32) == 0,"MULL96_q8: (__y1.d1 >> 32) == 0");\
+		DBG_ASSERT((__y2.d1 >> 32) == 0,"MULL96_q8: (__y2.d1 >> 32) == 0");\
+		DBG_ASSERT((__y3.d1 >> 32) == 0,"MULL96_q8: (__y3.d1 >> 32) == 0");\
+		DBG_ASSERT((__y4.d1 >> 32) == 0,"MULL96_q8: (__y4.d1 >> 32) == 0");\
+		DBG_ASSERT((__y5.d1 >> 32) == 0,"MULL96_q8: (__y5.d1 >> 32) == 0");\
+		DBG_ASSERT((__y6.d1 >> 32) == 0,"MULL96_q8: (__y6.d1 >> 32) == 0");\
+		DBG_ASSERT((__y7.d1 >> 32) == 0,"MULL96_q8: (__y7.d1 >> 32) == 0");\
 		\
 		MUL_LOHI64(__x0.d0,__y0.d0, __a0, __b0);\
 		MUL_LOHI64(__x1.d0,__y1.d0, __a1, __b1);\
@@ -2018,8 +2018,8 @@ neglect of the lower bits, but that seems well below the likely level of hardwar
     {\
 		uint64 __m,__h,__a,__b,__c,__d,__s,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MULH96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULH96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MULH96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULH96: (__y.d1 >> 32) == 0");\
 		__s   = (uint64)(__x.d1);\
 		__t   = (uint64)(__y.d1);\
 		__h   = __s*__t;\
@@ -2095,8 +2095,8 @@ to get the 16x64==>80-bit intermediate products.
     {\
 		uint64 __a,__b,__xlo,__ylo,__xhi,__yhi,__lo;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 16) == 0,"MULH96_80 : (__x.d1 >> 16) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 16) == 0,"MULH96_80 : (__y.d1 >> 16) == 0");\
+		DBG_ASSERT((__x.d1 >> 16) == 0,"MULH96_80 : (__x.d1 >> 16) == 0");\
+		DBG_ASSERT((__y.d1 >> 16) == 0,"MULH96_80 : (__y.d1 >> 16) == 0");\
 		__xhi =(__x.d1 << 48) + (__x.d0 >> 16);\
 		__yhi =(__y.d1 << 48) + (__y.d0 >> 16);\
 		__xlo = __x.d0 << 48;	/* xlo << 48 */\
@@ -2116,8 +2116,8 @@ to get the 16x64==>80-bit intermediate products.
     {\
 		uint64 __m,__h,__aa,__bb,__cc,__dd,__s,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MULH96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULH96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MULH96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULH96: (__y.d1 >> 32) == 0");\
 		__s   = (uint64)(__x.d1);\
 		__t   = (uint64)(__y.d1);\
 		__h   = __s*__t;\
@@ -2150,15 +2150,15 @@ to get the 16x64==>80-bit intermediate products.
 		uint64 __a2,__b2,__c2,__d2,__m2,__h2;\
 		uint64 __a3,__b3,__c3,__d3,__m3,__h3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"MULH96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"MULH96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"MULH96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"MULH96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"MULH96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"MULH96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"MULH96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"MULH96_q4: (__x3.d1 >> 32) == 0");\
 		\
-		DBG_ASSERT(HERE, (__y0.d1 >> 32) == 0,"MULH96_q4: (__y0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y1.d1 >> 32) == 0,"MULH96_q4: (__y1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULH96_q4: (__y2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULH96_q4: (__y3.d1 >> 32) == 0");\
+		DBG_ASSERT((__y0.d1 >> 32) == 0,"MULH96_q4: (__y0.d1 >> 32) == 0");\
+		DBG_ASSERT((__y1.d1 >> 32) == 0,"MULH96_q4: (__y1.d1 >> 32) == 0");\
+		DBG_ASSERT((__y2.d1 >> 32) == 0,"MULH96_q4: (__y2.d1 >> 32) == 0");\
+		DBG_ASSERT((__y3.d1 >> 32) == 0,"MULH96_q4: (__y3.d1 >> 32) == 0");\
 		\
 		MUL_LOHI32(__x0.d1, __y0.d1, __l32_0, __h32_0);\
 		MUL_LOHI32(__x1.d1, __y1.d1, __l32_1, __h32_1);\
@@ -2234,23 +2234,23 @@ to get the 16x64==>80-bit intermediate products.
 		uint64 __a6,__b6,__c6,__d6,__m6,__h6;\
 		uint64 __a7,__b7,__c7,__d7,__m7,__h7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"MULH96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"MULH96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"MULH96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"MULH96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"MULH96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"MULH96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"MULH96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"MULH96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"MULH96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"MULH96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"MULH96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"MULH96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"MULH96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"MULH96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"MULH96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"MULH96_q8: (__x7.d1 >> 32) == 0");\
 		\
-		DBG_ASSERT(HERE, (__y0.d1 >> 32) == 0,"MULH96_q8: (__y0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y1.d1 >> 32) == 0,"MULH96_q8: (__y1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULH96_q8: (__y2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULH96_q8: (__y3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y4.d1 >> 32) == 0,"MULH96_q8: (__y4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y5.d1 >> 32) == 0,"MULH96_q8: (__y5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y6.d1 >> 32) == 0,"MULH96_q8: (__y6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y7.d1 >> 32) == 0,"MULH96_q8: (__y7.d1 >> 32) == 0");\
+		DBG_ASSERT((__y0.d1 >> 32) == 0,"MULH96_q8: (__y0.d1 >> 32) == 0");\
+		DBG_ASSERT((__y1.d1 >> 32) == 0,"MULH96_q8: (__y1.d1 >> 32) == 0");\
+		DBG_ASSERT((__y2.d1 >> 32) == 0,"MULH96_q8: (__y2.d1 >> 32) == 0");\
+		DBG_ASSERT((__y3.d1 >> 32) == 0,"MULH96_q8: (__y3.d1 >> 32) == 0");\
+		DBG_ASSERT((__y4.d1 >> 32) == 0,"MULH96_q8: (__y4.d1 >> 32) == 0");\
+		DBG_ASSERT((__y5.d1 >> 32) == 0,"MULH96_q8: (__y5.d1 >> 32) == 0");\
+		DBG_ASSERT((__y6.d1 >> 32) == 0,"MULH96_q8: (__y6.d1 >> 32) == 0");\
+		DBG_ASSERT((__y7.d1 >> 32) == 0,"MULH96_q8: (__y7.d1 >> 32) == 0");\
 		\
 		__h0 = (uint64)__x0.d1*(uint64)__y0.d1;\
 		__h1 = (uint64)__x1.d1*(uint64)__y1.d1;\
@@ -2973,7 +2973,7 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
     {\
 		uint64 __w0,__w1,__w2,__a,__b;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SQR_LOHI128_96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"SQR_LOHI128_96: (__x.d1 >> 32) == 0");\
 		SQR_LOHI64(__x.d0,            &__w0,&__w1);\
 		/* Need to add 2*a*b, so simply double b (which has at most 32 bits) prior to the MUL_LOHI: */\
 		MUL_LOHI64(__x.d0,__x.d1 << 1,&__a ,&__b );\
@@ -3061,7 +3061,7 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
     {\
 		uint64 __w0,__w1,__w2,__a,__b;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SQR_LOHI128_96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"SQR_LOHI128_96: (__x.d1 >> 32) == 0");\
 		SQR_LOHI64(__x.d0, __w0, __w1);\
 		/* Need to add 2*a*b, so simply double b (which has at most 32 bits) prior to the MUL_LOHI: */\
 		MUL_LOHI64_ADD(__x.d0, __x.d1 << 1, __w1, __a , __b );\
@@ -3073,7 +3073,7 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
     {\
 		uint64 __w0,__w1,__w2,__a,__b;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SQR_LOHI128_96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"SQR_LOHI128_96: (__x.d1 >> 32) == 0");\
 		SQR_LOHI64(__x.d0,           __w0, __w1);\
 		/* Need to add 2*a*b, so simply double b (which has at most 32 bits) prior to the MUL_LOHI: */\
 		MUL_LOHI64(__x.d0, __x.d1 << 1, __a , __b );\
@@ -3099,10 +3099,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		uint64	__a0,__a1,__a2,__a3,\
 				__b0,__b1,__b2,__b3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x3.d1 >> 32) == 0");\
 		\
 		SQR_LOHI    (__x0.d0,                             __a0 ,     __b0 );\
 		SQR_LOHI    (__x1.d0,                             __a1 ,     __b1 );\
@@ -3155,10 +3155,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 				__b0,__b1,__b2,__b3,\
 				__s0,__s1,__s2,__s3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x3.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -3215,10 +3215,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 				__b0,__b1,__b2,__b3,\
 				__s0,__s1,__s2,__s3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q4: (__x3.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,              __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,              __a1 ,     __b1 );\
@@ -3269,10 +3269,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 				__b0,__b1,__b2,__b3,\
 				__s0,__s1,__s2,__s3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 31) == 0,"SQR_LOHI128_95_q4: (__x3.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -3321,14 +3321,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		uint64	__a0,__a1,__a2,__a3,__a4,__a5,__a6,__a7,\
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI    (__x0.d0,                             __a0 ,     __b0 );\
 		SQR_LOHI    (__x1.d0,                             __a1 ,     __b1 );\
@@ -3413,14 +3413,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -3509,14 +3509,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 32) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,              __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,              __a1 ,     __b1 );\
@@ -3599,14 +3599,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
+		DBG_ASSERT((__x0.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x0.d1 >> 32) == 0");\
+		DBG_ASSERT((__x1.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x1.d1 >> 32) == 0");\
+		DBG_ASSERT((__x2.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x2.d1 >> 32) == 0");\
+		DBG_ASSERT((__x3.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x3.d1 >> 32) == 0");\
+		DBG_ASSERT((__x4.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x4.d1 >> 32) == 0");\
+		DBG_ASSERT((__x5.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x5.d1 >> 32) == 0");\
+		DBG_ASSERT((__x6.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x6.d1 >> 32) == 0");\
+		DBG_ASSERT((__x7.d1 >> 31) == 0,"SQR_LOHI128_96_q8: (__x7.d1 >> 32) == 0");\
 		\
 		SQR_LOHI64(__x0.d0,                    __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                    __a1 ,     __b1 );\
@@ -3671,7 +3671,7 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
     {\
 		uint64 __w1,__w2,__w3,__a,__b,__c,__d,__cy;\
 		\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULH128x96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULH128x96: (__y.d1 >> 32) == 0");\
 		\
 		MULH64(    __x.d0,__y.d0,       __w1);\
 		MUL64x32(  __x.d0,__y.d1,&__a ,&__b );\
@@ -3680,7 +3680,7 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 		__a  += __c;\
 		__b  += __d + (__a < __c);\
-		DBG_ASSERT(HERE, (__b >= __d),"MULH128x96: unexpected carryout of __b");\
+		DBG_ASSERT((__b >= __d),"MULH128x96: unexpected carryout of __b");\
 		/* Now add [w1,w2,w3] + [a,b,0]: */\
 		__w1 += __a;\
 		__cy  = (__w1 < __a);\
@@ -3731,7 +3731,7 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
     {\
 		uint64 __w1,__w2,__w3,__a,__b,__c,__d,__cy;\
 		\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULH128x96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULH128x96: (__y.d1 >> 32) == 0");\
 		\
 		MULH64(    __x.d0,__y.d0,       __w1);\
 		MUL64x32(  __x.d0,__y.d1, __a , __b );\
@@ -3740,7 +3740,7 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 		__a  += __c;\
 		__b  += __d + (__a < __c);\
-		DBG_ASSERT(HERE, (__b >= __d),"MULH128x96: unexpected carryout of __b");\
+		DBG_ASSERT((__b >= __d),"MULH128x96: unexpected carryout of __b");\
 		/* Now add [w1,w2,w3] + [a,b,0]: */\
 		__w1 += __a;\
 		__cy  = (__w1 < __a);\
@@ -3763,10 +3763,10 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		uint64 __t2,__a2,__b2,__c2,__d2,__cy2;\
 		uint64 __t3,__a3,__b3,__c3,__d3,__cy3;\
 		\
-		DBG_ASSERT(HERE, (__y0.d1 >> 32) == 0,"MULH128x96_q4: (__y0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y1.d1 >> 32) == 0,"MULH128x96_q4: (__y1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULH128x96_q4: (__y2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULH128x96_q4: (__y3.d1 >> 32) == 0");\
+		DBG_ASSERT((__y0.d1 >> 32) == 0,"MULH128x96_q4: (__y0.d1 >> 32) == 0");\
+		DBG_ASSERT((__y1.d1 >> 32) == 0,"MULH128x96_q4: (__y1.d1 >> 32) == 0");\
+		DBG_ASSERT((__y2.d1 >> 32) == 0,"MULH128x96_q4: (__y2.d1 >> 32) == 0");\
+		DBG_ASSERT((__y3.d1 >> 32) == 0,"MULH128x96_q4: (__y3.d1 >> 32) == 0");\
 		\
 		MULH64(    __x0.d0,__y0.d0, __t0);\
 		MULH64(    __x1.d0,__y1.d0, __t1);\
@@ -3851,14 +3851,14 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		uint64 __t6,__a6,__b6,__c6,__d6,__cy6;\
 		uint64 __t7,__a7,__b7,__c7,__d7,__cy7;\
 		\
-		DBG_ASSERT(HERE, (__y0.d1 >> 32) == 0,"MULH128x96_q8: (__y0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y1.d1 >> 32) == 0,"MULH128x96_q8: (__y1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULH128x96_q8: (__y2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULH128x96_q8: (__y3.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y4.d1 >> 32) == 0,"MULH128x96_q8: (__y4.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y5.d1 >> 32) == 0,"MULH128x96_q8: (__y5.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y6.d1 >> 32) == 0,"MULH128x96_q8: (__y6.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y7.d1 >> 32) == 0,"MULH128x96_q8: (__y7.d1 >> 32) == 0");\
+		DBG_ASSERT((__y0.d1 >> 32) == 0,"MULH128x96_q8: (__y0.d1 >> 32) == 0");\
+		DBG_ASSERT((__y1.d1 >> 32) == 0,"MULH128x96_q8: (__y1.d1 >> 32) == 0");\
+		DBG_ASSERT((__y2.d1 >> 32) == 0,"MULH128x96_q8: (__y2.d1 >> 32) == 0");\
+		DBG_ASSERT((__y3.d1 >> 32) == 0,"MULH128x96_q8: (__y3.d1 >> 32) == 0");\
+		DBG_ASSERT((__y4.d1 >> 32) == 0,"MULH128x96_q8: (__y4.d1 >> 32) == 0");\
+		DBG_ASSERT((__y5.d1 >> 32) == 0,"MULH128x96_q8: (__y5.d1 >> 32) == 0");\
+		DBG_ASSERT((__y6.d1 >> 32) == 0,"MULH128x96_q8: (__y6.d1 >> 32) == 0");\
+		DBG_ASSERT((__y7.d1 >> 32) == 0,"MULH128x96_q8: (__y7.d1 >> 32) == 0");\
 		\
 		MULH64(    __x0.d0,__y0.d0, __t0);\
 		MULH64(    __x1.d0,__y1.d0, __t1);\
@@ -4359,7 +4359,7 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 	/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 	__a  += __c;\
 	__b  += __d + (__a < __c);\
-	DBG_ASSERT(HERE, (__b >= __d),"MULH128: unexpected carryout of __b");\
+	DBG_ASSERT((__b >= __d),"MULH128: unexpected carryout of __b");\
 	/* Now add [w1,w2,w3] + [a,b,0]: */\
 	__w1 += __a;\
 	__cy  = (__w1 < __a);\
@@ -5327,8 +5327,8 @@ Similarly, (b.y+x.d)>>32 must be added to the MULH128 result.
     {\
 		uint64 __a,__b,__c,__d,__lo64;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MULH128_96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULH128_96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MULH128_96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULH128_96: (__y.d1 >> 32) == 0");\
 		\
 		__a  = (__x.d0) & (uint64)0x00000000ffffffff;\
 		__b  = (__y.d0) & (uint64)0x00000000ffffffff;\
@@ -5349,8 +5349,8 @@ Similarly, (b.y+x.d)>>32 must be added to the MULH128 result.
     {\
 		uint64 __a,__b,__c,__d,__lo64;\
 		\
-		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"MULH128_96: (__x.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"MULH128_96: (__y.d1 >> 32) == 0");\
+		DBG_ASSERT((__x.d1 >> 32) == 0,"MULH128_96: (__x.d1 >> 32) == 0");\
+		DBG_ASSERT((__y.d1 >> 32) == 0,"MULH128_96: (__y.d1 >> 32) == 0");\
 		\
 		__a  = (__x.d0) & (uint64)0x00000000ffffffff;\
 		__b  = (__y.d0) & (uint64)0x00000000ffffffff;\
@@ -5395,7 +5395,7 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
     {\
 		uint64 __w0,__w1,__w2,__w3,__w4,__a,__b,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d2 >> 32) == 0,"SQR_LOHI160: (__x.d2 >> 32) == 0");\
+		DBG_ASSERT((__x.d2 >> 32) == 0,"SQR_LOHI160: (__x.d2 >> 32) == 0");\
 		/* First calculate high partial products and put into w3 and w4: */\
 		__t  = __x.d2;\
 		__w4 = __t * __t;						/*   x2^2 */\
@@ -5462,7 +5462,7 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
     {\
 		uint64 __w0,__w1,__w2,__w3,__w4,__a,__b,__t;\
 		\
-		DBG_ASSERT(HERE, (__x.d2 >> 32) == 0,"SQR_LOHI160: (__x.d2 >> 32) == 0");\
+		DBG_ASSERT((__x.d2 >> 32) == 0,"SQR_LOHI160: (__x.d2 >> 32) == 0");\
 		/* First calculate high partial products and put into w3 and w4: */\
 		__t  = __x.d2;\
 		__w4 = __t * __t;						/*   x2^2 */\
@@ -5504,10 +5504,10 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
 			__wd0,__wd1,__wd2,__wd3,\
 			__we0,__we1,__we2,__we3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x0.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x1.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x2.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x3.d2 >> 32) == 0");\
+		DBG_ASSERT((__x0.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x0.d2 >> 32) == 0");\
+		DBG_ASSERT((__x1.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x1.d2 >> 32) == 0");\
+		DBG_ASSERT((__x2.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x2.d2 >> 32) == 0");\
+		DBG_ASSERT((__x3.d2 >> 32) == 0,"SQR_LOHI160_q4: (__x3.d2 >> 32) == 0");\
 		\
 		__t0  = __x0.d2;\
 		__t1  = __x1.d2;\
@@ -5629,14 +5629,14 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
 			__wd0,__wd1,__wd2,__wd3,__wd4,__wd5,__wd6,__wd7,\
 			__we0,__we1,__we2,__we3,__we4,__we5,__we6,__we7;\
 		\
-		DBG_ASSERT(HERE, (__x0.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x0.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x1.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x2.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x3.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x4.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x4.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x5.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x5.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x6.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x6.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x7.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x7.d2 >> 32) == 0");\
+		DBG_ASSERT((__x0.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x0.d2 >> 32) == 0");\
+		DBG_ASSERT((__x1.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x1.d2 >> 32) == 0");\
+		DBG_ASSERT((__x2.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x2.d2 >> 32) == 0");\
+		DBG_ASSERT((__x3.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x3.d2 >> 32) == 0");\
+		DBG_ASSERT((__x4.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x4.d2 >> 32) == 0");\
+		DBG_ASSERT((__x5.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x5.d2 >> 32) == 0");\
+		DBG_ASSERT((__x6.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x6.d2 >> 32) == 0");\
+		DBG_ASSERT((__x7.d2 >> 32) == 0,"SQR_LOHI160_q8: (__x7.d2 >> 32) == 0");\
 		\
 		__t0  = __x0.d2;\
 		__t1  = __x1.d2;\
@@ -5949,8 +5949,8 @@ On 32-bit hardware, take advantage of the fact that x2 and y2 are only 32 bits w
     {\
 		uint64 __w1,__w2,__w3,__w4,__a,__b,__c,__d,__e,__f,__g,__h,__i,__j,__k,__l;\
 		\
-		DBG_ASSERT(HERE, (__x.d2 >> 32) == 0,"MULH160: (__x.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d2 >> 32) == 0,"MULH160: (__y.d2 >> 32) == 0");\
+		DBG_ASSERT((__x.d2 >> 32) == 0,"MULH160: (__x.d2 >> 32) == 0");\
+		DBG_ASSERT((__y.d2 >> 32) == 0,"MULH160: (__y.d2 >> 32) == 0");\
 		\
 		__w4 = __x.d2*__y.d2;				/*   x2*y2 */\
 		MULH64(__x.d0,__y.d0,       __w1);	/*   x0*y0.hi */\
@@ -6033,8 +6033,8 @@ On 32-bit hardware, take advantage of the fact that x2 and y2 are only 32 bits w
     {\
 		uint64 __w1,__w2,__w3,__w4,__a,__b,__c,__d,__e,__f,__g,__h,__i,__j,__k,__l;\
 		\
-		DBG_ASSERT(HERE, (__x.d2 >> 32) == 0,"MULH160: (__x.d2 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__y.d2 >> 32) == 0,"MULH160: (__y.d2 >> 32) == 0");\
+		DBG_ASSERT((__x.d2 >> 32) == 0,"MULH160: (__x.d2 >> 32) == 0");\
+		DBG_ASSERT((__y.d2 >> 32) == 0,"MULH160: (__y.d2 >> 32) == 0");\
 		\
 		__w4 = __x.d2*__y.d2;				/*   x2*y2 */\
 		MULH64(__x.d0,__y.d0,       __w1);	/*   x0*y0.hi */\

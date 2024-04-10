@@ -79,33 +79,18 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 	__device__ void ASSERT(long line, char*file, int expr, char*assert_string) {}
 #else
 
-  #ifdef USE_C99
-
-	void ASSERT(char*func, long line, char*file, int expr, char*assert_string) {
+	// void ASSERT(char*func, long line, char*file, int expr, char*assert_string) {
+	void _ASSERT(const char*assertion, const char*file, long line, const char*func, bool expr, const char*assert_string) {
 		/* Define a convenient spot to set a breakpoint: */
 		if(!expr) {
-			fprintf(stderr,"ERROR: Function %s, at line %lu of file %s\n", func, line, file);	fprintf(stderr,"Assertion failed: %s\n", assert_string);
+			fprintf(stderr,"ERROR: Function %s, at line %lu of file %s\n", func, line, file);	fprintf(stderr,"Assertion '%s' failed: %s\n", assertion, assert_string);
 			/* Flush all output streams prior to asserting. We replace the original assert(0) call with
 			an exit(EXIT_FAILURE), since some compilers seem to like to optimize away assertions. */
 			fflush(NULL);
-			exit(EXIT_FAILURE);
+			// exit(EXIT_FAILURE);	// Try to make this line coincide with a line # == 0 (mod 100) to ease breakpointing
+			abort();
 		}
 	}
-
-  #else
-
-	void ASSERT(long line, char*file, int expr, char*assert_string) {
-		/* Define a convenient spot to set a breakpoint: */
-		if(!expr) {
-			fprintf(stderr,"ERROR: at line %lu of file %s\n", line, file);	fprintf(stderr,"Assertion failed: %s\n", assert_string);
-			/* Flush all output streams prior to asserting. We replace the original assert(0) call with
-			an exit(EXIT_FAILURE), since some compilers seem to like to optimize away assertions. */
-			fflush(NULL);
-			exit(EXIT_FAILURE);	// Try to make this line coincide with a line # == 0 (mod 100) to ease breakpointing
-		}
-	}
-
-  #endif
 
 #endif	// __CUDA_ARCH__ ?
 
@@ -136,7 +121,7 @@ void	VAR_WARN(char *typelist, ...)
 				dval = va_arg(varargs,double);
 				break;
 			default :
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 				break;
 		}
 	}
@@ -216,7 +201,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
 		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
 		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
-		lenD = 0; ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
+		lenD = 0; ASSERT(0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
 		r = (uint64 *)calloc(lenD, sizeof(uint64));
 		nc -= 28;		// starting char of first 27-digit chunk
 		for(i = 0; ; i+=2) {	// i = #divides counter; do 2 divs per loop exec in attempt to get some modest pipelining
@@ -240,7 +225,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		nc = nchars + (nchars/27) + 1;	// Add newlines to count
 		str[nc-1] = '\0';
 		fp = mlucas_fopen(fname, "w");
-		ASSERT(HERE, fp != 0x0, "Null file pointer!");
+		ASSERT(fp != 0x0, "Null file pointer!");
 		fprintf(fp,"%s\n", str);
 		fclose(fp);	fp = 0x0;
 		fprintf(stderr,"Done writing %s.",fname);
@@ -391,7 +376,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			for(i = 0; i < 8; ++i) {
 				// It's a PRP: check vs table of known pseudoprimes and (if it's not a PSP) init for the next PSP:
 				if((itmp32 >> i)&0x1) {
-					ASSERT(HERE, curr_p <= fbase2psp[fbase2psp_idx],"Error in pseudoprime sieve");
+					ASSERT(curr_p <= fbase2psp[fbase2psp_idx],"Error in pseudoprime sieve");
 					if((curr_p + pdsum_8[i]) == fbase2psp[fbase2psp_idx]) {	// It's a base-2 pseudoprime
 						++fbase2psp_idx;
 						continue;
@@ -549,7 +534,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			for(j = 0; j < 8; ++j) {
 				if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
 				{						// (if it's not a PSP) init for the next gap
-					ASSERT(HERE, curr_p <= fbase2psp[fbase2psp_idx],"Error in pseudoprime sieve");
+					ASSERT(curr_p <= fbase2psp[fbase2psp_idx],"Error in pseudoprime sieve");
 					if((curr_p + pdsum_8[j]) == fbase2psp[fbase2psp_idx]) {	/* It's a base-2 pseudoprime */
 						++fbase2psp_idx;
 						pdiff[i] += pdiff_8[j];
@@ -574,8 +559,8 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		printf("Using first %u odd primes; max gap = %u\n",nprime,2*max_diff);
 		printf("max sieving prime = %u\n",ihi);
 
-		ASSERT(HERE, p > thresh, "Mersenne prime exponent must be larger that allowable threshold!");
-		ASSERT(HERE, twopmodq32(p-1, p) == 1, "p fails base-2 fprp test!");
+		ASSERT(p > thresh, "Mersenne prime exponent must be larger that allowable threshold!");
+		ASSERT(twopmodq32(p-1, p) == 1, "p fails base-2 fprp test!");
 		np = 0;	// #primes in the current p-centered cohort
 		// find N primes < and > p, compute smoothness norm based on p-1 factorization for each, store each [p,snorm] pair
 		fbase2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
@@ -775,7 +760,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			//	printf("I = %d: x = %f; y = %f; hi,lo = %f,%f\n",i, h_A[i],h_B[i],h_D[i],h_C[i]);
 				if(cmp_fma_lohi_vs_exact(h_A[i],h_B[i],h_D[i],h_C[i], iax,iay,iahi,ialo)) {
 					printf("ERROR: pow2 = %d, I = %d, outputs differ!\n",pow2,i);
-					ASSERT(HERE, 0, "fma_dmult tests failed!");
+					ASSERT(0, "fma_dmult tests failed!");
 				}
 			}	// i-loop
 			pow2_dmult *= 2;
@@ -820,7 +805,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 				q = fac63[i-nelt64].q;
 	//if((i-nelt64) < 10)printf("p[%3d] = %u: q = %llu ... ",i, p, q);
 			}
-			ASSERT(HERE, p != 0, "p must be nonzero!");
+			ASSERT(p != 0, "p must be nonzero!");
 			// Compute auxiliary TF data:
 			pshift = p + 64;
 			jshift = leadz64(pshift);
@@ -837,7 +822,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			dbl /= (2.0*p);
 			rnd = DNINT(dbl);
 			k = (uint64)rnd;
-			ASSERT(HERE, k*(p<<1)+1 == q, "k computed incorrectly!");
+			ASSERT(k*(p<<1)+1 == q, "k computed incorrectly!");
 			*(h_p     + i) = p          ;	*(h_pshft + i) = pshift     ;	*(h_k + i) = k;
 			*(h_zshft + i) = zshift     ;	*(h_stidx + i) = start_index;
 		//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",i, p, pshift, zshift, start_index, k);
@@ -887,7 +872,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			if((j != 1) || (*(h_B + i) != 1)) {
 				printf("cudaVecModpowTest64: Mismatch between Ref and GPU result:\n");
 				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,q) = %u, %llu\n", i,*(h_B + i), j,p,q);
-				ASSERT(HERE, 0, "cudaVecModpowTest64 failed!");
+				ASSERT(0, "cudaVecModpowTest64 failed!");
 			}
 		}
 		printf("cudaVecModpowTest64 with %d test (p,q) pairs succeeded!\n",N);
@@ -967,13 +952,13 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 
 		// Reference computation:
 		j = (uint32)twopmodq78_3WORD_DOUBLE((uint64)p, k);
-		ASSERT(HERE, (j == 1), "cudaVecModpowTest78_0 ref-comp failed!");
+		ASSERT((j == 1), "cudaVecModpowTest78_0 ref-comp failed!");
 		// Test GPU results:
 		for(i = 0; i < N; ++i) {
 			if(*(h_B + i) != 1) {
 				printf("cudaVecModpowTest78_0: Mismatch between Ref and GPU result:\n");
 				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %llu\n", i,*(h_B + i), j,p,k);
-				ASSERT(HERE, *(h_B + i) == 1, "cudaVecModpowTest78_0 failed!");
+				ASSERT(*(h_B + i) == 1, "cudaVecModpowTest78_0 failed!");
 			}
 		}
 		printf("cudaVecModpowTest78_0 with %d test (p,q) pairs succeeded!\n",N);
@@ -1095,7 +1080,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			if((j != 1) || (*(h_B + i) != 1)) {
 				printf("cudaVecModpowTest78: Mismatch between Ref and GPU result:\n");
 				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %llu\n", i,*(h_B + i), j,p,k);
-				ASSERT(HERE, 0, "cudaVecModpowTest78 failed!");
+				ASSERT(0, "cudaVecModpowTest78 failed!");
 			}
 		}
 		printf("cudaVecModpowTest78 with %d test (p,q) pairs succeeded!\n",nelts);
@@ -1237,7 +1222,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			if((j != 1) || (*(h_B + i) != 1)) {
 				printf("cudaVecModpowTest96: Mismatch between Ref and GPU result:\n");
 				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %llu\n", i,*(h_B + i), j,p,k);
-				ASSERT(HERE, 0, "cudaVecModpowTest96 failed!");
+				ASSERT(0, "cudaVecModpowTest96 failed!");
 			}
 		}
 		printf("cudaVecModpowTest96 with %d test (p,q) pairs succeeded!\n",nelts);
@@ -1452,7 +1437,7 @@ void host_init(void)
 	TWO25FLOAT = (double)0x02000000;				TWO25FLINV = 1.0/TWO25FLOAT;
 	TWO26FLOAT = (double)0x04000000;				TWO26FLINV = 1.0/TWO26FLOAT;
 	dbl = qfdbl(qfmul_pow2(QONE, -26));
-	ASSERT(HERE, TWO26FLINV == dbl, "TWO26FLINV!");
+	ASSERT(TWO26FLINV == dbl, "TWO26FLINV!");
 
 	TWO13FLINV = qfdbl(qfmul_pow2(QONE, -13));
 
@@ -1477,8 +1462,8 @@ void host_init(void)
 	qtest();	// 09/23/2012: Move to after above float-consts-inits because of the qfloat/mi64 routines which use those consts.
 
 	/* Use qfloat routines to set the global floating-point constant 1/sqrt(2): */
-	ASSERT(HERE, ISRT2 == qfdbl(QISRT2), "1/sqrt2 precision check failed!");
-	ASSERT(HERE, SQRT2 == qfdbl(QSQRT2), "  sqrt2 precision check failed!");
+	ASSERT(ISRT2 == qfdbl(QISRT2), "1/sqrt2 precision check failed!");
+	ASSERT(SQRT2 == qfdbl(QSQRT2), "  sqrt2 precision check failed!");
 
 #ifdef CPU_IS_X86	// May 2018: It seems I only found need to call this runtime CPU-mode setting in 32-bit x86 mode, not 64-bit. But had occasion
 					// to fiddle w/rnd-mode in some x86_64 tests, so changed things so that the function is *defined* in both 32 and 64-bit modes.
@@ -1490,13 +1475,13 @@ void host_init(void)
 
 	// Test wide-mul routines:
 	printf("INFO: testing IMUL routines...\n");
-	ASSERT(HERE, test_mul() == 0, "test_mul() returns nonzero!");
+	ASSERT(test_mul() == 0, "test_mul() returns nonzero!");
 
 	// Test the 64-bit 2^[+|-]p (mod q) functions:
 	uint32 imax = 100000;
 	fprintf(stderr,"INFO: Testing 64-bit 2^p (mod q) functions with %u random (p, q odd) pairs...\n",imax);
 	clock1 = clock();
-	ASSERT(HERE, test_twopmodq64(imax) == 0, "test_twopmodq64() returns nonzero!");
+	ASSERT(test_twopmodq64(imax) == 0, "test_twopmodq64() returns nonzero!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 //	printf("Time for %u 2^[+|-]p (mod q) call pairs =%s\n",imax, get_time_str(tdiff));
@@ -1522,9 +1507,9 @@ void host_init(void)
 	const uint32 mers_expos[] = {61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941,11213,19937,21701,0x0};
 	for(i = 0, exp = (uint64)mers_expos[i]; exp != 0; i++) {
 		fprintf(stderr,"TEST_MI64_PRP: Base-3 Fermat-PRP test of M(%llu)...\n",exp);
-		ASSERT(HERE, exp < (max_test_dim<<6), "Bignum-PRP test exponent larger than test-vec dimension permits!");
+		ASSERT(exp < (max_test_dim<<6), "Bignum-PRP test exponent larger than test-vec dimension permits!");
 		j = mi64_init_mers_or_ferm_modulus(exp, 0, vec);
-		ASSERT(HERE, mi64_pprimeF(vec,3ull,j), "TEST_MI64_PRP: Base-3 Fermat-PRP test fails!");
+		ASSERT(mi64_pprimeF(vec,3ull,j), "TEST_MI64_PRP: Base-3 Fermat-PRP test fails!");
 	}
 	exit(0);
 #endif
@@ -1534,21 +1519,21 @@ void host_init(void)
 	printf("INFO: Timing-testing selected FFT macros...\n");
 
   #if defined(USE_SSE2) && !defined(USE_AVX)	// 4-DFT is SSE2-only
-//	ASSERT(HERE, test_radix4_dft() == 0, "test_radix4_dft() returns nonzero!");
+//	ASSERT(test_radix4_dft() == 0, "test_radix4_dft() returns nonzero!");
   #endif
 
-//	ASSERT(HERE, test_radix16_dft() == 0, "test_radix16_dft() returns nonzero!");
+//	ASSERT(test_radix16_dft() == 0, "test_radix16_dft() returns nonzero!");
 
 	#include "radix32_dif_dit_pass_asm.h"	// Commenting this out gives compile error
-//	ASSERT(HERE, test_radix32_dft() == 0, "test_radix32_dft() returns nonzero!");
+//	ASSERT(test_radix32_dft() == 0, "test_radix32_dft() returns nonzero!");
 
   #ifdef USE_AVX
 	test_vperm2f128();	// Is one designed for step-thru debug
 exit(0);
-//	ASSERT(HERE, test_simd_transpose_4x4() == 0, "test_simd_transpose_4x4() returns nonzero!");
+//	ASSERT(test_simd_transpose_4x4() == 0, "test_simd_transpose_4x4() returns nonzero!");
   #endif
   #ifdef USE_AVX512
-	ASSERT(HERE, test_simd_transpose_8x8() == 0, "test_simd_transpose_8x8() returns nonzero!");
+	ASSERT(test_simd_transpose_8x8() == 0, "test_simd_transpose_8x8() returns nonzero!");
 exit(0);
   #endif
 #endif
@@ -1557,23 +1542,23 @@ exit(0);
 #if INCLUDE_GMP && 0
 	uint32 m = 33;	// 7 Sep 2021: GMP gcd on Haswell quad needs 24|54 min for F31|32-sized inputs; insufficient RAM (8 GB) for F33
 					// On KNL with 16GB MCDRAM, need ??|??|?? min for F31|32|33, with F30 running on cores 0-63 and GIMPS-DC on 64-67.
-	ASSERT(HERE, m < 64, "Fermat-number index must be < 64!");
+	ASSERT(m < 64, "Fermat-number index must be < 64!");
 	printf("INFO: testing GCD routines on F%u-sized inputs\n",m);
 	// Apr 2021: check known factor of F31 using both mi64_div and GMP gcd, to get timing on the latter:
 	rng_isaac_init(TRUE);
 	uint64 rem[2] = {0ull,0ull}, q[2] = {3118754346955702273ull,2544ull};	// Known factor of F31: k = 3.13.140091319777; q = k.2^(m+2) + 1
 	int i,isfact,nlimb = (1<<(m-6)) + 1;	// # of 64-bit limbs in Fm, which has 2^m+1 bits, thus needs one extra limb for the high 1-bit
 	// vec0 is used for scratch storage, since mi64_mul_vector() does not permit in-place operation:
-	uint64*vec0 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec0 != NULL, "vec0[]-array alloc failed!");
-	uint64*vec1 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec1 != NULL, "vec1[]-array alloc failed!");
-	uint64*vec2 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec2 != NULL, "vec2[]-array alloc failed!");
+	uint64*vec0 = calloc(nlimb,sizeof(uint64));	ASSERT(vec0 != NULL, "vec0[]-array alloc failed!");
+	uint64*vec1 = calloc(nlimb,sizeof(uint64));	ASSERT(vec1 != NULL, "vec1[]-array alloc failed!");
+	uint64*vec2 = calloc(nlimb,sizeof(uint64));	ASSERT(vec2 != NULL, "vec2[]-array alloc failed!");
 	// Init 2 random (mlimb-1)-length multiples of q:
 	for(i = 0; i < nlimb-2; i++) { vec0[i] = rng_isaac_rand(); vec1[i] = rng_isaac_rand(); }
 	// i holds product length on return:
-	mi64_mul_vector(vec1,nlimb-2, q,2, vec2,&i);	ASSERT(HERE, i == nlimb, "Bad product length in gcd-test init!");
-	mi64_mul_vector(vec0,nlimb-2, q,2, vec1,&i);	ASSERT(HERE, i == nlimb, "Bad product length in gcd-test init!");
-	isfact = mi64_div(vec1,q, nlimb,2, 0x0, rem);	ASSERT(HERE, isfact != 0, "mi64_div failed to find target factor!");
-	isfact = mi64_div(vec2,q, nlimb,2, 0x0, rem);	ASSERT(HERE, isfact != 0, "mi64_div failed to find target factor!");
+	mi64_mul_vector(vec1,nlimb-2, q,2, vec2,&i);	ASSERT(i == nlimb, "Bad product length in gcd-test init!");
+	mi64_mul_vector(vec0,nlimb-2, q,2, vec1,&i);	ASSERT(i == nlimb, "Bad product length in gcd-test init!");
+	isfact = mi64_div(vec1,q, nlimb,2, 0x0, rem);	ASSERT(isfact != 0, "mi64_div failed to find target factor!");
+	isfact = mi64_div(vec2,q, nlimb,2, 0x0, rem);	ASSERT(isfact != 0, "mi64_div failed to find target factor!");
 	// Now feed our two random-multiple vectors to GMP gcd:
 	char gcd_str[STR_MAX_LEN];
 	isfact = gcd(0,0ull,vec1,vec2,nlimb,gcd_str);	// 1st arg = stage just completed
@@ -1650,7 +1635,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u rng64 calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i64 != 0ull,"rng64 sum = 0!");
+	ASSERT(i64 != 0ull,"rng64 sum = 0!");
 
 	clock1 = clock();
 	i32 = 0;
@@ -1665,7 +1650,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u [rng64 + 4*popcount32()] calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i32,"popcount32 sum = 0!");
+	ASSERT(i32,"popcount32 sum = 0!");
 
 	clock1 = clock();
 	i32 = 0;
@@ -1679,7 +1664,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u [rng64 + 4*popcount64()] calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i32,"popcount64 sum = 0!");
+	ASSERT(i32,"popcount64 sum = 0!");
 
 	clock1 = clock();
 	i32 = 0;
@@ -1694,7 +1679,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u [rng64 + 4*leadz32()] calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i32,"leadz32 sum = 0!");
+	ASSERT(i32,"leadz32 sum = 0!");
 
 	clock1 = clock();
 	i32 = 0;
@@ -1708,7 +1693,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u [rng64 + 4*leadz64()] calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i32,"leadz64 sum = 0!");
+	ASSERT(i32,"leadz64 sum = 0!");
 
 	clock1 = clock();
 	i32 = 0;
@@ -1724,7 +1709,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u [rng64 + 4*trailz32()] calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i32,"trailz32 sum = 0!");
+	ASSERT(i32,"trailz32 sum = 0!");
 
 	clock1 = clock();
 	i32 = 0;
@@ -1738,7 +1723,7 @@ exit(0);
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	printf("Time for %u [rng64 + 4*trailz64()] calls =%s\n",imax, get_time_str(tdiff));
-	ASSERT(HERE, i32,"trailz64 sum = 0!");
+	ASSERT(i32,"trailz64 sum = 0!");
 exit(0);
 	clock1 = clock();
 	for(i = 0; i < imax; i++) {
@@ -1747,11 +1732,11 @@ exit(0);
 		x32 = (uint32)i64;
 		int ii = ith_set_bit32(x32,bit);
 		if(popcount32(x32) < bit)
-			ASSERT(HERE, ii == -1, "[bit]th-bit specifier out of range!");
+			ASSERT(ii == -1, "[bit]th-bit specifier out of range!");
 		else {
 			uint32 tmp32 = x32 << (31-ii);
-			ASSERT(HERE, tmp32 & 0x80000000,"ith_set_bit64 retval not actually set!");
-			ASSERT(HERE, popcount32(tmp32) == bit, "ith_set_bit32 checksum fail!");
+			ASSERT(tmp32 & 0x80000000,"ith_set_bit64 retval not actually set!");
+			ASSERT(popcount32(tmp32) == bit, "ith_set_bit32 checksum fail!");
 		}
 	}
 	clock2 = clock();
@@ -1764,12 +1749,12 @@ exit(0);
 		bit = (i64>>32) & 0x3f;	if(!bit) continue;
 		int ii = ith_set_bit64(i64,bit);
 		if(popcount64(i64) < bit)
-			ASSERT(HERE, ii == -1, "[bit]th-bit specifier out of range!");
+			ASSERT(ii == -1, "[bit]th-bit specifier out of range!");
 		else {
 			uint64 tmp64 = i64 << (63-ii);
 			// Must cast result of AND to 32-bit here (via compare-vs-0) since ASSERT (expr) is 32-bit:
-			ASSERT(HERE, (tmp64 & 0x8000000000000000ull) != 0,"ith_set_bit64 retval not actually set!");
-			ASSERT(HERE, popcount64(tmp64) == bit, "ith_set_bit64 checksum fail!");
+			ASSERT((tmp64 & 0x8000000000000000ull) != 0,"ith_set_bit64 retval not actually set!");
+			ASSERT(popcount64(tmp64) == bit, "ith_set_bit64 checksum fail!");
 		}
 	}
 	clock2 = clock();
@@ -1786,12 +1771,12 @@ exit(0);
 		bit = (iarr[0]>>32) & 0xff;	if(!bit) continue;
 		int ii = mi64_ith_set_bit(iarr,bit,4);
 		if(mi64_popcount(iarr,4) < bit)
-			ASSERT(HERE, ii == -1, "[bit]th-bit specifier out of range!");
+			ASSERT(ii == -1, "[bit]th-bit specifier out of range!");
 		else {
 			mi64_shl(iarr,iarr,(255-ii),4);
 			// Must cast result of AND to 32-bit here (via compare-vs-0) since ASSERT (expr) is 32-bit:
-			ASSERT(HERE, (iarr[3] & 0x8000000000000000ull) != 0,"mi64_ith_set_bit64 retval not actually set!");
-			ASSERT(HERE, mi64_popcount(iarr,4) == bit, "mi64_ith_set_bit64 checksum fail!");
+			ASSERT((iarr[3] & 0x8000000000000000ull) != 0,"mi64_ith_set_bit64 retval not actually set!");
+			ASSERT(mi64_popcount(iarr,4) == bit, "mi64_ith_set_bit64 checksum fail!");
 		}
 	}
 	clock2 = clock();
@@ -1804,10 +1789,10 @@ exit(0);
 	int i;
 	const int n = 1000, iters = 1000000;
 	// Allocate the main data arrays, require these to be on 16-byte boundaries to enable SSE2-based addsub:
-	uint64 *u = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)u & 0xf) == 0, "u not 16-byte aligned!");
-	uint64 *v = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)v & 0xf) == 0, "u not 16-byte aligned!");
-	uint64 *x = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)x & 0xf) == 0, "u not 16-byte aligned!");
-	uint64 *y = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)y & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *u = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(((uint32)u & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *v = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(((uint32)v & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *x = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(((uint32)x & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *y = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(((uint32)y & 0xf) == 0, "u not 16-byte aligned!");
 
 	/* Init the RNG and the inputs: */
 	rng_isaac_init(TRUE);
@@ -1822,13 +1807,13 @@ exit(0);
 	uint64 cy2 = mi64_add_ref(u,v,y,n);
 	if(cy1 != cy2) {
 		printf("Carryout mismatch: cy1 = %llu, cy2 = %llu\n",cy1,cy2);
-	//	ASSERT(HERE, 0, "Incorrect mi64_add carryout");	// GCC 4.4.5 builds on my SB give carry-mismatch here ... wtf?
+	//	ASSERT(0, "Incorrect mi64_add carryout");	// GCC 4.4.5 builds on my SB give carry-mismatch here ... wtf?
 	}
 	for(i = 0; i < n; i++)
 	{
 		if(x[i] != y[i]) {
 			printf("Output mismatch: x[%d] = %llu, y[%d] = %llu\n",i,x[i],i,y[i]);
-			ASSERT(HERE, 0, "Incorrect mi64_add output element");
+			ASSERT(0, "Incorrect mi64_add output element");
 		}
 	}
 
@@ -1871,7 +1856,7 @@ exit(0);
 	#error Unrecognized multithreading model!
   #endif
 	// MAX_THREADS based on number of processing cores will most often be a power of 2, but don't assume that.
-	ASSERT(HERE, MAX_THREADS > 0,"Mlucas.c: MAX_THREADS must be > 0");
+	ASSERT(MAX_THREADS > 0,"Mlucas.c: MAX_THREADS must be > 0");
 
 	printf("INFO: System has %d available processor cores.\n", MAX_THREADS);
 
@@ -1880,7 +1865,7 @@ exit(0);
 	ncpu = MAX_THREADS;
 	printf("INFO: Testing Multithreading support with %d threads...\n", ncpu);
 	// Toggle boolean 2nd arg here to enable verbose mode:
-	ASSERT(HERE, test_pthreads(nthr,FALSE) == 0, "test_pthreads() returns nonzero!");
+	ASSERT(test_pthreads(nthr,FALSE) == 0, "test_pthreads() returns nonzero!");
   #endif
 #endif
 
@@ -1921,7 +1906,7 @@ void set_stacklimit_restart(char *argv[])
 
 	if (getrlimit(RLIMIT_STACK, &stack_limits)) {
 		fprintf(stderr, "Call to getrlimit() failed.\n");
-		ASSERT(HERE, 0, "Exiting.");
+		ASSERT(0, "Exiting.");
 	}
 	printf("Old stack_limits: cur = %zu, max = %zu, [RLIM_INFINITY = %zu]\n",
 	       stack_limits.rlim_cur, stack_limits.rlim_max, RLIM_INFINITY);
@@ -1932,14 +1917,14 @@ void set_stacklimit_restart(char *argv[])
 
 	if (setrlimit(RLIMIT_STACK, &stack_limits)) {
 		fprintf(stderr, "Call to setrlimit() failed.\n");
-		ASSERT(HERE, 0, "Exiting.");
+		ASSERT(0, "Exiting.");
 	}
 	printf("New stack_limits: cur = %zu, max = %zu\n",
 	       stack_limits.rlim_cur, stack_limits.rlim_max);
 
 	if(execvp(argv[0], argv)) {
 		fprintf(stderr, "Call to execvp() failed.\n");
-		ASSERT(HERE, 0, "Exiting.");
+		ASSERT(0, "Exiting.");
 	}
 #endif /* CPU_IS_X86  */
 }
@@ -2017,7 +2002,7 @@ uint32 get_system_ram(void) {
 	{
 		char in_line[STR_MAX_LEN];
 		FILE*fp = mlucas_fopen("/proc/cpuinfo", "r");
-		ASSERT(HERE, fp != 0x0, "/proc/cpuinfo file not found!");
+		ASSERT(fp != 0x0, "/proc/cpuinfo file not found!");
 		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
 			if(strstr(in_line, "asimd") != 0)
 				return 1;
@@ -2106,7 +2091,7 @@ void print_host_info(void)
 	if(cudaError != cudaSuccess)
 	{
 		printf("ERROR: cudaGetLastError() returned %d: %s\n", cudaError, cudaGetErrorString(cudaError));
-		ASSERT(HERE, 0, "gpu_sieve: GPU-side error detected!");
+		ASSERT(0, "gpu_sieve: GPU-side error detected!");
 	}
 
 //	cudaVecAddTest();
@@ -2131,7 +2116,7 @@ void print_host_info(void)
 	char hwloc_version[12];
 	snprintf(hwloc_version,sizeof(hwloc_version),"%u.%u.%u",HWLOC_API_VERSION>>16,(HWLOC_API_VERSION>>8)&0xff,HWLOC_API_VERSION&0xff);
 	printf("HWLOC Version = %s; \n",hwloc_version);
-	ASSERT(HERE,hw_topology != 0x0,"HWLOC hardware topology object not initialized!");
+	ASSERT(hw_topology != 0x0,"HWLOC hardware topology object not initialized!");
 	int topodepth = hwloc_topology_get_depth(hw_topology);
 	uint32 nsock = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_PACKAGE);
 	uint32 ncore = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_CORE);
@@ -2149,7 +2134,7 @@ void print_host_info(void)
 	#endif
 	} else {
 	#ifdef USE_ARM_V8_SIMD
-		ASSERT(HERE, 0, "#define USE_ARM_V8_SIMD invoked but no advanced-SIMD support detected on this CPU!\n");
+		ASSERT(0, "#define USE_ARM_V8_SIMD invoked but no advanced-SIMD support detected on this CPU!\n");
 	#endif
 	}
 
@@ -2167,7 +2152,7 @@ void print_host_info(void)
   #ifdef USE_IMCI512	// 1st-gen Xeon Phi (KNF,KNC)
 
 	if(has_avx512()) {
-		ASSERT(HERE, 0, "Build uses AVX-512 instruction set, but only k1om / IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
+		ASSERT(0, "Build uses AVX-512 instruction set, but only k1om / IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
 	} else if(has_imci512()) {
 		printf("INFO: Build uses k1om / IMCI-512 instruction set.\n");
 	} else {
@@ -2178,13 +2163,13 @@ void print_host_info(void)
 		CPUID(1,0,a,b,c,d);
 		printf("has_imci512: CPUID returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
 		printf("#define USE_IMCI512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
-		ASSERT(HERE, 0, "#define USE_IMCI512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(0, "#define USE_IMCI512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #elif(defined(USE_AVX512))
 
 	if(has_imci512()) {
-		ASSERT(HERE, 0, "Build uses AVX512 instruction set, but only IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
+		ASSERT(0, "Build uses AVX512 instruction set, but only IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
 	} else 	if(has_avx512()) {
 		printf("INFO: Build uses AVX512 instruction set.\n");
 	} else {
@@ -2195,7 +2180,7 @@ void print_host_info(void)
 		CPUID(1,0,a,b,c,d);
 		printf("has_avx512: CPUID returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
 		printf("#define USE_AVX512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
-		ASSERT(HERE, 0, "#define USE_AVX512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(0, "#define USE_AVX512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #elif(defined(USE_AVX2))
@@ -2212,7 +2197,7 @@ void print_host_info(void)
 		CPUID(1,0,a,b,c,d);
 		printf("has_avx2: CPUID returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
 		printf("#define USE_AVX2 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
-		ASSERT(HERE, 0, "#define USE_AVX2 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(0, "#define USE_AVX2 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #elif(defined(USE_AVX))
@@ -2222,7 +2207,7 @@ void print_host_info(void)
 	} else if(has_avx()) {
 		printf("INFO: Build uses AVX instruction set.\n");
 	} else {
-		ASSERT(HERE, 0, "#define USE_AVX invoked but no AVX support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(0, "#define USE_AVX invoked but no AVX support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #elif(defined(USE_SSE2))
@@ -2235,7 +2220,7 @@ void print_host_info(void)
 	if(has_sse2()) {
 		printf("INFO: Build uses SSE2 ... 'enhanced SSE2' supported by CPU: SSE[3,3e,4.1,4.2] = [%u,%u,%u,%u]\n",has_sse3(),has_sse3e(),has_sse41(),has_sse42());
 	} else {
-		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(0, "#define USE_SSE2 invoked but no SSE2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #else
@@ -2272,7 +2257,7 @@ void print_host_info(void)
 			printf("INFO: mkdir -p \"%s\" succeeded\n", MLUCAS_PATH);
 		} else {
 			fprintf(stderr, "ERROR: mkdir -p \"%s\" failed\n", MLUCAS_PATH);
-			ASSERT(HERE, 0, "Exiting.");
+			ASSERT(0, "Exiting.");
 		}
 	}
 }
@@ -2423,7 +2408,7 @@ For the purpose of completeness, the other FPU control bits are as follows
 	#else
 		unsigned short FPUCTRL;
 	#endif
-		ASSERT(HERE, (FPU_MODE == FPU_64RND) || (FPU_MODE == FPU_64CHOP), "Illegal value of FPU_MODE");
+		ASSERT((FPU_MODE == FPU_64RND) || (FPU_MODE == FPU_64CHOP), "Illegal value of FPU_MODE");
 
 		// Check the SIMD control word:
 	#ifdef USE_SSE2
@@ -2543,7 +2528,7 @@ For the purpose of completeness, the other FPU control bits are as follows
 			printf("INFO: compiler sets x87 FPU to [round ==> 0] (truncate) rounding mode. Overriding...Setting to [round ==> nearest].\n");
 			break;
 		default:
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -2560,24 +2545,24 @@ void check_nbits_in_types(void)
 	double ln2 = LOG2;
 
 	/* Make sure TRUE and FALSE behave as required: */
-	ASSERT(HERE, !FALSE && TRUE, "TRUE and FALSE do not behave as required in check_nbits_in_types");
+	ASSERT(!FALSE && TRUE, "TRUE and FALSE do not behave as required in check_nbits_in_types");
 
 	/* Check lengths of basic data types: */
-    ASSERT(HERE, sizeof( int8 ) == 1, "sizeof( int8 ) != 1");
-    ASSERT(HERE, sizeof(uint8 ) == 1, "sizeof(uint8 ) != 1");
-    ASSERT(HERE, sizeof( int16) == 2, "sizeof( int16) != 2");
-    ASSERT(HERE, sizeof(uint16) == 2, "sizeof(uint16) != 2");
-    ASSERT(HERE, sizeof( int32) == 4, "sizeof( int32) != 4");
-    ASSERT(HERE, sizeof(uint32) == 4, "sizeof(uint32) != 4");
-    ASSERT(HERE, sizeof( int64) == 8, "sizeof( int64) != 8");
-    ASSERT(HERE, sizeof(uint64) == 8, "sizeof(uint64) != 8");
-    ASSERT(HERE, sizeof(uint64) >= sizeof(void*), "sizeof(long long) != sizeof(void*)");    /* ALIGN_DOUBLES assumes this. */
+    ASSERT(sizeof( int8 ) == 1, "sizeof( int8 ) != 1");
+    ASSERT(sizeof(uint8 ) == 1, "sizeof(uint8 ) != 1");
+    ASSERT(sizeof( int16) == 2, "sizeof( int16) != 2");
+    ASSERT(sizeof(uint16) == 2, "sizeof(uint16) != 2");
+    ASSERT(sizeof( int32) == 4, "sizeof( int32) != 4");
+    ASSERT(sizeof(uint32) == 4, "sizeof(uint32) != 4");
+    ASSERT(sizeof( int64) == 8, "sizeof( int64) != 8");
+    ASSERT(sizeof(uint64) == 8, "sizeof(uint64) != 8");
+    ASSERT(sizeof(uint64) >= sizeof(void*), "sizeof(long long) != sizeof(void*)");    /* ALIGN_DOUBLES assumes this. */
 
 	/* AltiVec vector types: */
 #if(CPU_HAS_ALTIVEC || CPU_IS_CELL)
-	ASSERT(HERE, sizeof(vec_uint8X16) == 16 , "sizeof(vec_uint8X16) != 16 ");
-	ASSERT(HERE, sizeof(vec_uint16X8) == 16 , "sizeof(vec_uint16x8) != 16 ");
-	ASSERT(HERE, sizeof(vec_uint32X4) == 16 , "sizeof(vec_uint32x4) != 16 ");
+	ASSERT(sizeof(vec_uint8X16) == 16 , "sizeof(vec_uint8X16) != 16 ");
+	ASSERT(sizeof(vec_uint16X8) == 16 , "sizeof(vec_uint16x8) != 16 ");
+	ASSERT(sizeof(vec_uint32X4) == 16 , "sizeof(vec_uint32x4) != 16 ");
 #endif
 
 	uint64 x = 0x0706050403020100ull;
@@ -2585,14 +2570,14 @@ void check_nbits_in_types(void)
 	// Runtime ordering is little-endian:
 	if(byte_arr[0] == 0 && byte_arr[1] == 1 && byte_arr[2] == 2 && byte_arr[3] == 3 && byte_arr[4] == 4 && byte_arr[5] == 5 && byte_arr[6] == 6 && byte_arr[7] == 7) {
 	  #ifdef USE_BIG_ENDIAN
-		ASSERT(HERE, 0, "USE_BIG_ENDIAN set in platform.h but little-endian detected at runtime!");
+		ASSERT(0, "USE_BIG_ENDIAN set in platform.h but little-endian detected at runtime!");
 	  #endif
 	} else if(byte_arr[0] == 7 && byte_arr[1] == 6 && byte_arr[2] == 5 && byte_arr[3] == 4 && byte_arr[4] == 3 && byte_arr[5] == 2 && byte_arr[6] == 1 && byte_arr[7] == 0) {
 	  #ifndef USE_BIG_ENDIAN
-		ASSERT(HERE, 0, "USE_BIG_ENDIAN not set in platform.h but big-endian detected at runtime!");
+		ASSERT(0, "USE_BIG_ENDIAN not set in platform.h but big-endian detected at runtime!");
 	  #endif
 	} else {
-		ASSERT(HERE, 0, "Endianness detected as neither big nor little-endian at runtime!");
+		ASSERT(0, "Endianness detected as neither big nor little-endian at runtime!");
 	}
 
 	// Init RNG:
@@ -2659,10 +2644,10 @@ void check_nbits_in_types(void)
 #else
 
 	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, pi  = %20.3f,  DNINT(pi ) = %20.3f\n", RND_A, tpi, (double)DNINT(tpi));
-	ASSERT(HERE, (double)DNINT(tpi) == 3.0, cbuf);
+	ASSERT((double)DNINT(tpi) == 3.0, cbuf);
 
 	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, ln2 = %20.3f,  DNINT(ln2) = %20.3f\n", RND_A, ln2, (double)DNINT(ln2));
-	ASSERT(HERE, (double)DNINT(ln2) == 1.0, cbuf);
+	ASSERT((double)DNINT(ln2) == 1.0, cbuf);
 
 #endif
 
@@ -2684,11 +2669,11 @@ to original "fiddle these depending on exponent being tested" scheme. */
 
 	FFT_MUL_BASE = (double)((uint64)1 << FFT_MUL_BITS);
 /* Intend to relax this later to allow powers of 2 as large as 2^54: */
-ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
+ASSERT(((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 
-	ASSERT(HERE, trailz64((uint64)FFT_MUL_BASE) == FFT_MUL_BITS, "mi64_cvt_double_uint64: trailz64((uint64)FFT_MUL_BASE) != FFT_MUL_BITS");
-	ASSERT(HERE, DNINT(FFT_MUL_BASE) == FFT_MUL_BASE, "mi64_cvt_double_uint64: FFT_MUL_BASE not pure-integer!");
-	ASSERT(HERE, FFT_MUL_BASE < 1.0*0x8000000*0x8000000, "mi64_cvt_double_uint64: FFT_MUL_BASE >= maximum allowed value of 2^54!");
+	ASSERT(trailz64((uint64)FFT_MUL_BASE) == FFT_MUL_BITS, "mi64_cvt_double_uint64: trailz64((uint64)FFT_MUL_BASE) != FFT_MUL_BITS");
+	ASSERT(DNINT(FFT_MUL_BASE) == FFT_MUL_BASE, "mi64_cvt_double_uint64: FFT_MUL_BASE not pure-integer!");
+	ASSERT(FFT_MUL_BASE < 1.0*0x8000000*0x8000000, "mi64_cvt_double_uint64: FFT_MUL_BASE >= maximum allowed value of 2^54!");
 	FFT_MUL_BASE_INV = 1.0/FFT_MUL_BASE;
 
   #if FAST_UINT32_MOD
@@ -2758,32 +2743,32 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 		}
 	}
 	printf ("%u cases of %u [%6.2f%%] needed adjustment.\n",nneg,ntry,100.*nneg/(float)ntry);
-	ASSERT(HERE, nfail == 0, "Fast-uint32-mod test failed for 1 or more inputs!");
+	ASSERT(nfail == 0, "Fast-uint32-mod test failed for 1 or more inputs!");
   #endif	// #if FAST_UINT32_MOD ?
 
 	/* Test approximate 1/x and 1/sqrt(x) routines: */
-	ftmp = finvest(1.5,  8);	/*fprintf(stderr, "finvest(1.5,  8) gives err = %20.10e\n", fabs(ftmp - 0.666666666666667));*/	ASSERT(HERE, fabs(ftmp - 0.666666666666667) < 4e-03, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(1.5, 53);	/*fprintf(stderr, "finvest(1.5, 53) gives err = %20.10e\n", fabs(ftmp - 0.666666666666667));*/	ASSERT(HERE, fabs(ftmp - 0.666666666666667) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(1.0, 53);	/*fprintf(stderr, "finvest(1.0, 53) gives err = %20.10e\n", fabs(ftmp - 1.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(2.0, 53);	/*fprintf(stderr, "finvest(2.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.500000000000000));*/	ASSERT(HERE, fabs(ftmp - 0.500000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(0.5, 53);	/*fprintf(stderr, "finvest(0.5, 53) gives err = %20.10e\n", fabs(ftmp - 2.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(.75, 53);	/*fprintf(stderr, "finvest(.75, 53) gives err = %20.10e\n", fabs(ftmp - 1.333333333333333));*/	ASSERT(HERE, fabs(ftmp - 1.333333333333333) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(1.5,  8);	/*fprintf(stderr, "finvest(1.5,  8) gives err = %20.10e\n", fabs(ftmp - 0.666666666666667));*/	ASSERT(fabs(ftmp - 0.666666666666667) < 4e-03, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(1.5, 53);	/*fprintf(stderr, "finvest(1.5, 53) gives err = %20.10e\n", fabs(ftmp - 0.666666666666667));*/	ASSERT(fabs(ftmp - 0.666666666666667) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(1.0, 53);	/*fprintf(stderr, "finvest(1.0, 53) gives err = %20.10e\n", fabs(ftmp - 1.000000000000000));*/	ASSERT(fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(2.0, 53);	/*fprintf(stderr, "finvest(2.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.500000000000000));*/	ASSERT(fabs(ftmp - 0.500000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(0.5, 53);	/*fprintf(stderr, "finvest(0.5, 53) gives err = %20.10e\n", fabs(ftmp - 2.000000000000000));*/	ASSERT(fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(.75, 53);	/*fprintf(stderr, "finvest(.75, 53) gives err = %20.10e\n", fabs(ftmp - 1.333333333333333));*/	ASSERT(fabs(ftmp - 1.333333333333333) < 1e-14, "Unacceptable level of error in finvest() call!");
 	/* Try some large and small inputs: */
-	ftmp = finvest(3.141592653589793e+15, 53);	/*fprintf(stderr, "finvest(3.141592653589793e+15, 53) gives err = %20.10e\n", fabs(ftmp - 3.183098861837907e-16));*/	ASSERT(HERE, fabs(ftmp - 3.183098861837907e-16) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(3.183098861837907e-16, 53);	/*fprintf(stderr, "finvest(3.183098861837907e-16, 53) gives err = %20.10e\n", fabs(ftmp - 3.141592653589793e+15));*/	ASSERT(HERE, fabs(ftmp - 3.141592653589793e+15) < 1e+00, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(3.141592653589793e+15, 53);	/*fprintf(stderr, "finvest(3.141592653589793e+15, 53) gives err = %20.10e\n", fabs(ftmp - 3.183098861837907e-16));*/	ASSERT(fabs(ftmp - 3.183098861837907e-16) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(3.183098861837907e-16, 53);	/*fprintf(stderr, "finvest(3.183098861837907e-16, 53) gives err = %20.10e\n", fabs(ftmp - 3.141592653589793e+15));*/	ASSERT(fabs(ftmp - 3.141592653589793e+15) < 1e+00, "Unacceptable level of error in finvest() call!");
 
-	ftmp = fisqrtest(1.5,  8);	/*fprintf(stderr, "fisqrtest(1.5,  8) gives err = %20.10e\n", fabs(ftmp - 0.816496580927726));*/	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-3 , "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(1.5, 53);	/*fprintf(stderr, "fisqrtest(1.5, 53) gives err = %20.10e\n", fabs(ftmp - 0.816496580927726));*/	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(1.0, 53);	/*fprintf(stderr, "fisqrtest(1.0, 53) gives err = %20.10e\n", fabs(ftmp - 1.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(2.0, 53);	/*fprintf(stderr, "fisqrtest(2.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.707106781186548));*/	ASSERT(HERE, fabs(ftmp - 0.707106781186548) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(0.5, 53);	/*fprintf(stderr, "fisqrtest(0.5, 53) gives err = %20.10e\n", fabs(ftmp - 1.414213562373095));*/	ASSERT(HERE, fabs(ftmp - 1.414213562373095) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(0.3, 53);	/*fprintf(stderr, "fisqrtest(0.3, 53) gives err = %20.10e\n", fabs(ftmp - 1.825741858350554));*/	ASSERT(HERE, fabs(ftmp - 1.825741858350554) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(.25, 53);	/*fprintf(stderr, "fisqrtest(.25, 53) gives err = %20.10e\n", fabs(ftmp - 2.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(.75, 53);	/*fprintf(stderr, "fisqrtest(.75, 53) gives err = %20.10e\n", fabs(ftmp - 1.154700538379251));*/	ASSERT(HERE, fabs(ftmp - 1.154700538379251) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(3.0, 53);	/*fprintf(stderr, "fisqrtest(3.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.577350269189626));*/	ASSERT(HERE, fabs(ftmp - 0.577350269189626) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(1.5,  8);	/*fprintf(stderr, "fisqrtest(1.5,  8) gives err = %20.10e\n", fabs(ftmp - 0.816496580927726));*/	ASSERT(fabs(ftmp - 0.816496580927726) < 1e-3 , "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(1.5, 53);	/*fprintf(stderr, "fisqrtest(1.5, 53) gives err = %20.10e\n", fabs(ftmp - 0.816496580927726));*/	ASSERT(fabs(ftmp - 0.816496580927726) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(1.0, 53);	/*fprintf(stderr, "fisqrtest(1.0, 53) gives err = %20.10e\n", fabs(ftmp - 1.000000000000000));*/	ASSERT(fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(2.0, 53);	/*fprintf(stderr, "fisqrtest(2.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.707106781186548));*/	ASSERT(fabs(ftmp - 0.707106781186548) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(0.5, 53);	/*fprintf(stderr, "fisqrtest(0.5, 53) gives err = %20.10e\n", fabs(ftmp - 1.414213562373095));*/	ASSERT(fabs(ftmp - 1.414213562373095) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(0.3, 53);	/*fprintf(stderr, "fisqrtest(0.3, 53) gives err = %20.10e\n", fabs(ftmp - 1.825741858350554));*/	ASSERT(fabs(ftmp - 1.825741858350554) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(.25, 53);	/*fprintf(stderr, "fisqrtest(.25, 53) gives err = %20.10e\n", fabs(ftmp - 2.000000000000000));*/	ASSERT(fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(.75, 53);	/*fprintf(stderr, "fisqrtest(.75, 53) gives err = %20.10e\n", fabs(ftmp - 1.154700538379251));*/	ASSERT(fabs(ftmp - 1.154700538379251) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(3.0, 53);	/*fprintf(stderr, "fisqrtest(3.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.577350269189626));*/	ASSERT(fabs(ftmp - 0.577350269189626) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
 	/* Try some large and small inputs: */
-	ftmp = fisqrtest(3.141592653589793e+15, 53);	/*fprintf(stderr, "fisqrtest(3.141592653589793e+15, 53); gives err = %20.10e\n", fabs(ftmp - 1.784124116152771e-08));*/	ASSERT(HERE, fabs(ftmp - 1.784124116152771e-08) < 1e-22, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(3.183098861837907e-16, 53);	/*fprintf(stderr, "fisqrtest(3.183098861837907e-16, 53); gives err = %20.10e\n", fabs(ftmp - 5.604991216397928e+07));*/	ASSERT(HERE, fabs(ftmp - 5.604991216397928e+07) < 1e-07, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(3.141592653589793e+15, 53);	/*fprintf(stderr, "fisqrtest(3.141592653589793e+15, 53); gives err = %20.10e\n", fabs(ftmp - 1.784124116152771e-08));*/	ASSERT(fabs(ftmp - 1.784124116152771e-08) < 1e-22, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(3.183098861837907e-16, 53);	/*fprintf(stderr, "fisqrtest(3.183098861837907e-16, 53); gives err = %20.10e\n", fabs(ftmp - 5.604991216397928e+07));*/	ASSERT(fabs(ftmp - 5.604991216397928e+07) < 1e-07, "Unacceptable level of error in fisqrtest() call!");
 
 	/* Now do a whole mess of 'em: */
 	for(i = 0; i < 100000; i++)
@@ -2794,24 +2779,24 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 			ftmp = finvest  (fran, 53);
 			finv = 1.0/fran;
 			ferr = (ftmp - finv)/(ftmp + finv);
-			ASSERT(HERE, fabs(ferr) < 1e-14, "Unacceptable level of error in finvest  () call!");
+			ASSERT(fabs(ferr) < 1e-14, "Unacceptable level of error in finvest  () call!");
 
 			ftmp = fisqrtest(fran, 53);
 			fsrt = 1.0/sqrt(fran);
 			ferr = (ftmp - fsrt)/(ftmp + fsrt);
-			ASSERT(HERE, fabs(ferr) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+			ASSERT(fabs(ferr) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
 		}
 
 		fran = rng_isaac_rand_double_norm_pos();
 		if(fran < 0.0 || fran >= 1.0) {
 			sprintf(cbuf, "check_nbits_in_types: rng_isaac_rand_double_norm_pos returns illegal value outside [0, 1): i = %d, %e\n", i,fran);
-			ASSERT(HERE, 0, cbuf);
+			ASSERT(0, cbuf);
 		}
 
 		fran = rng_isaac_rand_double_norm_pm1();
 		if(fabs(fran) >= 1.0) {
 			sprintf(cbuf, "check_nbits_in_types: rng_isaac_rand_double_norm_pm1 returns illegal value outside (-1,+1): i = %d, %e\n", i, fran);
-			ASSERT(HERE, 0, cbuf);
+			ASSERT(0, cbuf);
 		}
 	}
 
@@ -2823,7 +2808,7 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	if(!nerr)
 		printf("fma_dmult_tests completed successfully!\n");
 	else
-		ASSERT(HERE, 0, "fma_dmult_tests failed!\n");
+		ASSERT(0, "fma_dmult_tests failed!\n");
 	*/
 #endif
 
@@ -2859,9 +2844,9 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 				root_re = qreduce(root_re);	root_im = qreduce(root_im);	// Only partially reduce intermediates...
 			}
 			root_re = qreduce_finish(root_re);	root_im = qreduce_finish(root_im);	// ...and then finish reducing here.
-			ASSERT(HERE, root_re ==  q-1 && root_im == 0ull, "Bad prim_root_q result!");
+			ASSERT(root_re ==  q-1 && root_im == 0ull, "Bad prim_root_q result!");
 		} else {
-			ASSERT(HERE, root_re == 1ull && root_im == 0ull, "Bad prim_root_q result!");
+			ASSERT(root_re == 1ull && root_im == 0ull, "Bad prim_root_q result!");
 		}
 	}
 
@@ -2873,7 +2858,7 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	printf("FGT: prim-root of order %u = %llu + I*%llu, Conjugate = %llu + I*%llu [q-Im = %llu]\n",(uint32)order, root_re,root_im, re,im,q-im);
 //	FGT: prim-root of order 16 = 1693317751237720973 + I*2283815672160731785,
 //					Conjugate =  1693317751237720973 + I*  22027337052962166 [q-Im = 2283815672160731785]
-	ASSERT(HERE, root_re == re && root_im == (q-im), "Bad power-of-2 conjugate!");
+	ASSERT(root_re == re && root_im == (q-im), "Bad power-of-2 conjugate!");
 
 	// Non-power-of-2 roots satisfy no simple conjugate rules, so multiply root and its conjugate together as sanity check:
 	order = 24;	prim_root_q(order, &root_re,&root_im);
@@ -2881,7 +2866,7 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	printf("FGT: prim-root of order %u = %llu + I*%llu, Conjugate = %llu + I*%llu [q-Im = %llu]\n",(uint32)order, root_re,root_im, re,im,q-im);
 	cmul_modq(root_re,root_im, re,im, &re,&im);
 	re = qreduce_full(re);	im = qreduce_full(im);
-	ASSERT(HERE, re == 1ull && im == 0ull, "Bad non-power-of-2 conjugate!");
+	ASSERT(re == 1ull && im == 0ull, "Bad non-power-of-2 conjugate!");
 /*
 	24th root:
 	FGT: prim-root of order 24 = 244692701471512749 + I*2061150307742181202,
@@ -2944,10 +2929,10 @@ The four [+-d,+-d] and four powers of I are just the eight 8th roots of unity wh
 		order *= odd_ord_facs[i];
 		prim_root_q(order, &root_re,&root_im);
 	//	printf("FGT: prim-root of order %llu = %llu + I*%llu\n",order, root_re,root_im);
-		ASSERT(HERE, root_im == 0ull, "Odd roots must be strictly real!!");
+		ASSERT(root_im == 0ull, "Odd roots must be strictly real!!");
 		// Check order-primitivity of roots by raising result to (order)th power; result must == -1 (mod q):
 		pow_modq(order, root_re,root_im, &root_re,&root_im);
-		ASSERT(HERE, root_re == 1ull && root_im == 0ull, "Bad prim_root_q result!");
+		ASSERT(root_re == 1ull && root_im == 0ull, "Bad prim_root_q result!");
 	}
 	printf("fgt_m61 tests completed successfully!\n");
 #endif
@@ -3040,9 +3025,9 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 		const double prod1_adj = 3.0;	// Const to multiply by base and add to prod[1] to ensure latter >= 0
 		if(!sc_arr) {
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 8);
-			if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Remember, rhese are POINTERS-TO-DOUBLES, so need an increment of 4 to span an AVX register: */
 			tmp = (double *)sc_ptr;
 			ax  = tmp + 0;	bx  = tmp + 1;	cx  = tmp + 2;	dx  = tmp + 3;	tmp += 4;
@@ -3062,7 +3047,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 		for(pow2 = 48; pow2 < 54; ++pow2) {
 			// Only makes sense to test up the #bits in an IEEE-double mantissa: Any larger and we start losing
 			// LSBs (I.e. the test may 'succeed' for pow2 > 53, but is only testing the equivalent of pow2 = 53):
-			ASSERT(HERE, pow2 < 54, "No point testing > 53-bit inputs due to loss of LSBs!");
+			ASSERT(pow2 < 54, "No point testing > 53-bit inputs due to loss of LSBs!");
 			printf("Testing fma_dmult for %d bits, dmult = %f:\n",pow2,pow2_dmult);
 			l2lo = l2hi = cy_max = 0.;	// Init log2-range-bounds-storing vars
 			for(j = 0; j < 4; j++) {
@@ -3149,10 +3134,10 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					printf("I = %d: dx = %llu dy = %llu dhi,dlo = %f,%f\n",i, *dx,*dy, *dhi,*dlo);
 				}
 			  */
-				if(cmp_fma_lohi_vs_exact(*ax,*ay,*ahi,*alo, iax,iay,iahi,ialo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, A-outputs differ!\n",pow2,i); ASSERT(HERE, 0, "fma_dmult tests failed!"); }
-				if(cmp_fma_lohi_vs_exact(*bx,*by,*bhi,*blo, ibx,iby,ibhi,iblo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, B-outputs differ!\n",pow2,i); ASSERT(HERE, 0, "fma_dmult tests failed!"); }
-				if(cmp_fma_lohi_vs_exact(*cx,*cy,*chi,*clo, icx,icy,ichi,iclo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, C-outputs differ!\n",pow2,i); ASSERT(HERE, 0, "fma_dmult tests failed!"); }
-				if(cmp_fma_lohi_vs_exact(*dx,*dy,*dhi,*dlo, idx,idy,idhi,idlo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, D-outputs differ!\n",pow2,i); ASSERT(HERE, 0, "fma_dmult tests failed!"); }
+				if(cmp_fma_lohi_vs_exact(*ax,*ay,*ahi,*alo, iax,iay,iahi,ialo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, A-outputs differ!\n",pow2,i); ASSERT(0, "fma_dmult tests failed!"); }
+				if(cmp_fma_lohi_vs_exact(*bx,*by,*bhi,*blo, ibx,iby,ibhi,iblo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, B-outputs differ!\n",pow2,i); ASSERT(0, "fma_dmult tests failed!"); }
+				if(cmp_fma_lohi_vs_exact(*cx,*cy,*chi,*clo, icx,icy,ichi,iclo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, C-outputs differ!\n",pow2,i); ASSERT(0, "fma_dmult tests failed!"); }
+				if(cmp_fma_lohi_vs_exact(*dx,*dy,*dhi,*dlo, idx,idy,idhi,idlo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, D-outputs differ!\n",pow2,i); ASSERT(0, "fma_dmult tests failed!"); }
 			  #if 0
 				#error to-do!
 				double r1,r2, lo,hi;
@@ -3386,7 +3371,7 @@ much except as an auxiliary utility.
 uint32 reverse(uint32 i, uint32 nbits)
 {
 	uint32 j, tmp = 0;
-	ASSERT(HERE,nbits <= 32,"ERROR: bitlength limit 32 exceeded in call to REVERSE.\n");
+	ASSERT(nbits <= 32,"ERROR: bitlength limit 32 exceeded in call to REVERSE.\n");
 	for(j = 0; j < nbits; j++) {
 		tmp += tmp + (i & 1);
 		i >>= 1;
@@ -3595,7 +3580,7 @@ int ith_set_bit32(uint32 x, uint32 bit)
 	uint8 curr_byte;
 	int curr_pop,i,j,k,retval = 0;
 	if(!x || !bit) return -1;
-	ASSERT(HERE, bit <= 32, "[bit]th-bit specifier out of range!");
+	ASSERT(bit <= 32, "[bit]th-bit specifier out of range!");
 	// Find the byte in which the [bit]th set-bit occurs:
 	for(i = 0; i < 32; i += 8) {
 		curr_byte = (uint8)(x >> i);
@@ -3619,7 +3604,7 @@ int ith_set_bit64(uint64 x, uint32 bit)
 	uint8 curr_byte;
 	int curr_pop,i,j,k,retval = 0;
 	if(!x || !bit) return -1;
-	ASSERT(HERE, bit <= 64, "[bit]th-bit specifier out of range!");
+	ASSERT(bit <= 64, "[bit]th-bit specifier out of range!");
 	// Find the byte in which the [bit]th set-bit occurs:
 	for(i = 0; i < 64; i += 8) {
 		curr_byte = (uint8)(x >> i);
@@ -3901,7 +3886,7 @@ DEV uint64	getbits64(uint64 x, uint32 src_bit_start, uint32 nbits, uint32 tgt_bi
 {
 	const uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
 	uint64 mask;
-	ASSERT(HERE, (nbits <= 64) && (src_bit_start+nbits <= 64) && (tgt_bit_start < 64), "Illegal bit-index parameters!");
+	ASSERT((nbits <= 64) && (src_bit_start+nbits <= 64) && (tgt_bit_start < 64), "Illegal bit-index parameters!");
 	if(nbits == 0) return 0;
 	mask = (ones_mask >> (64-nbits));
 	return ((x >> src_bit_start) & mask) << tgt_bit_start;
@@ -3914,7 +3899,7 @@ DEV void	mvbits64(uint64 x, uint32 src_bit_start, uint32 nbits, uint64*y, uint32
 {
 	const uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
 	uint64 mask;
-	ASSERT(HERE, (nbits <= 64) && (src_bit_start+nbits <= 64) && (tgt_bit_start < 64), "Illegal bit-index parameters!");
+	ASSERT((nbits <= 64) && (src_bit_start+nbits <= 64) && (tgt_bit_start < 64), "Illegal bit-index parameters!");
 	if(nbits == 0) return;
 	mask = (ones_mask >> (64-nbits));
 	/* Zero out the target bits: */
@@ -3991,7 +3976,7 @@ DEV uint32 is_prime(uint32 n) {
 // Get nearest Fermat 2-PRP to N in the specified search direction, up or down. Algorithm is slow try-next-odd:
 DEV uint32 next_prime(uint32 n, int dir) {
 	// direction properly specified?
-	ASSERT(HERE, ABS(dir) == 1,"next_prime(): Direction of search not properly specified, must = +1 (up) or -1 (down).");
+	ASSERT(ABS(dir) == 1,"next_prime(): Direction of search not properly specified, must = +1 (up) or -1 (down).");
 	// Some special-casing for small n:
 	if(n <= 3 && dir == -1) {
 		return(2*(n == 3));
@@ -4124,7 +4109,7 @@ DEV uint32 twompmodq32(uint32 p, uint32 q)	// 2^-p % q
 	 int32 j;
 	uint32 lead5, pshift, qhalf, qinv, zshift, start_index, x, lo, hi;
 
-	ASSERT(HERE, (q&1) == 1, "twompmodq32: even modulus!");
+	ASSERT((q&1) == 1, "twompmodq32: even modulus!");
 	qhalf = q >> 1;	/* = (q-1)/2, since q odd. */
 
 	pshift = p + 32;
@@ -4166,7 +4151,7 @@ DEV uint32 twompmodq32(uint32 p, uint32 q)	// 2^-p % q
 
 	if((pshift >> j) & (uint32)1)
 	{
-		DBG_ASSERT(HERE, x < q,"util.c: x < q");
+		DBG_ASSERT(x < q,"util.c: x < q");
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(x > qhalf) {
 			x += x;
@@ -4201,7 +4186,7 @@ DEV int twopmodq32(uint32 p, uint32 q)	// (2^-p % q) == 0
 	 int32 j;
 	uint32 lead5, pshift, qhalf, qinv, zshift, start_index, x, lo, hi;
 
-	ASSERT(HERE, (q&1) == 1, "twopmodq32: even modulus!");
+	ASSERT((q&1) == 1, "twopmodq32: even modulus!");
 	qhalf = q >> 1;	/* = (q-1)/2, since q odd. */
 	pshift = p + 32;
 	if(pshift < p)	/* Need special-casing for p just below 2^32  - the primes 2^32-(5,17) are good testcases here. */
@@ -4253,7 +4238,7 @@ DEV int twopmodq32(uint32 p, uint32 q)	// (2^-p % q) == 0
 
 	if((pshift >> j) & (uint32)1)
 	{
-		DBG_ASSERT(HERE, x < q,"util.c: x < q");
+		DBG_ASSERT(x < q,"util.c: x < q");
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(x > qhalf) {
 			x += x;
@@ -4314,7 +4299,7 @@ DEV int twopmodq32_x8(uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 q4, uin
 	uint32 lead6, pshift6, qinv6, zshift6, x6, lo6, hi6, qhalf6;
 	uint32 lead7, pshift7, qinv7, zshift7, x7, lo7, hi7, qhalf7;
 
-	DBG_ASSERT(HERE, (q0 < q1) && (q1 < q2) && (q2 < q3) && (q3 < q4) && (q4 < q5) && (q5 < q6) && (q6 < q7), "twopmodq32_x8: Inputs nonmonotone!");
+	DBG_ASSERT((q0 < q1) && (q1 < q2) && (q2 < q3) && (q3 < q4) && (q4 < q5) && (q5 < q6) && (q6 < q7), "twopmodq32_x8: Inputs nonmonotone!");
 
 	qhalf0 = q0 >> 1;	/* = (q-1)/2, since q odd. */
 	qhalf1 = q1 >> 1;
@@ -4445,14 +4430,14 @@ DEV int twopmodq32_x8(uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 q4, uin
 	x7  = q7 - lo7;
 
 	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
-	if((pshift0 >> j) & (uint32)1){ DBG_ASSERT(HERE, x0 < q0,"util.c: x0 < q0"); x0 = x0 + x0 - ((-(x0 > qhalf0)) & q0); }
-	if((pshift1 >> j) & (uint32)1){ DBG_ASSERT(HERE, x1 < q1,"util.c: x1 < q1"); x1 = x1 + x1 - ((-(x1 > qhalf1)) & q1); }
-	if((pshift2 >> j) & (uint32)1){ DBG_ASSERT(HERE, x2 < q2,"util.c: x2 < q2"); x2 = x2 + x2 - ((-(x2 > qhalf2)) & q2); }
-	if((pshift3 >> j) & (uint32)1){ DBG_ASSERT(HERE, x3 < q3,"util.c: x3 < q3"); x3 = x3 + x3 - ((-(x3 > qhalf3)) & q3); }
-	if((pshift4 >> j) & (uint32)1){ DBG_ASSERT(HERE, x4 < q4,"util.c: x4 < q4"); x4 = x4 + x4 - ((-(x4 > qhalf4)) & q4); }
-	if((pshift5 >> j) & (uint32)1){ DBG_ASSERT(HERE, x5 < q5,"util.c: x5 < q5"); x5 = x5 + x5 - ((-(x5 > qhalf5)) & q5); }
-	if((pshift6 >> j) & (uint32)1){ DBG_ASSERT(HERE, x6 < q6,"util.c: x6 < q6"); x6 = x6 + x6 - ((-(x6 > qhalf6)) & q6); }
-	if((pshift7 >> j) & (uint32)1){ DBG_ASSERT(HERE, x7 < q7,"util.c: x7 < q7"); x7 = x7 + x7 - ((-(x7 > qhalf7)) & q7); }
+	if((pshift0 >> j) & (uint32)1){ DBG_ASSERT(x0 < q0,"util.c: x0 < q0"); x0 = x0 + x0 - ((-(x0 > qhalf0)) & q0); }
+	if((pshift1 >> j) & (uint32)1){ DBG_ASSERT(x1 < q1,"util.c: x1 < q1"); x1 = x1 + x1 - ((-(x1 > qhalf1)) & q1); }
+	if((pshift2 >> j) & (uint32)1){ DBG_ASSERT(x2 < q2,"util.c: x2 < q2"); x2 = x2 + x2 - ((-(x2 > qhalf2)) & q2); }
+	if((pshift3 >> j) & (uint32)1){ DBG_ASSERT(x3 < q3,"util.c: x3 < q3"); x3 = x3 + x3 - ((-(x3 > qhalf3)) & q3); }
+	if((pshift4 >> j) & (uint32)1){ DBG_ASSERT(x4 < q4,"util.c: x4 < q4"); x4 = x4 + x4 - ((-(x4 > qhalf4)) & q4); }
+	if((pshift5 >> j) & (uint32)1){ DBG_ASSERT(x5 < q5,"util.c: x5 < q5"); x5 = x5 + x5 - ((-(x5 > qhalf5)) & q5); }
+	if((pshift6 >> j) & (uint32)1){ DBG_ASSERT(x6 < q6,"util.c: x6 < q6"); x6 = x6 + x6 - ((-(x6 > qhalf6)) & q6); }
+	if((pshift7 >> j) & (uint32)1){ DBG_ASSERT(x7 < q7,"util.c: x7 < q7"); x7 = x7 + x7 - ((-(x7 > qhalf7)) & q7); }
 
 	for(j = start_index-2; j >= 0; j--)
 	{
@@ -4493,14 +4478,14 @@ DEV int twopmodq32_x8(uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 q4, uin
 		x7 = hi7 - lo7 + ((-(hi7 < lo7)) & q7);
 
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
-		if((pshift0 >> j) & (uint32)1){ DBG_ASSERT(HERE, x0 < q0,"util.c: x0 < q0"); x0 = x0 + x0 - ((-(x0 > qhalf0)) & q0); }
-		if((pshift1 >> j) & (uint32)1){ DBG_ASSERT(HERE, x1 < q1,"util.c: x1 < q1"); x1 = x1 + x1 - ((-(x1 > qhalf1)) & q1); }
-		if((pshift2 >> j) & (uint32)1){ DBG_ASSERT(HERE, x2 < q2,"util.c: x2 < q2"); x2 = x2 + x2 - ((-(x2 > qhalf2)) & q2); }
-		if((pshift3 >> j) & (uint32)1){ DBG_ASSERT(HERE, x3 < q3,"util.c: x3 < q3"); x3 = x3 + x3 - ((-(x3 > qhalf3)) & q3); }
-		if((pshift4 >> j) & (uint32)1){ DBG_ASSERT(HERE, x4 < q4,"util.c: x4 < q4"); x4 = x4 + x4 - ((-(x4 > qhalf4)) & q4); }
-		if((pshift5 >> j) & (uint32)1){ DBG_ASSERT(HERE, x5 < q5,"util.c: x5 < q5"); x5 = x5 + x5 - ((-(x5 > qhalf5)) & q5); }
-		if((pshift6 >> j) & (uint32)1){ DBG_ASSERT(HERE, x6 < q6,"util.c: x6 < q6"); x6 = x6 + x6 - ((-(x6 > qhalf6)) & q6); }
-		if((pshift7 >> j) & (uint32)1){ DBG_ASSERT(HERE, x7 < q7,"util.c: x7 < q7"); x7 = x7 + x7 - ((-(x7 > qhalf7)) & q7); }
+		if((pshift0 >> j) & (uint32)1){ DBG_ASSERT(x0 < q0,"util.c: x0 < q0"); x0 = x0 + x0 - ((-(x0 > qhalf0)) & q0); }
+		if((pshift1 >> j) & (uint32)1){ DBG_ASSERT(x1 < q1,"util.c: x1 < q1"); x1 = x1 + x1 - ((-(x1 > qhalf1)) & q1); }
+		if((pshift2 >> j) & (uint32)1){ DBG_ASSERT(x2 < q2,"util.c: x2 < q2"); x2 = x2 + x2 - ((-(x2 > qhalf2)) & q2); }
+		if((pshift3 >> j) & (uint32)1){ DBG_ASSERT(x3 < q3,"util.c: x3 < q3"); x3 = x3 + x3 - ((-(x3 > qhalf3)) & q3); }
+		if((pshift4 >> j) & (uint32)1){ DBG_ASSERT(x4 < q4,"util.c: x4 < q4"); x4 = x4 + x4 - ((-(x4 > qhalf4)) & q4); }
+		if((pshift5 >> j) & (uint32)1){ DBG_ASSERT(x5 < q5,"util.c: x5 < q5"); x5 = x5 + x5 - ((-(x5 > qhalf5)) & q5); }
+		if((pshift6 >> j) & (uint32)1){ DBG_ASSERT(x6 < q6,"util.c: x6 < q6"); x6 = x6 + x6 - ((-(x6 > qhalf6)) & q6); }
+		if((pshift7 >> j) & (uint32)1){ DBG_ASSERT(x7 < q7,"util.c: x7 < q7"); x7 = x7 + x7 - ((-(x7 > qhalf7)) & q7); }
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
@@ -4565,9 +4550,9 @@ DEV uint32 egcd32_B(int32 *x, int32 *y)
 	int32 d, e, f;
 
 	if(*x == *y) {
-		printf("ERROR: eGCD of identical arguments x = y = %u is illegal!\n", *x);	ASSERT(HERE, 0,"0");
+		printf("ERROR: eGCD of identical arguments x = y = %u is illegal!\n", *x);	ASSERT(0,"0");
 	} else if((*x == 0) || (*y == 0)) {
-		printf("ERROR: eGCD called with zero input: x = %u, y = %u\n", *x, *y);		ASSERT(HERE, 0,"0");
+		printf("ERROR: eGCD called with zero input: x = %u, y = %u\n", *x, *y);		ASSERT(0,"0");
 	}
 
 	while(w) {
@@ -4598,9 +4583,9 @@ DEV uint32 egcd32(uint32 *x, uint32 *y)
 	uint32 d, e, f;
 
 	if(*x == *y) {
-		printf("ERROR: eGCD of identical arguments x = y = %u is illegal!\n", *x);	ASSERT(HERE, 0,"0");
+		printf("ERROR: eGCD of identical arguments x = y = %u is illegal!\n", *x);	ASSERT(0,"0");
 	} else if((*x == 0) || (*y == 0)) {
-		printf("ERROR: eGCD called with zero input: x = %u, y = %u\n", *x, *y);		ASSERT(HERE, 0,"0");
+		printf("ERROR: eGCD called with zero input: x = %u, y = %u\n", *x, *y);		ASSERT(0,"0");
 	}
 
 	while(w)
@@ -4638,9 +4623,9 @@ DEV uint64 egcd64(uint64 *x, uint64 *y)
 	/* Sign of these 3 doesn't matter since they're just temporaries: */
 	uint64 d, e, f;
 	if(*x == *y) {
-		printf("ERROR: eGCD of identical arguments x = y = %llu is illegal!\n", *x);	ASSERT(HERE, 0,"0");
+		printf("ERROR: eGCD of identical arguments x = y = %llu is illegal!\n", *x);	ASSERT(0,"0");
 	} else if((*x | *y) == 0ull) {
-		printf("ERROR: eGCD called with zero input: x = %llu, y = %llu\n", *x, *y);		ASSERT(HERE, 0,"0");
+		printf("ERROR: eGCD called with zero input: x = %llu, y = %llu\n", *x, *y);		ASSERT(0,"0");
 	}
 	while(w) {
 		q = g/w;
@@ -4672,8 +4657,8 @@ int32 x2 = z, y2 = n, gcd2;
 	if(x2 < 0)	// since egcd32() only does positive-result normalization on x-output, only do it here to the egcd32_B x-output
 		x2 += n;
 	if(gcd != gcd2 || x != x2 || y != y2)
-		ASSERT(HERE, 0,"2 gcd results in modinv32 differ!");
-	ASSERT(HERE, gcd == 1,"gcd in modinv32 is non-unity!");
+		ASSERT(0,"2 gcd results in modinv32 differ!");
+	ASSERT(gcd == 1,"gcd in modinv32 is non-unity!");
 	return x;
 }
 
@@ -4681,7 +4666,7 @@ DEV int64 modinv64(uint64 z, uint64 n)
 {
 	uint64 x = z, y = n, gcd;
 	gcd = egcd64(&x, &y);
-	ASSERT(HERE, gcd == 1ull,"gcd in modinv64 is non-unity!");
+	ASSERT(gcd == 1ull,"gcd in modinv64 is non-unity!");
 	return x;
 }
 
@@ -5350,7 +5335,7 @@ double	convert_base10_char_double (const char*char_buf)
 
 			if(c == '.')	/* Found a decimal point */
 			{
-				ASSERT(HERE, curr_mul == 0.0,"curr_mul == 0.0");	/* Make sure this is the first . we've encountered */
+				ASSERT(curr_mul == 0.0,"curr_mul == 0.0");	/* Make sure this is the first . we've encountered */
 				curr_mul = 1.0;
 				continue;
 			}
@@ -5361,12 +5346,12 @@ double	convert_base10_char_double (const char*char_buf)
 			else
 			{
 				fprintf(stderr,"convert_base10_char_double: isdigit(c) fails, s = %s, i = %u, c = %c\n", char_buf, i, c);
-				ASSERT(HERE, curr_mul == 0.0,"curr_mul == 0.0");
+				ASSERT(curr_mul == 0.0,"curr_mul == 0.0");
 			}
 		}
 		curr_mul *= 0.1;	/* Only has an effect if we're to the right of the DP */
 		curr_digit = (uint64)(c - CHAROFFSET);
-		ASSERT(HERE, curr_digit < 10,"convert_base10_char_double: curr_digit < 10");
+		ASSERT(curr_digit < 10,"convert_base10_char_double: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
 	#ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
@@ -5376,7 +5361,7 @@ double	convert_base10_char_double (const char*char_buf)
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_double: Offending input string = %s\n", char_buf);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		curr_sum += curr_digit;	/* Since currsum now a multiple of 10, adding a single digit at the low end can't overflow */
 	}
@@ -5435,11 +5420,11 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 			else
 			{
 				fprintf(stderr,"convert_base10_char_uint64: isdigit(c) fails, s = %s, i = %u, c = %c\n", char_buf, i, c);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 		curr_digit = (uint64)(c - CHAROFFSET);
-		ASSERT(HERE, curr_digit < 10,"convert_base10_char_uint64: curr_digit < 10");
+		ASSERT(curr_digit < 10,"convert_base10_char_uint64: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
 	#ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
@@ -5449,7 +5434,7 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_uint64: Offending input string = %s\n", char_buf);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		curr_sum += curr_digit;	/* Since currsum now a multiple of 10, adding a single digit at the low end can't overflow */
 	}
@@ -5503,11 +5488,11 @@ uint128	convert_base10_char_uint128(const char*char_buf)
 			else
 			{
 				fprintf(stderr,"convert_base10_char_uint128: isdigit(c) fails, s = %s, i = %u, c = %c\n", char_buf, i, c);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 		curr_digit = (uint64)(c - CHAROFFSET);
-		ASSERT(HERE, curr_digit < 10,"util.c: curr_digit < 10");
+		ASSERT(curr_digit < 10,"util.c: curr_digit < 10");
 		/* currsum *= 10, and check for overflow: */
 		tmp = mi64_mul_scalar(curr_sum, (uint64)10, curr_sum, len);
 		if(tmp != 0)
@@ -5515,13 +5500,13 @@ uint128	convert_base10_char_uint128(const char*char_buf)
 			if(len == LEN_MAX)
 			{
 				fprintf(stderr, "ERROR: Mul-by-10 overflows in CONVERT_BASE10_CHAR_UINT128: Offending input string = %s\n", char_buf);
-				ASSERT(HERE, len <= LEN_MAX,"len <= LEN_MAX");
+				ASSERT(len <= LEN_MAX,"len <= LEN_MAX");
 			}
 			curr_sum[len++] = tmp;
 		}
 
 		len += mi64_add_scalar(curr_sum, curr_digit, curr_sum, len);
-		ASSERT(HERE, len <= LEN_MAX,"len <= LEN_MAX");
+		ASSERT(len <= LEN_MAX,"len <= LEN_MAX");
 	}
 
 	x128.d0 = curr_sum[0];
@@ -5566,11 +5551,11 @@ uint192	convert_base10_char_uint192(const char*char_buf)
 			else
 			{
 				fprintf(stderr,"convert_base10_char_uint192: isdigit(c) fails, s = %s, i = %u, c = %c\n", char_buf, i, c);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 		curr_digit = (uint64)(c - CHAROFFSET);
-		ASSERT(HERE, curr_digit < 10,"util.c: curr_digit < 10");
+		ASSERT(curr_digit < 10,"util.c: curr_digit < 10");
 		/* currsum *= 10, and check for overflow: */
 		tmp = mi64_mul_scalar(curr_sum, (uint64)10, curr_sum, len);
 		if(tmp != 0)
@@ -5578,13 +5563,13 @@ uint192	convert_base10_char_uint192(const char*char_buf)
 			if(len == LEN_MAX)
 			{
 				fprintf(stderr, "ERROR: Mul-by-10 overflows in CONVERT_BASE10_CHAR_UINT192: Offending input string = %s\n", char_buf);
-				ASSERT(HERE, len <= LEN_MAX,"len <= LEN_MAX");
+				ASSERT(len <= LEN_MAX,"len <= LEN_MAX");
 			}
 			curr_sum[len++] = tmp;
 		}
 
 		len += mi64_add_scalar(curr_sum, curr_digit, curr_sum, len);
-		ASSERT(HERE, len <= LEN_MAX,"len <= LEN_MAX");
+		ASSERT(len <= LEN_MAX,"len <= LEN_MAX");
 	}
 
 	x192.d0 = curr_sum[0];
@@ -5630,11 +5615,11 @@ uint256	convert_base10_char_uint256(const char*char_buf)
 			else
 			{
 				fprintf(stderr,"convert_base10_char_uint256: isdigit(c) fails, s = %s, i = %u, c = %c\n", char_buf, i, c);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 		curr_digit = (uint64)(c - CHAROFFSET);
-		ASSERT(HERE, curr_digit < 10,"util.c: curr_digit < 10");
+		ASSERT(curr_digit < 10,"util.c: curr_digit < 10");
 		/* currsum *= 10, and check for overflow: */
 		tmp = mi64_mul_scalar(curr_sum, (uint64)10, curr_sum, len);
 		if(tmp != 0)
@@ -5642,13 +5627,13 @@ uint256	convert_base10_char_uint256(const char*char_buf)
 			if(len == LEN_MAX)
 			{
 				fprintf(stderr, "ERROR: Mul-by-10 overflows in CONVERT_BASE10_CHAR_UINT256: Offending input string = %s\n", char_buf);
-				ASSERT(HERE, len <= LEN_MAX,"len <= LEN_MAX");
+				ASSERT(len <= LEN_MAX,"len <= LEN_MAX");
 			}
 			curr_sum[len++] = tmp;
 		}
 
 		len += mi64_add_scalar(curr_sum, curr_digit, curr_sum, len);
-		ASSERT(HERE, len <= LEN_MAX,"len <= LEN_MAX");
+		ASSERT(len <= LEN_MAX,"len <= LEN_MAX");
 	}
 
 	x256.d0 = curr_sum[0];
@@ -5730,7 +5715,7 @@ double	finvest(double x, uint32 numbits)
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
 	/* Make sure number is normalized: */
-	ASSERT(HERE, exp != 0,"finvest: denormalized inputs illegal!");
+	ASSERT(exp != 0,"finvest: denormalized inputs illegal!");
 
 	/* Store most-significant 8 non-hidden bits: */
 	byteval = (mant >> 44) & 0x000000ff;
@@ -5770,7 +5755,7 @@ ftmp0 = ftmp;
 	if(fabs(err_num)/fabs(err_den) >= 2e-3)
 	{
 		sprintf(cbuf, "finvtest: ftmp0 too inaccurate! ftmp = %e, ftmp0 = %e, relerr = %e\n", ftmp, ftmp0,fabs(err_num)/fabs(err_den));
-		ASSERT(HERE, 0, cbuf);
+		ASSERT(0, cbuf);
 	}
 
 	return ftmp;
@@ -5799,7 +5784,7 @@ double	fisqrtest(double x, uint32 numbits)
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
 	/* Make sure number is normalized: */
-	ASSERT(HERE, exp != 0,"finvest: denormalized inputs illegal!");
+	ASSERT(exp != 0,"finvest: denormalized inputs illegal!");
 
 	/* Store most-significant 9 non-hidden bits - we'll use either all
 	or the high 8 of these, depending on the parity of the exponent: */
@@ -5873,7 +5858,7 @@ ftmp0 = ftmp;
 	if(fabs(err_num)/fabs(err_den) >= 2e-3)
 	{
 		sprintf(cbuf, "fisqrtest: ftmp0 too inaccurate! ftmp = %e, ftmp0 = %e, relerr = %e\n", ftmp, ftmp0,fabs(err_num)/fabs(err_den));
-		ASSERT(HERE, 0, cbuf);
+		ASSERT(0, cbuf);
 	}
 
 	return ftmp;
@@ -5932,7 +5917,7 @@ ftmp0 = ftmp;
   #ifdef USE_AVX1024
 	int	test_simd_transpose_16x16()
 	{
-		ASSERT(HERE,0,"function not yet supported!");
+		ASSERT(0,"function not yet supported!");
 		return 0;
 	}
   #endif
@@ -5947,7 +5932,7 @@ ftmp0 = ftmp;
 		const int dim = 64;	// #elements in our matrix, allocate 2x this to allow for real/imag side-by-side variant
 		vec_dbl *mem = 0x0, *data;
 		mem = ALLOC_VEC_DBL(mem, 2*dim+4);	// Add 4 pads to allow for alignment on up-to-128-byte boundary
-		data = ALIGN_VEC_DBL(mem);	ASSERT(HERE, ((long)data & 0x1f) == 0, "data not 32-byte aligned!");
+		data = ALIGN_VEC_DBL(mem);	ASSERT(((long)data & 0x1f) == 0, "data not 32-byte aligned!");
 		// Init the matrix -  Input matrix has rows containing [0-7][8-15]...[56-63]:
 		double *dptr = (double *)data;
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }
@@ -7092,7 +7077,7 @@ ftmp0 = ftmp;
 		const int dim = 16;		// #elements in our matrix
 		vec_dbl *mem  = ALLOC_VEC_DBL(mem, dim+4);	// Add 4 pads to allow for alignment on up-to-128-byte boundary
 		vec_dbl *data = ALIGN_VEC_DBL(mem);
-		ASSERT(HERE, ((long)data & 0x1f) == 0, "data not 32-byte aligned!");
+		ASSERT(((long)data & 0x1f) == 0, "data not 32-byte aligned!");
 		// Init the matrix -  Input matrix has rows:
 		double *dptr = (double *)data;	//  0, 1, 2, 3
 		for(i = 0; i < dim; i++) {		//  4, 5, 6, 7
@@ -7251,9 +7236,9 @@ ftmp0 = ftmp;
 								13.,15.,31.,16.,-17.,27.,45.,28.,6.,-25.,-24.,15.,-6.,-1.,48.,-57.};
 		vec_dbl *c_tmp,*s_tmp, *cc0,*two, *r0,*r1,*r2,*r3;
 		// Alloc 8 vector-complex elts (16 vec_dbl) per input/output block rather than 4, so can also test two radix-4 DFTs done side-by-side:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x42);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x42);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		add0 = sc_ptr;
 		add1 = sc_ptr+0x2;
 		add2 = sc_ptr+0x4;
@@ -7281,7 +7266,7 @@ ftmp0 = ftmp;
 			VEC_DBL_INIT(c_tmp+6, ran[i+8]);	VEC_DBL_INIT(s_tmp+6, ran[i+9]);
 /*
 			// Restructure twiddle-muls to use cotangent-scheme:
-			ASSERT(HERE, ran[i+1] != 0.0 && ran[i+9] != 0.0,"Need to modify test-twiddles to avoid div-by-0!");
+			ASSERT(ran[i+1] != 0.0 && ran[i+9] != 0.0,"Need to modify test-twiddles to avoid div-by-0!");
 			VEC_DBL_INIT(c_tmp  , ran[i  ]/(double)ran[i+1]);	VEC_DBL_INIT(s_tmp  , ran[i+1]);
 			VEC_DBL_INIT(c_tmp+8, ran[i+8]/(double)ran[i+9]);	VEC_DBL_INIT(s_tmp+8, ran[i+9]);
 */
@@ -7502,7 +7487,7 @@ ftmp0 = ftmp;
 			nerr += (fabs(*(dptr+3) - ref1[j+3]) > 1e-10);
 			dptr += 4;
 		}
-		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "Outputs mismatch ref-data!");
 
 	// Timing loop #2 - two radix-4 DFTs (operating on separate data chunks but sharing twiddles) side-by-side:
 		/* 6 May 2016, Core2:
@@ -7542,7 +7527,7 @@ ftmp0 = ftmp;
 			nerr += (*dptr != ref1[j]) + (*(dptr+1) != ref1[j+1]) + (*(dptr+2) != ref1[j+2]) + (*(dptr+3) != ref1[j+3]);
 			dptr += 4;
 		}
-		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "Outputs mismatch ref-data!");
 
 	// Timing loop #3 - single radix-4 DIT DFT:
 		dim = 8*RE_IM_STRIDE;	// 4 vector-complex data
@@ -7565,7 +7550,7 @@ ftmp0 = ftmp;
 			nerr += (*dptr != ref2[j]) + (*(dptr+1) != ref2[j+1]) + (*(dptr+2) != ref2[j+2]) + (*(dptr+3) != ref2[j+3]);
 			dptr += 4;
 		}
-		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "Outputs mismatch ref-data!");
 
 	// Timing loop #4 - two radix-4 DIT DFTs (operating on separate data chunks but sharing twiddles) side-by-side:
 		for(j = 0; j < dim+dim; j++) { *(add0+j) = ran[j]; }
@@ -7588,7 +7573,7 @@ ftmp0 = ftmp;
 			nerr += (*dptr != ref2[j]) + (*(dptr+1) != ref2[j+1]) + (*(dptr+2) != ref2[j+2]) + (*(dptr+3) != ref2[j+3]);
 			dptr += 4;
 		}
-		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "Outputs mismatch ref-data!");
 
 		free((void *)sc_arr);	sc_arr=0x0;
 		return nerr;
@@ -7655,9 +7640,9 @@ ftmp0 = ftmp;
 		const int stride = 2*RE_IM_STRIDE, dim = stride<<4;
 		double c1,c2,c3,c4,c5,c6,c7,c8,c9,cA,cB,cC,cD,cE,cF, s1,s2,s3,s4,s5,s6,s7,s8,s9,sA,sB,sC,sD,sE,sF;
 		static double *a,*a_ptr;	// Dimension = number of scalar-doubles in 16 vector-complex in SIMD build mode
-		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "ERROR: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "ERROR: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		a     = ALIGN_VEC_DBL(a_ptr);
-		ASSERT(HERE, ((long)a & SZ_VDM1) == 0, "a0_ptr not 64-byte aligned!");
+		ASSERT(((long)a & SZ_VDM1) == 0, "a0_ptr not 64-byte aligned!");
 	#ifdef USE_SSE2
 		const int pfetch_dist = 0;
 		int pfetch_addr = 0;	// Don't care about pfetch in this lcal-mem context, so just set these = 0
@@ -7665,9 +7650,9 @@ ftmp0 = ftmp;
 		double *add0,*add1,*add2;	/* Addresses into array sections */
 		vec_dbl *c_tmp,*s_tmp, *i0,*i1,*i2,*i3, *o0,*o1,*o2,*o3;
 		static vec_dbl *cc0, *ss0, *isrt2, *two, *r00;
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & SZ_VDM1) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((long)sc_ptr & SZ_VDM1) == 0, "sc_ptr not 64-byte aligned!");
 		r00 = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
 									cc0 = sc_ptr + 0x21;
 									ss0 = sc_ptr + 0x22;
@@ -8152,7 +8137,7 @@ exit(0);
 		#endif
 		}
 printf("DIF: nerr = %u, ",nerr);
-		ASSERT(HERE, nerr == 0, "DIF Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "DIF Outputs mismatch ref-data!");
 		printf("\tSummed roundoff error = %20.10e]\n",avg_err);
 
 		//******************* Timing loop for Radix-16 DIT transform macro: *******************
@@ -8465,7 +8450,7 @@ exit(0);
 			dtmp = fabs(a[j1+1] - ref2[j2+1]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d0\n");*/ nerr++; };
 		#endif
 		}
-		ASSERT(HERE, nerr == 0, "DIT Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "DIT Outputs mismatch ref-data!");
 		printf("\tSummed roundoff error = %20.10e]\n",avg_err);
 
 	#ifdef USE_SSE2
@@ -8563,9 +8548,9 @@ exit(0);
 		const int stride = 2*RE_IM_STRIDE, dim = stride<<5, idx[32] = {0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62};
 		double cc[32],ss[32];
 		static double *a,*a_ptr;	// Dimension = number of scalar-doubles in 16 vector-complex in SIMD build mode
-		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "ERROR: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "ERROR: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		a     = ALIGN_VEC_DBL(a_ptr);
-		ASSERT(HERE, ((long)a & SZ_VDM1) == 0, "a0_ptr not 64-byte aligned!");
+		ASSERT(((long)a & SZ_VDM1) == 0, "a0_ptr not 64-byte aligned!");
 	#ifdef USE_SSE2
 		const int pfetch_dist = 0;
 		int pfetch_addr = 0;	// Don't care about pfetch in this lcal-mem context, so just set these = 0
@@ -8573,9 +8558,9 @@ exit(0);
 		double *add0;	/* Addresses into array sections */
 		vec_dbl *c_tmp,*s_tmp;
 		static vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00,*r10,*r20,*r30;
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & SZ_VDM1) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((long)sc_ptr & SZ_VDM1) == 0, "sc_ptr not 64-byte aligned!");
 		r00 = sc_ptr;
 		r10 = r00 + 0x10;
 		r20 = r00 + 0x20;
@@ -8756,7 +8741,7 @@ exit(0);
 			nerr += (fabs(a[j1+1] - ref1[j2+1]) > 1e-10);
 		#endif
 		}
-		ASSERT(HERE, nerr == 0, "DIF Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "DIF Outputs mismatch ref-data!");
 		printf("\tSummed roundoff error = %20.10e]\n",avg_err);
 	#if 0
 		10^6-timing:	setup	+=DIF	DIF-only
@@ -8877,7 +8862,7 @@ exit(0);
 			nerr += (fabs(a[j1+1] - ref2[j2+1]) > 1e-10);
 		#endif
 		}
-		ASSERT(HERE, nerr == 0, "DIT Outputs mismatch ref-data!");
+		ASSERT(nerr == 0, "DIT Outputs mismatch ref-data!");
 		printf("\tSummed roundoff error = %20.10e]\n",avg_err);
 	#if 0
 		10^6-timing:	setup	+=DIF	DIF-only
@@ -8993,7 +8978,7 @@ exit(0);
 		int ncpu = get_num_cores(), nshift, nextra;
 		printf("Mlucas running as system-created pthread %u, threading self-test will use %d user-created pthreads.\n", (int)pth, nthreads);
 		if(verbose) {
-			ASSERT(HERE, nthreads > 0,"Mlucas.c: nthreads > 0");
+			ASSERT(nthreads > 0,"Mlucas.c: nthreads > 0");
 			if(nthreads > ncpu) {
 				printf("WARN: Test using more threads[%d] than there are available CPUs[%d].\n", nthreads, ncpu);
 			}
@@ -9088,7 +9073,7 @@ exit(0);
 
 		// 10 sequential iters of test loop yield successive values -1452071552,1390824192,-61247360,-1513318912,1329576832,
 		// -122494720,-1574566272,1268329472,-1837420,-1635813632:
-		ASSERT(HERE, isum == -1635813632, "retval error!");
+		ASSERT(isum == -1635813632, "retval error!");
 		return 0;
 	}
 
@@ -9123,7 +9108,7 @@ exit(0);
 		int i;                      /* counter, to print numbers */
 		int j;                      /* counter, for delay        */
 		int k = 0;	/* accumulator to keep gcc from otimizing away delay-multiply inside test loop */
-		ASSERT(HERE, thread_arg != 0x0, "do_loop test function for pthread-test needs live thread_arg pointer!");
+		ASSERT(thread_arg != 0x0, "do_loop test function for pthread-test needs live thread_arg pointer!");
 
 	  #if 0	// BSD thread affinity API barfs in my Mac builds
 		cpuset_t *cset;
@@ -9132,7 +9117,7 @@ exit(0);
 
 		cset = cpuset_create();
 		if (cset == NULL) {
-			ASSERT(HERE, 0, "cpuset_create");
+			ASSERT(0, "cpuset_create");
 		}
 		ci = 0;
 		cpuset_set(ci, cset);
@@ -9140,7 +9125,7 @@ exit(0);
 		pth = pthread_self();
 		error = pthread_setaffinity_np(pth, cpuset_size(cset), cset);
 		if (error) {
-			ASSERT(HERE, 0, "pthread_setaffinity_np");
+			ASSERT(0, "pthread_setaffinity_np");
 		}
 		cpuset_destroy(cset);
 	  #endif
@@ -9173,19 +9158,19 @@ exit(0);
 		nobjs2 = hwloc_get_nbobjs_by_depth(topology, depth);
 		if(nobjs1 != nobjs2) {
 			snprintf(cbuf,STR_MAX_LEN*2,"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
-			ASSERT(HERE,0,cbuf);
+			ASSERT(0,cbuf);
 		}
 		// Loop over HWLOC_OBJ_CORE objects corr. to index range:
 		for (i = lidx_lo; i <= lidx_hi; i++) {
 			hwloc_obj_t obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_CORE, i);
 			if (!obj) {
-				snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
+				snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
 			}
-			ASSERT(HERE, obj->type == HWLOC_OBJ_CORE, "[hwloc] Error: Object not of expected type CORE.");
+			ASSERT(obj->type == HWLOC_OBJ_CORE, "[hwloc] Error: Object not of expected type CORE.");
 			while(obj && (obj->type != HWLOC_OBJ_PACKAGE)) {
 				obj = obj->parent;
 			}
-			ASSERT(HERE, obj != 0, "[hwloc] Error: PACKAGE Object not found.");
+			ASSERT(obj != 0, "[hwloc] Error: PACKAGE Object not found.");
 			if(obj->logical_index != socket_idx) {
 				nsockets++;
 				socket_idx = obj->logical_index;
@@ -9202,22 +9187,22 @@ exit(0);
 	{
 		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,j,bit,word;
 		char *char_addr = istr, *endp;
-		ASSERT(HERE, char_addr != 0x0, "Null input-string pointer!");
+		ASSERT(char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);
 		if(len == 0) return 0;	// Allow 0-length input, resulting in no-op
-		ASSERT(HERE, len <= STR_MAX_LEN, "Excessive input-substring length!");
-		lo = strtoul(char_addr, &endp, 10);	ASSERT(HERE, lo >= 0, "lo-substring not a valid nonnegative number!");
+		ASSERT(len <= STR_MAX_LEN, "Excessive input-substring length!");
+		lo = strtoul(char_addr, &endp, 10);	ASSERT(lo >= 0, "lo-substring not a valid nonnegative number!");
 		if(*endp) {
-			ASSERT(HERE, *endp == ':', "Non-colon separator in core-affinity-triplet substring!");
+			ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 			char_addr = endp+1;
 			hi = strtoul(char_addr, &endp, 10);
-			ASSERT(HERE, hi >= lo, "hi-substring not a valid number >= lo!");
+			ASSERT(hi >= lo, "hi-substring not a valid number >= lo!");
 			if(*endp) {
-				ASSERT(HERE, *endp == ':', "Non-colon separator in core-affinity-triplet substring!");
+				ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 				char_addr = endp+1;
 				incr = strtoul(char_addr, &endp, 10);
-				ASSERT(HERE, incr > 0, "incr-substring not a valid positive number!");
-				ASSERT(HERE, *endp == 0x0, "Non-numeric increment substring in core-affinity-triplet substring!");
+				ASSERT(incr > 0, "incr-substring not a valid positive number!");
+				ASSERT(*endp == 0x0, "Non-numeric increment substring in core-affinity-triplet substring!");
 			} else {
 				// If increment (third) argument of triplet omitted, default to incr = 1.
 			}
@@ -9241,7 +9226,7 @@ exit(0);
 				hwloc_obj_t obj_core, obj_pu;
 				obj_core = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CORE, i);
 				if (!obj_core) {
-					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(HERE,0,cbuf);
+					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
 				}
 				// 2. for each HWLOC_OBJ_CORE object in the above set, verify that it has at least (n) children
 				/*
@@ -9252,14 +9237,14 @@ exit(0);
 					'-cpu 0:11', or even more simply '-nthread 12') to use all 12 threads.
 				*/
 				if (obj_core->arity < incr) {
-					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(HERE,0,cbuf);
+					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(0,cbuf);
 				}
 				for (j = 0; j < incr; j++) {
 					obj_pu = obj_core->children[j];
 					// Set bit = (obj_pu->logical_index) in CORE_SET bitmap, used in thread-affinity setting:
 					bit = obj_pu->logical_index;
 					if(mi64_test_bit(CORE_SET, bit)) {
-						sprintf(cbuf, "HWLOC_OBJ_PU %d multiply specified in affinity-setting!",bit);	ASSERT(HERE, 0, cbuf);
+						sprintf(cbuf, "HWLOC_OBJ_PU %d multiply specified in affinity-setting!",bit);	ASSERT(0, cbuf);
 					} else {
 						mi64_set_bit(CORE_SET, bit, MAX_CORES>>6, 1);
 					#if INCLUDE_HWLOC==2
@@ -9273,8 +9258,8 @@ exit(0);
 			// CPU set encoded by integer-triplet argument corresponds to values of integer loop
 			// index i in the C-loop for(i = lo; i < hi; i += incr), excluding loop-exit value of i:
 			for(i = lo; i <= hi; i += incr, ncpu++) {
-				word = i>>6; bit = i & 63;	ASSERT(HERE, word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
-				if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(HERE, 0, cbuf); }
+				word = i>>6; bit = i & 63;	ASSERT(word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
+				if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(0, cbuf); }
 				else { CORE_SET[word] |= 1ull<<bit; }
 			}
 		}
@@ -9287,10 +9272,10 @@ exit(0);
 	{
 		uint32 ncpu = 0, i,bit,word,nc, core_count_oflow = 0;
 		char *char_addr = istr, *cptr;
-		ASSERT(HERE, char_addr != 0x0, "Null input-string pointer!");
+		ASSERT(char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);	// length, not counting the \0 string terminator
-		ASSERT(HERE, len > 0, "Zero input-string length!");
-		ASSERT(HERE, len <= STR_MAX_LEN, "Excessive input-string length!");
+		ASSERT(len > 0, "Zero input-string length!");
+		ASSERT(len <= STR_MAX_LEN, "Excessive input-string length!");
 		// Clear existing core-affinity bitmap:
 		for(i = 0; i < MAX_CORES>>6; i++) { CORE_SET[i] = 0ull; }
 		// Affinity-triplet substrings are delimited by commas:
@@ -9310,7 +9295,7 @@ exit(0);
 			}
 		}
 		printf("\n");
-		ASSERT(HERE, nc == ncpu, "Bitmap #set-bits mismatches #cpu!");
+		ASSERT(nc == ncpu, "Bitmap #set-bits mismatches #cpu!");
 		NTHREADS = ncpu;
 		if(NTHREADS > MAX_THREADS) {	// Test this first, since if true, it implies truth of the 'else' conditional
 		//	fprintf(stderr,"WARN: NTHREADS = %d exceeds number of logical cores = %d ... Affinities for core indices > %d will be set (mod %d).\n",NTHREADS,MAX_THREADS,MAX_THREADS,MAX_THREADS);
@@ -9376,7 +9361,7 @@ char *MLUCAS_PATH = "";
 
    On sucess, set_mlucas_path() returns silently
    On error, set_mlucas_path() prints the cause of error to stderr
-   and calls ASSERT(HERE, 0, "Exiting.");
+   and calls ASSERT(0, "Exiting.");
 
    possible errors:
    unable to allocate buffer
@@ -9464,7 +9449,7 @@ void set_mlucas_path(void)
 	free(mlucas_path);
 	out_err_check:
 	if (has_err)
-		ASSERT(HERE, 0, "Exiting.");
+		ASSERT(0, "Exiting.");
 }
 
 /* Double-quote all spaces in the string pointed by src and write it to dest.
@@ -9530,7 +9515,7 @@ int mkdir_p(char *path)
 	fp = popen(cmdstr, "r");
 	if (fp == NULL) {
 		fprintf(stderr, "ERROR: unable to open pipe fp in mkdir_p()\n");
-		ASSERT(HERE, 0, "Exiting.");
+		ASSERT(0, "Exiting.");
 	}
 	fgets(tmp, STR_MAX_LEN + 1, fp);
 	pclose(fp);
@@ -9601,7 +9586,7 @@ FILE *mlucas_fopen(const char *path, const char *mode)
 */
 void mlucas_fprint(char*const cstr, uint32 echo_to_stderr)
 {
-	ASSERT(HERE, cstr != 0x0 && strlen(cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
+	ASSERT(cstr != 0x0 && strlen(cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
 	if(echo_to_stderr)
 		fprintf(stderr,"%s",cstr);
 	if(echo_to_stderr < 2) {
@@ -9621,7 +9606,7 @@ double mlucas_getOptVal(const char*fname, char*optname)
 {
 	const char func[] = "mlucas_getOptVal";
 	char cstr[STR_MAX_LEN], *cptr,*cadd;
-	ASSERT(HERE, fname != 0x0 && strlen(fname) > 0,"Null filename-pointer or empty string supplied to mlucas_getOptVal!");
+	ASSERT(fname != 0x0 && strlen(fname) > 0,"Null filename-pointer or empty string supplied to mlucas_getOptVal!");
 	FILE *fptr = mlucas_fopen(fname,"r");
 	double result = strtod("NaN", 0x0);
 	if(fptr) {

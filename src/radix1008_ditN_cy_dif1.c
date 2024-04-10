@@ -422,11 +422,11 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		qt = qfexp(qt);			// ...and get 2^x via exp[x*ln(2)].
 		wts_mult[0] = qfdbl(qt);		// a = 2^(x/n), with x = sw
 		inv_mult[0] = qfdbl(qfinv(qt));	// Double-based inversion (1.0 / wts_mult_a[0]) often gets LSB wrong
-		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
 		//curr have w, 2/w, separate-mul-by-1-or-0.5 gives [w,w/2] and [1/w,2/w] for i = 0,1, resp:
 		wts_mult[1] = 0.5*wts_mult[0];
 		inv_mult[1] = 2.0*inv_mult[0];
-		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
 
 	#ifdef MULTITHREAD
 
@@ -465,7 +465,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+					ASSERT(0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -475,7 +475,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
+				ASSERT(0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
 
 			#endif
 
@@ -518,24 +518,24 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 					break;
 				}
 			}
-			ASSERT(HERE, l < RE_IM_STRIDE, "Failed to align cy_dat array!");
+			ASSERT(l < RE_IM_STRIDE, "Failed to align cy_dat array!");
 		}
 	#endif
 
 	#ifdef USE_SSE2
 
-		ASSERT(HERE, ((intptr_t)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
-		ASSERT(HERE, ((intptr_t)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
+		ASSERT(((intptr_t)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
+		ASSERT(((intptr_t)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
 
 		// Use vector-double type size (16 bytes for SSE2, 32 for AVX) to alloc a block of local storage
 		// consisting of 128*2 vec_dbl and (8+RADIX/2) uint64 element slots per thread
 		// (Add as many padding elts to the latter as needed to make it a multiple of 4):
 		cslots_in_local_store = radix1008_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
-		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix1008_creals_in_local_store);
-		ASSERT(HERE, ((intptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 
 	  #ifdef USE_PTHREAD
 		__r0 = sc_ptr;
@@ -568,13 +568,13 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*ODD_RADIX] x 16 for Fermat-mod */
 	  #endif
-		ASSERT(HERE, half_arr_offset1008 == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
+		ASSERT(half_arr_offset1008 == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 			j = (1<<(2*(L2_SZ_VD-2))) + 4;	// 16+4 for sse2, 64+4 for avx
 		} else {
 			j = ODD_RADIX<<2;				// 4*ODD_RADIX
 		}
-		ASSERT(HERE, (radix1008_creals_in_local_store << L2_SZ_VD) >= ((intptr_t)half_arr - (intptr_t)r00) + (j << L2_SZ_VD), "radix1008_creals_in_local_store checksum failed!");
+		ASSERT((radix1008_creals_in_local_store << L2_SZ_VD) >= ((intptr_t)half_arr - (intptr_t)r00) + (j << L2_SZ_VD), "radix1008_creals_in_local_store checksum failed!");
 
 		// Roots for radix-16 DFTs:
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one  , 1.0  );
@@ -1025,12 +1025,12 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			_cy_i[i]	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i[i]== 0x0);
 		}
 
-		ASSERT(HERE, ptr_prod == 0, "ERROR: unable to allocate one or more auxiliary arrays!");
+		ASSERT(ptr_prod == 0, "ERROR: unable to allocate one or more auxiliary arrays!");
 
 		/* Create (THREADS + 1) copies of _bjmodnini and use the extra (uppermost) one to store the "master" increment,
 		i.e. the one that n2/radix-separated FFT outputs need:
 		*/
-		_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodnini in %s.\n", func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodnini in %s.\n", func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		_bjmodnini[0] = 0;
 		_bjmodnini[1] = 0;
 
@@ -1065,7 +1065,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		{
 			bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
 		}
-		ASSERT(HERE, _bjmodnini[CY_THREADS] == bjmodnini,"_bjmodnini[CY_THREADS] != bjmodnini");
+		ASSERT(_bjmodnini[CY_THREADS] == bjmodnini,"_bjmodnini[CY_THREADS] != bjmodnini");
 
 		// In non-power-of-2-runlength case, both Mersenne and Fermat-mod share these next 2 loops:
 		if(CY_THREADS > 1)
@@ -1116,7 +1116,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 					break;
 				};
 			}	//	printf("wts_idx_incr = %u\n",wts_idx_incr);
-			ASSERT(HERE, wts_idx_incr != 0, "wts_idx_incr init failed!");
+			ASSERT(wts_idx_incr != 0, "wts_idx_incr init failed!");
 
 		#ifdef USE_SSE2
 			wts_idx_inc2 = wts_idx_incr << (2*L2_SZ_VD - 3);	/* In the SIMD version, use icycle0-6 as actual address
@@ -1550,8 +1550,8 @@ for(outer=0; outer <= 1; outer++)
 	{
 		tdat[ithread].iter = iter;
 	// int data:
-		ASSERT(HERE, tdat[ithread].tid == ithread, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].ndivr == NDIVR, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].tid == ithread, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].ndivr == NDIVR, "thread-local memcheck fail!");
 
 		tdat[ithread].khi    = khi;
 		tdat[ithread].i      = _i[ithread];	/* Pointer to the BASE and BASEINV arrays.	*/
@@ -1561,8 +1561,8 @@ for(outer=0; outer <= 1; outer++)
 		tdat[ithread].col = _col[ithread];
 		tdat[ithread].co2 = _co2[ithread];
 		tdat[ithread].co3 = _co3[ithread];
-		ASSERT(HERE, tdat[ithread].sw  == sw, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].sw  == sw, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
 
 	// double data:
 		tdat[ithread].maxerr = 0.0;
@@ -1571,26 +1571,26 @@ for(outer=0; outer <= 1; outer++)
 
 	// pointer data:
 		tdat[ithread].arrdat = a;			/* Main data array */
-		ASSERT(HERE, tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].rn0 == rn0, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].rn1 == rn1, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].si  == si, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].rn0 == rn0, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].rn1 == rn1, "thread-local memcheck fail!");
 	#ifdef USE_SSE2
-		ASSERT(HERE, tdat[ithread].wts_idx_inc2 == wts_idx_inc2, "thread-local memcheck fail!");
-		ASSERT(HERE, tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].wts_idx_inc2 == wts_idx_inc2, "thread-local memcheck fail!");
+		ASSERT(tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
-		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
+		ASSERT(((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
 	#endif
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
 		#ifdef USE_AVX
 			// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
-			dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
-			dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+			dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+			dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		#elif defined(USE_SSE2)
-			dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
-			dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+			dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+			dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		#endif
 			/* init carries	*/
 			for(i = 0; i < RADIX; i++) {
@@ -1600,8 +1600,8 @@ for(outer=0; outer <= 1; outer++)
 		else	/* Fermat-mod uses "double helix" carry scheme - 2 separate sets of real/imaginary carries for right-angle transform, plus "twisted" wraparound step. */
 		{
 		#ifdef USE_SSE2
-			dtmp = (tmp)->d0 * (tmp+ODD_RADIX)->d0;	ASSERT(HERE, fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
-			dtmp = (tmp)->d1 * (tmp+ODD_RADIX)->d1;	ASSERT(HERE, fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
+			dtmp = (tmp)->d0 * (tmp+ODD_RADIX)->d0;	ASSERT(fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
+			dtmp = (tmp)->d1 * (tmp+ODD_RADIX)->d1;	ASSERT(fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
 		#endif
 			/* init carries	*/
 			for(i = 0; i < RADIX; i++) {
@@ -1822,7 +1822,7 @@ for(outer=0; outer <= 1; outer++)
 	/*** Main execution thread executes remaining chunks in serial fashion (but in || with the pool threads): ***/
 	for(j = 0; j < main_work_units; ++j)
 	{
-		ASSERT(HERE, 0x0 == cy1008_process_chunk( (void*)(&tdat[j + pool_work_units]) ), "Main-thread task failure!");
+		ASSERT(0x0 == cy1008_process_chunk( (void*)(&tdat[j + pool_work_units]) ), "Main-thread task failure!");
 	}
 
   #endif
@@ -1832,7 +1832,7 @@ for(outer=0; outer <= 1; outer++)
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
 	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
+		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 	}
 
 	/* Copy the thread-specific output carry data back to shared memory: */
@@ -2632,8 +2632,8 @@ void radix1008_dit_pass1(double a[], int n)
 		double *wt1 = thread_arg->wt1;
 		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
 		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
-		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
-		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
 		int *si = thread_arg->si;
 		struct complex *rn0 = thread_arg->rn0;
 		struct complex *rn1 = thread_arg->rn1;
@@ -2697,23 +2697,23 @@ void radix1008_dit_pass1(double a[], int n)
 		half_arr= tmp + 0x02;
 	  #endif
 
-		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
-		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
-		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+		ASSERT((r00 == thread_arg->r00), "thread-local memcheck failed!");
+		ASSERT((half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+		ASSERT((sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
 		tmp = half_arr;
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
 	  #ifdef USE_AVX
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
-		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
-		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 	  #else	// SSE2:
-		dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
-		dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 	  #endif
 	} else {
-		dtmp = (tmp)->d0 * (tmp+ODD_RADIX)->d0;	ASSERT(HERE, fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
-		dtmp = (tmp)->d1 * (tmp+ODD_RADIX)->d1;	ASSERT(HERE, fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp)->d0 * (tmp+ODD_RADIX)->d0;	ASSERT(fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp)->d1 * (tmp+ODD_RADIX)->d1;	ASSERT(fabs(dtmp - scale) < EPS, "thread-local memcheck failed!");
 	}
 
 		VEC_DBL_INIT(max_err, 0.0);

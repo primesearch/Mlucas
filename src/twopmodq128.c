@@ -106,7 +106,7 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	}
 #endif
 	// Find inverse (mod 2^128) of q; q must be odd for Montgomery-style modmul to work:
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmmodq128 : q must be odd for Montgomery-style modmul!");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmmodq128 : q must be odd for Montgomery-style modmul!");
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = (uint64)0;
 	/* Compute qinv  = q^-1 (mod R = 2^128) via Newton iteration qinv = qinv*(2 - q*qinv), starting with
@@ -268,7 +268,7 @@ if(dbg) printf("twopmodq128:\n");
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq128 : q must be odd for Montgomery-style modmul!");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmodq128 : q must be odd for Montgomery-style modmul!");
 #endif
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = (uint64)0;
@@ -307,7 +307,7 @@ if(dbg) printf("twopmodq128:\n");
 #endif
 
 #if FAC_DEBUG
-	ASSERT(HERE, qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
+	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
 	if(dbg) printf("q    = %s\n", &char_buf[convert_uint128_base10_char(char_buf, q   )]);
 	if(dbg) printf("qinv = %s\n", &char_buf[convert_uint128_base10_char(char_buf, qinv)]);
 #endif
@@ -337,7 +337,7 @@ if(dbg) printf("twopmodq128:\n");
 	if(TEST_BIT128(pshift, j))
 	{
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x, q), "twopmodq128 : CMPULT128(x,q)");
+		ASSERT(CMPULT128(x, q), "twopmodq128 : CMPULT128(x,q)");
 	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT128(x, qhalf)){ ADD128(x, x, x); SUB128(x, q, x); }else{ ADD128(x, x, x); }
@@ -375,7 +375,7 @@ if(dbg) printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_b
 		if(TEST_BIT128(pshift, j))
 		{
 		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x, q), "twopmodq128 : CMPULT128(x,q)");
+			ASSERT(CMPULT128(x, q), "twopmodq128 : CMPULT128(x,q)");
 		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT128(x, qhalf)){ ADD128(x, x, x); SUB128(x, q, x); }else{ ADD128(x, x, x); }
@@ -408,7 +408,7 @@ if(dbg) printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)])
 */
 uint64 twopmodq128x2(uint64 *p_in, uint64 k)
 {
-	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
+	ASSERT(p_in != 0x0, "Null p_in pointer!");
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_mi64_base10_char(char_buf, p_in, 2, 0)], "0");
 #endif
@@ -432,7 +432,7 @@ if(dbg) printf("twopmodq128x2:\n");
 
 	// Use x as tmp to hold 2*p:
 	ADD128(p,p, x);
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x, k, (uint64 *)&q, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x, k, (uint64 *)&q, 2), "q must be < 2^128!");
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
@@ -481,7 +481,7 @@ if(dbg) printf("twopmodq128x2:\n");
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq128x2 : q must be odd for Montgomery-style modmul!");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmodq128x2 : q must be odd for Montgomery-style modmul!");
 #endif
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = (uint64)0;
@@ -520,7 +520,7 @@ if(dbg) printf("twopmodq128x2:\n");
 #endif
 
 #if FAC_DEBUG
-	ASSERT(HERE, qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128x2 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
+	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128x2 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
 	if(dbg) printf("q    = %s\n", &char_buf[convert_uint128_base10_char(char_buf, q   )]);
 	if(dbg) printf("qinv = %s\n", &char_buf[convert_uint128_base10_char(char_buf, qinv)]);
 #endif
@@ -553,7 +553,7 @@ if(dbg) printf("twopmodq128x2:\n");
 	if(TEST_BIT128(pshift, j))
 	{
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x,q), "twopmodq128x2 : CMPULT128(x,q)");
+		ASSERT(CMPULT128(x,q), "twopmodq128x2 : CMPULT128(x,q)");
 	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT128(x, qhalf)){ ADD128(x, x, x); SUB128(x, q, x); }else{ ADD128(x, x, x); }
@@ -590,7 +590,7 @@ if(dbg) printf("twopmodq128x2:\n");
 		if(TEST_BIT128(pshift, j))
 		{
 		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x,q), "twopmodq128x2 : CMPULT128(x,q)");
+			ASSERT(CMPULT128(x,q), "twopmodq128x2 : CMPULT128(x,q)");
 		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT128(x, qhalf)){ ADD128(x, x, x); SUB128(x, q, x); }else{ ADD128(x, x, x); }
@@ -622,7 +622,7 @@ if(dbg) printf("twopmodq128x2:\n");
 // Second version of above, which takes factor candidate q in uint128 form:
 uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 {
-	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
+	ASSERT(p_in != 0x0, "Null p_in pointer!");
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
 	uint128 p, qhalf, qinv, x, lo, hi;
@@ -659,7 +659,7 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 	}
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq128x2B: q must be odd for Montgomery-style modmul!");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmodq128x2B: q must be odd for Montgomery-style modmul!");
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = (uint64)0;
 	for(j = 0; j < 4; j++) {
@@ -725,7 +725,7 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 /*** 4-trial-factor version ***/
 uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
-	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
+	ASSERT(p_in != 0x0, "Null p_in pointer!");
 	 int32 j;
 	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lead7, r;
 	uint128 p, q0, q1, q2, q3
@@ -747,10 +747,10 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	// Use x0 as tmp to hold 2*p:
 	ADD128(p,p, x0);
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
@@ -967,7 +967,7 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 /*** 8-trial-factor version ***/
 uint64 twopmodq128_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
-	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
+	ASSERT(p_in != 0x0, "Null p_in pointer!");
 #if FAC_DEBUG
 	int dbg = 0;
 #endif
@@ -995,14 +995,14 @@ if(dbg) printf("twopmodq128_q8:\n");
 
 	// Use x0 as tmp to hold 2*p:
 	ADD128(p,p, x0);
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k4, (uint64 *)&q4, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k5, (uint64 *)&q5, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k6, (uint64 *)&q6, 2), "q must be < 2^128!");
-	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k7, (uint64 *)&q7, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k4, (uint64 *)&q4, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k5, (uint64 *)&q5, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k6, (uint64 *)&q6, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k7, (uint64 *)&q7, 2), "q must be < 2^128!");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;

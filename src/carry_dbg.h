@@ -470,7 +470,7 @@ printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,0);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(x+x) <= base[i], "X-output out of range!");\
+ASSERT(fabs(x+x) <= base[i], "X-output out of range!");\
 		x *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -496,7 +496,7 @@ printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,0);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(y+y) <= base[i], "Y-output out of range!");\
+ASSERT(fabs(y+y) <= base[i], "Y-output out of range!");\
 		y *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -528,7 +528,7 @@ printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,set);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(x+x) <= base[i], "X-output out of range!");\
+ASSERT(fabs(x+x) <= base[i], "X-output out of range!");\
 		x *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -554,7 +554,7 @@ printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,set);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(y+y) <= base[i], "Y-output out of range!");\
+ASSERT(fabs(y+y) <= base[i], "Y-output out of range!");\
 		y *= wt;\
 		\
 	  bjmodn -= sw;\

@@ -99,15 +99,15 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	{
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
 	last 64 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -169,7 +169,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		r00 = __r0 + thr_id*0x90;
 		cc0	= r00 + 0x41;
 	#endif
@@ -197,8 +197,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
 	p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 	p1C = p1C + ( (p1C >> DAT_BITS) << PAD_BITS );
-	ASSERT(HERE, p04+p04 == p08, "p04+p04 != p08");
-	ASSERT(HERE, p04+p08 == p0C, "p04+p08 != p0C");
+	ASSERT(p04+p04 == p08, "p04+p04 != p08");
+	ASSERT(p04+p08 == p0C, "p04+p08 != p0C");
 
 /*...The radix-32 pass is here.	*/
 
@@ -1477,15 +1477,15 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	{
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
 	last 64 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -1545,7 +1545,7 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
   #ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 	r00 = __r0 + thr_id*0x90;
 	isrt2 = r00 + 0x40;
 	cc0	= isrt2 + 1;

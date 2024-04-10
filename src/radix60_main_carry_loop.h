@@ -644,7 +644,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		#ifdef USE_AVX512
 			// will never hit this since have same assert in preprocessing code - just a placeholder/reminder:
-			ASSERT(HERE, 0, "radix60_ditN_cy_dif1: No AVX-512 support for Fermat-mod; Skipping this leading radix.");
+			ASSERT(0, "radix60_ditN_cy_dif1: No AVX-512 support for Fermat-mod; Skipping this leading radix.");
 
 		#else	// AVX / AVX2
 

@@ -1309,7 +1309,7 @@ if(!j) {
 													===============*/
 	/*...Block 1: t1,9,17,25 */
 		jt = j1;		jp = j2;
-		/* Debug: check for overflow of + terms: */	ASSERT(HERE, m1+m9 >= m1 && m$+m10 >= m$,"Overflow of [0,8b] term!");
+		/* Debug: check for overflow of + terms: */	ASSERT(m1+m9 >= m1 && m$+m10 >= m$,"Overflow of [0,8b] term!");
 		rt =t9;	t9 =t1 -rt;	t1 =t1 +rt;				rm =m9;	m9 =qreduce(m1 -rm+q4);	m1 =qreduce(m1 +rm   );	// +:   0,8b -> 0,b
 		it =t10;t10=t2 -it;	t2 =t2 +it;				im =m10;m10=qreduce(m$ -im+q4);	m$ =qreduce(m$ +im   );	// -: -4b,4b -> 0,b
 

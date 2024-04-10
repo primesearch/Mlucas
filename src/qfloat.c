@@ -308,7 +308,7 @@ uint32 qfcmplt(struct qfloat q1, struct qfloat q2)
 	case(3) :	/* Both q1 and q2 negative, in which case a more-negative q1 looks larger w.r.to the unsigned compare */
 		return (q1.hi > q2.hi || (q1.hi == q2.hi && q1.lo > q2.lo));
 	default:
-		ASSERT(HERE, 0,"ERROR 98 in qfloat.c");
+		ASSERT(0,"ERROR 98 in qfloat.c");
 	}
 	return 0;	/* Just to get the compiler to shut up ... this should never be reached. */
 }
@@ -398,9 +398,9 @@ long double qfldbl(struct qfloat x)
 	long double ld;
 	uint64 *ld_ptr = (uint64 *)&ld, nonhidden;
 	int32 exp = (int32)((x.hi & ~MASK_SIGN)>>52);
-	ASSERT(HERE, sizeof(long double) == 16, "QFLDBL assumes 16-byte long double type!");
+	ASSERT(sizeof(long double) == 16, "QFLDBL assumes 16-byte long double type!");
 	// Denormal check:
-	ASSERT(HERE, (exp != 0) && (exp != 0x7ff), "QFLDBL requires normal input!");
+	ASSERT((exp != 0) && (exp != 0x7ff), "QFLDBL requires normal input!");
 	exp -= (int32)0x400;	// x87 80-bit reg-format has 4 more bits in exp, centered around 0x4000 rather than 0x400
 	nonhidden = ((x.hi & MASK_MANT)<<11) + (x.lo>>53) + ((x.lo>>52)&0x1);
 	// Rounding of the off-shifted portion may cause nonhidden-bit summation to overflow into sign bit:
@@ -420,12 +420,12 @@ struct qfloat ldbl_to_q(long double x)
 	long double ld = x;
 	uint64 *ld_ptr = (uint64 *)&ld, x87_mant, x87_sexp;	// Note high 48 bits of x87_sexp are uninited
 	int32 exp;
-	DBG_ASSERT(HERE, sizeof(long double) == 16, "LDBL_TO_Q assumes 16-byte long double type!");
+	DBG_ASSERT(sizeof(long double) == 16, "LDBL_TO_Q assumes 16-byte long double type!");
 	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1);
 	if(!x87_mant) return QZRO;
 	// Denormal check:
 	exp = (int32)(((x87_sexp<<48) & ~MASK_SIGN)>>48) - (int32)0x4000;
-	ASSERT(HERE, ABS(exp) <= 0x3ff, "LDBL_TO_Q requires double-compatible normal input!");
+	ASSERT(ABS(exp) <= 0x3ff, "LDBL_TO_Q requires double-compatible normal input!");
 	q.hi = ((x87_sexp<<48) & MASK_SIGN) + ((uint64)((int32)0x400 + exp)<<52) + ((x87_mant>>11) & MASK_MANT);
 	q.lo = (x87_mant<<53);
 	return q;
@@ -508,7 +508,7 @@ struct qfloat i128_to_q(uint128 i)
 		q.hi = sexp + (i.d1 >> rshift);
 		offword = (i.d0 << lshift) >> 63;	// MSB of off-shifted portion
 		q.lo = (i.d1 << lshift) + (i.d0 >> rshift) + offword;
-		ASSERT(HERE, q.lo >= offword, "Ripple-carry!");	// For now, just check for ripple-carry. Proper handling will come later.
+		ASSERT(q.lo >= offword, "Ripple-carry!");	// For now, just check for ripple-carry. Proper handling will come later.
 	}
 	else	/* need to left-shift mantissa */
 	{
@@ -547,7 +547,7 @@ struct qfloat qfmul_pow2(struct qfloat q, int32 pow)
 			qt.hi += sgn;		// Restore sign
 		}
 	} else if(exp1 >> 11) {	// Overflow: exp+pow carried into sign-bit slpt:
-		ASSERT(HERE, 0,"OVERFLOW in qfmul_pow2");
+		ASSERT(0,"OVERFLOW in qfmul_pow2");
 	} else {	// Result is normal
 		if(exp0) {
 			// If normal input, update exponent field and return:
@@ -560,11 +560,11 @@ struct qfloat qfmul_pow2(struct qfloat q, int32 pow)
 				lz = QLEADZ(qt) - 11;	// Number of leading zero bits in denormalized mantissa (i.e. shift count needed to move leading bit into hidden-bit location)
 				if(pow > lz) {	// Result will be normal
 					QLSHIFT(qt, lz, qt);
-					ASSERT(HERE, (qt.hi>>52) == 1, "Bad mantissa left-shift count in qfmul_pow2!");
+					ASSERT((qt.hi>>52) == 1, "Bad mantissa left-shift count in qfmul_pow2!");
 					qt.hi += (((uint64)pow-lz)<<52) - TWOE52;	// Don't fold -TWOE52 in via (pow-lz-1)<<52, since may have pow = lz here.
 				} else {	// Result still denormal
 					QLSHIFT(qt, pow, qt);
-					ASSERT(HERE, (qt.hi>>52) == 0, "Bad mantissa left-shift count in qfmul_pow2!");
+					ASSERT((qt.hi>>52) == 0, "Bad mantissa left-shift count in qfmul_pow2!");
 				}
 			}
 			qt.hi += sgn;		// Restore sign
@@ -584,7 +584,7 @@ uint128 qfnint(struct qfloat q)
 	uint64 offword, carry;
 	uint128 i;
 	i.d1 = q.hi; i.d0 = q.lo;
-	ASSERT(HERE, qfcmpge(q, qfneg(two127)) && qfcmplt(q, two127), "QFNINT input out of range!");
+	ASSERT(qfcmpge(q, qfneg(two127)) && qfcmplt(q, two127), "QFNINT input out of range!");
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	sign = (int32)(i.d1 >> 63);
 	exp  = (int32)(i.d1 >> 52) & MASK_EXP;
@@ -667,7 +667,7 @@ uint128 qfint(struct qfloat q)
 	int32 exp, sign, rshift, lshift;
 	uint128 i;
 	i.d1 = q.hi; i.d0 = q.lo;
-	ASSERT(HERE, qfcmpge(q, qfneg(two127)) && qfcmplt(q, two127), "QFNINT input out of range!");
+	ASSERT(qfcmpge(q, qfneg(two127)) && qfcmplt(q, two127), "QFNINT input out of range!");
 
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	sign = (int32)(i.d1 >> 63);
@@ -692,7 +692,7 @@ uint128 qfint(struct qfloat q)
 		{
 			if(rshift == -11 && (!sign || (i.d1 << -rshift) != MASK_SIGN || i.d0 != (uint64)0))
 			{
-				ASSERT(HERE, 0,"ERROR: qfloat is too large to convert to 128-bit integer.");
+				ASSERT(0,"ERROR: qfloat is too large to convert to 128-bit integer.");
 			}
 		}
 		lshift =     - rshift;
@@ -859,7 +859,7 @@ char* qf2str(struct qfloat q)
 			--pow10;
 		}
 	}
-	ASSERT(HERE, mi64_getlen(u,len) == 17 && u[16] && u[16] < 10, "QF2STRING: Normalization error!");
+	ASSERT(mi64_getlen(u,len) == 17 && u[16] && u[16] < 10, "QF2STRING: Normalization error!");
 	os[1] = u[16] + '0';	// Put MSD to left of decimal point
 	os[2] = '.';
 	for(i = 3; i < 38; ++i) {
@@ -981,7 +981,7 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	else
 	{
 		printf("Multiply by denormalized operand not supported!");
-	//	ASSERT(HERE, 0,"ERROR in qfloat.c : qfmul");
+	//	ASSERT(0,"ERROR in qfloat.c : qfmul");
 		return QZRO;
 	}
 
@@ -992,7 +992,7 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	else
 	{
 		printf("Multiply by denormalized operand not supported!");
-	//	ASSERT(HERE, 0,"ERROR in qfloat.c : qfmul");
+	//	ASSERT(0,"ERROR in qfloat.c : qfmul");
 		return QZRO;
 	}
 
@@ -1005,7 +1005,7 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	if( ((sexp1 & ~MASK_SIGN) + (sexp2 & ~MASK_SIGN)) < 0x4000000000000000ull) {
 	#if QFDEBUG
 		WARN(HERE, "DENORM result in QFMUL ... flushing to 0.\n", "", 0);
-		ASSERT(HERE, fabs(qfdbl(q1)*qfdbl(q2)) < 1e-300, "Incorrect DENORM result in QFMUL!");
+		ASSERT(fabs(qfdbl(q1)*qfdbl(q2)) < 1e-300, "Incorrect DENORM result in QFMUL!");
 	#endif
 		return QZRO;
 	}
@@ -1046,8 +1046,8 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 
   /* DEBUG: make sure we didn't lose any bits of b or d during the conversion to float. */
   #if QFDEBUG
-	if(!((uint64)db == b)) ASSERT(HERE, 0,"ERROR 120 in qfloat.c");
-	if(!((uint64)dd == d)) ASSERT(HERE, 0,"ERROR 121 in qfloat.c");
+	if(!((uint64)db == b)) ASSERT(0,"ERROR 120 in qfloat.c");
+	if(!((uint64)dd == d)) ASSERT(0,"ERROR 121 in qfloat.c");
   #endif
 
 	adhi = da*dd;
@@ -1056,7 +1056,7 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 #endif	// USE_FMUL_FOR_LOW_WORD
 
 	bvac = (uint64)leadz64(hi);
-	ASSERT(HERE, (bvac < 2), "ERROR 130 in qfloat.c");	/* Make sure at most the leftmost bit of high part is vacant. This check
+	ASSERT((bvac < 2), "ERROR 130 in qfloat.c");	/* Make sure at most the leftmost bit of high part is vacant. This check
 						needs to remain in place until support for denormalized oprands is added. */
 	/*
 	Now need to right-shift MUL_LOHI result (12-bvac) places, FMUL results (1-bvac) place, and add together.
@@ -1073,7 +1073,7 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	*/
 
 	return_val.hi = (hi >> (11-bvac));
-	ASSERT(HERE, (return_val.hi >> 52) == 1, "ERROR 140 in qfloat.c");
+	ASSERT((return_val.hi >> 52) == 1, "ERROR 140 in qfloat.c");
 	return_val.lo = (hi << (53+bvac)) + (lo >> (11-bvac)) + ((lo >> (10-bvac)) & (uint64)1) + (((uint64)adhi + (uint64)bchi) << bvac);
                                                             /* ^^^^rounding is here^^^^^ */   /* Maximize accuracy by converting to int prior to add. */
 	if(return_val.lo < (hi << (53+bvac)))	/* had a carry out of lo part. */
@@ -1101,7 +1101,7 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFMUL!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFMUL!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFMUL!\n");
 	}
 #endif
 
@@ -1120,7 +1120,7 @@ struct qfloat qfinc(struct qfloat x)
 		return qfneg(qfdec(q));	// For x < 0, Use x + 1 = 1 - |x| = -(|x| - 1)
 	} else {
 		// Check for denormal (over and underflow):
-		ASSERT(HERE, ((q.hi>>52) + 1) >= 2, "Denormal not supported!");
+		ASSERT(((q.hi>>52) + 1) >= 2, "Denormal not supported!");
 
 		if(q.hi < QONE.hi) {
 		// This is just the significand-add section of qfsum with the following argument value specializations:
@@ -1228,14 +1228,14 @@ struct qfloat qfinc(struct qfloat x)
 		}
 	}
 #if QFDEBUG
-	ASSERT(HERE, qfcmpeq(q, qfadd(x,QONE)), "qfinc fails!");
+	ASSERT(qfcmpeq(q, qfadd(x,QONE)), "qfinc fails!");
 #endif
 	return q;
 }
 
 struct qfloat qfdec(struct qfloat q)
 {
-	ASSERT(HERE, 0, "qfdec not supported yet!");
+	ASSERT(0, "qfdec not supported yet!");
 	return qfsub(q, QONE);
 }
 
@@ -1272,7 +1272,7 @@ struct qfloat qfadd	(struct qfloat q1, struct qfloat q2)
 	}
 	else
 	{
-		ASSERT(HERE, 0,"ERROR: unrecognized sign combination in QFADD");
+		ASSERT(0,"ERROR: unrecognized sign combination in QFADD");
 	}
 #if QFDEBUG
 	double qres = qfdbl(q), dres = (1-2.0*sgn1)*qfdbl(q1) + (1-2.0*sgn2)*qfdbl(q2);	// Must cast sgn1,2 to double prior to 1-...
@@ -1282,7 +1282,7 @@ struct qfloat qfadd	(struct qfloat q1, struct qfloat q2)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFADD!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFADD!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFADD!\n");
 	}
 #endif
 
@@ -1316,7 +1316,7 @@ struct qfloat qfsub	(struct qfloat q1, struct qfloat q2)
 	}
 	else
 	{
-		ASSERT(HERE, 0,"ERROR: unrecognized sign combination in QFSUB");
+		ASSERT(0,"ERROR: unrecognized sign combination in QFSUB");
 	}
 #if QFDEBUG
 	double qres = qfdbl(q), dres = (1-2.0*sgn1)*qfdbl(q1) - (1-2.0*sgn2)*qfdbl(q2);	// Must cast sgn1,2 to double prior to 1-...
@@ -1326,7 +1326,7 @@ struct qfloat qfsub	(struct qfloat q1, struct qfloat q2)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFSUB!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFSUB!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFSUB!\n");
 	}
 #endif
 
@@ -1368,7 +1368,7 @@ struct qfloat qfsum(struct qfloat q1, struct qfloat q2)
 	uint64 exp0, exp1, hi0, hi1, lo0, lo1, offword;
 
 	/* Make sure both inputs are nonnegative. */
-	DBG_ASSERT(HERE, ((int64)q1.hi >= 0 && (int64)q2.hi >= 0),"ERROR 160 in qfloat.c");
+	DBG_ASSERT(((int64)q1.hi >= 0 && (int64)q2.hi >= 0),"ERROR 160 in qfloat.c");
 
 	/* Larger of the two operands gets index 0 in our local length-2 arrays: */
 	if(qfcmple(q2, q1))
@@ -1481,7 +1481,7 @@ struct qfloat qfsum(struct qfloat q1, struct qfloat q2)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFSUM!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFSUM!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFSUM!\n");
 	}
 #endif
 	return(return_val);
@@ -1510,7 +1510,7 @@ struct qfloat qfdif(struct qfloat q1, struct qfloat q2)
 	uint64 exp0, exp1, hi0, hi1, lo0, lo1, offword;
 
 	/* Make sure both inputs are nonnegative. */
-	DBG_ASSERT(HERE, ((int64)q1.hi >= 0) && ((int64)q2.hi >= 0),"ERROR 170 in qfloat.c");
+	DBG_ASSERT(((int64)q1.hi >= 0) && ((int64)q2.hi >= 0),"ERROR 170 in qfloat.c");
 
 	/* Larger of the two operands gets index 0 in our local length-2 arrays: */
 	if(qfcmple(q2, q1))
@@ -1673,7 +1673,7 @@ struct qfloat qfdif(struct qfloat q1, struct qfloat q2)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFDIF!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFDIF!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFDIF!\n");
 	}
 #endif
 
@@ -1709,7 +1709,7 @@ struct qfloat qfinv(struct qfloat x)
 	/* Make sure x is properly normalized. This also catches potential divides-by-zero. */
 	if((x.hi & ~(MASK_SIGN + MASK_MANT)) == (uint64)0)
 	{
-		ASSERT(HERE, 0,"ERROR: divide by denormalized input not supported.");
+		ASSERT(0,"ERROR: divide by denormalized input not supported.");
 	}
 #ifdef X87_ASM
 	ld = qfldbl(x);
@@ -1750,7 +1750,7 @@ struct qfloat qfinv(struct qfloat x)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFINV!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFINV!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFINV!\n");
 	}
 #endif
 
@@ -1773,7 +1773,7 @@ struct qfloat qfdiv(struct qfloat q1, struct qfloat q2)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFDIV!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFDIV!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFDIV!\n");
 	}
 #endif
 	return qinv;
@@ -1814,7 +1814,7 @@ struct qfloat qfsqrt(struct qfloat x)
 #endif
 
 	/* Make sure x is nonnegative. This also catches potential divides-by-zero. */
-	ASSERT(HERE, !(x.hi >> 63),"ERROR: sqrt of a negative number not supported.");
+	ASSERT(!(x.hi >> 63),"ERROR: sqrt of a negative number not supported.");
 	if(qfcmpeq(x, QZRO)) return QZRO;
 #ifdef X87_ASM
 	ld = qfldbl(x);
@@ -1855,7 +1855,7 @@ struct qfloat qfsqrt(struct qfloat x)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFSQRT!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFSQRT!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFSQRT!\n");
 	}
 #endif
 	/* Multiply 1/sqrt(x) by x to get sqrt(x). */
@@ -1871,7 +1871,7 @@ struct qfloat qisqrt(struct qfloat q)
 	/* Make sure q is nonnegative. This also catches potential divides-by-zero. */
 	if(q.hi >> 63)
 	{
-		ASSERT(HERE, 0,"ERROR: sqrt of a negative number not supported.");
+		ASSERT(0,"ERROR: sqrt of a negative number not supported.");
 	}
 	else if(qfcmpeq(q, QZRO))
 	{
@@ -1933,7 +1933,7 @@ struct qfloat qfagm(struct qfloat x, struct qfloat y)
 			if(idiff < 8) break;
 		}
 	}
-	ASSERT(HERE, (i < 20), "Failure to converge in QFAGM!");
+	ASSERT((i < 20), "Failure to converge in QFAGM!");
 	return a;
 }
 
@@ -2014,14 +2014,14 @@ struct qfloat qflog(struct qfloat x)
 #endif
 	struct qfloat expy;
 
-	ASSERT(HERE, qfcmplt(QZRO,x), "Arg must be > 0 in QFLOG!");
+	ASSERT(qfcmplt(QZRO,x), "Arg must be > 0 in QFLOG!");
 
 #if 0	// Algo 0
 
 	uint32 efield,k;
 	// Find smallest k s.t. y = (2^k)*x >= 2^64:
 	/* Extract 11-bit exponent field and add sign-extended power-of-2 exponent: */
-	efield = ((x.hi >> 52) & MASK_EXP);	ASSERT(HERE, efield,"Denormalized numbers not currently supported in QFLOG");
+	efield = ((x.hi >> 52) & MASK_EXP);	ASSERT(efield,"Denormalized numbers not currently supported in QFLOG");
 	// 1.0 has efield = 0x3FF, so use that to compute k:
 	k = 64 - (efield - 0x3FF);
 	y = qfmul_pow2(x, (uint64)k);
@@ -2077,7 +2077,7 @@ struct qfloat qflog(struct qfloat x)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFLOG!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFLOG!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFLOG!\n");
 	}
 #endif
 	return y;
@@ -2143,7 +2143,7 @@ struct qfloat qfexp(struct qfloat x)
 	if(abs(pow2) > 9) {	// If arg > +- 512, check for over/underflow which occurs for |arg| ~> 700
 		if(darg > 700) {
 			fprintf(stderr,"QFEXP: xabs.hi = %16llX, pow2 = %u, darg = %10.10e\n",xabs.hi,pow2,darg);
-			ASSERT(HERE,0,"expo overflow!");
+			ASSERT(0,"expo overflow!");
 		} else if(darg < -700) {
 			return QZRO;	// expo underflow flushes to zero
 		}
@@ -2206,7 +2206,7 @@ struct qfloat qfexp(struct qfloat x)
 	} else {
 		nterm_idx = i - 0x3C5;
 	//	printf("Input exp-field = %3X, nterm_idx = %d; \n",i,nterm_idx);
-		ASSERT(HERE, nterm_idx < 64, "nterm_idx ou of range!");
+		ASSERT(nterm_idx < 64, "nterm_idx ou of range!");
 		nterm = nterm_arr[nterm_idx];
 	}
 
@@ -2262,7 +2262,7 @@ struct qfloat qfexp(struct qfloat x)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFEXP!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFEXP!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFEXP!\n");
 	}
 #endif
 	return y;
@@ -2318,7 +2318,7 @@ struct qfloat qfatan(struct qfloat x)
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFATAN!\n", "", 0);
 		}
-		ASSERT(HERE, rerr < 1e-2, "Fatal ROE in QFATAN!\n");
+		ASSERT(rerr < 1e-2, "Fatal ROE in QFATAN!\n");
 	}
 #endif
 	return y;
@@ -2458,7 +2458,7 @@ struct qfloat qfcos	(struct qfloat q)
 	i  = qfint(qt);				// ...And truncate that to the next-smaller integer (128-bit int in this case).
 	// For the quadrant, we only need the result modulo 4:
 	quad = i.d0 & (uint64)3;
-	ASSERT(HERE, !i.d1 && (int64)i.d0 >= 0,"QFCOS: quadrant error");
+	ASSERT(!i.d1 && (int64)i.d0 >= 0,"QFCOS: quadrant error");
 	qt = i64_to_q((int64)i.d0);
 	// The calling argument is q mod pi/2:
 	q = qfsub(q, qfmul(qt, QPIHALF));
@@ -2483,7 +2483,7 @@ struct qfloat qfsin	(struct qfloat q)
 	i  = qfint(qt);				// ...And truncate that to the next-smaller integer (128-bit int in this case).
 	// For the quadrant, we only need the result modulo 4:
 	quad = i.d0 & (uint64)3;
-	ASSERT(HERE, !i.d1 && (int64)i.d0 >= 0,"QFSIN: quadrant error");
+	ASSERT(!i.d1 && (int64)i.d0 >= 0,"QFSIN: quadrant error");
 	qt = i64_to_q((int64)i.d0);
 	// The calling argument is q mod pi/2:
 	q = qfsub(q, qfmul(qt, QPIHALF));
@@ -2563,7 +2563,7 @@ struct qfloat qfcs1(struct qfloat q)
 	static int first_entry = TRUE;
 	if(first_entry) {
 		first_entry = FALSE;
-		denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(HERE, denoms != NULL, "alloc failed!");
+		denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(denoms != NULL, "alloc failed!");
 		for(i = 4; i < 38; i += 4)	// Must limit largest index into QNINV[] to 40, hence (i+2) < 40
 		{
 			j = (i>>1)-1;
@@ -2573,7 +2573,7 @@ struct qfloat qfcs1(struct qfloat q)
 	}
 #endif
 	/* Make sure argument is in range... */
-	DBG_ASSERT(HERE, (qfcmple(qfneg(QEPS), q) && qfcmplt(q, qfadd(QPIHALF, QEPS))), "ERROR 200 in qfloat.c");
+	DBG_ASSERT((qfcmple(qfneg(QEPS), q) && qfcmplt(q, qfadd(QPIHALF, QEPS))), "ERROR 200 in qfloat.c");
 
 #if (USE_CHEB_EXPANSION == 1)	// Branchless algorithm:
 
@@ -2621,7 +2621,7 @@ struct qfloat qfcs1(struct qfloat q)
 			break;
 		}
 	}
-	ASSERT(HERE, ((int32)(e_sum - e_new) > 115), "Unconverged cos(x) summation!");
+	ASSERT(((int32)(e_sum - e_new) > 115), "Unconverged cos(x) summation!");
 
   #elif (USE_CHEB_EXPANSION == 2)
 
@@ -2686,7 +2686,7 @@ struct qfloat qfsn1(struct qfloat q)
 	static int first_entry = TRUE;
 	if(first_entry) {
 		first_entry = FALSE;
-		denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(HERE, denoms != NULL, "alloc failed!");
+		denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(denoms != NULL, "alloc failed!");
 		for(i = 3; i < 38; i += 4)	// Must limit largest index into QNINV[] to 40, hence (i+2) < 40
 		{
 			j = (i>>1);
@@ -2696,7 +2696,7 @@ struct qfloat qfsn1(struct qfloat q)
 	}
 #endif
 	/* Make sure argument is in range... */
-	DBG_ASSERT(HERE, (qfcmple(qfneg(QEPS), q) && qfcmplt(q, qfadd(QPIHALF, QEPS))), "ERROR 210 in qfloat.c");
+	DBG_ASSERT((qfcmple(qfneg(QEPS), q) && qfcmplt(q, qfadd(QPIHALF, QEPS))), "ERROR 210 in qfloat.c");
 
 #if (USE_CHEB_EXPANSION == 1)	// Branchless algorithm:
 
@@ -2743,7 +2743,7 @@ struct qfloat qfsn1(struct qfloat q)
 			break;
 		}
 	}
-	ASSERT(HERE, ((int32)(e_sum - e_new) > 115), "Unconverged sin(x) summation!");
+	ASSERT(((int32)(e_sum - e_new) > 115), "Unconverged sin(x) summation!");
 
   #elif (USE_CHEB_EXPANSION == 2)
 
@@ -2835,7 +2835,7 @@ struct qfloat qfcosh(struct qfloat q)
 		static int first_entry = TRUE;
 		if(first_entry) {
 			first_entry = FALSE;
-			denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(HERE, denoms != NULL, "alloc failed!");
+			denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(denoms != NULL, "alloc failed!");
 			for(i = 4; i < 38; i += 4)	// Limit largest index into QNINV[] to 40, hence (i+2) < 40 (--> i_max = 36 here)
 			{
 				j = (i>>1)-1;
@@ -2883,7 +2883,7 @@ struct qfloat qfcosh(struct qfloat q)
 			curr_term = qfmul(curr_term, mult);
 			e_sum = (uint32)((sum      .hi & ~MASK_SIGN) >> 52);
 			e_new = (uint32)((curr_term.hi & ~MASK_SIGN) >> 52);
-			ASSERT(HERE, ((int32)(e_sum - e_new) > 115), "Unconverged cosh(x) summation!");
+			ASSERT(((int32)(e_sum - e_new) > 115), "Unconverged cosh(x) summation!");
 		}
 		return sum;
 	}	// |x| >= 2 ?
@@ -2904,7 +2904,7 @@ struct qfloat qfsinh(struct qfloat q)
 		static int first_entry = TRUE;
 		if(first_entry) {
 			first_entry = FALSE;
-			denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(HERE, denoms != NULL, "alloc failed!");
+			denoms = (struct qfloat *)malloc(20*qsz);	ASSERT(denoms != NULL, "alloc failed!");
 			for(i = 3; i < 38; i += 4)	// Must limit largest index into QNINV[] to 40, hence (i+2) < 40
 			{
 				j = (i>>1);
@@ -2951,7 +2951,7 @@ struct qfloat qfsinh(struct qfloat q)
 			curr_term = qfmul(curr_term, mult);
 			e_sum = (uint32)((sum      .hi & ~MASK_SIGN) >> 52);
 			e_new = (uint32)((curr_term.hi & ~MASK_SIGN) >> 52);
-			ASSERT(HERE, ((int32)(e_sum - e_new) > 115), "Unconverged sinh(x) summation!");
+			ASSERT(((int32)(e_sum - e_new) > 115), "Unconverged sinh(x) summation!");
 		}
 		return sum;
 	}	// |x| >= 2 ?
@@ -3013,7 +3013,7 @@ int qtest(void)
 	uint64 *ld_ptr = &ld, x87_mant, x87_sexp;
 
 	// Test I/O functions:
-	ASSERT(HERE, STREQ( qf2str(QPI), "+3.14159265358979323846264338327950289 E+000" ), "I/O test failed!");
+	ASSERT(STREQ( qf2str(QPI), "+3.14159265358979323846264338327950289 E+000" ), "I/O test failed!");
 
 	asm ("fldln2;"
 		 "fstpt %0" : "=m"(ld) : );
@@ -3023,10 +3023,10 @@ int qtest(void)
 		printf("x87_mant = %16llx, expected 0xB17217F7D1CF79ACull\n", x87_mant);	// x87_mant = b17217f7d1cf79ac, left-shift one place to off-shift hidden bit
 		WARN(HERE, "Ln2 long-double mantissa conversion error", "", 0);
 	}
-//	ASSERT(HERE, x87_mant == 0xB17217F7D1CF79ACull, "Ln2 long-double mantissa conversion error");
+//	ASSERT(x87_mant == 0xB17217F7D1CF79ACull, "Ln2 long-double mantissa conversion error");
 
 //	printf("x87_sexp = %16llx\n", x87_sexp);	// x87_sexp = 3ffe, clear high 4 bits to get qfloat/double-compatible exp-field
-	ASSERT(HERE, x87_sexp == 0x0000000000003FFEull, "Ln2 long-double exponent conversion error");
+	ASSERT(x87_sexp == 0x0000000000003FFEull, "Ln2 long-double exponent conversion error");
 
 	asm ("fld1;"
 		 "fadd %%st(0), %%st(0);"
@@ -3040,14 +3040,14 @@ int qtest(void)
 		printf("x87_mant = %16llx, expected 0xB504F333F9DE6484ull\n", x87_mant);
 		WARN(HERE, "-Sqrt2 long-double mantissa conversion error", "", 0);
 	}
-//	ASSERT(HERE, x87_mant == 0xB504F333F9DE6484ull, "-Sqrt2 long-double mantissa conversion error");
+//	ASSERT(x87_mant == 0xB504F333F9DE6484ull, "-Sqrt2 long-double mantissa conversion error");
 
 //	printf("x87_sexp = %16llx\n", x87_sexp);
-	ASSERT(HERE, x87_sexp == 0x000000000000BFFFull, "-Sqrt2 long-double exponent conversion error");
+	ASSERT(x87_sexp == 0x000000000000BFFFull, "-Sqrt2 long-double exponent conversion error");
 
 #endif
 
-	ASSERT(HERE, (ABS((int64)0x1234567890ABCDEFull) == 0x1234567890ABCDEFull), "ERROR 10 in qfloat.c");
+	ASSERT((ABS((int64)0x1234567890ABCDEFull) == 0x1234567890ABCDEFull), "ERROR 10 in qfloat.c");
 
 	/*********** TEST THE TYPE CONVERSIONS **************/
 #if TIMING_TEST
@@ -3060,7 +3060,7 @@ int qtest(void)
 		td += qfdbl(QEXP);
 	}
 	clock2 = clock();
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
 	cycles /= 4.0*(double)titers;
@@ -3071,50 +3071,50 @@ int qtest(void)
 #if QFDEBUG
 		printf("dble(0.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 12 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 12 in qfloat.c");
 
 	c = 1.0;	d = qfdbl(QONE);
 #if QFDEBUG
 		printf("dble(1.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 14 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 14 in qfloat.c");
 
 	c = 2.0;	d = qfdbl(QTWO);
 #if QFDEBUG
 		printf("dble(2.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 16 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 16 in qfloat.c");
 
 	c =-2.0;	d = qfdbl(qfneg(QTWO));
 #if QFDEBUG
 		printf("dble(-2.0)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 18 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 18 in qfloat.c");
 
 	c = 2*pi;	d = qfdbl(Q2PI);
 #if QFDEBUG
 		printf("dble(2pi) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 20 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 20 in qfloat.c");
 
 	c =log(2.0);d = qfdbl(QLN2);
 #if QFDEBUG
 		printf("dble(ln2) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 22 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 22 in qfloat.c");
 
 	c = exp(1.0);
 	d = qfdbl(QEXP);
 #if QFDEBUG
 		printf("dble(exp) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 24 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 24 in qfloat.c");
 
 	c = -c;		d = qfdbl(qfneg(QEXP));
 #if QFDEBUG
 		printf("dble(-exp)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 26 in qfloat.c");
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 26 in qfloat.c");
 
 	/*********** TEST THE MULTIPLY ALGORITHM ************/
 #if TIMING_TEST
@@ -3127,7 +3127,7 @@ int qtest(void)
 		hidiff += qfmul_pow2(QLN2,+1).hi;
 		hidiff += qfmul_pow2(QLN2,+1).hi;
 	}
-	ASSERT(HERE, hidiff, "!");
+	ASSERT(hidiff, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3140,7 +3140,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfmul(QEXP,QEXP));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3157,7 +3157,7 @@ int qtest(void)
 	// This is better than the separate hi/lo-word test, since it allows for the ROE to be of either sign:
 	qerr = qfabs(qfsub(q,qref));			// Div-by-eps same as mul-by-by-2^118
 	derr = qfdbl( qfmul_pow2(qerr,+118) );	// The threshold here typically needs to be ~16*[magnitude of output]
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 64.0 ,"ERROR in QFMUL error-level check!");
 
 	/* ln2*e:	0x3FFE258ECC242F82, 0x5DEC567E6A0E1111	*/
 	q = qfmul(QLN2,QEXP);
@@ -3167,7 +3167,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x3FFE258ECC242F82ull;	qref.lo = 0x5DEC567E6A0E1111ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 64.0 ,"ERROR in QFMUL error-level check!");
 
 	/* ln2^2:	0x3FDEBFBDFF82C58E, 0xA86F16B06EC97360	*/
 	q = qfmul(QLN2,QLN2);
@@ -3177,7 +3177,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x3FDEBFBDFF82C58Eull;	qref.lo = 0xA86F16B06EC97360ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 64.0 ,"ERROR in QFMUL error-level check!");
 
 	/* ln2*2pi:	0x40116BB24190A0B6, 0xE765BE0D06135E60	*/
 	q = qfmul(QLN2,Q2PI);
@@ -3187,7 +3187,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x40116BB24190A0B6ull;	qref.lo = 0xE765BE0D06135E60ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 64.0 ,"ERROR in QFMUL error-level check!");
 
 	/* 2pi*e:	0x403114580B45D474, 0x9E6108579A2D0CA7	*/
 	q = qfmul(Q2PI,QEXP);
@@ -3197,7 +3197,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x403114580B45D474ull;	qref.lo = 0x9E6108579A2D0CA7ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 128.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 128.0 ,"ERROR in QFMUL error-level check!");
 
 	/* 2pi*2pi:	0x4043BD3CC9BE45DE, 0x5A4ADC4D9B301183	*/
 	q = qfmul(Q2PI,Q2PI);
@@ -3208,7 +3208,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x4043BD3CC9BE45DEull;	qref.lo = 0x5A4ADC4D9B301183ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 128.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 128.0 ,"ERROR in QFMUL error-level check!");
 
 	/*********** TEST THE ADDITION ALGORITHM ************/
 #if TIMING_TEST
@@ -3217,7 +3217,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfadd(QEXP,QEXP));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3231,7 +3231,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x402200C04CE72C66ull;	qref.lo = 0x7821CB48D9B947ACull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+	ASSERT(derr < 64.0 ,"ERROR in QFMUL error-level check!");
 
 	/********** TEST THE SUBTRACTION ALGORITHM **********/
 #if TIMING_TEST
@@ -3240,7 +3240,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfsub(QEXP,QEXP));
 	}
-	ASSERT(HERE, td == 0.0, "!");
+	ASSERT(td == 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3255,7 +3255,7 @@ int qtest(void)
 #endif
 	qref.hi = qref.lo = 0x0000000000000000ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+	ASSERT(derr == 0.0 ,"ERROR in QFSUB error-level check!");
 
 	p.hi = 0x3FEFFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
 	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
@@ -3265,7 +3265,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x38A0000000000000ull;	qref.lo = 0x0000000000000000ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+	ASSERT(derr == 0.0 ,"ERROR in QFSUB error-level check!");
 
 	/* Both inputs   normalized, output denormalized, with just one significant bit. */
 	p.hi = 0x00FFFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
@@ -3276,7 +3276,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x0000000000000000ull;	qref.lo = 0x0000000000004000ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+	ASSERT(derr == 0.0 ,"ERROR in QFSUB error-level check!");
 
 	/* Both inputs denormalized, output zero */
 	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
@@ -3286,7 +3286,7 @@ int qtest(void)
 #endif
 	qref.hi = qref.lo = 0ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+	ASSERT(derr == 0.0 ,"ERROR in QFSUB error-level check!");
 
 	/* Both inputs denormalized, output denormalized, with just one significant bit. */
 	p.hi = 0x000FFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
@@ -3297,7 +3297,7 @@ int qtest(void)
 #endif
 	qref.hi = 0ull;	qref.lo = 1ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+	ASSERT(derr == 0.0 ,"ERROR in QFSUB error-level check!");
 
 	/* 2*pi-e:	0x400C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
 	q = qfsub(Q2PI,QEXP);
@@ -3306,14 +3306,14 @@ int qtest(void)
 #endif
 	qref.hi = 0x400C84EC1D7402C7ull;	qref.lo = 0x39DB360DDEDB4F60ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+	ASSERT(derr == 0.0 ,"ERROR in QFSUB error-level check!");
 
 	/* e-2*pi:	0xC00C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
 	r = qfsub(QEXP,Q2PI);
 #if QFDEBUG
 		printf("     e-2pi = %16llX  %16llX\n",r.hi,r.lo);
 #endif
-	if(!(qfcmpeq(r, qfneg(q)))) ASSERT(HERE, 0,"ERROR 54 in qfloat.c");
+	if(!(qfcmpeq(r, qfneg(q)))) ASSERT(0,"ERROR 54 in qfloat.c");
 
 	/*********** TEST THE SQUARE ROOT ALGORITHM ************/
 #if TIMING_TEST
@@ -3322,7 +3322,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfsqrt(QEXP));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3340,7 +3340,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFSQRT error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSQRT error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFSQRT error-level check!");
 
 	/*********** TEST THE INVERSION AND DIVISION ALGORITHMS ************/
 #if TIMING_TEST
@@ -3349,7 +3349,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfinv(QEXP));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3367,7 +3367,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFINV error-level check!");
 
 	/* 1/e:		0x3FD78B56362CEF37, 0xC6AEB7B1E0A4153E(4376...), qfinv gives ...53C. */
 	q = qfinv(QEXP);
@@ -3380,7 +3380,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFINV error-level check!");
 
 	/* 1/ln2:	0x3FF71547652B82FE, 0x1777D0FFDA0D23A7(D11D...), qfinv gives ...3A6. */
 	q = qfinv(QLN2);
@@ -3393,7 +3393,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFINV error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3401,7 +3401,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfdiv(QEXP,QPI));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3419,7 +3419,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFDIV error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFDIV error-level check!");
+//	ASSERT(derr < 128.0 ,"ERROR in QFDIV error-level check!");
 
 	/*********** TEST THE TRANSCENDENTAL FUNCTIONS ************/
 #if TIMING_TEST
@@ -3428,7 +3428,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfsn1(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3443,7 +3443,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFSIN error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSIN error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFSIN error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3451,7 +3451,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfcs1(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3466,7 +3466,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFCOS error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOS error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFCOS error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3474,7 +3474,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qftan(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3492,7 +3492,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFTAN error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFTAN error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFTAN error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3500,7 +3500,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfcot(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3518,7 +3518,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFCOT error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOT error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFCOT error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3526,7 +3526,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfatan(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3544,7 +3544,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFATAN error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFATAN error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFATAN error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3552,7 +3552,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qflog(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3566,7 +3566,7 @@ int qtest(void)
 #endif
 	qref.hi = 0x3FE62E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 1100.0,"ERROR in QFLOG error-level check!");	// AGM-based log is fast but error-prone
+	ASSERT(derr < 1100.0,"ERROR in QFLOG error-level check!");	// AGM-based log is fast but error-prone
 
 	/* log(2^64):	Compare to precomputed log(2^64) = (same as log(2) but exp-field += 6): */
 	q = qfmul_pow2(QONE,+64);
@@ -3581,7 +3581,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFLOG error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 1100.0 ,"ERROR in QFLOG error-level check!");
+//	ASSERT(derr < 1100.0 ,"ERROR in QFLOG error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3589,7 +3589,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfexp(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3607,7 +3607,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFEXP error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr <= 64.0 ,"ERROR in QFEXP error-level check!");
+//	ASSERT(derr <= 64.0 ,"ERROR in QFEXP error-level check!");
 
 	/* Sine and cosine are somewhat roundoff-error prone, so raise the error limit slightly. */
 	/* cos(1):	0x3FE14A280FB5068B, 0x923848CDB2ED0E37(A534...), qfcs1 gives ...D0E38, ~116 bits of accuracy */
@@ -3621,13 +3621,13 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFCS1 error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCS1 error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFCS1 error-level check!");
 
 	r = qfcos(QONE);
 #if QFDEBUG
 		printf("qcos(1) = %16llX  %16llX\n",r.hi,r.lo);
 #endif
-	if(!(qfcmpeq(r, q))) ASSERT(HERE, 0,"ERROR 70 in qfloat.c");
+	if(!(qfcmpeq(r, q))) ASSERT(0,"ERROR 70 in qfloat.c");
 
 	/* sin(1):	0x3FEAED548F090CEE, 0x0418DD3D2138A1E7(8651...), qfsn1 gives ...8A1E9, ~115 bits of accuracy */
 	q = qfsn1(QONE);
@@ -3640,13 +3640,13 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFSN1 error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSN1 error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFSN1 error-level check!");
 
 	r = qfsin(QONE);
 #if QFDEBUG
 		printf("qsin(1) = %16llX  %16llX\n",r.hi,r.lo);
 #endif
-	if(!(qfcmpeq(r, q))) ASSERT(HERE, 0,"ERROR 74 in qfloat.c");
+	if(!(qfcmpeq(r, q))) ASSERT(0,"ERROR 74 in qfloat.c");
 
 	/* cos(100):0x3FEB981DBF665FDF, 0x63F433736617A041(5D8A...), qfcos gives ...7A023, ~114 bits of accuracy */
 	q = qfcos(i64_to_q((int64)100));
@@ -3659,7 +3659,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFCOS error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFCOS error-level check!");
+//	ASSERT(derr < 128.0 ,"ERROR in QFCOS error-level check!");
 
 	/* sin(100):0xBFE03425B78C4DB8, 0x0708F6155D083EB2(1C6B...), qfsin gives ...83EE5, ~109 bits of accuracy */
 	q = qfsin(i64_to_q((int64)100));
@@ -3672,7 +3672,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFSIN error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFSIN error-level check!");
+//	ASSERT(derr < 128.0 ,"ERROR in QFSIN error-level check!");
 
 	/*********** Test the hyperbolic-trigs: **********************/
 #if TIMING_TEST
@@ -3681,7 +3681,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfsinh(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3696,7 +3696,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFSINH error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSINH error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFSINH error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3704,7 +3704,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qfcosh(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3719,7 +3719,7 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFCOSH error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOSH error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFCOSH error-level check!");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3727,7 +3727,7 @@ int qtest(void)
 	for(i = 0; i < titers; ++i) {
 		td += qfdbl(qftanh(QLN2));
 	}
-	ASSERT(HERE, td != 0.0, "!");
+	ASSERT(td != 0.0, "!");
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3742,11 +3742,11 @@ int qtest(void)
 		printf("derr = %10.5f\n", derr);
 		WARN(HERE, "ERROR in QFTANH error-level check!", "", 0);
 	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFTANH error-level check!");
+//	ASSERT(derr < 16.0 ,"ERROR in QFTANH error-level check!");
 
 	/*********** TEST THE INT --> QFLOAT and ROUND-TOWARD-ZERO AND ROUND-TO-NEAREST FUNCTIONS ************/
-	ASSERT(HERE, CMPEQ128( qfint(qfneg( i64_to_q(  0ull))), NIL128 ), "error!");
-	ASSERT(HERE, CMPEQ128( qfint(qfneg(i128_to_q(NIL128))), NIL128 ), "error!");
+	ASSERT(CMPEQ128( qfint(qfneg( i64_to_q(  0ull))), NIL128 ), "error!");
+	ASSERT(CMPEQ128( qfint(qfneg(i128_to_q(NIL128))), NIL128 ), "error!");
 #if TIMING_TEST
 	clock1 = clock();
 	hidiff = lodiff = 0ull;
@@ -3755,7 +3755,7 @@ int qtest(void)
 		hidiff += i128.d1;
 		lodiff += i128.d0;
 	}
-	ASSERT(HERE, !hidiff && (lodiff == titers), "!");	// NINT(ln2) = 1, titers times
+	ASSERT(!hidiff && (lodiff == titers), "!");	// NINT(ln2) = 1, titers times
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
@@ -3767,7 +3767,7 @@ int qtest(void)
 #if QFDEBUG
 		printf("qfnint(0.5) = %16llX  %16llX\n",i128.d1,i128.d0);
 #endif
-	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)1),"ERROR 80 in qfloat.c");
+	ASSERT((!i128.d1 && i128.d0 == (uint64)1),"ERROR 80 in qfloat.c");
 
 #if TIMING_TEST
 	clock1 = clock();
@@ -3777,25 +3777,25 @@ int qtest(void)
 		hidiff += i128.d1;
 		lodiff += i128.d0 + qfint(QPI).d0;
 	}
-	ASSERT(HERE, !hidiff && (lodiff == 3*titers), "!");	// INT(ln2) = 0 and INT(pi) = 3, summed (titers) times
+	ASSERT(!hidiff && (lodiff == 3*titers), "!");	// INT(ln2) = 0 and INT(pi) = 3, summed (titers) times
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
 	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
 	cycles /= (double)titers;
 	printf	("qfint   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
 #endif
-	i128 = qfnint(QHALF);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)1),"ERROR 82 in qfloat.c");
-	i128 = qfint(QHALF);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)0),"ERROR 83 in qfloat.c");
-	i128 = qfnint(QEXP);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)3),"ERROR 84 in qfloat.c");
-	i128 = qfint(QEXP);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)2),"ERROR 85 in qfloat.c");
-	i128 = qfnint(Q2PI);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6),"ERROR 86 in qfloat.c");
-	i128 = qfint(Q2PI);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6),"ERROR 87 in qfloat.c");
+	i128 = qfnint(QHALF);	ASSERT((!i128.d1 && i128.d0 == (uint64)1),"ERROR 82 in qfloat.c");
+	i128 = qfint(QHALF);	ASSERT((!i128.d1 && i128.d0 == (uint64)0),"ERROR 83 in qfloat.c");
+	i128 = qfnint(QEXP);	ASSERT((!i128.d1 && i128.d0 == (uint64)3),"ERROR 84 in qfloat.c");
+	i128 = qfint(QEXP);		ASSERT((!i128.d1 && i128.d0 == (uint64)2),"ERROR 85 in qfloat.c");
+	i128 = qfnint(Q2PI);	ASSERT((!i128.d1 && i128.d0 == (uint64)6),"ERROR 86 in qfloat.c");
+	i128 = qfint(Q2PI);		ASSERT((!i128.d1 && i128.d0 == (uint64)6),"ERROR 87 in qfloat.c");
 	q = qfmul_pow2(Q2PI, 20);
-	i128 = qfnint(q);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6588397),"ERROR 90 in qfloat.c");
+	i128 = qfnint(q);		ASSERT((!i128.d1 && i128.d0 == (uint64)6588397),"ERROR 90 in qfloat.c");
 
 	q = qfmul_pow2(QPI, 125);	/* This gives pi*2^125, which should still fit into a signed 128-bit int. */
 	i128 = qfnint(q);
-	ASSERT(HERE, (i128.d1 = (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
+	ASSERT((i128.d1 = (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
 
 #if TIMING_TEST
 	exit(0);

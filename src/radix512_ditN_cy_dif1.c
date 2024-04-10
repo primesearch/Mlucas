@@ -69,7 +69,7 @@ void radix512_dif_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT(HERE, (double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
+		ASSERT((double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
 		first_entry=FALSE;
 		NDIVR = n >> 9;
 

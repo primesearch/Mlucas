@@ -221,7 +221,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	// v20: got rid of 1st constraint, so we can use a single mode_flag value in p-1 stage 2 for both vecs we want to fwd-FFT-only
 	//      but input in fwd-FFT-pass-1-already-done mode and ones where we do both FFTs, input in said form and left so on return:
 	//	if(fwd_fft == 1ull)
-	//		ASSERT(HERE, mode_flag < 2, "Only low bit of mode_flag field may be used in this case!");
+	//		ASSERT(mode_flag < 2, "Only low bit of mode_flag field may be used in this case!");
 	}
 
 	/* These came about as a result of multithreading, but now are needed whether built unthreaded or multithreaded */
@@ -247,7 +247,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	radix0 = RADIX_VEC[0];
 	nchunks = radix0>>1;
-	ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
+	ASSERT(TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
 
 /*...initialize things upon first entry */
 
@@ -272,7 +272,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	{
 		if(!arr_scratch) {
 			sprintf(cbuf, "Init portion of %s requires non-null scratch array!",func);
-			ASSERT(HERE, 0, cbuf);
+			ASSERT(0, cbuf);
 		}
 		first_entry=FALSE;
 		psave = p;
@@ -284,7 +284,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(RADIX_VEC[i] == 0)
 			{
 				sprintf(cbuf, "%s: RADIX_VEC[i = %d] zero, for i < [NRADICES = %d]!",func,i,NRADICES);
-				ASSERT(HERE, 0, cbuf);
+				ASSERT(0, cbuf);
 			}
 			radix_set_save[i] = RADIX_VEC[i];
 		}
@@ -293,7 +293,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(RADIX_VEC[i] != 0)
 			{
 				sprintf(cbuf, "%s: RADIX_VEC[i = %d] nonzero, for i >= [NRADICES = %d]!",func,i,NRADICES);
-				ASSERT(HERE, 0, cbuf);
+				ASSERT(0, cbuf);
 			}
 			radix_set_save[i] = 0;
 		}
@@ -304,12 +304,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		/* My array padding scheme requires N/radix0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 		if(n%radix0 != 0) {
-			sprintf(cbuf  ,"ERROR: radix0 does not divide N!\n"); fprintf(stderr,"%s", cbuf); ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf  ,"ERROR: radix0 does not divide N!\n"); fprintf(stderr,"%s", cbuf); ASSERT(0,cbuf);
 		}
 		/* Make sure n/radix0 is a power of 2: */
 		i = n/radix0;
 		if((i >> trailz32(i)) != 1) {
-			sprintf(cbuf  ,"ERROR: n/radix0 not a power of 2!\n"); fprintf(stderr,"%s", cbuf); ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf  ,"ERROR: n/radix0 not a power of 2!\n"); fprintf(stderr,"%s", cbuf); ASSERT(0,cbuf);
 		}
 
 		if(DAT_BITS < 31)
@@ -317,7 +317,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			/* Now make sure n/radix0 is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
 			if(i < (1 << DAT_BITS))
 			{
-			//	sprintf(cbuf  ,"ERROR: n/radix0 must be >= %u!\n", (1 << DAT_BITS));	fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			//	sprintf(cbuf  ,"ERROR: n/radix0 must be >= %u!\n", (1 << DAT_BITS));	fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 				// Mar 2018: Switch to 'soft' assertion error here, e.g. for timing tests at small FFT lengths:
 				sprintf(cbuf  ,"n/radix0 must be >= %u! Skipping this radix combo.\n", (1 << DAT_BITS));	WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 			}
@@ -327,7 +327,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			{
 				sprintf(cbuf  ,"ERROR: final FFT radix may not exceed = %u!\n", (1 << (DAT_BITS-1)));
 				fprintf(stderr,"%s", cbuf);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 		}
 
@@ -360,7 +360,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		{
 			sprintf(cbuf  ,"ERROR: product of radices not equal to complex vector length\n");
 			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 
 /*		index = (int *)calloc(k,sizeof(int));	*/
@@ -369,7 +369,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		{
 			sprintf(cbuf  ,"ERROR: unable to allocate array INDEX in %s.\n",func);
 			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 		index = ALIGN_INT(index_ptmp);
 
@@ -576,7 +576,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		default :
 			sprintf(cbuf  ,"ERROR: radix %d not available. Halting...\n",radix0);
 			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 
 		for(i = 1; i < NRADICES; i++)
@@ -615,7 +615,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			default :
 				sprintf(cbuf  ,"ERROR: intermediate radix %d not available. Halting...\n",RADIX_VEC[i]);
 				fprintf(stderr,"%s", cbuf);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 
 			/* Final radix must be 16 or 32: */
@@ -623,7 +623,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			{
 				sprintf(cbuf  ,"ERROR: final radix %d not available. Halting...\n",RADIX_VEC[i]);
 				fprintf(stderr,"%s", cbuf);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 		}
 		nradices_prim = l;	for( ; l < 30; l++) { radix_prim[l] = 0; }	// Zero any higher elements which may have been previously set due
@@ -654,7 +654,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		{
 			sprintf(cbuf  ,"ERROR: NWT does not divide N!\n");
 			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 
 		/*...The roots arrays need only be half the dimension of the weights arrays (since we need n/2 complex roots
@@ -665,10 +665,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		tmp = (double *)calloc(n/nwt+1       ,sizeof(double));
 		si  = (   int *)calloc(nwt+1         ,sizeof(   int));
 		*/
-		wt0_ptmp = ALLOC_DOUBLE(wt0_ptmp, nwt+1         );	if(!wt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array WT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt0 = ALIGN_DOUBLE(wt0_ptmp);
-		wt1_ptmp = ALLOC_DOUBLE(wt1_ptmp, n/nwt+radix0  );	if(!wt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array WT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt1 = ALIGN_DOUBLE(wt1_ptmp);
-		tmp_ptmp = ALLOC_DOUBLE(tmp_ptmp, n/nwt+1       );	if(!tmp_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array TMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; tmp = ALIGN_DOUBLE(tmp_ptmp);
-		si_ptmp  = ALLOC_INT   ( si_ptmp, nwt+1         );	if(!si_ptmp ){ sprintf(cbuf,"ERROR: unable to allocate array SI  in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; si  = ALIGN_INT   (si_ptmp );
+		wt0_ptmp = ALLOC_DOUBLE(wt0_ptmp, nwt+1         );	if(!wt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array WT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }; wt0 = ALIGN_DOUBLE(wt0_ptmp);
+		wt1_ptmp = ALLOC_DOUBLE(wt1_ptmp, n/nwt+radix0  );	if(!wt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array WT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }; wt1 = ALIGN_DOUBLE(wt1_ptmp);
+		tmp_ptmp = ALLOC_DOUBLE(tmp_ptmp, n/nwt+1       );	if(!tmp_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array TMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }; tmp = ALIGN_DOUBLE(tmp_ptmp);
+		si_ptmp  = ALLOC_INT   ( si_ptmp, nwt+1         );	if(!si_ptmp ){ sprintf(cbuf,"ERROR: unable to allocate array SI  in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }; si  = ALIGN_INT   (si_ptmp );
 
 		/******************************************************************/
 		/* Crandall/Fagin weighting factors and number of bits per digit. */
@@ -702,7 +702,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(idiff > max_idiff)
 				max_idiff = idiff;
 			sprintf(cbuf,"INFO: QWT1= %20.15f, DWT = %20.15f DIFFER BY %20.0f\n", t1, t2, (double)idiff);
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 
 		simodn=0;
@@ -722,7 +722,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				if(idiff > max_idiff)
 					max_idiff = idiff;
 				sprintf(cbuf,"INFO: I = %8d: QWT = %20.15f, DWT = %20.15f DIFFER BY %20.0f\n", i, t1, t2, (double)idiff);
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 
 			wt0  [i] = t1;	/* Ith DWT weight factor = 2^[(s*i mod N)/N], where the exponent is done using floating divide.	*/
@@ -765,7 +765,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(idiff > max_idiff)
 				max_idiff = idiff;
 			sprintf(cbuf,"INFO: QWT2= %20.15f, DWT = %20.15f DIFFER BY %20.0f\n", t1, t2, (double)idiff);
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 
 		j=0;	/* Store I*K mod NN here. We don't directly calculate I*K, since that can overflow a 32-bit integer at large runlengths.	*/
@@ -785,7 +785,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				if(idiff > max_idiff)
 					max_idiff = idiff;
 				sprintf(cbuf,"INFO: J = %8d: QWT = %20.15f, DWT = %20.15f DIFFER BY %20.0f\n", i, t1, t2, (double)idiff);
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 			tmp[i] = t1;
 		/*fprintf(stderr,"I = %d; TMP = %20.10f\n",i,tmp[i]);	*/
@@ -837,7 +837,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		(i.e. will be accessed using the lower lg(NRT) bits of the integer sincos index):
 		*/
 		rt0_ptmp = ALLOC_COMPLEX(rt0_ptmp, NRT);
-		if(!rt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		rt0 = ALIGN_COMPLEX(rt0_ptmp);
 
 		qt     = i64_to_q((int64)N2);
@@ -861,7 +861,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(idiff > max_idiff)
 				max_idiff = idiff;
 			sprintf(cbuf,"INFO: QCOS1= %20.15f, DCOS = %20.15f DIFFER BY %20.0f\n", t1, t2, (double)idiff);
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 
 		t1 = qfdbl(qi);
@@ -878,7 +878,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(idiff > max_idiff)
 				max_idiff = idiff;
 			sprintf(cbuf,"INFO: QSIN1= %20.15f, DSIN = %20.15f DIFFER BY %20.0f\n", t1, t2, (double)idiff);
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 
 		qt = QZRO;
@@ -900,7 +900,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				if(idiff > max_idiff)
 					max_idiff = idiff;
 				sprintf(cbuf,"INFO: I = %8d: QCOS = %20.15f, DCOS = %20.15f DIFFER BY %20.0f\n", i, t1, t2, (double)idiff);
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 			rt0[i].re = t1;
 
@@ -919,7 +919,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				if(idiff > max_idiff)
 					max_idiff = idiff;
 				sprintf(cbuf,"INFO: I = %8d: QSIN = %20.15f, DSIN = %20.15f DIFFER BY %20.0f\n", i, t1, t2, (double)idiff);
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 			rt0[i].im = t1;
 
@@ -936,7 +936,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		(and will be accessed using the upper bits, <lg(NRT):31>, of the integer sincos index):
 		*/
 		rt1_ptmp = ALLOC_COMPLEX(rt1_ptmp, n/(2*NRT));
-		if(!rt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		rt1 = ALIGN_COMPLEX(rt1_ptmp);
 
 		qn     = i64_to_q((int64)NRT);
@@ -962,7 +962,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(idiff > max_idiff)
 				max_idiff = idiff;
 			sprintf(cbuf,"INFO: QCOS2= %20.15f, DCOS = %20.15f DIFFER BY %20.0f\n", t1, t2, (double)idiff);
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 
 		t1 = qfdbl(qi);
@@ -979,7 +979,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			if(idiff > max_idiff)
 				max_idiff = idiff;
 			sprintf(cbuf,"INFO: QSIN2= %20.15f, DSIN = %20.15f DIFFER BY %20.0f\n", t1, t2, (double)idiff);
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 
 		qt = QZRO;
@@ -1002,7 +1002,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				if(idiff > max_idiff)
 					max_idiff = idiff;
 				sprintf(cbuf,"INFO: J = %8d: QCOS = %20.15f, DCOS = %20.15f DIFFER BY %20.0f\n", i, t1, t2, (double)idiff);
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 			rt1[i].re = t1;
 
@@ -1021,7 +1021,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				if(idiff > max_idiff)
 					max_idiff = idiff;
 				sprintf(cbuf,"INFO: J = %8d: QSIN = %20.15f, DSIN = %20.15f DIFFER BY %20.0f\n", i, t1, t2, (double)idiff);
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 			rt1[i].im = t1;
 //if((i & 63) ==0)printf("rt1[%3u] = %20.15f, %20.15f\n",i,rt1[i].re,rt1[i].im);
@@ -1130,7 +1130,7 @@ for(i=0; i < NRT; i++) {
 
 		/* 8/23/2004: Need to allocate an extra element here to account for the padding element that gets inserted when radix0 is odd: */
 		block_index = (int *)calloc((radix0+1),sizeof(int));
-		if(!block_index){ sprintf(cbuf,"ERROR: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!block_index){ sprintf(cbuf,"ERROR: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		/*
 		Examples:
 
@@ -1214,7 +1214,7 @@ for(i=0; i < NRT; i++) {
 				*/
 				for(j = 0; j < 2; j++)
 				{
-					if(!(l >= 0 && l < radix0)) { sprintf(cbuf,"ERROR 10 in %s.c\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+					if(!(l >= 0 && l < radix0)) { sprintf(cbuf,"ERROR 10 in %s.c\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 					if((blocklen & 1) && j == 1)
 					{
@@ -1248,14 +1248,14 @@ for(i=0; i < NRT; i++) {
 		}		/* End of Main loop */
 
 		/* arrays storing the index values needed for the parallel-block wrapper/square scheme: */
-		if( !(ws_i            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j1           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2_start     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_k            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_m            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen_sum = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_i            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_j1           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_j2           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_j2_start     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_k            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_m            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_blocklen     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_blocklen_sum = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		for(ii = 0; ii < radix0; ii += 2)
 		{
@@ -1292,7 +1292,7 @@ for(i=0; i < NRT; i++) {
 					*/
 					default :
 					sprintf(cbuf,"ERROR: radix %d not available for wrapper_square. Halting...\n",RADIX_VEC[NRADICES-1]);
-					fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+					fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 				}
 			}
 		}
@@ -1302,7 +1302,7 @@ for(i=0; i < NRT; i++) {
 			fprintf(stderr, "%s:\n",func);
 			fprintf(stderr, " Max abs error between real*8 and real*16 computed values = %20.15f\n",         max_adiff);
 			fprintf(stderr, " Max bit error between real*8 and real*16 computed values = %20.0f \n", (double)max_idiff);
-			ASSERT(HERE, (max_adiff < 100*err_threshold),"Max error between real*8 and real*16 unacceptably high - quitting.");
+			ASSERT((max_adiff < 100*err_threshold),"Max error between real*8 and real*16 unacceptably high - quitting.");
 		}
 
 	#ifdef MULTITHREAD
@@ -1346,13 +1346,13 @@ for(i=0; i < NRT; i++) {
 	// Threadpool-based dispatch:
 
 		// MAX_THREADS is the max. no. of threads we expect to be able to make use of, at 1 thread per core.
-		ASSERT(HERE, MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
+		ASSERT(MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
 		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
 		main_work_units = 0;
 		pool_work_units = nchunks;
-		ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
 
 	#endif	// MULTITHREAD?
@@ -1675,7 +1675,7 @@ for(i=0; i < NRT; i++) {
 #endif
 
 	/*...Init clock counter:	*/
-	ASSERT(HERE, tdiff != 0,"mers_mod_square.c: NULL tdiff ptr!");
+	ASSERT(tdiff != 0,"mers_mod_square.c: NULL tdiff ptr!");
 
 #ifdef CTIME
 	clock1 = clock();
@@ -1729,10 +1729,10 @@ for(i=0; i < NRT; i++) {
 				simodn += sw;	if(simodn >= n) simodn -= n;
 				bimodn += bw;	if(bimodn >= n) bimodn -= n;
 			//	if(simodn != n - bimodn) printf("I = %d: simodn[%u] != n - bimodn[%u]\n",i,simodn,n - bimodn);
-			//	ASSERT(HERE, simodn == n - bimodn, "simodn != n - bimodn");	<*** cannot require this because (for i = n-1) have simodn = 0, bimodn = n,
-				ASSERT(HERE, DNINT(a[j]) == a[j],"mers_mod_square.c: Input a[j] noninteger!");
+			//	ASSERT(simodn == n - bimodn, "simodn != n - bimodn");	<*** cannot require this because (for i = n-1) have simodn = 0, bimodn = n,
+				ASSERT(DNINT(a[j]) == a[j],"mers_mod_square.c: Input a[j] noninteger!");
 				fracmax = fabs( wt*wtinv*radix0 - 1.0 );
-				ASSERT(HERE, fracmax < 1e-10, "wt*wtinv check failed!");
+				ASSERT(fracmax < 1e-10, "wt*wtinv check failed!");
 				a[j] *= wt;
 				ii =((uint32)(sw - bimodn) >> 31);
 			}
@@ -1756,7 +1756,7 @@ for(i=0; i < NRT; i++) {
 	*/
 	ierr = 0;	/* Any return-value error code (whether fatal or not) stored here */
 
-	ASSERT(HERE, ihi > ilo,"mers_mod_square.c: ihi <= ilo!");
+	ASSERT(ihi > ilo,"mers_mod_square.c: ihi <= ilo!");
 
   #if DBG_THREADS
 	fprintf(stderr,"%s: NTHREADS = %3d\n",func,NTHREADS);
@@ -1798,7 +1798,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
 	//		sleep(1);	//*** too granular ***
 		// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
+		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
 	//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 	}
 //	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
@@ -1931,7 +1931,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 	*/
 		default :
-			sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 	}
 
 	// v19: Nonzero exit carries used to be fatal, added retry-from-last-savefile handling for these
@@ -2028,7 +2028,7 @@ if(!MLUCAS_KEEP_RUNNING) {
 //	fprintf(stderr,"%s: fwd_fft_only = 0x%016X, fwd_fft = %X; Caught interrupt at iter = %u; --iter = %u\n",func,fwd_fft_only,fwd_fft,iter+1,iter);
 }
 if(iter < ihi) {
-	ASSERT(HERE, !MLUCAS_KEEP_RUNNING, "Premature iteration-loop exit due to unexpected condition!");
+	ASSERT(!MLUCAS_KEEP_RUNNING, "Premature iteration-loop exit due to unexpected condition!");
 	ierr = ERR_INTERRUPT;
 	ROE_ITER = iter;	// Function return value used for error code, so save number of last-iteration-completed-before-interrupt here
 //	fprintf(stderr,"Caught signal at iter = %u; mode_flag = 0x%X\n",iter,mode_flag);
@@ -2127,7 +2127,7 @@ undo_initial_ffft_pass:
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	// *** v19: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
 	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
-		ASSERT(HERE, (ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
+		ASSERT((ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
 		ROE_ITER = 0;
 		ROE_VAL = 0.0;
 		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
@@ -2196,7 +2196,7 @@ void mers_process_chunk(
 	dyadic-multiply FFT(a) * FFT(b) and iFFT the product, storing the result in a[].
 	*/
   if((fwd_fft & 0xC) != 0) {
-	ASSERT(HERE, ((fwd_fft & 0xF) == 0xC) && ((fwd_fft>>4) != 0x0), "Bits 2:3 of fwd_fft == 3: Expect Bits 0:1 == 0 and nonzero b[] = hi60! *");
+	ASSERT(((fwd_fft & 0xF) == 0xC) && ((fwd_fft>>4) != 0x0), "Bits 2:3 of fwd_fft == 3: Expect Bits 0:1 == 0 and nonzero b[] = hi60! *");
   }	else {
 	for(j = 0; j < jhi; j++)
 	{
@@ -2226,7 +2226,7 @@ void mers_process_chunk(
 			case 32 :
 				radix32_dif_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 			default :
-				sprintf(cbuf,"ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				sprintf(cbuf,"ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 
 			k    += mm*radix0;
@@ -2262,7 +2262,7 @@ void mers_process_chunk(
 			radix64_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft, c); break;
 		*/
 		default :
-			sprintf(cbuf,"ERROR: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"ERROR: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 		}
 	}
 
@@ -2286,7 +2286,7 @@ void mers_process_chunk(
 	{
 		/* Get block index of the chunk of contiguous data to be processed: */
 		l = block_index[ii + j];
-		ASSERT(HERE, l >= 0,"mers_mod_square.c: l >= 0");
+		ASSERT(l >= 0,"mers_mod_square.c: l >= 0");
 
 		/* Quick-n-dirty way of generating the correct starting values of k, mm and incr -
 		simply use the skeleton of the forward (DIF) loop, sans the i = NRADICES-2 pass
@@ -2330,7 +2330,7 @@ void mers_process_chunk(
 			case 32 :
 				radix32_dit_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 			default :
-				sprintf(cbuf,"ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				sprintf(cbuf,"ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 		}	/* end i-loop */
 

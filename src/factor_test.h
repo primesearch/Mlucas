@@ -128,7 +128,7 @@ int test_fac()
 	/* TRYQ: */
 	#ifndef TRYQ
 		/* This flag is required: */
-		ASSERT(HERE, 0,"TRYQ not defined!");
+		ASSERT(0,"TRYQ not defined!");
 	#else
 		i = TRYQ;
 		printf("TRYQ = %u\n", i);
@@ -143,7 +143,7 @@ int test_fac()
 		i = THREE_OP128;
 		printf("THREE_OP128 = %u\n", i);
 		/* iF NONZERO, Must = 1 : */
-		ASSERT(HERE, (THREE_OP128 == 1),"THREE_OP128 Must = 0 or 1!");
+		ASSERT((THREE_OP128 == 1),"THREE_OP128 Must = 0 or 1!");
 		/* Only relevant for TRYQ = 4 or 8: */
 		#if(TRYQ != 4 && TRYQ != 8)
 			#error	THREE_OP128 Only relevant for TRYQ = 4 or 8!
@@ -161,7 +161,7 @@ int test_fac()
 	/* NUM_SIEVING_PRIME: */
 	#ifndef NUM_SIEVING_PRIME
 		/* This flag is required: */
-		ASSERT(HERE, 0,"NUM_SIEVING_PRIME not defined!");
+		ASSERT(0,"NUM_SIEVING_PRIME not defined!");
 	#else
 		i = NUM_SIEVING_PRIME;
 		printf("NUM_SIEVING_PRIME = %u\n", i);
@@ -170,7 +170,7 @@ int test_fac()
 	/* TF_CLASSES: */
 	#ifndef TF_CLASSES
 		/* This flag is required: */
-		ASSERT(HERE, 0,"TF_CLASSES not defined!");
+		ASSERT(0,"TF_CLASSES not defined!");
 	#else
 		i = TF_CLASSES;
 		printf("TF_CLASSES = %u\n", i);
@@ -253,7 +253,7 @@ int test_fac()
 	#else
 		i = USE_128x96;
 		printf("USE_128x96 = %u\n", i);
-		ASSERT(HERE,i <= 2,"Only USE_128x96 = 0-2 are recognized values!\n");
+		ASSERT(i <= 2,"Only USE_128x96 = 0-2 are recognized values!\n");
 		/* Only relevant for factoring up to 128 bits: */
 		#if(defined(P3WORD) || defined(P4WORD))
 			#warning USE_128x96 Only relevant for factoring up to 128 bits!
@@ -270,7 +270,7 @@ int test_fac()
 		#else
 			i = USE_128x96;
 			printf("    USE_128x96 = %u\n", i);
-			ASSERT(HERE,i <= 2,"Only USE_128x96 = 0-2 are recognized values!\n");
+			ASSERT(i <= 2,"Only USE_128x96 = 0-2 are recognized values!\n");
 		#endif
 
 	#endif
@@ -310,17 +310,17 @@ int test_fac()
 	q     = (uint64 *)calloc(l, sizeof(uint64));
 	q2    = (uint64 *)calloc(l, sizeof(uint64));
 	mi64_nega(q,q,l);
-	ASSERT(HERE, mi64_iszero(q,l), "mi64 -0 == 0 check fails!");
+	ASSERT(mi64_iszero(q,l), "mi64 -0 == 0 check fails!");
 	q[0] = 1;	mi64_nega(q,q,l);
 	mi64_add_scalar(q,1,q,l);
-	ASSERT(HERE, mi64_iszero(q,l), "mi64 -1 + 1 == 0 check fails!");
+	ASSERT(mi64_iszero(q,l), "mi64 -1 + 1 == 0 check fails!");
 
 	// Sep 2015 Bugfix: Hit case with len = 3 and these addends, which give a ripple carry into the top word:
 	q[0] =  6216518070457578443ull;	q2[0] = 12230226003251973173ull;
 	q[1] = 16881888488052985758ull;	q2[1] =  1564855585656565857ull;
 	q[2] =       65307107850795ull;	q2[2] =           2051081684ull;
 	mi64_add(q,q2,q,3);
-	ASSERT(HERE, q[0] == 0ull && q[1] == 0ull && q[2] == 65309158932480ull, "Sep 2015 mi64_add bugfix test fails!");
+	ASSERT(q[0] == 0ull && q[1] == 0ull && q[2] == 65309158932480ull, "Sep 2015 mi64_add bugfix test fails!");
 
 	/* Init the RNG: */
 	rng_isaac_init(TRUE);
@@ -332,7 +332,7 @@ int test_fac()
 	mi64_nega(q,q,l);
 	mi64_negl(q2,q2,l);
 	mi64_add_scalar(q2,1,q2,l);
-	ASSERT(HERE, mi64_cmp_eq(q,q2,l), "mi64 -q == ~q+1 check fails!");
+	ASSERT(mi64_cmp_eq(q,q2,l), "mi64 -q == ~q+1 check fails!");
 	free((void*)q);	free((void*)q2);
 	q = q2 = 0x0;
 
@@ -350,7 +350,7 @@ int test_fac()
 	k = 7143819210136784550ull;	p64 = 127;
 	p192.d0 = 2294959606785646778ull; p192.d1 = 10167084567166165345ull; p192.d2 = 2688959234133783535ull;
 	mi64_mul_vector_hi_qmmp((uint64*)&p192, p64, k, (uint64*)&q192, 192);
-	ASSERT(HERE, q192.d0 == 141525868296128525ull && q192.d1 == 4269430960237156763ull && q192.d2 == 1041345754856384950ull, "mi64_mul_vector_hi_qmmp test fails!");
+	ASSERT(q192.d0 == 141525868296128525ull && q192.d1 == 4269430960237156763ull && q192.d2 == 1041345754856384950ull, "mi64_mul_vector_hi_qmmp test fails!");
 
 	/* 09/30/2015: Adapt above to test Fermat-factor analog of above, mi64_mul_vector_hi_qferm:
 	Ex.: q = 2.k.2^128 + 1; k = 3571909605068392275, i.e.
@@ -366,7 +366,7 @@ int test_fac()
 	k = 3571909605068392275ull;	p64 = 128;
 	p192.d0 = 2294959606785646778ull; p192.d1 = 10167084567166165345ull; p192.d2 = 2688959234133783535ull;
 	mi64_mul_vector_hi_qferm((uint64*)&p192, p64, k, (uint64*)&q192, 192);
-	ASSERT(HERE, q192.d0 == 2224217378008898426ull && q192.d1 == 4269430960237156763ull && q192.d2 == 1041345754856384950ull, "mi64_mul_vector_hi_qferm test fails!");
+	ASSERT(q192.d0 == 2224217378008898426ull && q192.d1 == 4269430960237156763ull && q192.d2 == 1041345754856384950ull, "mi64_mul_vector_hi_qferm test fails!");
 
 	// Apr 2015: mi64_div bug debug - 0-pad both inputs to yield a length-4 mi64 array:
 	// Use 2^256 as a template for our 0-padding, but use 1 less leading 0 because convert_base10_char_mi64
@@ -374,14 +374,14 @@ int test_fac()
 	//                    2^256 = 115792089237316195423570985008687907853269984665640564039457584007913129639936:
 	// Feb 2020: Chnages to length-setting logic in convert_base10_char_mi64 mean we must init i,j = 0 prior to calling that function:
 	i = 0; p = convert_base10_char_mi64( "00000000000000000000000000000000000000364131549958466711308970009901738230041", &i);
-	ASSERT(HERE, mi64_getlen(p, i) == 3 && i == 4,"Bad p-length(s) in Apr2015 mi64_div test!");
+	ASSERT(mi64_getlen(p, i) == 3 && i == 4,"Bad p-length(s) in Apr2015 mi64_div test!");
 	j = 0; q = convert_base10_char_mi64( "00000000000000000000000000000000000000000000000000000000019437941122649628431", &j);
-	ASSERT(HERE, mi64_getlen(q, j) == 2 && j == 4,"Bad q-length(s) in Apr2015 mi64_div test!");
+	ASSERT(mi64_getlen(q, j) == 2 && j == 4,"Bad q-length(s) in Apr2015 mi64_div test!");
 	q2      = (uint64 *)calloc(4, sizeof(uint64));	// for quotient
 	u64_arr = (uint64 *)calloc(4, sizeof(uint64));	// for remainder
 	mi64_div(p,q,i,i,q2,u64_arr);
-	ASSERT(HERE, mi64_getlen(     q2, i) == 2 && q2[1] == 1 && q2[0] ==   286286737571717471ull, "bad quotient!");
-	ASSERT(HERE, mi64_getlen(u64_arr, i) == 1 &&          u64_arr[0] ==   618006351061617544ull, "bad remainder!");
+	ASSERT(mi64_getlen(     q2, i) == 2 && q2[1] == 1 && q2[0] ==   286286737571717471ull, "bad quotient!");
+	ASSERT(mi64_getlen(u64_arr, i) == 1 &&          u64_arr[0] ==   618006351061617544ull, "bad remainder!");
 	fprintf(stderr,"Apr2015 mi64_div quicktest passes.\n");
 	free((void*)p); free((void*)q); free((void*)q2); free((void*)u64_arr);
 	p = 0x0; q = 0x0; q2 = 0x0; u64_arr = 0x0;
@@ -391,18 +391,18 @@ int test_fac()
 	two_p = (uint64 *)calloc(i, sizeof(uint64));
 	mi64_add(p,p,two_p,i);
 	j = 0; q = convert_base10_char_mi64("4969289881134175801642878989330437804491760137935869781219375395913301677808943323410612629818326630668131744420258226244511522022525093242408710254941677603671849301746980479735516135243111", &j);
-	ASSERT(HERE, i==j,"0");
+	ASSERT(i==j,"0");
 	q2      = (uint64 *)calloc(i, sizeof(uint64));
 	u64_arr = (uint64 *)calloc(i, sizeof(uint64));
 	mi64_div(q,two_p,i,i,q2,u64_arr);
-	ASSERT(HERE, mi64_getlen(q2, i) == 1 , "k must be 64-bit!");
-	ASSERT(HERE, q2[0] == 4677965, "k != expected value of 9355930!");
+	ASSERT(mi64_getlen(q2, i) == 1 , "k must be 64-bit!");
+	ASSERT(q2[0] == 4677965, "k != expected value of 9355930!");
 	if(!mi64_cmp_eq_scalar(u64_arr, 1ull, i)) {		// Remainder = 1
 		fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
 					&cbuf0[convert_mi64_base10_char(cbuf0, p, i, 0)],
 					&cbuf1[convert_mi64_base10_char(cbuf1, q, i, 0)],
 					&cbuf2[convert_mi64_base10_char(cbuf2, u64_arr, i, 0)]);
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	} else {
 		fprintf(stderr,"mi64_div quicktest passes.\n");
 	}
@@ -423,11 +423,11 @@ int test_fac()
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1;
 	convert_mi64_base10_char(cbuf0, p, i, 0);
-	ASSERT(HERE, STREQ(cbuf0, "170141183460469231731687303715884105727"), "M127 string-conversion test failed!");
+	ASSERT(STREQ(cbuf0, "170141183460469231731687303715884105727"), "M127 string-conversion test failed!");
 	mi64_set_eq    (q, p, i);
 	mi64_sub_scalar(q ,1ull,q ,i);	// q = p-1
 	j = mi64_twopmodq(q, i, 0, p, i, 0x0);
-	ASSERT(HERE, j == 1, "M127 base-2 PRP test failed!");
+	ASSERT(j == 1, "M127 base-2 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-2 PRP test of M127 passed: Time =%s\n",get_time_str(tdiff));
 
@@ -445,13 +445,13 @@ int test_fac()
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 56474845800ull, q, lenQ, q2) != 1) {
 		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
-		ASSERT(HERE, 0, "MM31 known-factor (k = 56474845800) test failed!");
+		ASSERT(0, "MM31 known-factor (k = 56474845800) test failed!");
 	}
 	q[1] = mi64_mul_scalar( p, 2*41448832329225ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 41448832329225ull, q, lenQ, q2) != 1) {
 		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
-		ASSERT(HERE, 0, "MM31 known-factor (k = 41448832329225) test failed!");
+		ASSERT(0, "MM31 known-factor (k = 41448832329225) test failed!");
 	}
 	free((void*)p);	free((void*)q);	free((void*)q2);	p = q = q2 = 0x0;
 
@@ -463,18 +463,18 @@ int test_fac()
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1;
 	convert_mi64_base10_char(cbuf0, p, i, 0);
-	ASSERT(HERE, STREQ(cbuf0, "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127"), "M607 string-conversion test failed!");
+	ASSERT(STREQ(cbuf0, "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127"), "M607 string-conversion test failed!");
 	mi64_set_eq    (q, p, i);
 	mi64_sub_scalar(q ,1ull,q ,i);	// q = p-1
 	clock1 = clock();
 	j = mi64_twopmodq(q, i, 0, p, i, 0x0);
-	ASSERT(HERE, j == 1, "M607 base-2 PRP test failed!");
+	ASSERT(j == 1, "M607 base-2 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-2 PRP test of M607 passed: Time =%s\n",get_time_str(tdiff));
 	// Try the general-base PRP routine on the same number:
 	clock1 = clock();
 	j = mi64_pprimeF(p, 3, i);
-	ASSERT(HERE, j == 1, "M607 base-3 PRP test failed!");
+	ASSERT(j == 1, "M607 base-3 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-3 PRP test of M607 passed: Time =%s\n",get_time_str(tdiff));
 	free((void*)p);	free((void*)q);	p = q = 0x0;
@@ -490,13 +490,13 @@ int test_fac()
 	mi64_sub_scalar(q ,1ull,q ,i);	// q = p-1
 	clock1 = clock();
 	j = mi64_twopmodq(q, i, 0, p, i, 0x0);
-	ASSERT(HERE, j == 1, "M4423 base-2 PRP test failed!");
+	ASSERT(j == 1, "M4423 base-2 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-2 PRP test of M4423 passed: Time =%s\n",get_time_str(tdiff));
 	// Try the general-base PRP routine on the same number:
 	clock1 = clock();
 	j = mi64_pprimeF(p, 3, i);
-	ASSERT(HERE, j == 1, "M4423 base-3 PRP test failed!");
+	ASSERT(j == 1, "M4423 base-3 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-3 PRP test of M4423 passed: Time =%s\n",get_time_str(tdiff));
 	free((void*)p);	free((void*)q);	p = q = 0x0;
@@ -509,18 +509,18 @@ int test_fac()
 	q     = (uint64 *)calloc(i, sizeof(uint64));
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1; next we p /= 458072843161 :
-ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 divisibility test fails!");
+ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 divisibility test fails!");
 	mi64_set_eq    (q, p, i);
 	mi64_sub_scalar(q ,1ull,q ,i);	// q = p-1
 	clock1 = clock();
 	j = mi64_twopmodq(q, i, 0, p, i, 0x0);
-	ASSERT(HERE, j == 1, "M7331 cofactor base-2 PRP test failed!");
+	ASSERT(j == 1, "M7331 cofactor base-2 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-2 PRP test of M7331 cofactor passed: Time =%s\n",get_time_str(tdiff));
 	// Try the general-base PRP routine on the same number:
 	clock1 = clock();
 	j = mi64_pprimeF(p, 3, i);
-	ASSERT(HERE, j == 1, "M7331 cofactor base-3 PRP test failed!");
+	ASSERT(j == 1, "M7331 cofactor base-3 PRP test failed!");
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-3 PRP test of M7331 cofactor passed: Time =%s\n",get_time_str(tdiff));
 	free((void*)p);	free((void*)q);	p = q = 0x0;
@@ -538,7 +538,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	mi64_sub_scalar(q ,1ull,q ,i);	// q = p-1
 	clock1 = clock();
 	j = mi64_twopmodq(q, i, 0, p, i, 0x0);
-	ASSERT(HERE, j == 1, "M11213 base-2 PRP test failed!");
+	ASSERT(j == 1, "M11213 base-2 PRP test failed!");
 	free((void*)p);	free((void*)q);	p = q = 0x0;
 	clock2 = clock();	tdiff = (double)(clock2 - clock1);	clock1 = clock2;
 	printf	("Base-2 PRP test of M11213 passed: Time =%s\n",get_time_str(tdiff));
@@ -557,12 +557,12 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	q[0] = 1;	mi64_shl(q,q,j,i);	// 2^607
 	mi64_sub_scalar(q,1,q,i);		// p = 2^607 - 1;
 	// Mul by any scalar < 2^33 should have no carry out of the 10th 64-bit word
-	ASSERT(HERE, 0 == mi64_mul_scalar(q,2*28115877,q,i), "2.k.M607 (k = 28115877) illegal carryout on scalar-mul!");
+	ASSERT(0 == mi64_mul_scalar(q,2*28115877,q,i), "2.k.M607 (k = 28115877) illegal carryout on scalar-mul!");
 	mi64_set_eq    (q2, q, i);		// q2 = q-1
 	mi64_add_scalar(q ,1ull,q ,i);	// q = 2.k.p + 1
 	convert_mi64_base10_char(cbuf0, q, i, 0);
-	ASSERT(HERE, STREQ(cbuf0, "29866820952126214568806646392159603944715357116119498255498035716027095678819717544056871993402815945328710228895559628455719074056369970920495232704087963394016941839123205985860254232344759"), "q = 2.k.M607+1 (k = 28115877) string-conversion test failed!");
-	ASSERT(HERE, mi64_twopmodq(q2, i, 0, q, i, 0x0) == 1, "q = 2.k.M607+1 (k = 28115877) base-2 PRP test failed!");
+	ASSERT(STREQ(cbuf0, "29866820952126214568806646392159603944715357116119498255498035716027095678819717544056871993402815945328710228895559628455719074056369970920495232704087963394016941839123205985860254232344759"), "q = 2.k.M607+1 (k = 28115877) string-conversion test failed!");
+	ASSERT(mi64_twopmodq(q2, i, 0, q, i, 0x0) == 1, "q = 2.k.M607+1 (k = 28115877) base-2 PRP test failed!");
 	free((void*)q);	free((void*)q2);
 	q = q2 = 0x0;
 
@@ -571,11 +571,11 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	*/
 	// 2nd multiplicand is just leading digits of Pi, sans decimal point:
 	j = 0; q2 = convert_base10_char_mi64("3141592653589793238462643383279502884197169399375105820974944592307816406286208998628034825342117067982148086513282306647093844609550582231725359408128481117450284102701938521105559644622948954930381964428810975665933446128475648233786783165271201909145648566923460348610454326648213393607260249141273724587006606315588174881520920962829254091715364367892590360011330530548820466521", &j);
-	ASSERT(HERE, j == 20, "vector lengths should be 20!");
+	ASSERT(j == 20, "vector lengths should be 20!");
 	q     = (uint64 *)calloc(j, sizeof(uint64));	// output array
 	mi64_mul_vector_hi_qmmp(q2, 1231, 60773088284ull, q, (j<<6));	// q = 2.k.M(p) + 1 with k = 60773088284
 	convert_mi64_base10_char(cbuf0, q, j, 0);
-	ASSERT(HERE, STREQ(cbuf0, "678299328487875406787553667584424766193319571425229812042632483796223090743976740829512533956144441574815272835626612961160454952708658437402700559999225654073147100413573556498251710301510338504761109128343850675314104893353603303495634850631971760134667616782442458276408663375682004856646999060481786800862572039635523841600325205075025327991817191734342347965082117753555537"), "mi64_mul_vector_hi_qmmp test failed!");
+	ASSERT(STREQ(cbuf0, "678299328487875406787553667584424766193319571425229812042632483796223090743976740829512533956144441574815272835626612961160454952708658437402700559999225654073147100413573556498251710301510338504761109128343850675314104893353603303495634850631971760134667616782442458276408663375682004856646999060481786800862572039635523841600325205075025327991817191734342347965082117753555537"), "mi64_mul_vector_hi_qmmp test failed!");
 	free((void*)q);	free((void*)q2);
 	q = q2 = 0x0;
 
@@ -583,14 +583,14 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	q192.d2=506560280167ull; q192.d1=18446744073709551615ull; q192.d0=18446743060588991281ull;
 	p192 = q192; p192.d0 -= 1;
 	x192 = twopmodq192(p192,q192);
-	ASSERT(HERE, CMPEQ192(x192, ONE192),"Bad twopmodq192 output");
+	ASSERT(CMPEQ192(x192, ONE192),"Bad twopmodq192 output");
 
 #if 0
 	/* 12/23/2008: Use this to help debug the mi64 powering routine: */
 	j = mi64_twopmodq(&p192.d0, 3, 0, &q192.d0, 3, 0x0);
 	if(j != 1) {
 		printf("12/23/2008 mi64_twopmodq Test failed!\n");
-	//	ASSERT(HERE, j == 1, "mi64_twopmodq != 1");
+	//	ASSERT(j == 1, "mi64_twopmodq != 1");
 	//	exit(0);
 	}
 #endif
@@ -615,8 +615,8 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	MULH192_TRUNC(p192,q192,0ull,y192);	// Expected value of 64-bit carry layer at top of low-half product = 0
 	/* Reference value to compare to: */
 	q192.d2=                  11ull; q192.d1=  320947345442520101ull; q192.d0= 2846153632803221902ull;
-	ASSERT(HERE, CMPEQ192(x192, q192),"MULH192       fails!");
-	ASSERT(HERE, CMPEQ192(y192, q192),"MULH192_TRUNC fails!");
+	ASSERT(CMPEQ192(x192, q192),"MULH192       fails!");
+	ASSERT(CMPEQ192(y192, q192),"MULH192_TRUNC fails!");
 
 	/* Count the # of test q's of the various sizes: */
 	for(ntest63    = 0; fac63   [ntest63   ].p          != 0; ++ntest63   ){}
@@ -641,23 +641,23 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		// In the Fermat cae we let 2^n play the role of the Mersenne exponent p and generalize from there.
 		p64 = 1ull << ffac64[i].p; k = ffac64[i].q << 1;	// Factors of Fn have form q = k.2^(n+2) + 1; n stored in .p, k in .q
 		q64 = 2*k*p64 + 1;	// p64 now stores 2^n
-		ASSERT(HERE, q64%(p64<<2)==1, "test_fac : q64 % 2^(n+2) != 1 !");
+		ASSERT(q64%(p64<<2)==1, "test_fac : q64 % 2^(n+2) != 1 !");
 		pm60 = p64%60;
 		km60 = k  %60;
 		if(!CHECK_PKMOD60(&p64,1, km60, 0x0)) {
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		pm60 = p64%4620;
 		km60 = k  %4620;
 		if(!CHECK_PKMOD4620(&p64,1, km60, 0x0)) {
 			fprintf(stderr,"Illegal (p,k) mod 4620 pair: p,p mod 4620, k,k mod 4620 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq64(p64, q64);
 		if(res64 != q64-1ull) {	// Nov 2021: fiddled twopmodq64() to return true-mod
 			fprintf(stderr,"ERROR: twopmodq64(F%u, k = %llu) returns non-unity result %u\n",(uint32)ffac64[i].p,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -678,7 +678,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 			fprintf(stderr,"ERROR: twopmodq128(F%u, %s ) returns non-unity result %s\n",(uint32)p64,
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, res128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -699,7 +699,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 			fprintf(stderr,"ERROR: twopmodq192(F%u, %s ) returns non-unity result %s\n",(uint32)p64,
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -720,7 +720,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 			fprintf(stderr,"ERROR: twopmodq256(F%u, %s ) returns non-unity result %s\n",(uint32)p64,
 					&cbuf1[convert_uint256_base10_char(cbuf1, q256)],
 					&cbuf2[convert_uint256_base10_char(cbuf2, res256)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -736,9 +736,9 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		j =         ffacBig[i].p;	// Fermat index n
 		if(j > 1000) break;			// Tune this as desired to skip larger time-consuming cases
 		l = (uint32)ffacBig[i].d1;	// Power of 2 appearing in factor q = k*2^l + 1
-		ASSERT(HERE, l >= (j+2), "Power of 2 appearing in factor of Fn must be >= [n+2]!");
+		ASSERT(l >= (j+2), "Power of 2 appearing in factor of Fn must be >= [n+2]!");
 		k =         ffacBig[i].d0;	// Factor k; must be odd in this schema
-		ASSERT(HERE, 1ull == (k & 1ull), "k must be odd!");
+		ASSERT(1ull == (k & 1ull), "k must be odd!");
 		lenP = (j+63)>>6;	// Assume Fermat index increases as we traverse ffacBig array, thus this overwrites previous
 		p[0] = 1ull;	p[lenP] = mi64_shl(p,p,j,lenP);	lenP += (p[lenP] != 0ull);	// case's p = (1 << j) array elements.
 		lenQ = (l+63)>>6;
@@ -751,7 +751,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 			fprintf(stderr,"ERROR: mi64_twopmodq(F%u, q = %llu * 2^%u + 1 = %s) returns non-unity result %s\n",j,k,l,
 					&cbuf1[convert_mi64_base10_char(cbuf1, q, lenQ, 0)],
 					&cbuf2[convert_mi64_base10_char(cbuf2,q2, lenQ, 0)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -763,8 +763,8 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	{
 		p64 = fac63[i].p; q64 = fac63[i].q;
 		/* Make sure the MSB = 0: */
-		ASSERT(HERE, ( int64)p64 > 0, "test_fac : ( int64)p64 > 0");
-		ASSERT(HERE, q64%(2*p64) ==1, "test_fac : q64%(2*p64) ==1");
+		ASSERT(( int64)p64 > 0, "test_fac : ( int64)p64 > 0");
+		ASSERT(q64%(2*p64) ==1, "test_fac : q64%(2*p64) ==1");
 		k = (q64-1)/(2*p64);	for(j = 0; j < 64; j++) { karr[j] = k; }
 		pm60 = p64%60;
 		km60 = k  %60;
@@ -777,18 +777,18 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		if((res64 = twopmodq63(p64, q64)) != 1ull)
 		{
 			fprintf(stderr,"ERROR: twopmodq63(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		if((res64 = twopmodq64(p64, q64)) != 1ull)
 		{
 			fprintf(stderr,"ERROR: twopmodq64(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	#ifdef USE_FLOAT
@@ -797,7 +797,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	/* this is currently sse2/msvc only :
 		p192.d0 = p64; p192.d1 = p192.d2 = 0;
@@ -805,7 +805,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq200_8WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	*/
 	#endif
@@ -815,7 +815,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		{
 			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128_96(p64, k);
@@ -830,7 +830,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 
@@ -841,7 +841,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2( %llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	  #ifdef USE_FMADD
@@ -850,7 +850,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2( %llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	#elif(TRYQ == 4)
@@ -858,14 +858,14 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq63_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #ifdef USE_FLOAT
 		res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	  #ifdef USE_FMADD
@@ -874,7 +874,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 
@@ -882,40 +882,40 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq96_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 8)
 		res64 = twopmodq63_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq63_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #if defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq96_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 16)
 	  #if defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
@@ -923,7 +923,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 0xffff)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #else
 		#error (TRYQ == 16) only supported for 64-bit/P1WORD/GCC/AVX builds!
@@ -932,13 +932,13 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 		if(res64 != 0xffffffff) {
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 //	#elif(TRYQ == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 		if(res64 != 0xffffffffffffffff) {
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 	}
@@ -951,7 +951,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	{
 		p64 = fac64[i].p; q64 = fac64[i].q;
 
-		ASSERT(HERE, q64%(2*p64)==1, "test_fac : q64%(2*p64)==1");
+		ASSERT(q64%(2*p64)==1, "test_fac : q64%(2*p64)==1");
 
 		k = (q64-1)/(2*p64);	for(j = 0; j < 64; j++) { karr[j] = k; }
 		pm60 = p64%60;
@@ -965,19 +965,19 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		if(q64%(2*p64) != 1)
 		{
 			fprintf(stderr,"ERROR : (p, q) = ( %llu, %llu ) : q mod (2p) = %llu != 1!\n",p64,q64, q64%(2*p64));
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		if((res64 = twopmodq64(p64, q64)) != 1ull)
 		{
 			fprintf(stderr,"ERROR: twopmodq64(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	#ifdef USE_FLOAT
@@ -986,7 +986,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 
@@ -995,14 +995,14 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		{
 			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128_96(p64,k);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	#ifdef USE_FMADD
@@ -1011,7 +1011,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	#endif
@@ -1023,7 +1023,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2( %llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	  #ifdef USE_FMADD
@@ -1032,7 +1032,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	#elif(TRYQ == 4)
@@ -1040,14 +1040,14 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq64_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #ifdef USE_FLOAT
 		res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	  #ifdef USE_FMADD
@@ -1056,47 +1056,47 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 8)
 		res64 = twopmodq64_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq64_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #if defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%llu, k = %llu x 4 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 16)
 	  #if defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
@@ -1104,7 +1104,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 0xffff)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #else
 		#error (TRYQ == 16) only supported for 64-bit/P1WORD/GCC/AVX builds!
@@ -1113,13 +1113,13 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 		if(res64 != 0xffffffff) {
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 //	#elif(TRYQ == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 		if(res64 != 0xffffffffffffffff) {
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 	}
@@ -1134,7 +1134,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		q128.d1 = (uint64)1; q128.d0 = q64;
 
 		/* Modify this so it'll work with 65-bit q's: */
-		ASSERT(HERE, ((q64-1)/2 + 0x8000000000000000ull)%p64==0, "test_fac : ((q64-1)/2 + 0x8000000000000000ull)%p64==0");
+		ASSERT(((q64-1)/2 + 0x8000000000000000ull)%p64==0, "test_fac : ((q64-1)/2 + 0x8000000000000000ull)%p64==0");
 
 		k = ((q64-1)/2 + 0x8000000000000000ull)/p64;	for(j = 0; j < 64; j++) { karr[j] = k; }
 		pm60 = p64%60;
@@ -1145,12 +1145,12 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		if((res64 = twopmodq65(p64,k)) != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq65(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	#ifdef USE_FLOAT
@@ -1158,7 +1158,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 
@@ -1167,14 +1167,14 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		{
 			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128_96(p64,k);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	#ifdef USE_FMADD
@@ -1183,7 +1183,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 
@@ -1194,7 +1194,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	  #ifdef USE_FMADD
@@ -1203,7 +1203,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	#elif(TRYQ == 4)
@@ -1211,14 +1211,14 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq65_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #ifdef USE_FLOAT
 		res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 	  #ifdef USE_FMADD
@@ -1227,47 +1227,47 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 8)
 		res64 = twopmodq65_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq65_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #if defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%llu, k = %llu x 4 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 16)
 	  #if defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
@@ -1275,7 +1275,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		if(res64 != 0xffff)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #else
 		#error (TRYQ == 16) only supported for 64-bit/P1WORD/GCC/AVX builds!
@@ -1284,13 +1284,13 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 		res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 		if(res64 != 0xffffffff) {
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 //	#elif(TRYQ == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 		if(res64 != 0xffffffffffffffff) {
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 	}
@@ -1310,7 +1310,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint64_base10_char (cbuf2, res64)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		q128.d0 += 1ull;
 
@@ -1357,7 +1357,7 @@ if((q128.d1 >> 14) == 0) {
 		{
 			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %s %4u\n",p64,pm60,
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)],km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	/* Here use full 96-bit q in both floating and 96-bit modmul, so compute for both: */
@@ -1369,17 +1369,17 @@ if((q128.d1 >> 14) == 0) {
 	  if((q96.d1 >> 14) == 0)
 	  {
 		/* Integer-truncation-on-store should obviate the need to subtract 1 from q, and (double)q is only accurate to 53 bits to begin with): */
-		ASSERT(HERE, x128.d1 == 0, "High half of exactly-computed k nonzero!");
+		ASSERT(x128.d1 == 0, "High half of exactly-computed k nonzero!");
 		dbl = (double)q96.d0 + (double)q96.d1*TWO64FLOAT;
 		dbl /= (2.0*p64);
 		rnd = DNINT(dbl);
 		k = (uint64)rnd;
-		ASSERT(HERE, x128.d0 == k, "Approx and exactly-computed k differ!");
+		ASSERT(x128.d0 == k, "Approx and exactly-computed k differ!");
 		res64 = twopmodq78_3WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  }
 	#endif
@@ -1389,14 +1389,14 @@ if((q128.d1 >> 14) == 0) {
 		{
 			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128_96(p64, k);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 		p128.d0 = p64; p128.d1 = 0;
@@ -1407,7 +1407,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, res128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	if(x128.d1 == 0) {
@@ -1415,7 +1415,7 @@ if((q128.d1 >> 14) == 0) {
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq128x2(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -1425,7 +1425,7 @@ if((q128.d1 >> 14) == 0) {
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 
@@ -1438,7 +1438,7 @@ if((q128.d1 >> 14) == 0) {
 			if(res64 != 3)
 			{
 				fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 	  #endif
@@ -1448,7 +1448,7 @@ if((q128.d1 >> 14) == 0) {
 		if(res64 != 3)
 		{
 			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  #endif
 
@@ -1463,7 +1463,7 @@ if((q128.d1 >> 14) == 0) {
 				if(res64 != 15)
 				{
 					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-					ASSERT(HERE, 0,"0");
+					ASSERT(0,"0");
 				}
 			}
 		#endif
@@ -1473,20 +1473,20 @@ if((q128.d1 >> 14) == 0) {
 			if(res64 != 15)
 			{
 				fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		#endif
 			res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 			if(res64 != 15)
 			{
 				fprintf(stderr,"ERROR: twopmodq96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 			res64 = twopmodq128_96_q4(p64,k,k,k,k);
 			if(res64 != 15)
 			{
 				fprintf(stderr,"ERROR: twopmodq128_96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}	// k must be 64-bit
 
@@ -1501,7 +1501,7 @@ if((q128.d1 >> 14) == 0) {
 				if(res64 != 255)
 				{
 					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%llu, k = %llu x 4 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-					ASSERT(HERE, 0,"0");
+					ASSERT(0,"0");
 				}
 			}
 		#endif
@@ -1509,13 +1509,13 @@ if((q128.d1 >> 14) == 0) {
 			if(res64 != 255)
 			{
 				fprintf(stderr,"ERROR: twopmodq96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 			res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 			if(res64 != 255)
 			{
 				fprintf(stderr,"ERROR: twopmodq128_96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 			res64 = twopmodq128_q8((uint64 *)&p128,k,k,k,k,k,k,k,k);
 			if(res64 != 255)
@@ -1523,7 +1523,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq128_q8( %s, %s x 8 ) failed to find factor, res = 0x%1X.\n",
 					&cbuf0[convert_uint128_base10_char(cbuf0,p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1,q128)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}	// k must be 64-bit
 
@@ -1537,7 +1537,7 @@ if((q128.d1 >> 14) == 0) {
 				if(res64 != 0xffff)
 				{
 					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-					ASSERT(HERE, 0,"0");
+					ASSERT(0,"0");
 				}
 			}
 		#else
@@ -1550,7 +1550,7 @@ if((q128.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 				if(res64 != 0xffffffff) {
 					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-					ASSERT(HERE, 0,"0");
+					ASSERT(0,"0");
 				}
 			}
 		}	// k must be 52-bit or less
@@ -1560,7 +1560,7 @@ if((q128.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 				if(res64 != 0xffffffffffffffff) {
 					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
-					ASSERT(HERE, 0,"0");
+					ASSERT(0,"0");
 				}
 			}
 		}	// k must be 52-bit or less
@@ -1586,7 +1586,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint64_base10_char (cbuf2, res64)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		q128.d0 += 1ull;
 
@@ -1600,7 +1600,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint128_base10_char(cbuf0, p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, x128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		/* To find the quotient k = (q-1)/(2*p), which may be > 64 bits, use mod-inverse with base 2^128 arithmetic.
@@ -1635,7 +1635,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: Illegal (p,k) mod 60 pair: p, p mod 60, q128, k mod 60 = %s %4u %s %4u\n",
 					&cbuf0[convert_uint64_base10_char (cbuf0,  p64)], pm60,
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)], km60);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res128 = twopmodq128(p128, q128);
@@ -1645,7 +1645,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, res128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 
 		#if 0
 			/* 10^31 in binary form - need this to reconstruct large factors that were truncated at 30 digits in the PrimeNet report printout: */
@@ -1774,7 +1774,7 @@ if((q128.d1 >> 14) == 0) {
 			if(res64 != 1)
 			{
 				fprintf(stderr,"ERROR: twopmodq128x2(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 
 		#if(TRYQ == 4)
@@ -1784,7 +1784,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq128_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 					&cbuf0[convert_uint128_base10_char(cbuf0,p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1,q128)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		#elif(TRYQ == 8)
 			res64 = twopmodq128_q8((uint64 *)&p128,k,k,k,k,k,k,k,k);
@@ -1793,7 +1793,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq128_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
 					&cbuf0[convert_uint128_base10_char(cbuf0,p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1,q128)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		#endif
 		}	// k must be 64-bit
@@ -1840,7 +1840,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint64_base10_char (cbuf1, fac64[i2].q)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, q128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128x2B((uint64*)&p128, q128);
@@ -1850,7 +1850,7 @@ if((q128.d1 >> 14) == 0) {
 					i,i2, fac63[i].p, fac64[i2].p,
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint64_base10_char (cbuf1, fac64[i2].q)], (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  }
 	}
@@ -1893,7 +1893,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac64[i].q)],
 					&cbuf1[convert_uint64_base10_char (cbuf1, fac64[i2].q)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, q128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128x2B((uint64*)&p128, q128);
@@ -1903,7 +1903,7 @@ if((q128.d1 >> 14) == 0) {
 					i,i2, fac64[i].p, fac64[i2].p,
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac64[i].q)],
 					&cbuf1[convert_uint64_base10_char (cbuf1, fac64[i2].q)], (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  }
 	}
@@ -1943,7 +1943,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)]);
 			fprintf(stderr," q128.d1 += fac63[i].q overflows!\n");
-			ASSERT(HERE, q128.d1 > fac63[i].q,"q128.d1 > fac63[i].q");	/* Make sure sum didn't overflow */
+			ASSERT(q128.d1 > fac63[i].q,"q128.d1 > fac63[i].q");	/* Make sure sum didn't overflow */
 		}
 
 		/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
@@ -1959,7 +1959,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, res128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res64 = twopmodq128x2B((uint64*)&p128, q128);
@@ -1969,7 +1969,7 @@ if((q128.d1 >> 14) == 0) {
 					i,i2, fac63[i].p, fac65[i2].p,
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)], (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  }
 	}
@@ -1995,7 +1995,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint128_base10_char(cbuf0, p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, x128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res128 = twopmodq128(p128, q128);
@@ -2005,7 +2005,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint128_base10_char(cbuf0, p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, res128)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -2031,18 +2031,18 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, x192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		// Now compute k = (q-1)/2p, while verifying that q%2p = 1:
 		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
-		ASSERT(HERE, x192.d2 == 0 && x192.d1 == 0,"k > 2^64!");
+		ASSERT(x192.d2 == 0 && x192.d1 == 0,"k > 2^64!");
 		if(!CMPEQ192(res192, ONE192))
 		{
 			fprintf(stderr,"ERROR: twopmodq192( %s, %s ) returns non-unity result!\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		/* In debug mode, also test the multiple-q versions of the modular exponentiation routines: */
@@ -2054,7 +2054,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq160_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 */
 		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
@@ -2063,7 +2063,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-			ASSERT(HERE, 0,"0");	// *** disable this to allow fast-UMULH192 timing-testing ***
+			ASSERT(0,"0");	// *** disable this to allow fast-UMULH192 timing-testing ***
 		}
 	#elif(TRYQ == 8)
 /*
@@ -2073,7 +2073,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq160_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 */
 		res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
@@ -2082,7 +2082,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 	}
@@ -2106,7 +2106,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: q != 1 modulo p for M( %s ), q = %s \n",
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		// Now compute k = (q-1)/2p, while verifying that q%2p = 1:
@@ -2117,7 +2117,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 /*
 		res192 = twopmodq160(p192, q192);
@@ -2127,7 +2127,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 */
 		res192 = twopmodq192(p192, q192);
@@ -2137,7 +2137,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		/* In debug mode, also test the multiple-q versions of the modular exponentiation routines: */
@@ -2151,7 +2151,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq160_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		*/
 			res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
@@ -2160,7 +2160,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 	#elif(TRYQ == 8)
@@ -2173,7 +2173,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq160_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		*/
 			res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
@@ -2182,7 +2182,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 	#endif
@@ -2212,7 +2212,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: q != 1 modulo p for M( %s ), q = %s \n",
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		// Now compute k = (q-1)/2p, while verifying that q%2p = 1:
@@ -2223,7 +2223,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res192 = twopmodq192(p192, q192);
@@ -2233,7 +2233,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 	/* this is currently sse2/msvc only :
@@ -2245,7 +2245,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq200( %s, %s ) returns non-unity result %llu\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 	*/
@@ -2263,7 +2263,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint256_base10_char(cbuf0, p256)],
 					&cbuf1[convert_uint256_base10_char(cbuf1, q256)],
 					&cbuf2[convert_uint256_base10_char(cbuf2, x256)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		res256 = twopmodq256(p256, q256);
@@ -2273,7 +2273,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint256_base10_char(cbuf0, p256)],
 					&cbuf1[convert_uint256_base10_char(cbuf1, q256)],
 					&cbuf2[convert_uint256_base10_char(cbuf2, res256)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		/* In debug mode, also test the multiple-q versions of the modular exponentiation routines: */
@@ -2286,7 +2286,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 	#elif(TRYQ == 8)
@@ -2298,7 +2298,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 	#endif
@@ -2342,7 +2342,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)]);
 			fprintf(stderr," q128.d1 += fac63[i].q overflows!\n");
-			ASSERT(HERE, q128.d1 > fac63[i].q,"q128.d1 > fac63[i].q");	/* Make sure sum didn't overflow */
+			ASSERT(q128.d1 > fac63[i].q,"q128.d1 > fac63[i].q");	/* Make sure sum didn't overflow */
 		}
 
 		/* Now multiply the 128-bit 63x65-bit factor product by each 64-bit test factor in turn. */
@@ -2384,7 +2384,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf2[convert_uint128_base10_char(cbuf2, x128)],
 					&cbuf3[convert_uint64_base10_char (cbuf3, fac64[i3].q)],
 					&cbuf4[convert_uint192_base10_char(cbuf4, q192)]);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 
 			p256.d0 = p192.d0;	q256.d0 = q192.d0;
@@ -2401,7 +2401,7 @@ if((q128.d1 >> 14) == 0) {
 						&cbuf3[convert_uint64_base10_char (cbuf3, fac64[i3].q)],
 						&cbuf4[convert_uint256_base10_char(cbuf4, q256)],
 						&cbuf5[convert_uint256_base10_char(cbuf5, res256)]);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 
 			/* In debug mode, also test the multiple-q versions of the modular exponentiation routines: */
@@ -2416,7 +2416,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1,q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		#elif(TRYQ == 8)
 			res64 = twopmodq192_q8(p192,q192,q192,q192,q192,q192,q192,q192,q192);
@@ -2429,7 +2429,7 @@ if((q128.d1 >> 14) == 0) {
 				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1,q192)], (uint32)res64);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		#endif
 		}
@@ -2451,7 +2451,7 @@ if((q128.d1 >> 14) == 0) {
 	{
 		p256 = convert_base10_char_uint256(fac256[i].p);	ADD256(p256,p256,two_p256);
 		q256 = convert_base10_char_uint256(fac256[i].q);
-		ASSERT(HERE, CMPEQ256(xmody256(q256, two_p256, &x256), ONE256), "ERROR: q%(2p) != 1");
+		ASSERT(CMPEQ256(xmody256(q256, two_p256, &x256), ONE256), "ERROR: q%(2p) != 1");
 		res256 = twopmodq256(p256, q256);
 		if(!CMPEQ256(res256, ONE256))
 		{
@@ -2459,7 +2459,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint256_base10_char(cbuf0, p256)],
 					&cbuf1[convert_uint256_base10_char(cbuf1, q256)],
 					&cbuf2[convert_uint256_base10_char(cbuf2, res256)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#if 0	/************* need to use k-based for FP200! **********/
 	/* this is currently sse2/msvc only :
@@ -2475,7 +2475,7 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq200( %s, %s ) returns non-unity result %llu\n",
 					&cbuf0[convert_uint256_base10_char(cbuf0, p256)],
 					&cbuf1[convert_uint256_base10_char(cbuf1, q256)], res64);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	  }
 	*/
@@ -2518,7 +2518,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf0[convert_uint64_base10_char (cbuf0, fac63[i].q)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)]);
 			fprintf(stderr," q128.d1 += fac63[i].q overflows!\n");
-			ASSERT(HERE, q128.d1 > fac63[i].q,"q128.d1 > fac63[i].q");	/* Make sure sum didn't overflow */
+			ASSERT(q128.d1 > fac63[i].q,"q128.d1 > fac63[i].q");	/* Make sure sum didn't overflow */
 		}
 
 		/* Now multiply the 128-bit 63x65-bit factor product by the product of each pair of 64-bit test factors in turn. */
@@ -2555,7 +2555,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf4[convert_uint64_base10_char (cbuf4, fac64[jj].q)],
 					&cbuf5[convert_uint256_base10_char(cbuf5, q256)],
 					&cbuf6[convert_uint256_base10_char(cbuf6, res256)]);
-					ASSERT(HERE, 0,"0");
+					ASSERT(0,"0");
 				}
 			}
 		}

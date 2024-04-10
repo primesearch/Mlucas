@@ -78,7 +78,7 @@ __device__ uint32 mi64_twopmodq_gpu(
 	hi    = gpu_thread_local + lenQ*6;
 	scratch  = hi + lenQ;
 	scratch2 = hi + lenQ*2;
-	cyout = mi64_mul_scalar(p,k<<1,q,lenQ);	ASSERT(HERE, 0 == cyout, "unexpected carryout of 2*p*k!");
+	cyout = mi64_mul_scalar(p,k<<1,q,lenQ);	ASSERT(0 == cyout, "unexpected carryout of 2*p*k!");
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	mi64_shrl_short(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
 
@@ -163,7 +163,7 @@ __device__ uint32 mi64_twopmodq_gpu(
 	return mi64_cmp_eq_scalar(x, 1ull, lenQ);
 
 #else	// ifndef __CUDA_ARCH__
-	ASSERT(HERE, 0, "Device code being called in host mode!");
+	ASSERT(0, "Device code being called in host mode!");
 	return 0;
 #endif
 }
@@ -267,9 +267,9 @@ __device__
 void	mi64_set_eq(uint64 x[], const uint64 y[], uint32 len)
 {
 	uint32 i;
-	ASSERT(HERE, len != 0, "zero-length array!");
+	ASSERT(len != 0, "zero-length array!");
 	if(x == y) return;
-//	ASSERT(HERE, !ARRAYS_OVERLAP(x,len, y,len), "Input arrays overlap!");	* Fairly expensive to check, so disable by default *
+//	ASSERT(!ARRAYS_OVERLAP(x,len, y,len), "Input arrays overlap!");	* Fairly expensive to check, so disable by default *
 	for(i = 0; i < len; ++i) {
 		x[i] = y[i];
 	}
@@ -282,7 +282,7 @@ __device__
 void	mi64_set_eq_scalar(uint64 x[], const uint64 a, uint32 len)
 {
 	uint32 i;
-	ASSERT(HERE, len != 0, "zero-length array!");
+	ASSERT(len != 0, "zero-length array!");
 	x[0] = a;
 	for(i = 1; i < len; ++i) {
 		x[i] = 0ull;
@@ -318,7 +318,7 @@ uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	int i;
 	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
 	uint64 lo64 = 0ull;
-	ASSERT(HERE, len != 0, "mi64_shl: zero-length array!");
+	ASSERT(len != 0, "mi64_shl: zero-length array!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
@@ -415,12 +415,12 @@ __device__
 #endif
 void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len, uint32 sign_flip)
 {	/**** NOTE: The (nbits+63) here means the largest exponent currently testable is 4294967231 = 2^32-65, larger ones like 4294967291 = 2^32-5 overflow uint32 => nwmod = 0 ****/
-	ASSERT(HERE, nshift <= nbits && (nbits+63) <= 0xFFFFFFFFu, "mi64_shlc: Require (nshift <= nbits) and (nbits+63) < 2^32!");
+	ASSERT(nshift <= nbits && (nbits+63) <= 0xFFFFFFFFu, "mi64_shlc: Require (nshift <= nbits) and (nbits+63) < 2^32!");
 	uint32 i = nbits&63, nwshift = (nshift+63) >> 6, nwmod = ((nbits + 63)>>6);	// Here nwshift includes any partial words in addition to fullwords
-	ASSERT(HERE, x && len, "mi64_shlc: null input pointer or zero-length array!");
+	ASSERT(x && len, "mi64_shlc: null input pointer or zero-length array!");
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
 	uint64 cy, mask64 = (-1ull << i) & -(uint64)(i != 0);	// = (-1ull << i) if Mersenne, 0 if Fermat
-	ASSERT(HERE, (x[len-1] & mask64) == 0ull, "mi64_shlc: x[] has set bits beyond [nbits] position in high word!");
+	ASSERT((x[len-1] & mask64) == 0ull, "mi64_shlc: x[] has set bits beyond [nbits] position in high word!");
 //	printf("mi64_shlc: %u bits, %u limbs, mask64 = 0x%llX, high limb = 0x%llX\n",nbits,len,mask64,x[len-1]);
   #ifndef __CUDA_ARCH__
 	/* Scratch array for storing off-shifted intermediate (need this to support in-place functionality): */
@@ -431,10 +431,10 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 	if(dimU < 2*(nwmod+1)) {                // GG: fixed bug in comparison
 		dimU = 2*(nwmod+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if needed size increases incrementally
-		u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
+		u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(u != 0x0, "alloc failed!");
 	}
   #endif
-	ASSERT(HERE, nshift <= nbits, "mi64_shlc: shift count must be <= than bits in modulus!");	// This also ensures (nwshift < nwmod)
+	ASSERT(nshift <= nbits, "mi64_shlc: shift count must be <= than bits in modulus!");	// This also ensures (nwshift < nwmod)
 	// Special-casing for 0 shift count, which includes the 1-full-rotation case nshift == nbits:
 	if(!nshift || (nshift == nbits)) {
 		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
@@ -451,10 +451,10 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 			if(nwshift < len)
 				cy = mi64_sub_scalar(y+nwshift,cy,y+nwshift,len-nwshift);
 			// In Fermat-mod case, if high bits happen to = 0, must (mod Fm) by adding borrow = 1 back into low limb:
-			ASSERT(HERE, mi64_sub_scalar(y,cy,y,len) == 0ull, "Nonzero carryout of (mod Fm) low-limb incrementing!");
+			ASSERT(mi64_sub_scalar(y,cy,y,len) == 0ull, "Nonzero carryout of (mod Fm) low-limb incrementing!");
 		}
 	} else {
-		cy = mi64_add(y, u, y, nwshift);	ASSERT(HERE, cy == 0ull, "Nonzero carryout of nonoverlapping vector add!");
+		cy = mi64_add(y, u, y, nwshift);	ASSERT(cy == 0ull, "Nonzero carryout of nonoverlapping vector add!");
 	}
 }
 
@@ -493,8 +493,8 @@ uint32	mi64_shlc_bits_align(const uint64 x[], uint64 y[], uint32 nbits)
 	uint32 len = (nbits+63)>>6, i,match = 0, curr_word,curr_bit,main_part,high_part,hi_word_bits = nbits&63;
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
 	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
-	ASSERT(HERE, x && y && len, "mi64_shlc_bits_align: null input pointer or zero-length array!");
-	ASSERT(HERE, (x[len-1] & mask64) == 0ull && (y[len-1] & mask64) == 0ull, "mi64_shlc_bits_align: x or y has set bits beyond [nbits] position in high word!");
+	ASSERT(x && y && len, "mi64_shlc_bits_align: null input pointer or zero-length array!");
+	ASSERT((x[len-1] & mask64) == 0ull && (y[len-1] & mask64) == 0ull, "mi64_shlc_bits_align: x or y has set bits beyond [nbits] position in high word!");
 	// Special-casing for in-place and 0-length case:
 	if(!nbits || (x == y)) return 0;
 	// Special-casing for single-word inputs:
@@ -546,8 +546,8 @@ uint32	mi64_shlc_bits_limb0(const uint64 x0, const uint64 y[], uint32 nbits)
 	uint32 len = (nbits+63)>>6, i, curr_word,curr_bit,main_part,high_part,hi_word_bits = nbits&63;
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
 	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
-	ASSERT(HERE, y && len, "mi64_shlc_bits_limb0: null input pointer or zero-length array!");
-	ASSERT(HERE, (nbits > 64 || (x0 & mask64) == 0ull) && (y[len-1] & mask64) == 0ull, "mi64_shlc_bits_limb0: x or y has set bits beyond [nbits] position in high word!");
+	ASSERT(y && len, "mi64_shlc_bits_limb0: null input pointer or zero-length array!");
+	ASSERT((nbits > 64 || (x0 & mask64) == 0ull) && (y[len-1] & mask64) == 0ull, "mi64_shlc_bits_limb0: x or y has set bits beyond [nbits] position in high word!");
 	// Special-casing for 0-length case:
 	if(!nbits) return 0;
 	// Special-casing for single-word inputs:
@@ -601,7 +601,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	int i;
 	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
 	uint64 hi64 = 0ull;
-	ASSERT(HERE, len != 0, "mi64_shrl: zero-length array!");
+	ASSERT(len != 0, "mi64_shrl: zero-length array!");
 	/*
 	Ex 1: len = 1132 = 72448 bits, nshift = 70000, nwshift = 70000>>6 = 1093, rembits = 70000%64 = 48, m64bits = 64-rembits = 16
 	Thus we want the hi 2448 bits (38 full words + 16 bits) of x, and require output_len >= 39 .
@@ -613,7 +613,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	But user has specified output_len = 16, meaning they want at most 1024 bits of x[], so only copy that many and exit.
 	So allow output_len to be 1 limb smaller than 17 as a fudge factor to handle arbitrary in-word copy-bit boundaries:
 	*/
-	ASSERT(HERE, output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
+	ASSERT(output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) {
@@ -677,7 +677,7 @@ uint64	mi64_shl_short_ref(const uint64 x[], uint64 y[], uint32 nshift, uint32 le
 	int i;
 	uint32 m64bits = (64-nshift);
 	uint64 lo64 = 0ull;
-	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
@@ -715,7 +715,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	int i, i0 = 0, i1 = 1, use_asm = FALSE, x_misalign = 0, y_misalign = 0;
 	uint32 m64bits = (64-nshift), leftover = 0;
 	uint64 lo64 = 0ull;
-	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
@@ -770,7 +770,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 			3. if x,y have same 16-byte[SSE2/AVX] or 32-byte[AVX2] alignment, find i0 >= 1 such that x[i0] is SIMD-aligned.
 		*/
 		if( ((uintptr_t)x & 0x7) != 0 || ((uintptr_t)y & 0x7) != 0 )
-			ASSERT(HERE, 0, "require 8-byte alignment of x,y!");
+			ASSERT(0, "require 8-byte alignment of x,y!");
 		// In SIMD-ASM case, x_misalign = (0,1,2, or 3) how many words x[0] is above next-lower alignment boundary:
 		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;	y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
 
@@ -1113,8 +1113,8 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	y[0] = (x[0] << nshift);
   #if MI64_SHL1_DBG
 	if(len < 1000) {
-		if(lo64 != ref[len]) { printf("SHL1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,lo64,len,ref[len]); ASSERT(HERE, 0, "Exiting!"); }
-		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, misalign = %u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2)); ASSERT(HERE, 0, "Exiting!"); } } }
+		if(lo64 != ref[len]) { printf("SHL1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,lo64,len,ref[len]); ASSERT(0, "Exiting!"); }
+		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, misalign = %u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2)); ASSERT(0, "Exiting!"); } } }
 	}
   #endif
 	return lo64;
@@ -1134,7 +1134,7 @@ uint64	mi64_shrl_short_ref(const uint64 x[], uint64 y[], uint32 nshift, uint32 l
 	int i;
 	uint32 m64bits = (64-nshift), leftover = 0;
 	uint64 hi64 = 0ull;
-	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
@@ -1169,7 +1169,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	int i, i0 = 0, i1 = 0, use_asm = FALSE, x_misalign, y_misalign;
 	uint32 m64bits = (64-nshift), leftover = 0;
 	uint64 hi64 = 0ull;
-	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
@@ -1223,7 +1223,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 			3. if x,y have same 16-byte[SSE2/AVX] or 32-byte[AVX2] alignment, find i0 >= 0 such that x[i0] is SIMD-aligned.
 		*/
 		if( ((uintptr_t)x & 0x7) != 0 || ((uintptr_t)y & 0x7) != 0 )
-			ASSERT(HERE, 0, "require 8-byte alignment of x,y!");
+			ASSERT(0, "require 8-byte alignment of x,y!");
 		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;	y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
 
 		// minlen may have been incr. for alignment purposes, so use_asm not an unconditional TRUE here
@@ -1607,8 +1607,8 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 
   #if MI64_SHR1_DBG
 	if(len < 1000) {
-		if(hi64 != ref[len]) { printf("SHR1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,hi64,len,ref[len]); ASSERT(HERE, 0, "Exiting!"); }
-		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); ASSERT(HERE, 0, "Exiting!"); } } }
+		if(hi64 != ref[len]) { printf("SHR1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,hi64,len,ref[len]); ASSERT(0, "Exiting!"); }
+		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); ASSERT(0, "Exiting!"); } } }
 	}
   #endif
 	return hi64;
@@ -1623,7 +1623,7 @@ uint32	mi64_cmpult(const uint64 x[], const uint64 y[], uint32 len)
 {
 	uint32 i;
 	// Need hard-assert here due to zero-element default compare:
-	ASSERT(HERE, len != 0, "mi64_cmpult: zero-length array!");
+	ASSERT(len != 0, "mi64_cmpult: zero-length array!");
 	for(i = len-1; i !=0 ; i--)	/* Loop over all but the 0 elements while equality holds.... */
 	{
 		if(x[i] < y[i]) {
@@ -1643,7 +1643,7 @@ uint32	mi64_cmp_eq(const uint64 x[], const uint64 y[], uint32 len)
 	uint32 i;
 	// Allow for zero-length here with default return TRUE,
 	// according to the convention that a zero-length mi64 object = 0:
-	ASSERT(HERE, len != 0, "mi64_cmp_eq: zero-length array!");	//  allows us to catch zero-length cases in debug build & test
+	ASSERT(len != 0, "mi64_cmp_eq: zero-length array!");	//  allows us to catch zero-length cases in debug build & test
 	for(i = 0; i < len; i++) {
 		if(x[i] != y[i])
 			return FALSE;
@@ -1656,7 +1656,7 @@ __device__
 #endif
 uint32	mi64_cmplt_scalar(const uint64 x[], uint64 a, uint32 len)
 {
-	ASSERT(HERE, len != 0, "zero-length array!");
+	ASSERT(len != 0, "zero-length array!");
 	return ( (mi64_getlen(x, len) <= 1) && (x[0] < a) );
 }
 
@@ -1665,7 +1665,7 @@ __device__
 #endif
 uint32	mi64_cmpgt_scalar(const uint64 x[], uint64 a, uint32 len)
 {
-	ASSERT(HERE, len != 0, "zero-length array!");
+	ASSERT(len != 0, "zero-length array!");
 	return ( (x[0] > a) || (mi64_getlen(x, len) > 1) );
 }
 
@@ -1674,7 +1674,7 @@ __device__
 #endif
 uint32	mi64_cmp_eq_scalar(const uint64 x[], uint64 a, uint32 len)
 {
-	ASSERT(HERE, len != 0, "mi64_cmp_eq_scalar: zero-length array!");
+	ASSERT(len != 0, "mi64_cmp_eq_scalar: zero-length array!");
 	return ( (x[0] == a) && (mi64_getlen(x+1, len-1) == 0) );
 }
 
@@ -1745,7 +1745,7 @@ int	mi64_ith_set_bit(const uint64 x[], uint32 bit, uint32 len)
 {
 	int curr_pop,i,j,retval = 0;
 	if(!len || !bit) return -1;
-	ASSERT(HERE, bit <= (len<<6), "[bit]th-bit specifier out of range!");
+	ASSERT(bit <= (len<<6), "[bit]th-bit specifier out of range!");
 	// Find the word in which the [bit]th set-bit occurs:
 	for(i = 0; i < len; i++) {
 		curr_pop = popcount64(x[i]);
@@ -1769,7 +1769,7 @@ __device__
 uint32	mi64_trailz(const uint64 x[], uint32 len)
 {
 	uint32 i, tz = 0;
-	ASSERT(HERE, len != 0, "mi64_trailz: zero-length array!");
+	ASSERT(len != 0, "mi64_trailz: zero-length array!");
 	for(i = 0; i < len; i++, tz += 64) {
 		if(x[i]) {
 			return tz + trailz64(x[i]);
@@ -1832,8 +1832,8 @@ __device__
 #endif
 void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 {
-	ASSERT(HERE, x != 0x0, "mi64_md5: null input pointer!");
-	ASSERT(HERE, md5_str != 0x0, "mi64_md5: null md5_str pointer!");
+	ASSERT(x != 0x0, "mi64_md5: null input pointer!");
+	ASSERT(md5_str != 0x0, "mi64_md5: null md5_str pointer!");
 	md5_str[0] = '\0';	// should be null on entry, but better safe than sorry
 	uint32 i,j, lz = mi64_leadz(x,len);	// lz = #leading 0-bits in x
 	uint32 n = len<<6;	// n = 64*len = #bits in the [len] words of x, including leading 0-bits
@@ -1841,7 +1841,7 @@ void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 	// Compute the working length [nword]:
 	uint32 nblock = (nbit+576)>>9;	// needed number of 512-bit data chucks: nblock = (nbit+576)/512
 	uint32 nword = nblock<<3;		// nword = 8*#blocks: From here on will use that as the working length
-	ASSERT(HERE, len >= nword, "mi64_md5: input-vector lacks sufficient 0-padding!");
+	ASSERT(len >= nword, "mi64_md5: input-vector lacks sufficient 0-padding!");
 	// Pre-processing:
 	// 1. first a single bit, 1, is appended to the end of the message:
 	mi64_set_bit(x,nbit,nword,1);	// nword here is only used by mi64_set_bit() for bounds-checking
@@ -1931,15 +1931,15 @@ uint32 mi64_extract_lead64(const uint64 x[], uint32 len, uint64*result)
 {
 	uint32 i,nshift,nwshift,rembits;
 
-	ASSERT(HERE, len != 0, "mi64_extract_lead64: zero-length array!");
+	ASSERT(len != 0, "mi64_extract_lead64: zero-length array!");
 
 	nshift = mi64_leadz(x, len);
 	nwshift = (nshift >> 6);
 	rembits = (nshift & 63);
 	/* shift-word count may == len, but only if x[] = 0: */
 	if(nwshift >= len) {
-		ASSERT(HERE, nwshift == len, "mi64_extract_lead64: nwshift out of range!");
-		ASSERT(HERE, mi64_iszero(x, len), "mi64_extract_lead64: expected zero-valued array!");
+		ASSERT(nwshift == len, "mi64_extract_lead64: nwshift out of range!");
+		ASSERT(mi64_iszero(x, len), "mi64_extract_lead64: expected zero-valued array!");
 		*result = 0ull;
 	} else {
 		i = len-1-nwshift;
@@ -1964,19 +1964,19 @@ double	mi64_cvt_double(const uint64 x[], uint32 len)
 	if(lead64 == 0ull) {
 		return 0.0;
 	}
-	ASSERT(HERE,(lead64 >> 63) == 1ull, "mi64_cvt_double: lead64 lacks leftmost ones bit!");
+	ASSERT((lead64 >> 63) == 1ull, "mi64_cvt_double: lead64 lacks leftmost ones bit!");
 	/*  round based on 1st neglected bit: */
 	lead64_rnd = (lead64 >> 11) + ((lead64 >> 10) & 0x0000000000000001ull);
 	/* exponent: */
 	itmp64 = (((uint64)0x3FD + (uint64)pow2) << 52);
 	/* Add in mantissa, with hidden bit made explicit, hence the 0x3FD (rather than 0x3FE) initializer */
 	itmp64 += lead64_rnd;
-	ASSERT(HERE, itmp64 > lead64_rnd , "mi64_cvt_double: Exponent overflows IEEE64 field");
+	ASSERT(itmp64 > lead64_rnd , "mi64_cvt_double: Exponent overflows IEEE64 field");
 	/* GCC bug: needed to add the explicit sign-check below, otherwise GCC 'optimizes' away the (*(double *)&itmp64): */
 	retval = *(double *)&itmp64;
 	if(retval < 0.0) {
 		sprintf(cbuf, "rng_isaac_rand_double_norm_pos: lead64 = %16llx, itmp64 = %16llx, retval = %lf not in [0,1]!\n", lead64, itmp64, retval);
-		ASSERT(HERE, 0, cbuf);
+		ASSERT(0, cbuf);
 	}
 	return retval;
 }
@@ -2002,8 +2002,8 @@ void mi64_extract_lead128(const uint64 x[], uint32 len, uint32 nshift, uint64 le
 {
 	lead_x[0] = lead_x[1] = 0;
 
-	ASSERT(HERE, len != 0, "mi64_extract_lead128: zero-length array!");
-	ASSERT(HERE, nshift < 64, "mi64_extract_lead128: illegal nshift value!");
+	ASSERT(len != 0, "mi64_extract_lead128: zero-length array!");
+	ASSERT(nshift < 64, "mi64_extract_lead128: illegal nshift value!");
 
 	/* Syntax reminder:
 		MVBITS(from_integer,low_bit_of_from_integer,num_bits,to_integer,insert_bits_in_to_integer_starting_at_this_low_bit)
@@ -2100,7 +2100,7 @@ uint64	mi64_add_ref(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 {
 	uint32 i;
 	uint64 tmp, cy = 0;
-	ASSERT(HERE, len != 0, "mi64_add: zero-length array!");
+	ASSERT(len != 0, "mi64_add: zero-length array!");
 
 	for(i = 0; i < len; i++) {
 		tmp = x[i] + cy;
@@ -2145,7 +2145,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 		// SdyBr: 6.60
 		uint32 i;
 		uint64 tmp, cy = 0;
-		ASSERT(HERE, len != 0, "mi64_add: zero-length array!");
+		ASSERT(len != 0, "mi64_add: zero-length array!");
 
 		for(i = 0; i < len; i++) {
 			tmp = x[i] + cy;
@@ -2250,7 +2250,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 		//
 		uint32 i, odd = (len&1), len2 = len >> 1;
 		uint64 tmp, cy = 0, c2 = 0;
-	ASSERT(HERE, has_sse42() != 0, "This ASM requires SSE4.2, which is unavailable on this CPU!");
+	ASSERT(has_sse42() != 0, "This ASM requires SSE4.2, which is unavailable on this CPU!");
 		if(len2) {
 		/* x86_64 ASM implementation of the add/carry loop: */
 		__asm__ volatile (\
@@ -2328,7 +2328,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 		// Jun 2016: bizarre ... GCC builds with opt > 0 on Haswell/Broadwell init this != 0 ...
 		//  making static not a reliable workaround, so try put cy = 0 init on separate line from declaration:
 		uint64 cy;
-		cy = 0ull;	ASSERT(HERE, cy == 0, "Init (cy = 0) fails!");
+		cy = 0ull;	ASSERT(cy == 0, "Init (cy = 0) fails!");
 		/* x86_64 ASM implementation of the add/carry loop: */
 		__asm__ volatile (\
 			"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
@@ -2385,7 +2385,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 		uint32 i, lrem = (len&7), len8 = len >> 3;
 		uint64 tmp, cy = 0, c2 = 0;
 	#error mi64_add: no AVX512 support yet!
-	ASSERT(HERE, has_avx512() != 0, "This ASM requires AVX512, which is unavailable on this CPU!");
+	ASSERT(has_avx512() != 0, "This ASM requires AVX512, which is unavailable on this CPU!");
 vpcmpuq
 *** how to encode the base.offset data? ***
 vpgatherqq	%%zmmM,%%zmmD[255]	// zmmM has base_addr and
@@ -2484,17 +2484,17 @@ uint64	mi64_sub(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 	uint32 i;
 	uint64 tmp, tmp2, bw = 0;
 
-	ASSERT(HERE, len != 0, "mi64_sub: zero-length array!");
+	ASSERT(len != 0, "mi64_sub: zero-length array!");
 	for(i = 0; i < len; i++) {
 		tmp = x[i] - bw;
 		bw  = (tmp > x[i]);
 //bw  = ((uint64)tmp > (uint64)x[i]);
-		ASSERT(HERE, bw == ((uint64)tmp > (uint64)x[i]), "mi64_sub: compiler using signed compare (tmp > x[i])!");
+		ASSERT(bw == ((uint64)tmp > (uint64)x[i]), "mi64_sub: compiler using signed compare (tmp > x[i])!");
 		/* Need an extra temp here due to asymmetry of subtract: */
 		tmp2= tmp - y[i];
 		bw += (tmp2 > tmp);
 //bw += ((uint64)tmp2 > (uint64)tmp);
-		ASSERT(HERE, (tmp2 > tmp) == ((uint64)tmp2 > (uint64)tmp), "mi64_sub: compiler using signed compare (tmp2 > tmp)!");
+		ASSERT((tmp2 > tmp) == ((uint64)tmp2 > (uint64)tmp), "mi64_sub: compiler using signed compare (tmp2 > tmp)!");
 		z[i] = tmp2;
 	}
 	return bw;
@@ -2509,17 +2509,17 @@ uint64	mi64_sub_bwin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 	uint32 i;
 	uint64 tmp, tmp2, bw = bwin;
 
-	ASSERT(HERE, len != 0, "mi64_sub: zero-length array!");
+	ASSERT(len != 0, "mi64_sub: zero-length array!");
 	for(i = 0; i < len; i++) {
 		tmp = x[i] - bw;
 		bw  = (tmp > x[i]);
 //bw  = ((uint64)tmp > (uint64)x[i]);
-		ASSERT(HERE, bw == ((uint64)tmp > (uint64)x[i]), "mi64_sub: compiler using signed compare (tmp > x[i])!");
+		ASSERT(bw == ((uint64)tmp > (uint64)x[i]), "mi64_sub: compiler using signed compare (tmp > x[i])!");
 		/* Need an extra temp here due to asymmetry of subtract: */
 		tmp2= tmp - y[i];
 		bw += (tmp2 > tmp);
 //bw += ((uint64)tmp2 > (uint64)tmp);
-		ASSERT(HERE, (tmp2 > tmp) == ((uint64)tmp2 > (uint64)tmp), "mi64_sub: compiler using signed compare (tmp2 > tmp)!");
+		ASSERT((tmp2 > tmp) == ((uint64)tmp2 > (uint64)tmp), "mi64_sub: compiler using signed compare (tmp2 > tmp)!");
 		z[i] = tmp2;
 	}
 	return bw;
@@ -2565,7 +2565,7 @@ uint64	mi64_add_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 {
 	uint32 i;
 	uint64 cy = a;
-	ASSERT(HERE, x != 0x0 && y != 0x0 && len != 0, "mi64_add_scalar: null-pointer or zero-length array!");
+	ASSERT(x != 0x0 && y != 0x0 && len != 0, "mi64_add_scalar: null-pointer or zero-length array!");
 	if(x == y) {
 		/* In-place: Only need to proceed until carry peters out: */
 		for(i = 0; i < len; i++) {
@@ -2595,7 +2595,7 @@ uint64	mi64_sub_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 {
 	uint32 i;
 	uint64 bw = a, tmp;
-	ASSERT(HERE, x != 0x0 && y != 0x0 && len != 0, "mi64_add_scalar: null-pointer or zero-length array!");
+	ASSERT(x != 0x0 && y != 0x0 && len != 0, "mi64_add_scalar: null-pointer or zero-length array!");
 	if(x == y) {
 		/* In-place: Only need to proceed until borrow peters out: */
 		for(i = 0; i < len; i++) {
@@ -2672,7 +2672,7 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 		cy = hi + (y[i++] < lo);
 	}
 	// Cleanup loop for remaining terms:
-	ASSERT(HERE, len != 0, "zero-length array!");
+	ASSERT(len != 0, "zero-length array!");
 	for(; i < len; i++)
 	{
 	#ifdef MUL_LOHI64_SUBROUTINE
@@ -2712,12 +2712,12 @@ __device__
 uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], uint64 z[], uint32 len)
 {
 	uint64 cy;	// Jul 2016: Same GCC bug as detailed in mi64_add
-	cy = 0ull;	ASSERT(HERE, cy == 0, "Init (cy = 0) fails!");
+	cy = 0ull;	ASSERT(cy == 0, "Init (cy = 0) fails!");
 #if MI64_MSAV2
 	uint64 *u = 0x0, *v = 0x0;
 	uint64 c2;
 	u = (uint64 *)calloc(len, sizeof(uint64));	v = (uint64 *)calloc(len, sizeof(uint64));
-	ASSERT(HERE, u != 0x0 && v != 0x0, "calloc failed!");
+	ASSERT(u != 0x0 && v != 0x0, "calloc failed!");
 	memcpy(v,y,(len<<3));	// Save copy of x[]
 	c2  = mi64_mul_scalar(x, a, u, len);
 	c2 += mi64_add(u, y, u, len);
@@ -2751,7 +2751,7 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 		cy += (z[i] < tmp);
 	}
 	// Cleanup loop for remaining terms:
-	ASSERT(HERE, len != 0, "zero-length array!");
+	ASSERT(len != 0, "zero-length array!");
 	for(; i < len; i++)
 	{
 	#ifdef MUL_LOHI64_SUBROUTINE
@@ -2853,7 +2853,7 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 			printf("i = %u Error: U = %20llu, Z = %20llu, Diff = %20lld\n",i,u[i],z[i],(int64)(u[i]-z[i]) );
 		}
 		if(cy != c2) printf("Carry Error: c2 = %20llu, cy = %20llu, Diff = %20lld\n",c2,cy,(int64)(c2-cy) );
-		ASSERT(HERE, 0, "mi64_add ASM result incorrect!");
+		ASSERT(0, "mi64_add ASM result incorrect!");
 	}
 	free((void *)u); u = 0x0;
 	free((void *)v); v = 0x0;
@@ -2897,12 +2897,12 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 	static uint64 *u = 0x0;
 	static uint32 dimU = 0;
   #endif
-	ASSERT(HERE, x && y && z, "Null array x/y/z!");
-	ASSERT(HERE, lenX != 0, "zero-length X-array!");
-	ASSERT(HERE, lenY != 0, "zero-length Y-array!");
-	ASSERT(HERE, x != z, "X and Z point to same array object!");
-	ASSERT(HERE, y != z, "Y and Z point to same array object!");
-	ASSERT(HERE, lenZ != 0x0, "Null lenZ pointer!");
+	ASSERT(x && y && z, "Null array x/y/z!");
+	ASSERT(lenX != 0, "zero-length X-array!");
+	ASSERT(lenY != 0, "zero-length Y-array!");
+	ASSERT(x != z, "X and Z point to same array object!");
+	ASSERT(y != z, "Y and Z point to same array object!");
+	ASSERT(lenZ != 0x0, "Null lenZ pointer!");
 
 	/* Init z[] = 0: */
 	for(i = 0; i < lenX + lenY; i++) { z[i] = 0; }
@@ -2935,7 +2935,7 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 		if(dimU < 2*(lenA+1)) {         // GG: fixed bug in comparison
 			dimU = 2*(lenA+1);
 			// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
-			u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
+			u = (uint64 *)realloc(u, dimU*sizeof(uint64));	ASSERT(u != 0x0, "alloc failed!");
 		}
 	#endif
 		/* Loop over remaining (lenB-1) elements of B[], multiplying A by each, and
@@ -2951,7 +2951,7 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 	more leading terms of the result is zero, caller can adjust vector length accordingly:
 	*/
 	*lenZ = mi64_getlen(z, *lenZ);
-	ASSERT(HERE, *lenZ <= lenA + lenB, "*lenZ > (lenA + lenB)!");
+	ASSERT(*lenZ <= lenA + lenB, "*lenZ > (lenA + lenB)!");
 }
 
 /* Squaring-specialized version of above. By way of example, consider a length-10 input vector and
@@ -3054,11 +3054,11 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 		if(dbg) printf("realloc to dimU = %u\n",dimU);
 	  #endif
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
-		u = (uint64 *)realloc(u, 4* len   *sizeof(uint64));	ASSERT(HERE, u != 0x0, "alloc failed!");
+		u = (uint64 *)realloc(u, 4* len   *sizeof(uint64));	ASSERT(u != 0x0, "alloc failed!");
 	}
   #endif
-	ASSERT(HERE, z != x, "Input and output arrays must be distinct!");
-	ASSERT(HERE, len != 0, "zero-length X-array!");
+	ASSERT(z != x, "Input and output arrays must be distinct!");
+	ASSERT(len != 0, "zero-length X-array!");
 
 	memset(z, 0ull,(len8<<1));	// Clear z[0,...,2*len-1]
 
@@ -3151,14 +3151,14 @@ void	mi64_mul_vector_lo_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	/* Scratch array for storing intermediate scalar*vector products: */
 	static uint64 *u = 0x0;
 	static uint32 dimU = 0;
-	ASSERT(HERE, x && y && z, "Null array pointer!");
-	ASSERT(HERE, len != 0, "zero-length X-array!");
+	ASSERT(x && y && z, "Null array pointer!");
+	ASSERT(len != 0, "zero-length X-array!");
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
 	if(dimU < 2*(len+1)) {          // GG: fixed bug in comparison
 		dimU = 2*(len+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, 2*(len+1)*sizeof(uint64));	// NB: realloc leaves newly-alloc'ed size fraction uninited
-		ASSERT(HERE, u != 0x0, "alloc failed!");
+		ASSERT(u != 0x0, "alloc failed!");
 	}
 	memset(u, 0ull, (len<<4));	// Accumulator u[] needs to be cleared each time
   #endif
@@ -3208,11 +3208,11 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, 2*(len+1)*sizeof(uint64));
 		v = (uint64 *)realloc(v, 4* len   *sizeof(uint64));
-		ASSERT(HERE, u != 0x0 && v != 0x0, "alloc failed!");
+		ASSERT(u != 0x0 && v != 0x0, "alloc failed!");
 	}
 	memset(v, 0ull, (len<<4));	// Accumulator v[] needs to be cleared each time
   #endif
-	ASSERT(HERE, len != 0, "zero-length X-array!");
+	ASSERT(len != 0, "zero-length X-array!");
 
 	/* Loop over the elements of y[], multiplying x[] by each, and
 	using u[] as a scratch array to store x[]*y[j] prior to adding to z[].
@@ -3350,14 +3350,14 @@ void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], ui
 	uint64 tprod[2], cy;
 	static uint64 *u = 0x0, *v = 0x0;	// Scratch arrays for storing intermediate scalar*vector products
 	static uint32 dimU = 0;
-	ASSERT(HERE, len != 0, "zero-length X-array!");
+	ASSERT(len != 0, "zero-length X-array!");
 	// Does scratch array need allocating or reallocating? (Use realloc for both cases):
 	if(dimU < 2*(len+1)) {          // GG: fixed bug in comparison
 		dimU = 2*(len+1);
 		// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
 		u = (uint64 *)realloc(u, (len+1)<<4);	// Realloc with 2*(len+1)*sizeof(uint64) bytes
 		v = (uint64 *)realloc(v,  len   <<5);	// Realloc with 4*(len  )*sizeof(uint64) bytes
-		ASSERT(HERE, u != 0x0 && v != 0x0, "alloc failed!");
+		ASSERT(u != 0x0 && v != 0x0, "alloc failed!");
 	}
 	/*
 	Compute desired row-sums by row index. For row j (j renamed 'idx' in function below):
@@ -3401,7 +3401,7 @@ void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], ui
 	// Test code for fast version of this function - re-use low half of v[] for output::
 	mi64_mul_vector_hi_half(x,y,v,len);
 	if(!mi64_cmp_eq(v,v+len,len)) {
-		ASSERT(HERE,0,"mi64_mul_vector_hi_trunc result incorrect!");
+		ASSERT(0,"mi64_mul_vector_hi_trunc result incorrect!");
 	}
   #endif
 	/* Copy v[len:2*len-1] into z[0:len-1]: */
@@ -3458,23 +3458,23 @@ void	mi64_mul_vector_hi_qmmp(const uint64 y[], const uint64 p, const uint64 k, u
 		}
 		u = (uint64 *)calloc(ldim, sizeof(uint64));
 		v = (uint64 *)calloc(ldim, sizeof(uint64));
-		ASSERT(HERE, u != 0x0 && v != 0x0, "alloc failed!");
+		ASSERT(u != 0x0 && v != 0x0, "alloc failed!");
 	}
   #endif
 //====need to finish 200-bit support! =======================
-	ASSERT(HERE, z != y, "Input and output arrays must be distinct!");
-	ASSERT(HERE, p < bits, "shift parameters out of range!");
-	ASSERT(HERE, len != 0, "zero-length X-array!");
+	ASSERT(z != y, "Input and output arrays must be distinct!");
+	ASSERT(p < bits, "shift parameters out of range!");
+	ASSERT(len != 0, "zero-length X-array!");
 	for(i = len+1; i < len2; i++) {
 		u[i] = 0ull;	// With proper padding of U don't need any zeroing of V prior to V = (U << p) step below
 	}
 	// memset(v, 0ull, (len<<4));	// No need to clear Accumulator v[] here due to dim = len2 in mi64_shl below
-	ASSERT(HERE, (k != 0) && ((k2>>1) == k), "2*k overflows!");	// Make sure 2*k did not overflow
+	ASSERT((k != 0) && ((k2>>1) == k), "2*k overflows!");	// Make sure 2*k did not overflow
 	u[len] = mi64_mul_scalar(y,k2,u,len);	// u[] stores Z = 2.k.Y
 	mi64_shl(u,v,p,len2);			// v[] stores (Z << p), store result in V
 	u[len] -= mi64_sub(u,y,u,len);	// (2k-1).Y = Z-Y, store result in U
 	bw = mi64_sub(v,u,v,len+1);
-	ASSERT(HERE, !bw, "Unexpected borrow!");
+	ASSERT(!bw, "Unexpected borrow!");
 
 	/* Right-shift by B bits to get UMULH(q,Y) = ((Z << p) - (2k-1).Y) >> B: */
 	mi64_shrl(v,v,bits,len2,len2);
@@ -3491,13 +3491,13 @@ void	mi64_mul_vector_hi_qmmp(const uint64 y[], const uint64 p, const uint64 k, u
 	u[0] = 1;
 	mi64_shl(u, u, p, len);			// 2^p
 	mi64_sub_scalar(u, 1, u, len);	// M(p) = 2^p-1
-	ASSERT(HERE, 0 == mi64_mul_scalar(u, k2, u, len), "2.k.M(p) overflows!");	// 2.k.M(p)
+	ASSERT(0 == mi64_mul_scalar(u, k2, u, len), "2.k.M(p) overflows!");	// 2.k.M(p)
 	mi64_add_scalar(u, 1ull, u, len);	// q = 2.k.M(p) + 1
 	// Test code for fast version of this function - re-use v[] for output::
 //	mi64_mul_vector_hi_half(u,y,v,len);
 	mi64_mul_vector_hi_fast(y,p,k,v,len);
 	if(!mi64_cmp_eq(v,z,len)) {
-		ASSERT(HERE, 0, "mi64_mul_vector_hi_qmmp/fast results differ!");
+		ASSERT(0, "mi64_mul_vector_hi_qmmp/fast results differ!");
 	}
 #endif
 }
@@ -3569,9 +3569,9 @@ void	mi64_mul_vector_hi_fast(const uint64 y[], const uint64 p, const uint64 k, u
 	uint32 i, bits;
 	uint64 k2m1 = k-1+k, tmp,bw0,bw1,bw,cw,cy,cz;
 	uint64 *zptr;
-	ASSERT(HERE, z != y, "Input and output arrays must be distinct!");
-	ASSERT(HERE, (k != 0) && ((k2m1>>1) == k-1), "2*k-1 overflows!");
-	ASSERT(HERE, len != 0, "zero-length X-array!");
+	ASSERT(z != y, "Input and output arrays must be distinct!");
+	ASSERT((k != 0) && ((k2m1>>1) == k-1), "2*k-1 overflows!");
+	ASSERT(len != 0, "zero-length X-array!");
 
 // 1. compute z' = (2k-1).y via vector-scalar mul, the carryout word cw = ((2k-1).Y >> B);
 	cw = mi64_mul_scalar(y,k2m1,z,len);	// z' = (2k-1).y
@@ -3582,7 +3582,7 @@ void	mi64_mul_vector_hi_fast(const uint64 y[], const uint64 p, const uint64 k, u
 //if(k==900) printf("Mi64: cz = %20llu, z = %s\n", cz,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
 
 // 3. compute low n words of z >> (b-p), then separately shift in cz from the left, via (2^b*cz) >> (b-p) = (cz << p).
-	ASSERT(HERE, (len<<6) > p, "shift parameters out of range!");
+	ASSERT((len<<6) > p, "shift parameters out of range!");
 	bw1 = mi64_shrl(z,z,(len<<6)-p,len,len);	// low n words of z >> (b-p); high 64 bits of off-shifted portion saved in bw1
 //if(k==900) printf("Mi64: bw1 = %20llu, z>> = %s\n", bw1,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
 
@@ -3600,18 +3600,18 @@ and tell the user to call the slow exact version of this function, currently ina
 	zptr = z+i;
 	// If (b-p) == 0 (mod 64) all of cz goes into z[i], with i = (b-p)/64;
 	if(bits == 0) {
-		ASSERT(HERE, 0 == mi64_add_scalar(zptr,cz,zptr,len-i), "unexpected carryout of ( + cw)!");
+		ASSERT(0 == mi64_add_scalar(zptr,cz,zptr,len-i), "unexpected carryout of ( + cw)!");
 	// Otherwise cz gets split between z[i] and z[i+1]:
 	} else {
 		// low 64-(p%64) bits of cz = (cz << bits) go into z[i]:
 		tmp = (cz << bits);
 		*zptr += tmp; cy = (*zptr++ < tmp);
 		// high (p%64) bits of cw = (cw >> bits) go into z[i+1]
-		ASSERT(HERE, 0 == mi64_add_scalar(zptr,(cz >> (64-bits)) + cy,zptr,len-i-1), "unexpected carryout of ( + cw).hi!");
+		ASSERT(0 == mi64_add_scalar(zptr,(cz >> (64-bits)) + cy,zptr,len-i-1), "unexpected carryout of ( + cw).hi!");
 	}
 
 // 4. subtract scalar (bw + cw) from resulting vector to effect ... - (2k-1).Y step in [*].
-	ASSERT(HERE, 0 == mi64_sub_scalar(z,(bw + cw),z,len), "unexpected carryout of (... - cw) !");
+	ASSERT(0 == mi64_sub_scalar(z,(bw + cw),z,len), "unexpected carryout of (... - cw) !");
 }
 
 
@@ -3658,12 +3658,12 @@ void	mi64_mul_vector_hi_qferm(const uint64 y[], const uint64 p, const uint64 k, 
 			free((void *)u); u = 0x0;
 		}
 		u = (uint64 *)calloc(ldim, sizeof(uint64));
-		ASSERT(HERE, u != 0x0, "alloc failed!");
+		ASSERT(u != 0x0, "alloc failed!");
 	}
   #endif
-	ASSERT(HERE, z != y, "Input and output arrays must be distinct!");
-	ASSERT(HERE, p < bits, "shift parameters out of range!");
-	ASSERT(HERE, k != 0ull, "k must be nonzero!");
+	ASSERT(z != y, "Input and output arrays must be distinct!");
+	ASSERT(p < bits, "shift parameters out of range!");
+	ASSERT(k != 0ull, "k must be nonzero!");
 	for(i = len+1; i < len2; i++) {
 		u[i] = 0ull;	// With proper padding of U don't need any zeroing of V prior to V = (U << p) step below
 	}
@@ -3672,7 +3672,7 @@ void	mi64_mul_vector_hi_qferm(const uint64 y[], const uint64 p, const uint64 k, 
 	mi64_shl(u,u,(p+1),len2);				// u[] stores (Z << p)
 	cy = mi64_add(u,y,u,len);
 	cy = mi64_add_scalar(u+len,cy,u+len, len2-len);
-	ASSERT(HERE, (cy == 0ull), "Unexpected carry!");
+	ASSERT((cy == 0ull), "Unexpected carry!");
 
 	/* Right-shift by B bits to get UMULH(q,Y) = ((Z << p) - (2k-1).Y) >> B: */
 	mi64_shrl(u,u,bits,len2,len2);
@@ -3705,14 +3705,14 @@ uint32	mi64_cvt_uint64_double(const uint64 x[], const uint64 y[], uint32 cy, uin
 	 int64 cyi, cyj, itmp, jtmp;
 	uint64 curr_re64, curr_im64, bitsm1 = FFT_MUL_BITS-1, basem1 = FFT_MUL_BASE-1;
 
-	ASSERT(HERE, len != 0, "mi64_cvt_uint64_double: zero-length array!");
+	ASSERT(len != 0, "mi64_cvt_uint64_double: zero-length array!");
 
 	/* Only constant base 2^16 is supported for this conversion at present: */
-	ASSERT(HERE, FFT_MUL_BITS == 16, "mi64_cvt_uint64_double: FFT_MUL_BITS != 16");
+	ASSERT(FFT_MUL_BITS == 16, "mi64_cvt_uint64_double: FFT_MUL_BITS != 16");
 
 	/* Redo the quicker checks of those done in util.c::check_nbits_in_types() */
-	ASSERT(HERE, DNINT(FFT_MUL_BASE) == FFT_MUL_BASE, "mi64_cvt_uint64_double: FFT_MUL_BASE not pure-integer!");
-	ASSERT(HERE, FFT_MUL_BASE < TWO54FLOAT, "mi64_cvt_uint64_double: FFT_MUL_BASE >= maximum allowed value of 2^54!");
+	ASSERT(DNINT(FFT_MUL_BASE) == FFT_MUL_BASE, "mi64_cvt_uint64_double: FFT_MUL_BASE not pure-integer!");
+	ASSERT(FFT_MUL_BASE < TWO54FLOAT, "mi64_cvt_uint64_double: FFT_MUL_BASE >= maximum allowed value of 2^54!");
 
 	/* As we extract each floating-point word, balance it and set
 	resulting carry into next FP word: */
@@ -3740,16 +3740,16 @@ uint32	mi64_cvt_uint64_double(const uint64 x[], const uint64 y[], uint32 cy, uin
 			a[jpad+1] = (double)(jtmp - (cyj<<FFT_MUL_BITS));
 		}
 	}
-	ASSERT(HERE, cyi <= 1 && cyj <= 1,"mi64_cvt_uint64_double: Output carry out of range!");
+	ASSERT(cyi <= 1 && cyj <= 1,"mi64_cvt_uint64_double: Output carry out of range!");
 #if 0
 	// It is desirable to not have the FP vector length exceed 4*len,
 	// so suppress any output carry by folding back into MS array element:
 	if(cyi) {
-		ASSERT(HERE, a[jpad  ] <= 0,"mi64_cvt_uint64_double: MS array element >= 0!");
+		ASSERT(a[jpad  ] <= 0,"mi64_cvt_uint64_double: MS array element >= 0!");
 		a[jpad  ] += FFT_MUL_BASE;
 	}
 	if(cyj) {
-		ASSERT(HERE, a[jpad+1] <= 0,"mi64_cvt_uint64_double: MS array element >= 0!");
+		ASSERT(a[jpad+1] <= 0,"mi64_cvt_uint64_double: MS array element >= 0!");
 		a[jpad+1] += FFT_MUL_BASE;
 	}
 printf("mi64_cvt_uint64_double: Final a[%u,%u] = %15.3f,%15.3f\n",jpad,jpad+1,a[jpad],a[jpad+1]);
@@ -3790,18 +3790,18 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 	int64 cy_re, cy_im, itmp, jtmp;
 	uint64 curr_re64, curr_im64;
 
-	ASSERT(HERE, n != 0, "zero-length array!");
+	ASSERT(n != 0, "zero-length array!");
 
 	/* Redo the quicker checks of those done in util.c::check_nbits_in_types() */
-	ASSERT(HERE, DNINT(FFT_MUL_BASE) == FFT_MUL_BASE, "FFT_MUL_BASE not pure-integer!");
-	ASSERT(HERE, FFT_MUL_BASE < TWO54FLOAT, "FFT_MUL_BASE >= maximum allowed value of 2^54!");
+	ASSERT(DNINT(FFT_MUL_BASE) == FFT_MUL_BASE, "FFT_MUL_BASE not pure-integer!");
+	ASSERT(FFT_MUL_BASE < TWO54FLOAT, "FFT_MUL_BASE >= maximum allowed value of 2^54!");
 /* Obsolete, for historical reference only:
 	// Make sure MSW of Re(A[]) and Im(A[]) in the balanced-representation form are both >= 0:
 	// Re(A[]) stored in even terms:
 	for(i = 2*n-2; i >= 0; i-=2) {
 		j = i + ( (i >> DAT_BITS) << PAD_BITS );
 		if(a[j] != 0.0) {
-			ASSERT(HERE, a[j] > 0.0, "MSW(Re(A[])) < 0!");
+			ASSERT(a[j] > 0.0, "MSW(Re(A[])) < 0!");
 			break;
 		}
 	}
@@ -3809,7 +3809,7 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 	for(i = 2*n-1; i >= 1; i-=2) {
 		j = i + ( (i >> DAT_BITS) << PAD_BITS );
 		if(a[j] != 0.0) {
-			ASSERT(HERE, a[j] > 0.0, "MSW(Im(A[])) < 0!");
+			ASSERT(a[j] > 0.0, "MSW(Im(A[])) < 0!");
 			break;
 		}
 	}
@@ -3827,9 +3827,9 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 		j = i + ( (i >> DAT_BITS) << PAD_BITS );
 
 
-		itmp = (uint64)1<<curr_bits;		ASSERT(HERE, curr_bits < 64,"curr_bits < 64");
-		ASSERT(HERE, curr_re64 < itmp && curr_im64 < itmp,"curr_wd64 !< (1<<curr_bits)");
-		ASSERT(HERE, DNINT(a[j]) == a[j] && ABS(a[j]) < TWO54FLOAT, "a[j] not pure-integer or out of range!");
+		itmp = (uint64)1<<curr_bits;		ASSERT(curr_bits < 64,"curr_bits < 64");
+		ASSERT(curr_re64 < itmp && curr_im64 < itmp,"curr_wd64 !< (1<<curr_bits)");
+		ASSERT(DNINT(a[j]) == a[j] && ABS(a[j]) < TWO54FLOAT, "a[j] not pure-integer or out of range!");
 
 		itmp = (int64)a[j  ] + cy_re;	/* current digit in int64 form, subtracting any borrow from previous digit.	*/
 		if(itmp < 0) {	/* If current digit < 0, add the base and set carry = -1	*/
@@ -3846,8 +3846,8 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 		} else {
 			cy_im = 0;
 		}
-		ASSERT(HERE, itmp >= 0 && jtmp >= 0,"itmp,jtmp must be nonnegative 0!");
-		ASSERT(HERE, (curr_re64>>curr_bits) == 0 && (curr_im64>>curr_bits) == 0,"(curr_wd64>>curr_bits) != 0!");
+		ASSERT(itmp >= 0 && jtmp >= 0,"itmp,jtmp must be nonnegative 0!");
+		ASSERT((curr_re64>>curr_bits) == 0 && (curr_im64>>curr_bits) == 0,"(curr_wd64>>curr_bits) != 0!");
 
 		/* Copy bits of the current residue word into the accumulator, starting
 		at the (curr_bits)th bit. The resulting total number of accumulated bits
@@ -3885,9 +3885,9 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 		nbits += curr_bits;
 	}
 //	printf("mi64_cvt_double_uint64: Final a[%u,%u] = %15.3f,%15.3f; x,y[%u] = %llu,%llu\n",j,j+1,a[j],a[j+1],len-1,x[len-1],y[len-1]);
-	ASSERT(HERE, nbits == n*FFT_MUL_BITS,"nbits == n*FFT_MUL_BASE!");
-	ASSERT(HERE, len == (n>>2)          ,"len should == n/4!");
-	ASSERT(HERE, ABS(cy_re) <= 1 && ABS(cy_im) <= 1,"Output carry out of range!");
+	ASSERT(nbits == n*FFT_MUL_BITS,"nbits == n*FFT_MUL_BASE!");
+	ASSERT(len == (n>>2)          ,"len should == n/4!");
+	ASSERT(ABS(cy_re) <= 1 && ABS(cy_im) <= 1,"Output carry out of range!");
 	// Carries declared signed, but throw in casts of the 0 in the < compares to ensure signedness of these:
 	return ( (cy_im < (int64)0)*8 + (cy_im != 0ull)*4 + (cy_re < (int64)0)*2 + (cy_re != 0ull) );
 }
@@ -3898,15 +3898,15 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 uint32 mi64_init_mers_or_ferm_modulus(uint64 exp, int modtype, uint64 mvec[])
 {
 	uint32 i,j;	// j = uint64 vector length
-	ASSERT(HERE, mvec != 0x0, "Null output-vector pointer!");
+	ASSERT(mvec != 0x0, "Null output-vector pointer!");
 	if(modtype == 0) {	// Mersenne, 2^exp - 1
-		ASSERT(HERE, isPRP64(exp), "Mersenne exponent must be prime!");
+		ASSERT(isPRP64(exp), "Mersenne exponent must be prime!");
 		j = (exp+63)>>6;
 		// Loop rather than call to mi64_set_eq_scalar here, since need to set all elts = -1:
 		for(i = 0; i < j; i++) { mvec[i] = -1ull; }
 		mvec[j-1] >>= 64-(exp&63);	// Leading word needs >> to leave just low exp%64 bits set
 	} else {	// Fermat, 2^exp + 1
-		ASSERT(HERE, exp < 64, "Max supported Fermat-number index = 63!");
+		ASSERT(exp < 64, "Max supported Fermat-number index = 63!");
 		j = ((1ull << exp)+63)>>6;
 		// j = uint64 vector length; init sans the leading '1' word, then increment prior to mi64_div
 		mi64_clear(mvec,j);
@@ -3928,7 +3928,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 {
 	const uint32 max_dim = 4096;
 	uint64 n[max_dim],result[max_dim];
-	ASSERT(HERE, len <= max_dim, "mi64_pprimeF: Required array length exceeds dimensioned maximum!");
+	ASSERT(len <= max_dim, "mi64_pprimeF: Required array length exceeds dimensioned maximum!");
 	mi64_set_eq(n, p, len);	mi64_sub_scalar(n, 1ull, n, len);	/* n = p - 1 */
 	mi64_scalar_modpow_lr(z, n, p, len, result);
 	return mi64_cmp_eq_scalar(result,1ull, len);
@@ -3970,13 +3970,13 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			mi64_clear(c,len);	c[0] = a;
 			return;
 		}
-		ASSERT(HERE, b != 0x0 && c != 0x0, "Null input- or output-array pointer!");
+		ASSERT(b != 0x0 && c != 0x0, "Null input- or output-array pointer!");
 		// Working length = length of product of scalar powering-base and modulus vector;
 		// must not assume [len] reflects number nonzero limbs, i.e. thee might be 0-pads at high end:
-		wlen = mi64_getlen(q, len);		ASSERT(HERE, wlen > 0, "0-length modulus!");
+		wlen = mi64_getlen(q, len);		ASSERT(wlen > 0, "0-length modulus!");
 		// Increment working length if a*q overflows into the next-higher limb:
 		i64 = mi64_mul_scalar(q,a,prod,wlen);	wlen += (i64 != 0ull);
-		ASSERT(HERE, wlen <= max_dim, "mi64_modpow_lr: Required array length exceeds dimensioned maximum!");
+		ASSERT(wlen <= max_dim, "mi64_modpow_lr: Required array length exceeds dimensioned maximum!");
 		// Init writable local array n[] = q[], including 0-pad at top if a*q overflows len limbs
 		mi64_set_eq(n, q, len); if(i64) n[wlen-1] = 0ull;	// Use carryo4t i64 rather than (wlen > len) here, since wlen may be < len
 		wlen2 = wlen + wlen;
@@ -3985,8 +3985,8 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		if(dbg) printf("Modulus q has %u limbs, a*q has %u limbs\n",mi64_getlen(q,len),wlen);
 	  #endif
 		nbits = wlen << 6;		log2_numbits = ceil(log(1.0*nbits)/log(2.0));
-		ASSERT(HERE, IS_ODD(n[0]), "Modulus must be odd for Montgomery-mod-based LR binary powering!");
-		if(len == 1) ASSERT(HERE, a < n[0], "Input base array must be properly normalized (mod q)!");
+		ASSERT(IS_ODD(n[0]), "Modulus must be odd for Montgomery-mod-based LR binary powering!");
+		if(len == 1) ASSERT(a < n[0], "Input base array must be properly normalized (mod q)!");
 		/*
 		Find modular inverse (mod 2^nbits) of w in preparation for modular multiply.
 		w must be odd for Montgomery-style modmul to work.
@@ -4015,7 +4015,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		}
 		// Check the computed inverse:
 		mi64_mul_vector_lo_half(n, ninv, prod, wlen);
-		ASSERT(HERE, mi64_cmp_eq_scalar(prod, 1ull, wlen), "Bad Montmul inverse!");
+		ASSERT(mi64_cmp_eq_scalar(prod, 1ull, wlen), "Bad Montmul inverse!");
 	#if MI64_PRP_DBG
 		if(dbg) printf("qinv = %s\n", &cbuf[convert_mi64_base10_char(cbuf, ninv, wlen, 0)]);
 	#endif
@@ -4046,7 +4046,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			// do bit-dependent mul-by-base here on the double-wide squaring output:
 		  #if !DO_N_MODSQUARES
 			if(mi64_test_bit(b,j)) {
-				i64 = mi64_mul_scalar(prod, a, prod, wlen2);	ASSERT(HERE, i64 == 0ull, "Unexpected carry out of a*x^2!");
+				i64 = mi64_mul_scalar(prod, a, prod, wlen2);	ASSERT(i64 == 0ull, "Unexpected carry out of a*x^2!");
 		      #if MI64_PRP_DBG
 				if(dbg) printf("*= %llu = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
 		      #endif
@@ -4060,10 +4060,10 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		  #endif
 			// If hi < lo, then calculate (hi-lo)+q = q-lo+hi < q; otherwise calculate hi-lo:
 			if(mi64_cmpult(hi,lo,wlen)) {
-				i64 = mi64_sub(hi,lo,lo,wlen);	ASSERT(HERE, i64, "Expected a borrow!");
-				i64 = mi64_add(n ,lo,c ,wlen);	ASSERT(HERE, i64, "Expected borrow/carry cancellation!");
+				i64 = mi64_sub(hi,lo,lo,wlen);	ASSERT(i64, "Expected a borrow!");
+				i64 = mi64_add(n ,lo,c ,wlen);	ASSERT(i64, "Expected borrow/carry cancellation!");
 			} else {
-				i64 = mi64_sub(hi,lo,c ,wlen);	ASSERT(HERE,!i64, "Unexpected borrow!");
+				i64 = mi64_sub(hi,lo,c ,wlen);	ASSERT(!i64, "Unexpected borrow!");
 			}
 		   #if MI64_PRP_DBG
 			if(dbg) printf("(mod q) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
@@ -4074,7 +4074,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		mi64_mul_vector_lo_half( c,ninv,lo,wlen);
 		mi64_mul_vector_hi_half(lo,n   ,lo,wlen);
 		// (hi-lo)+q = q-lo+hi = q-lo:
-		i64 = mi64_sub(n,lo, c,len);	ASSERT(HERE,!i64, "Unxpected borrow!");
+		i64 = mi64_sub(n,lo, c,len);	ASSERT(!i64, "Unxpected borrow!");
 	#if MI64_PRP_DBG
 	  if(dbg) printf("retval = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, len, 0)]);
 	#endif
@@ -4105,13 +4105,13 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			mi64_clear(c,len);
 			return;
 		}
-		ASSERT(HERE, b != 0x0 && c != 0x0, "Null input- or output-array pointer!");
-		ASSERT(HERE, len <= 1024, "mi64_modpow_lr: Max 1024 words allowed at present!");
+		ASSERT(b != 0x0 && c != 0x0, "Null input- or output-array pointer!");
+		ASSERT(len <= 1024, "mi64_modpow_lr: Max 1024 words allowed at present!");
 		mi64_set_eq_scalar(c, a, len);	// Init result-holding array c[0] = a
 		mi64_set_eq(npad	, n, len);	mi64_clear(npad+len, len);	// set npad = a[]; npad is zero-padded
 		// Working length = length of actual modulus vector:
-		wlen = mi64_getlen(n, len);		ASSERT(HERE, wlen > 0, "0-length array!");
-		ASSERT(HERE, mi64_cmpult(c, n, len), "Input base array must be properly normalized (mod n)!");
+		wlen = mi64_getlen(n, len);		ASSERT(wlen > 0, "0-length array!");
+		ASSERT(mi64_cmpult(c, n, len), "Input base array must be properly normalized (mod n)!");
 		// LR modpow:
 		j = leadz64(b[wlen-1]); start_index = (wlen<<6) - j;
 	  #if MI64_PRP_DBG
@@ -4129,7 +4129,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			mi64_sqr_vector(c, prod, wlen);		/* x^2 */
 		//	mi64_div(prod, npad, len2, len2, 0x0, prod);	*** Fails on F28 cofactor-PRP 3^nsquares (mod q) check; for x = 146715292687661855688^2 % q get 314605340220462438224, should = 240587464360836147143! ***
 			mi64_div_binary(prod, npad, len2, len2, 0x0,&lenq, prod);
-			ASSERT(HERE, mi64_getlen(prod, len2) <= len, "mi64_modpow_lr: (x^2)%p illegal length");
+			ASSERT(mi64_getlen(prod, len2) <= len, "mi64_modpow_lr: (x^2)%p illegal length");
 			mi64_set_eq(c, prod, len);	/* c = (c^2)%p */
 		  #if MI64_PRP_DBG
 			if(dbg) printf("j = %d: x^2 (mod n) = %s\n", j, &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
@@ -4205,10 +4205,10 @@ void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm31"	/* Clobbered registers */\
 	);
 	for(i = 0; i < 8; i++) {
-		ASSERT(HERE, b[i] == (double)a[i], "uint64->double conversion result differs from reference!");
+		ASSERT(b[i] == (double)a[i], "uint64->double conversion result differs from reference!");
 	}
 #else
-	ASSERT(HERE, 0,"mi64_vcvtuqq2pd requires build with AVX512 instruction set!\n");
+	ASSERT(0,"mi64_vcvtuqq2pd requires build with AVX512 instruction set!\n");
 #endif	// USE_AVX ?
 }
 
@@ -4224,10 +4224,10 @@ void mi64_vcvtpd2uqq(const double a[], uint64 b[])
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm31"	/* Clobbered registers */\
 	);
 	for(i = 0; i < 8; i++) {
-		ASSERT(HERE, (double)b[i] == a[i], "double->uint64 conversion result differs from reference!");
+		ASSERT((double)b[i] == a[i], "double->uint64 conversion result differs from reference!");
 	}
 #else
-	ASSERT(HERE, 0,"mi64_vcvt2pduqq requires build with AVX512 instruction set!\n");
+	ASSERT(0,"mi64_vcvt2pduqq requires build with AVX512 instruction set!\n");
 #endif	// USE_AVX ?
 }
 #endif	// __CUDA_ARCH__ ?
@@ -4689,11 +4689,11 @@ void mi64_modmul53_batch(const double a[], const double b[], const double m[], d
 			printf("[%2u/%2u]: %16llu * %16llu / %16llu = %16llu[quo], %16llu[rem], DP rem = %16.0f\n",i,ndata,ia,ib,im,quo64,rem64, r[i]);
 			if(++nerr > 1000) exit(0);
 		}
-	//	ASSERT(HERE, r[i] == rem64, "Modmul result differs from reference!");
+	//	ASSERT(r[i] == rem64, "Modmul result differs from reference!");
 	}
   #endif
 #else
-	ASSERT(HERE, 0,"mi64_modmul53_batch requires build with AVX2 instruction set!\n");
+	ASSERT(0,"mi64_modmul53_batch requires build with AVX2 instruction set!\n");
 #endif	// USE_AVX ?
 }
 #endif	// __CUDA_ARCH__ ?
@@ -4732,7 +4732,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 	if(first_entry) {
 		unsigned short FPUCTRL;
 		__asm__ volatile ("fstcw %0" : "=m" (FPUCTRL) );
-		ASSERT(HERE, FPUCTRL == FPU_64CHOP, "This function requires user to set x87 FPU to truncatig-round mode!");
+		ASSERT(FPUCTRL == FPU_64CHOP, "This function requires user to set x87 FPU to truncatig-round mode!");
 		first_entry = FALSE;
 	}
 	// x86_64 modmul code using 64-bit FDIV for quotient - 2 versions, first one for 63-bit inputs, needs ~36 cycles on Core2:
@@ -4872,15 +4872,15 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 	//     only explicitly store i' = i%2^64, high bit handled implicitly:
 	uint32 i;	uint64 mulh,twoi,diff = -1ull,ip = -m;	// Initial iterate = 2^65 - m = [1,-m] in base-2^64 twos-comp form. Init diff = UINT64_MAX
 	for(i = 0; i < 10; i++) {
-		twoi = ip + ip;					//ASSERT(HERE, twoi > ip  , "Unexpected overflow in 2*ip computation!");
-		mulh = twoi + __MULH64(ip,ip);	ASSERT(HERE, mulh > twoi, "Unexpected overflow in mulh summation!");
+		twoi = ip + ip;					//ASSERT(twoi > ip  , "Unexpected overflow in 2*ip computation!");
+		mulh = twoi + __MULH64(ip,ip);	ASSERT(mulh > twoi, "Unexpected overflow in mulh summation!");
 		mulh = __MULH64(m,mulh);
 		#error*** Mar 2021: Hit above assert with inputs (a=2, b=2, m=5000099); commenting it out, the iteration fails to converge ***
 		diff = ip - m - mulh;
 		ip += diff;
 		if(!diff) break;
 	}
-	ASSERT(HERE, !diff, "Barrett-modmul scaled inverse computation failed to converge!");
+	ASSERT(!diff, "Barrett-modmul scaled inverse computation failed to converge!");
 	uint64 lo,hi;
   #ifdef MUL_LOHI64_SUBROUTINE
 	MUL_LOHI64(a,b,&lo,&hi);
@@ -4958,7 +4958,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 		 ,[__m] "g" (m)	\
 		: "cc","memory","rax","rbx","rcx","rdx"	/* Clobbered registers */\
 	);
-	ASSERT(HERE, r == i64, "Modmul result differs from reference!");
+	ASSERT(r == i64, "Modmul result differs from reference!");
 #endif
 
 	return r;
@@ -4978,11 +4978,11 @@ int mi64_div(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint6
 	uint32 xlen, ylen, max_len;
 	uint64 itmp64;
 	// Only the quotient array is optional:
-	ASSERT(HERE, lenX && lenY, "illegal 0 dimension!");
-	ASSERT(HERE, x && y, "At least one of X, Y is null!");
-	ASSERT(HERE, x != y, "X and Y arrays overlap!");
-	ASSERT(HERE, r != y, "Y and Rem arrays overlap!");
-	ASSERT(HERE, q != x && q != y && (q == 0x0 || q != r), "Quotient array overlaps one of X, Y ,Rem!");
+	ASSERT(lenX && lenY, "illegal 0 dimension!");
+	ASSERT(x && y, "At least one of X, Y is null!");
+	ASSERT(x != y, "X and Y arrays overlap!");
+	ASSERT(r != y, "Y and Rem arrays overlap!");
+	ASSERT(q != x && q != y && (q == 0x0 || q != r), "Quotient array overlaps one of X, Y ,Rem!");
 
 	/* Init Q = 0; don't do similarly for R since we allow X and R to point to same array: */
 	if(q && (q != x)) {
@@ -4991,7 +4991,7 @@ int mi64_div(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint6
 	/* And now find the actual lengths of the divide operands and use those for the computation: */
 	xlen = mi64_getlen(x, lenX);
 	ylen = mi64_getlen(y, lenY);
-	ASSERT(HERE, ylen != 0, "divide by 0!");
+	ASSERT(ylen != 0, "divide by 0!");
 
 	// If x < y, no modding needed - copy x into remainder and set quotient = 0:
 	max_len = MAX(xlen, ylen);
@@ -5048,12 +5048,12 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 	static uint64 *scratch = 0x0;	// "base pointer" for local storage shared by all of the above subarrays
 	static uint64 *hi = 0x0, *v = 0x0, *w = 0x0;	// These are treated as vars (cost-offsets of the above ptrs),
 													// hence non-static. *** MUST RE-INIT ON EACH ENTRY ***
-	ASSERT(HERE, lenX && lenY, "illegal 0 dimension!");
-	ASSERT(HERE, (lenY > 1) || (y[0] > 0), "Divide by zero!");
-	ASSERT(HERE, (x && y) && (x != y), "Bad x or y array!");
-	ASSERT(HERE, (q == 0x0 || q != r), "Quotient and remainder arrays must not overlap!");	// q may be 0x0, but must not overlap r
+	ASSERT(lenX && lenY, "illegal 0 dimension!");
+	ASSERT((lenY > 1) || (y[0] > 0), "Divide by zero!");
+	ASSERT((x && y) && (x != y), "Bad x or y array!");
+	ASSERT((q == 0x0 || q != r), "Quotient and remainder arrays must not overlap!");	// q may be 0x0, but must not overlap r
 									// To-do: Change from a simple pointers-coincide to an actual arrays-overlap check.
-	lenD = mi64_getlen(y, lenY);	ASSERT(HERE, lenD != 0, "0-length divisor!");
+	lenD = mi64_getlen(y, lenY);	ASSERT(lenD != 0, "0-length divisor!");
 
 	// Alloc of the repeated-div-associated statics handled separately from other local storage:
 	if(modDdim < lenD) {
@@ -5063,9 +5063,9 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			free((void *)mod_inv_save);	mod_inv_save = 0x0;
 			free((void *)basepow_save);	basepow_save = 0x0;
 		}
-		modulus_save = (uint64 *)calloc((modDdim), sizeof(uint64));	ASSERT(HERE, modulus_save != 0x0, "alloc fail!");
-		mod_inv_save = (uint64 *)calloc((modDdim), sizeof(uint64));	ASSERT(HERE, mod_inv_save != 0x0, "alloc fail!");
-		basepow_save = (uint64 *)calloc((modDdim), sizeof(uint64));	ASSERT(HERE, basepow_save != 0x0, "alloc fail!");
+		modulus_save = (uint64 *)calloc((modDdim), sizeof(uint64));	ASSERT(modulus_save != 0x0, "alloc fail!");
+		mod_inv_save = (uint64 *)calloc((modDdim), sizeof(uint64));	ASSERT(mod_inv_save != 0x0, "alloc fail!");
+		basepow_save = (uint64 *)calloc((modDdim), sizeof(uint64));	ASSERT(basepow_save != 0x0, "alloc fail!");
 		mod_repeat = FALSE;
 	}
 
@@ -5078,10 +5078,10 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 	//	printf("x = %s\n", &str_10k[__convert_mi64_base10_char(str_10k, 10<<10, x, lenX, 0)]);
 		printf("y = %s\n", &s0[convert_mi64_base10_char(s0, y, lenD, 0)]);	// Leave length-check off this so if y too large for print we assert right here
 		// Compute result using slow binary-div algo, use that as reference:
-		qref   = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(HERE, qref   != 0x0, "alloc fail!");
-		rref   = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(HERE, rref   != 0x0, "alloc fail!");
-		lo_dbg = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(HERE, lo_dbg != 0x0, "alloc fail!");
-		hi_dbg = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(HERE, hi_dbg != 0x0, "alloc fail!");
+		qref   = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(qref   != 0x0, "alloc fail!");
+		rref   = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(rref   != 0x0, "alloc fail!");
+		lo_dbg = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(lo_dbg != 0x0, "alloc fail!");
+		hi_dbg = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(hi_dbg != 0x0, "alloc fail!");
 		mi64_set_eq(lo_dbg,x,lenX);
 		mi64_set_eq(hi_dbg,y,lenY);
 		mi64_div_binary(lo_dbg,hi_dbg,lenX,lenY,qref,&lenQ,rref);
@@ -5095,7 +5095,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		if(vsave) {
 			free((void *)vsave);	vsave = 0x0;
 		}
-		vsave = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(HERE, vsave != 0x0, "alloc fail!");
+		vsave = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(vsave != 0x0, "alloc fail!");
 	}
 	if(lenD > lens) {
 		lens = lenD;
@@ -5103,7 +5103,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			free((void *)scratch);	scratch = yinv = cy = tmp = itmp = lo = hi = w = rem_save = 0x0;
 		}
 		/* (re)Allocate the needed auxiliary storage: */
-		scratch = (uint64 *)calloc((lenD*8), sizeof(uint64));	ASSERT(HERE, scratch != 0x0, "alloc fail!");
+		scratch = (uint64 *)calloc((lenD*8), sizeof(uint64));	ASSERT(scratch != 0x0, "alloc fail!");
 	}
 	// These ptrs just point to various disjoint length-lenD sections of the shared local-storage chunk;
 	// since some of them are treated as vars, reset 'em all on each entry, as well as re-zeroing the whole memblock:
@@ -5157,8 +5157,8 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 					nc++; mi64_sub(r,y,r,lenX);	++itmp64;	// Need to incr quotient by 1 to account for extra sub-y
 				}
 			}
-			ASSERT(HERE, nc < ncmax, "Unexpectedly large number of corrections needed for floating-double quotient!");
-			ASSERT(HERE, mi64_cmpult(r, y, lenX), "Remainder should be < modulus!");
+			ASSERT(nc < ncmax, "Unexpectedly large number of corrections needed for floating-double quotient!");
+			ASSERT(mi64_cmpult(r, y, lenX), "Remainder should be < modulus!");
 			// At this point are done with x, so set low word of quotient array and clear rest:
 			if(q) {
 				mi64_clear(q, lenX);	q[0] = itmp64;
@@ -5270,10 +5270,10 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			Init yinv = 3*w ^ 2. This formula returns the correct bottom 5 bits of yinv,
 			and we double the number of correct bits on each of the subsequent iterations.
 			*/
-			ASSERT(HERE, (w[0] & (uint64)1) == 1, "modulus must be odd!");
+			ASSERT((w[0] & (uint64)1) == 1, "modulus must be odd!");
 			ybits = lenS << 6;
 			log2_numbits = ceil(log(1.0*ybits)/log(2.0));
-			ASSERT(HERE, (w[0] & (uint64)1) == 1, "w must be odd!");
+			ASSERT((w[0] & (uint64)1) == 1, "w must be odd!");
 			mi64_clear(yinv, lenS);
 			yinv[0] = (w[0] + w[0] + w[0]) ^ (uint64)2;
 
@@ -5301,7 +5301,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			for(j = 6; j < log2_numbits; j++, i <<= 1) {
 				mi64_mul_vector_lo_half(w, yinv,tmp, lenS);
 				mi64_nega              (tmp,tmp, lenS);
-				bw = mi64_add_scalar(tmp, 2ull,tmp, lenS);	ASSERT(HERE, !bw, "");
+				bw = mi64_add_scalar(tmp, 2ull,tmp, lenS);	ASSERT(!bw, "");
 				mi64_mul_vector_lo_half(yinv,tmp, yinv, lenS);
 			}
 			// Save inverse in case next call uses same modulus:
@@ -5310,7 +5310,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 
 		// Check the computed inverse:
 		mi64_mul_vector_lo_half(w, yinv, tmp, lenS);
-		ASSERT(HERE, mi64_cmp_eq_scalar(tmp, 1ull, lenS), "Bad Montmul inverse!");
+		ASSERT(mi64_cmp_eq_scalar(tmp, 1ull, lenS), "Bad Montmul inverse!");
 	#if MI64_DIV_MONT
 		if(dbg)printf("yinv = %s\n", &s0[convert_mi64_base10_char(s0, yinv, lenS, 0)]);
 	#endif
@@ -5346,7 +5346,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			if(dbg)printf("MULL = %s\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)]);
 		#endif
 			// bw = 0 or 1, but may propagate all the way into high word:
-			ASSERT(HERE, 0ull == mi64_add_scalar(tmp,bw, tmp, lenS), "tmp += bw has carryout!");
+			ASSERT(0ull == mi64_add_scalar(tmp,bw, tmp, lenS), "tmp += bw has carryout!");
 			// Do double-wide product. Fast-divisibility test needs just high half (stored in hi); low half (lo) useful to extract true-mod
 			mi64_mul_vector(tmp,lenS,w,lenS,lo, (uint32*)&j);	// lo:hi = MUL_LOHI(q, tmp)
 
@@ -5359,7 +5359,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			#if MI64_DIV_MONT
 				if(dbg)printf("itmp = %s\n", &s0[convert_mi64_base10_char(s0, itmp, lenS, 0)]);
 			#endif
-				ASSERT(HERE, 0, "Low-half product check mismatch!");
+				ASSERT(0, "Low-half product check mismatch!");
 			}
 		}
 
@@ -5423,7 +5423,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 					// current power p after each halving step here to account for that:
 					p = (p >> 1) + 1;
 				}
-				ASSERT(HERE, j <= 32, "Need 64-bit bitstring!");
+				ASSERT(j <= 32, "Need 64-bit bitstring!");
 				/*
 				Now do the needed powering. We always start with p = 2 and M-square that to get p = 3:
 				*/
@@ -5441,7 +5441,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 					MONT_SQR_N(itmp,lo,w,yinv,tmp,lenS);
 		//	printf("B^5 mod q = %s\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)]);
 				} else {
-					ASSERT(HERE, 0,"Bad starting value for power p!");
+					ASSERT(0,"Bad starting value for power p!");
 				}
 				for(i = j-1; i >= 0; i--) {
 					if(BIT_TEST(n,i)) {
@@ -5500,7 +5500,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 				mi64_mul_vector(tmp,lenS,w,lenS,lo, (uint32*)&j);	// lo:hi = MUL_LOHI(q, tmp); cy is in hi half
 				// (cy + bw); Since bw = 0 or 1, check that bw=1 does not propagate is (sum >= bw) in 1-limb form.
 				// Apr 2022: in more-general multiword case, check that hi[] + bw does not yield a carryout:
-				itmp64 = mi64_add_scalar(hi,bw, hi, lenS);	ASSERT(HERE, itmp64 == 0ull, "mi64_div_mont(): Unexpected carryout from (hi[] + bw) in quotient loop!");
+				itmp64 = mi64_add_scalar(hi,bw, hi, lenS);	ASSERT(itmp64 == 0ull, "mi64_div_mont(): Unexpected carryout from (hi[] + bw) in quotient loop!");
 			#if MI64_DIV_MONT
 				if(dbg)printf("  lo = %s\n", &s0[convert_mi64_base10_char(s0,   lo, lenS, 0)]);
 				if(dbg)printf("  hi = %s\n", &s0[convert_mi64_base10_char(s0,   hi, lenS, 0)]);
@@ -5509,7 +5509,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 				#if MI64_DIV_MONT
 					printf("itmp = %s\n", &s0[convert_mi64_base10_char(s0, itmp, lenS, 0)]);
 				#endif
-					ASSERT(HERE, 0, "Low-half product check mismatch!");
+					ASSERT(0, "Low-half product check mismatch!");
 				}
 				mi64_set_eq(q+i,tmp,lenS);	// Equivalent to the y[i] = tmp step of the scalar routine
 			}
@@ -5518,11 +5518,11 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			if(j) {
 				// Check cy = {v[i],v[i+1],...,v[lenX-1],0,...,0}
 				if(!mi64_cmp_eq(hi,v+i,j)) {
-					ASSERT(HERE, mi64_cmp_eq(hi,v+i,j), "cy check!");
+					ASSERT(mi64_cmp_eq(hi,v+i,j), "cy check!");
 				}
 				mi64_clear(q+i,j);	// Do after above check since v may == q
 				for(i = j; i < lenS; i++) {
-					ASSERT(HERE, hi[i] == 0ull, "cy check!");
+					ASSERT(hi[i] == 0ull, "cy check!");
 				}
 			}
 		#if MI64_DIV_MONT
@@ -5558,12 +5558,12 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		if(!mi64_cmp_eq(rref,r,lenY)) {
 			printf("rref = %s\n", &s0[convert_mi64_base10_char(s0, rref, lenD, 0)]);
 			printf("rewm = %s\n", &s0[convert_mi64_base10_char(s0, r   , lenD, 0)]);
-			ASSERT(HERE, 0, "bzzt!\n");
+			ASSERT(0, "bzzt!\n");
 		}
 		if(!mi64_cmp_eq(qref,q,lenX)) {
 			printf("qref = %s\n", &s0[convert_mi64_base10_char(s0, qref, lenX, 0)]);
 			printf("qewm = %s\n", &s0[convert_mi64_base10_char(s0, q   , lenX, 0)]);
-			ASSERT(HERE, 0, "bzzt!\n");
+			ASSERT(0, "bzzt!\n");
 		}
 
 		free((void *)qref); qref = 0x0;
@@ -5610,12 +5610,12 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	if(dbg)
 		printf("mi64_div_binary: x = %s, y = %s\n",&s0[convert_mi64_base10_char(s0, x, lenX, 0)],&s1[convert_mi64_base10_char(s1, y, lenY, 0)]);
   #endif
-	ASSERT(HERE, lenX && lenY, "illegal 0 dimension!");
-	ASSERT(HERE, x && y, "At least one of X, Y is null!");
-	ASSERT(HERE, x != y, "X and Y arrays overlap!");
-	ASSERT(HERE, r != y, "Y and Rem arrays overlap!");
-	ASSERT(HERE, q != x && q != y && (q == 0x0 || q != r), "Quotient array overlaps one of X, Y ,Rem!");
-	if(q) ASSERT(HERE, lenQ != 0x0, "If quotient requested, quotient-length pointer must be provided!");
+	ASSERT(lenX && lenY, "illegal 0 dimension!");
+	ASSERT(x && y, "At least one of X, Y is null!");
+	ASSERT(x != y, "X and Y arrays overlap!");
+	ASSERT(r != y, "Y and Rem arrays overlap!");
+	ASSERT(q != x && q != y && (q == 0x0 || q != r), "Quotient array overlaps one of X, Y ,Rem!");
+	if(q) ASSERT(lenQ != 0x0, "If quotient requested, quotient-length pointer must be provided!");
 	/* Init Q = 0; don't do similarly for R since we allow X and R to point to same array:
 	Jan 2018: No! User may feed qvec only suficient in size to hold ACTUAL QUOTIENT, based on an estimate of the latter -
 	I hit "EXC_BAD_ACCESS, Could not access memory" in a case with xlen = ylen = 2^20, qlen = 1, where I simply fed a
@@ -5629,7 +5629,7 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	/* And now find the actual lengths of the divide operands and use those for the computation: */
 	xlen = mi64_getlen(x, lenX);
 	ylen = mi64_getlen(y, lenY);
-	ASSERT(HERE, ylen != 0, "divide by 0!");
+	ASSERT(ylen != 0, "divide by 0!");
 
 	// Allocate the needed auxiliary storage - the 2 yloc = ... / mi64_set_eq calls below copy (lenX + lenY) limbs into scratch, so alloc at least that much:
 	if(lens < (lenX + lenY)) {
@@ -5646,9 +5646,9 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 		Setting said breakpoint is useless, can't see function context when hit. Instead try setting min-size  = 1024 in lens = ... .
 		***/
 	#if 1
-		scratch = (uint64 *)realloc(scratch, lens*sizeof(uint64));	ASSERT(HERE, scratch != 0x0, "alloc fail!");
+		scratch = (uint64 *)realloc(scratch, lens*sizeof(uint64));	ASSERT(scratch != 0x0, "alloc fail!");
 	#else
-		tmp_ptr = (uint64 *)malloc(lens*sizeof(uint64));	ASSERT(HERE, tmp_ptr != 0x0, "alloc fail!");
+		tmp_ptr = (uint64 *)malloc(lens*sizeof(uint64));	ASSERT(tmp_ptr != 0x0, "alloc fail!");
 		free(scratch); scratch = tmp_ptr;
 	#endif
 	}
@@ -5674,7 +5674,7 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	lz_x = mi64_leadz(xloc, max_len);
 	lz_y = mi64_leadz(yloc, max_len);
 	nshift = lz_y - lz_x;
-	ASSERT(HERE, nshift >= 0, "nshift < 0");
+	ASSERT(nshift >= 0, "nshift < 0");
 	i = (nshift+63)>>6;
 	if(q) {
 		mi64_clear(q, i);	*lenQ = i;
@@ -5686,9 +5686,9 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 		if(dbg)printf("I = %3d: r = %s, yshift = %s\n", i,&s0[convert_mi64_base10_char(s0, xloc, max_len, 0)],&s1[convert_mi64_base10_char(s1, yloc, max_len, 0)]);
 	#endif
 		if(mi64_cmpuge(xloc, yloc, max_len)) {
-			ASSERT(HERE, xlen == max_len,"xlen != max_len");
+			ASSERT(xlen == max_len,"xlen != max_len");
 			mi64_sub(xloc, yloc, xloc, max_len);	/* r -= yshift */
-			ASSERT(HERE, mi64_cmpult(xloc, yloc, max_len),"r >= yshift");
+			ASSERT(mi64_cmpult(xloc, yloc, max_len),"r >= yshift");
 			xlen = mi64_getlen(xloc, max_len);
 			if(q) {
 				mi64_set_bit(q,i,*lenQ,1);
@@ -5702,7 +5702,7 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	}
 	// Remainder in xloc - do some sanity checks prior to copying into r[]:
 	xlen = mi64_getlen(xloc, lenX);
-	ASSERT(HERE, xlen <= ylen && mi64_cmpugt(y,xloc,ylen), "Remainder should be < modulus!");
+	ASSERT(xlen <= ylen && mi64_cmpugt(y,xloc,ylen), "Remainder should be < modulus!");
 	if(r != 0x0) {
 		mi64_set_eq(r, xloc, ylen);
 		if(x == r)	// If x == r, zero the leading (lenX-lenR) limbs of r prior to return:
@@ -5711,7 +5711,7 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 			mi64_clear(r+ylen,lenY-ylen);
 	}
 	/* Final value of yloc is unchanged from its (unshifted) starting value == y */
-	ASSERT(HERE, mi64_cmp_eq(yloc,y,ylen), "Final value of y-copy differs from original!");
+	ASSERT(mi64_cmp_eq(yloc,y,ylen), "Final value of y-copy differs from original!");
   #if MI64_DIV_DBG
 	if(dbg) {
 		if(q)printf("mi64_div_binary: quotient  = %s\n",&s0[convert_mi64_base10_char(s0, q, lenX, 0)]);
@@ -5739,7 +5739,7 @@ int mi64_is_div_by_scalar32(const uint32 x[], uint32 q, uint32 len)
 {
 	uint32 i,j,nshift,dlen,qinv,tmp,cy;
 
-	ASSERT(HERE, q > 0, "mi64_is_div_by_scalar32: 0 modulus!");
+	ASSERT(q > 0, "mi64_is_div_by_scalar32: 0 modulus!");
 	if(q == 1) return TRUE;
 	if(len == 0) return TRUE;
 
@@ -5775,7 +5775,7 @@ int		mi64_is_div_by_scalar32p(const uint32 x[], uint32 q, uint32 qinv, uint32 le
 {
 	uint32 i,dlen,tmp,cy;
 
-	ASSERT(HERE, qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");
+	ASSERT(qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");
 	cy = (uint32)0;
 	dlen = len+len;	/* Since are processing a uint64 array cast to uint32[], double the #words parameter */
 	for(i = 0; i < dlen; ++i) {
@@ -5808,7 +5808,7 @@ int		mi64_is_div_by_scalar32p_x8(
 	uint32 tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7,cy0,cy1,cy2,cy3,cy4,cy5,cy6,cy7;
 	cy0 = cy1 = cy2 = cy3 = cy4 = cy5 = cy6 = cy7 = (uint32)0;
 
-	ASSERT(HERE, qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");
+	ASSERT(qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");
 
 	tmp0 = a[0] * qinv;
 	tmp1 = b[0] * qinv;
@@ -5894,7 +5894,7 @@ uint32	mi64_is_div_by_scalar32_x4(const uint32 x[], uint32 q0, uint32 q1, uint32
 	uint32 retval=0,dlen = len+len, qinv0,qinv1,qinv2,qinv3,tmp0,tmp1,tmp2,tmp3,cy0,cy1,cy2,cy3;
 	uint32 xcur,trailx;
 
-	ASSERT(HERE, q0 && q1 && q2 && q3, "mi64_is_div_by_scalar32_x4: 0 modulus!");
+	ASSERT(q0 && q1 && q2 && q3, "mi64_is_div_by_scalar32_x4: 0 modulus!");
 	if(q0 + q1 + q2 + q3 == 4) return TRUE;
 	if(len == 0) return TRUE;
 
@@ -5967,7 +5967,7 @@ uint32	mi64_is_div_by_scalar32_x8(const uint32 x[], uint32 q0, uint32 q1, uint32
 	uint32 retval=0,dlen = len+len, qinv0,qinv1,qinv2,qinv3,qinv4,qinv5,qinv6,qinv7,tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7,cy0,cy1,cy2,cy3,cy4,cy5,cy6,cy7;
 	uint32 xcur,trailx;
 
-	ASSERT(HERE, q0 && q1 && q2 && q3 && q4 && q5 && q6 && q7, "mi64_is_div_by_scalar32_x8: 0 modulus!");
+	ASSERT(q0 && q1 && q2 && q3 && q4 && q5 && q6 && q7, "mi64_is_div_by_scalar32_x8: 0 modulus!");
 	if(q0 + q1 + q2 + q3 + q4 + q5 + q6 + q7 == 8) return TRUE;
 	if(len == 0) return TRUE;
 
@@ -6147,7 +6147,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 			MONT_SQR64(itmp64,q,qinv,itmp64);	// 2^(2*68-64) == 2^72 (mod q)
 			MONT_SQR64(itmp64,q,qinv,itmp64);	// 2^(2*72-64) == 2^80 (mod q)
 			MONT_SQR64(itmp64,q,qinv,itmp64);	// 2^(2*80-64) == 2^96 (mod q)
-			ASSERT(HERE, itmp64 < q, "Pure-integer computation of 2^96 mod q fails!");
+			ASSERT(itmp64 < q, "Pure-integer computation of 2^96 mod q fails!");
 		}
 
 	} else if(q >> 32)	{	// q in [2^32,2^48)
@@ -6156,7 +6156,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 		itmp64 = 0x1000000000000000ull % q;	// 2^60 (mod q)
 		MONT_MUL48(itmp64,itmp64,q,qinv,itmp64);	// 2^(2*60-48) == 2^72 (mod q)
 		MONT_MUL48(itmp64,itmp64,q,qinv,itmp64);	// 2^(2*72-48) == 2^96 (mod q)
-		ASSERT(HERE, itmp64 < q, "Pure-integer computation of 2^96 mod q fails!");
+		ASSERT(itmp64 < q, "Pure-integer computation of 2^96 mod q fails!");
 
 	} else {	// q < 2^32
 
@@ -6169,7 +6169,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 		itmp32 -= (-(q32 < itmp32) & q32);	// If 2*itmp32 > q, subtract q
 											// itmp32 = 2^64 (mod q)
 		MONT_MUL32(itmp32,itmp32,q32,qinv32,itmp32);	// 2^(2*64-32) == 2^96 (mod q)
-		ASSERT(HERE, itmp32 < q32, "Pure-integer computation of 2^96 mod q fails!");
+		ASSERT(itmp32 < q32, "Pure-integer computation of 2^96 mod q fails!");
 		itmp64 = itmp32;	// promote to 64-bit
 	}
 
@@ -6200,7 +6200,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 		} else if(p == 5) {
 			MONT_SQR64(itmp64,q,qinv,rem64);
 		} else {
-			ASSERT(HERE, 0,"Bad starting value for power p!");
+			ASSERT(0,"Bad starting value for power p!");
 		}
 		for(i = j-1; i >= 0; i--) {
 			if(BIT_TEST(bmap,i)) {
@@ -6229,7 +6229,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	uint32 i,nshift;
 	uint64 qinv,cy;
 
-	ASSERT(HERE, q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
+	ASSERT(q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
 	if(q == 1) return TRUE;
 	if(len == 0) return TRUE;
 
@@ -6346,9 +6346,9 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	uint32 nshift0,nshift1,nshift2,nshift3;
 	uint64 qinv0,qinv1,qinv2,qinv3,cy0,cy1,cy2,cy3;
 
-	ASSERT(HERE, (len == 0), "0 length!");
+	ASSERT((len == 0), "0 length!");
 	trailx = trailz64(x[0]);
-	ASSERT(HERE, trailx < 64, "0 low word!");
+	ASSERT(trailx < 64, "0 low word!");
 
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift0 = trailz64(q0);
@@ -6360,8 +6360,8 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	q1 >>= nshift1;
 	q2 >>= nshift2;
 	q3 >>= nshift3;
-	ASSERT(HERE, q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
+	ASSERT(q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;
@@ -6469,13 +6469,13 @@ int mi64_is_div_by_scalar64_u2(const uint64 x[], uint64 q, uint32 len)
 	uint32 i,len2 = (len>>1),nshift;
 	uint64 qinv,cy0,cy1,rpow;
 
-	ASSERT(HERE, q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
+	ASSERT(q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
 	if(q == 1) return TRUE;
 	if(len == 0) return TRUE;
-	ASSERT(HERE, (len&1) == 0, "odd length!");
+	ASSERT((len&1) == 0, "odd length!");
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift = trailz64(q);
-ASSERT(HERE, !nshift, "2-way folded ISDIV requires odd q!");
+ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 	if(nshift) {
 		if(trailz64(x[0]) < nshift) return FALSE;
 		q >>= nshift;
@@ -6588,13 +6588,13 @@ int mi64_is_div_by_scalar64_u4(const uint64 x[], uint64 q, uint32 len)
 	uint32 i,len4 = (len>>2),nshift;
 	uint64 qinv,cy0,cy1,cy2,cy3,rpow;
 
-	ASSERT(HERE, q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
+	ASSERT(q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
 	if(q == 1) return TRUE;
 	if(len == 0) return TRUE;
-	ASSERT(HERE, (len&3) == 0, "Length must be a multiple of 4!");
+	ASSERT((len&3) == 0, "Length must be a multiple of 4!");
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift = trailz64(q);
-ASSERT(HERE, !nshift, "4-way folded ISDIV requires odd q!");
+ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	if(nshift) {
 		if(trailz64(x[0]) < nshift) return FALSE;
 		q >>= nshift;
@@ -6773,8 +6773,8 @@ for(i = 0; i < len; i++)
 	printf("x[%u] = %20llu;\n",i,x[i]);
 printf("\n");
 */
-	ASSERT(HERE, (x != 0) && (len != 0), "Null input array or length parameter!");
-	ASSERT(HERE, q > 0, "0 modulus!");
+	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
+	ASSERT(q > 0, "0 modulus!");
 	// Unit modulus needs special handling to return proper 0 remainder rather than 1:
 	if(q == 1ull) {
 		if(y) mi64_set_eq(y,x,len);
@@ -6802,7 +6802,7 @@ printf("\n");
 		rem_save = x[0] & mask;		// (Which we don`t do since x is read-only; thus we are forced into accounting tricks :)
 		q >>= nshift;
 	}
-	ASSERT(HERE, (q & (uint64)1) == 1, "q must be odd!");
+	ASSERT((q & (uint64)1) == 1, "q must be odd!");
 
 	uint32 q32,qi32;
 	q32  = q; qi32 = minv8[(q&0xff)>>1];
@@ -6844,7 +6844,7 @@ printf("\n");
 		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
-			ASSERT(HERE, itmp64 == tmp, "Low-half product check mismatch!");
+			ASSERT(itmp64 == tmp, "Low-half product check mismatch!");
 		#endif
 		}
 	} else {	// Even modulus, with or without quotient computation, uses Algo B
@@ -6872,7 +6872,7 @@ printf("\n");
 		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
-			ASSERT(HERE, *iptr == tmp, "Low-half product check mismatch!");
+			ASSERT(*iptr == tmp, "Low-half product check mismatch!");
 		#endif
 		}
 		// Last element has no shift-in from next-higher term, so can compute just the low-half output term, sans explicit MULs:
@@ -6972,7 +6972,7 @@ printf("\n");
 		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, quot[i] = %20llu, lo1 = %20llu, lo2 = %20llu, hi = %20llu, bw = %1u\n",i,tmp,itmp64,lo,cy,(uint32)bw);
-			ASSERT(HERE, itmp64 == lo, "Low-half product check mismatch!");
+			ASSERT(itmp64 == lo, "Low-half product check mismatch!");
 		#endif
 			y[i] = tmp;
 		}
@@ -6995,7 +6995,7 @@ printf("\n");
 			y[i] = tmp;
 		}
 	}
-	ASSERT(HERE, bw == 0 && cy == 0, "bw/cy check!");
+	ASSERT(bw == 0 && cy == 0, "bw/cy check!");
 #if MI64_DIV_MONT64
 	if(dbg) {
 		printf("len = %u, q = %llu, nshift = %u, rem = %llu\n",len,q,nshift,rem64);
@@ -7026,8 +7026,8 @@ uint64 mi64_div_by_scalar64_u2(uint64 x[], uint64 q, uint32 lenu, uint64 y[])	//
 #endif
 	int i,j,npad = (lenu&1),len = lenu + npad,len2 = (len>>1),nshift,lshift = -1;	// Pad to even length
 	uint64 qinv,cy0,cy1,rpow,rem_save = 0,xsave,itmp64,mask,*iptr0,*iptr1,ptr_incr;
-	ASSERT(HERE, (x != 0) && (len != 0), "Null input array or length parameter!");
-	ASSERT(HERE, q > 0, "0 modulus!");
+	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
+	ASSERT(q > 0, "0 modulus!");
 	// Unit modulus needs special handling to return proper 0 remainder rather than 1:
 	if(q == 1ull) {
 		if(y) mi64_set_eq(y,x,len);
@@ -7339,7 +7339,7 @@ See similar behavior for 4-way-split version of the algorithm.
 
 #endif
 
-	ASSERT(HERE, cy1 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
+	ASSERT(cy1 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
 	x[lenu] = xsave;	// Restore input value of zero-padding one-beyond element x[lenu] prior to return
 	return rpow;
 }
@@ -7375,15 +7375,15 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	static uint64 *svec = 0x0;	// svec = "scratch vector"
 	if(first_entry) {
 		first_entry = FALSE;
-		svec = (uint64 *)calloc(len_save, sizeof(uint64));	ASSERT(HERE, svec != 0x0, "alloc failed!");
+		svec = (uint64 *)calloc(len_save, sizeof(uint64));	ASSERT(svec != 0x0, "alloc failed!");
 	}
 	if(len > len_save) {
 		len_save = len<<1;
-		svec = (uint64 *)realloc(svec, len_save*sizeof(uint64));	ASSERT(HERE, svec != 0x0, "alloc failed!");
+		svec = (uint64 *)realloc(svec, len_save*sizeof(uint64));	ASSERT(svec != 0x0, "alloc failed!");
 	}
 
-	ASSERT(HERE, (x != 0) && (len != 0), "Null input array or length parameter!");
-	ASSERT(HERE, q > 0, "0 modulus!");
+	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
+	ASSERT(q > 0, "0 modulus!");
 	// Unit modulus needs special handling to return proper 0 remainder rather than 1:
 	if(q == 1ull) {
 		if(y) mi64_set_eq(y,x,len);
@@ -7992,7 +7992,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
   #endif	// AVX2/MULX or not?
 
 #endif
-	ASSERT(HERE, cy3 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
+	ASSERT(cy3 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
 	// Restore input values of 0-pad elements prior to return:
 	for(i = 0; i < npad; i++) {
 		x[lenu+i] = pads[i];
@@ -8053,7 +8053,7 @@ uint32 mi64_div_y32(uint64 x[], uint32 y, uint64 q[], uint32 len)
 		rem = tsum%y;
 	}
 	if(rem == 0 && x != q) {	// If overwrote input with quotient in above loop, skip this
-		ASSERT(HERE, mi64_is_div_by_scalar32((uint32 *)x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
+		ASSERT(mi64_is_div_by_scalar32((uint32 *)x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
 		return 0;
 	}
 	return (uint32)rem;
@@ -8083,7 +8083,7 @@ int	__convert_mi64_base10_char(char char_buf[], uint32 n_alloc_chars, const uint
 	double dtmp = 0.0;
 	static uint64 *temp = 0x0;
 	static uint32 tlen = 0;	// #64-bit slots in current memalloc for *temp
-	ASSERT(HERE, fabs(1.0 - TWO64FLOAT*TWO64FLINV) < 1e-14, "ERROR: TWO64FLOAT not inited!");	// Make sure these scaling powers have been inited
+	ASSERT(fabs(1.0 - TWO64FLOAT*TWO64FLINV) < 1e-14, "ERROR: TWO64FLOAT not inited!");	// Make sure these scaling powers have been inited
 
 	/* Estimate # of decimal digits: */
 	curr_len = mi64_getlen(x, len);	/* this checks that len > 0; need at least one digit, even if it = 0. curr_len guaranteed > 0. */
@@ -8092,7 +8092,7 @@ int	__convert_mi64_base10_char(char char_buf[], uint32 n_alloc_chars, const uint
 		if(temp) {
 			free((void *)temp);	temp = 0x0;
 		}
-		temp = (uint64 *)calloc(curr_len, sizeof(uint64));	ASSERT(HERE, temp != 0x0, "alloc failed!");
+		temp = (uint64 *)calloc(curr_len, sizeof(uint64));	ASSERT(temp != 0x0, "alloc failed!");
 		tlen = curr_len;
 	}
 	mi64_set_eq(temp, x, curr_len);
@@ -8100,7 +8100,7 @@ int	__convert_mi64_base10_char(char char_buf[], uint32 n_alloc_chars, const uint
 	if(curr_len > 1) dtmp = x[curr_len-2]*TWO64FLINV;
 	MAX_DIGITS = ceil( (curr_len-1)*log10_base + log((double)x[curr_len-1] + dtmp)/ln10 );
 	MAX_DIGITS = MAX(MAX_DIGITS, 1);
-	ASSERT(HERE, MAX_DIGITS < n_alloc_chars, "Output string overflows buffer");
+	ASSERT(MAX_DIGITS < n_alloc_chars, "Output string overflows buffer");
 	if(wrap_every) {
 		MAX_DIGITS += MAX_DIGITS/wrap_every;
 	}
@@ -8151,7 +8151,7 @@ int	__convert_mi64_base10_char_print_lead0(char char_buf[], uint32 n_alloc_chars
 	double dtmp = 0.0;
 	static uint64 *temp = 0x0;
 	static uint32 tlen = 0;	// #64-bit slots in current memalloc for *temp
-	ASSERT(HERE, fabs(1.0 - TWO64FLOAT*TWO64FLINV) < 1e-14, "ERROR: TWO64FLOAT not inited!");	// Make sure these scaling powers have been inited
+	ASSERT(fabs(1.0 - TWO64FLOAT*TWO64FLINV) < 1e-14, "ERROR: TWO64FLOAT not inited!");	// Make sure these scaling powers have been inited
 
 	/* Estimate # of decimal digits: */
 	curr_len = mi64_getlen(x, len);	/* this checks that len > 0; need at least one digit, even if it = 0. curr_len guaranteed > 0. */
@@ -8160,7 +8160,7 @@ int	__convert_mi64_base10_char_print_lead0(char char_buf[], uint32 n_alloc_chars
 		if(temp) {
 			free((void *)temp);	temp = 0x0;
 		}
-		temp = (uint64 *)calloc(curr_len, sizeof(uint64));	ASSERT(HERE, temp != 0x0, "alloc failed!");
+		temp = (uint64 *)calloc(curr_len, sizeof(uint64));	ASSERT(temp != 0x0, "alloc failed!");
 		tlen = curr_len;
 	}
 	mi64_set_eq(temp, x, curr_len);
@@ -8168,11 +8168,11 @@ int	__convert_mi64_base10_char_print_lead0(char char_buf[], uint32 n_alloc_chars
 	if(curr_len > 1) dtmp = x[curr_len-2]*TWO64FLINV;
 	MAX_DIGITS = ceil( (curr_len-1)*log10_base + log((double)x[curr_len-1] + dtmp)/ln10 );
 	if(MAX_DIGITS > ndigit) {
-		ASSERT(HERE, 0, "ERROR: MAX_DIGITS > ndigit!");
+		ASSERT(0, "ERROR: MAX_DIGITS > ndigit!");
 	} else {
 		MAX_DIGITS = ndigit;
 	}
-	ASSERT(HERE, MAX_DIGITS < n_alloc_chars, "Output string overflows buffer");
+	ASSERT(MAX_DIGITS < n_alloc_chars, "Output string overflows buffer");
 	if(wrap_every) {
 		MAX_DIGITS += MAX_DIGITS/wrap_every;
 	}
@@ -8243,7 +8243,7 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 		LEN_MAX = (uint32)ceil( (imax-i)/log10_base );
 	}
 	// 01/09/2009: Add an extra zero-pad element here as workaround for bug in mi64_div called with differing-length operands:
-	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));	ASSERT(HERE, mi64_vec != 0x0, "alloc failed!");
+	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));	ASSERT(mi64_vec != 0x0, "alloc failed!");
 	imin = i;
 	for(i = imin; i < imax; i++) {
 		c = char_buf[i];
@@ -8251,19 +8251,19 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 			free((void *)mi64_vec);	*len = 0;	return 0x0;
 		}
 		curr_digit = (uint64)(c - CHAROFFSET);
-		ASSERT(HERE, curr_digit < 10,"util.c: curr_digit < 10");
+		ASSERT(curr_digit < 10,"util.c: curr_digit < 10");
 		/* currsum *= 10, and check for overflow: */
 		tmp = mi64_mul_scalar(mi64_vec, (uint64)10, mi64_vec, *len);
 		if(tmp != 0) {
 			if(*len == LEN_MAX) {
 				printf("ERROR: Mul-by-10 overflows in convert_base10_char_mi64: Offending input string = %s\n", char_buf);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 			mi64_vec[(*len)++] = tmp;
 		}
 
 		*len += mi64_add_scalar(mi64_vec, curr_digit, mi64_vec, *len);
-		ASSERT(HERE, *len <= LEN_MAX,"len <= LEN_MAX");
+		ASSERT(*len <= LEN_MAX,"len <= LEN_MAX");
 	}
 	*len = LEN_MAX;	/* Nominal length, so user knows how much memory was allocated */
 	return mi64_vec;
@@ -8296,8 +8296,8 @@ and returns 1 if 2^(-p) == -1 (mod q) (which also means 2^p == -1), 0 otherwise.
 #endif
 uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[], uint32 len, uint64*res)
 {
-	ASSERT(HERE, p != 0x0, "Null p-array pointer!");
-	ASSERT(HERE, q != 0x0, "Null q-array pointer!");
+	ASSERT(p != 0x0, "Null p-array pointer!");
+	ASSERT(q != 0x0, "Null q-array pointer!");
 	uint32 pow2, FERMAT = mi64_isPow2(p,len,&pow2)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
   #if MI64_POW_DBG
 	uint32 dbg = FERMAT && pow2 == 256;//STREQ(&s0[convert_mi64_base10_char(s0, q, len, 0)], "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127");
@@ -8321,8 +8321,8 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		x      = (uint64 *)calloc((lenq_save  ), sizeof(uint64));
 		lo     = (uint64 *)calloc((2*lenq_save), sizeof(uint64));
 	}
-	lenP = mi64_getlen(p, len_p);	ASSERT(HERE, lenP > 0, "0 exponent");
-	lenQ = mi64_getlen(q, len);		ASSERT(HERE, lenQ > 0, "0 modulus!");
+	lenP = mi64_getlen(p, len_p);	ASSERT(lenP > 0, "0 exponent");
+	lenQ = mi64_getlen(q, len);		ASSERT(lenQ > 0, "0 modulus!");
 	if(len_p > lenp_save) {
 		lenp_save = len_p;
 		pshift = (uint64 *)realloc(pshift, (len_p+1)*sizeof(uint64));
@@ -8335,7 +8335,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		x      = (uint64 *)realloc(x     , (lenQ   )*sizeof(uint64));
 		lo     = (uint64 *)realloc(lo    , (2*lenQ )*sizeof(uint64));
 	}
-	ASSERT(HERE, pshift != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0, "alloc failed!");
+	ASSERT(pshift != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0, "alloc failed!");
 	hi = lo + lenQ;	// Pointer to high half of double-wide product
 
   #if MI64_POW_DBG
@@ -8346,7 +8346,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 
 	/* pshift = p + len*64 */
 	pshift[lenP] = mi64_add_scalar(p, lenQ*64, pshift, lenP);	// April 2015: lenP ==> lenQ here!
-	ASSERT(HERE, !pshift[lenP], "pshift overflows!");
+	ASSERT(!pshift[lenP], "pshift overflows!");
 
   #if MI64_POW_DBG
 	if(dbg) printf("Init: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ);
@@ -8369,7 +8369,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	*/
 	/* Extract leftmost log2_numbits bits of pshift (if >= qbits, use the leftmost log2_numbits-1) and subtract from qbits: */
 	pbits = mi64_extract_lead64(pshift,len_p,&lo64);
-	ASSERT(HERE, pbits >= log2_numbits, "leadz64!");
+	ASSERT(pbits >= log2_numbits, "leadz64!");
 //	if(pbits >= 64)
 		lead_chunk = lo64>>(64-log2_numbits);
 //	else
@@ -8405,7 +8405,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	Init qinv = q. This formula returns the correct bottom 5 bits of qinv,
 	and we double the number of correct bits on each of the subsequent iterations.
 	*/
-	ASSERT(HERE, (q[0] & (uint64)1) == 1, "q must be odd!");
+	ASSERT((q[0] & (uint64)1) == 1, "q must be odd!");
 	mi64_clear(qinv, lenQ);
 
 	/* Newton iteration involves repeated steps of form
@@ -8429,7 +8429,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	}
 	// Check the computed inverse:
 	mi64_mul_vector_lo_half(q, qinv, x, lenQ);
-	ASSERT(HERE, mi64_cmp_eq_scalar(x, 1ull, lenQ), "Bad Montmul inverse!");
+	ASSERT(mi64_cmp_eq_scalar(x, 1ull, lenQ), "Bad Montmul inverse!");
   #if MI64_POW_DBG
 	if(dbg) {
 		printf("q    = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q   , lenQ, 0)]);
@@ -8455,14 +8455,14 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	if(dbg) printf("q*lo/2^%u = %s\n", (lenQ<<6), &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]);
   #endif
 	/* hi = 0 in this instance, which simplifies things. */
-	cyout = mi64_sub(q, lo, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+	cyout = mi64_sub(q, lo, x, lenQ);	ASSERT(cyout == 0ull, "");
 	if(mi64_test_bit(pshift, j)) {
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(mi64_cmpugt(x, qhalf, lenQ)) {
 			cyout = mi64_add(x, x, x, lenQ);
 			cyout = mi64_sub(x, q, x, lenQ);
 		} else {
-			cyout = mi64_add(x, x, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+			cyout = mi64_add(x, x, x, lenQ);	ASSERT(cyout == 0ull, "");
 		}
 	}
   #if MI64_POW_DBG
@@ -8514,14 +8514,14 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 			cyout = mi64_sub(q, lo, lo, lenQ);
 			cyout = mi64_add(lo, hi, x, lenQ);
 		} else {
-			cyout = mi64_sub(hi, lo, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+			cyout = mi64_sub(hi, lo, x, lenQ);	ASSERT(cyout == 0ull, "");
 		}
 
 		if(mi64_test_bit(pshift, j)) {
 		#if MI64_POW_DBG
 			if(dbg) printf("2x...\n");
 		#endif
-			ASSERT(HERE, mi64_cmpult(x, q, lenQ), "x >= q");
+			ASSERT(mi64_cmpult(x, q, lenQ), "x >= q");
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(mi64_cmpugt(x, qhalf, lenQ)) {
 			#if MI64_POW_DBG
@@ -8530,7 +8530,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 				cyout = mi64_add(x, x, x, lenQ);
 				cyout = mi64_sub(x, q, x, lenQ);
 			} else {
-				cyout = mi64_add(x, x, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+				cyout = mi64_add(x, x, x, lenQ);	ASSERT(cyout == 0ull, "");
 			}
 		}
 		#if MI64_POW_DBG
@@ -8576,7 +8576,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	static uint32  first_entry = TRUE;
 
 	// Quick computation of number of uint64 needed to hold current q:
-	ASSERT(HERE, (k != 0) && ((k2>>1) == k), "2*k overflows!");	// Make sure 2*k does not overflow
+	ASSERT((k != 0) && ((k2>>1) == k), "2*k overflows!");	// Make sure 2*k does not overflow
 	j = (p+1)&63;	// p+1 mod 64, needed since q = 2*k*MMp+1 ~= k*MM(p+1)
 	lenP = ((p+1) + 63)>>6;	// #64-bit words needed
 	lo64 = k;		// Copy of k
@@ -8594,13 +8594,13 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		first_entry = FALSE;
 		psave = p;
 		free((void *)pshift);
-		pshift = (uint64 *)calloc((lenP+1), sizeof(uint64));	ASSERT(HERE, pshift != 0x0, "calloc of pshift[] failed!");
+		pshift = (uint64 *)calloc((lenP+1), sizeof(uint64));	ASSERT(pshift != 0x0, "calloc of pshift[] failed!");
 		pshift[0] = 1;
 		mi64_shl(pshift, pshift, p, lenP);	// 2^p
 		mi64_sub_scalar(pshift, 1, pshift, lenP);	// M(p) = 2^p-1
 		/* pshift = p + len*64: */
 		pshift[lenP] = mi64_add_scalar(pshift, lenP*64, pshift, lenP);
-		ASSERT(HERE, !pshift[lenP], "pshift overflows!");
+		ASSERT(!pshift[lenP], "pshift overflows!");
 	#if MI64_POW_DBG
 		if(dbg) { printf("mi64_twopmodq_qmmp: Init: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
 	#endif
@@ -8616,7 +8616,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		x      = (uint64 *)calloc((lenQ), sizeof(uint64));
 		lo   = (uint64 *)calloc((2*lenQ), sizeof(uint64));
 		hi   = lo + lenQ;	/* Pointer to high half of double-wide product */
-		ASSERT(HERE, q != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0 && hi != 0x0, "alloc failed!");
+		ASSERT(q != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0 && hi != 0x0, "alloc failed!");
 		qbits = lenQ << 6;
 		log2_numbits = ceil(log(1.0*qbits)/log(2.0));
 
@@ -8637,7 +8637,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		*/
 	/* Extract leftmost log2_numbits bits of pshift (if >= qbits, use the leftmost log2_numbits-1) and subtract from qbits: */
 		pbits = mi64_extract_lead64(pshift,lenP,&lo64);
-		ASSERT(HERE, pbits >= log2_numbits, "leadz64!");
+		ASSERT(pbits >= log2_numbits, "leadz64!");
 	//	if(pbits >= 64)
 			lead_chunk = lo64>>(64-log2_numbits);
 	//	else
@@ -8670,8 +8670,8 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	q[0] = 1; mi64_shl(q, q, p, lenQ);
 	mi64_sub_scalar(q, 1, q, lenQ);	// M(p) = 2^p-1
 	cyout = mi64_mul_scalar(q, k2, q, lenQ);
-	ASSERT(HERE, !cyout, "2.k.M(p) overflows!");	// 2.k.M(p)
-	ASSERT(HERE, 0 != q[lenQ-1], "Excessive word size allocated for q!");
+	ASSERT(!cyout, "2.k.M(p) overflows!");	// 2.k.M(p)
+	ASSERT(0 != q[lenQ-1], "Excessive word size allocated for q!");
 	mi64_add_scalar(q, 1ull, q, lenQ);	// q = 2.k.M(p) + 1
 	mi64_shrl_short(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
   #else
@@ -8679,8 +8679,8 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	j = p>>6;	// p/64; the set-bit in 2^p goes into the (j)th word of q[]
 	q[j] = ( 1ull << (p-(j<<6)) );
 	mi64_sub_scalar(q, 1, q, lenQ);	// M(p) = 2^p-1
-	cyout = mi64_mul_scalar(q, k2, q, lenQ);	ASSERT(HERE, !cyout, "2.k.M(p) overflows!");	// 2.k.M(p)
-	ASSERT(HERE, 0 != q[lenQ-1], "Excessive word size allocated for q!");
+	cyout = mi64_mul_scalar(q, k2, q, lenQ);	ASSERT(!cyout, "2.k.M(p) overflows!");	// 2.k.M(p)
+	ASSERT(0 != q[lenQ-1], "Excessive word size allocated for q!");
 	mi64_add_scalar(q, 1ull, q, lenQ);	// q = 2.k.M(p) + 1
 	mi64_shrl_short_short(q,qhalf, 1, lenQ);	// qhalf = (q >> 1) = (q-1)/2, since q odd.
   #endif
@@ -8688,7 +8688,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	Find modular inverse (mod 2^qbits) of q in preparation for modular multiply.
 	q must be odd for Montgomery-style modmul to work.
 	*/
-	ASSERT(HERE, (q[0] & (uint64)1) == 1, "q must be odd!");
+	ASSERT((q[0] & (uint64)1) == 1, "q must be odd!");
 	mi64_clear(qinv, lenQ);
 
 	/* Newton iteration involves repeated steps of form
@@ -8712,7 +8712,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	}
 	// Check the computed inverse:
 	mi64_mul_vector_lo_half(q, qinv, x, lenQ);
-	ASSERT(HERE, mi64_cmp_eq_scalar(x, 1ull, lenQ), "Bad Montmul inverse!");
+	ASSERT(mi64_cmp_eq_scalar(x, 1ull, lenQ), "Bad Montmul inverse!");
   #if MI64_POW_DBG
 	if(dbg) {
 		printf("q    = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q   , lenQ, 0)]);
@@ -8738,17 +8738,17 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
   #endif
 
 	/* hi = 0 in this instance, which simplifies things. */
-	cyout = mi64_sub(q, lo, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+	cyout = mi64_sub(q, lo, x, lenQ);	ASSERT(cyout == 0ull, "");
 
 	// mi64_test_bit(pshift, j) always true for this portion of MMp powering
-	ASSERT(HERE, mi64_test_bit(pshift, j), "pshift bit = 0 for pre-loop step!");
-	ASSERT(HERE, mi64_cmpult(x, q, lenQ), "x >= q");
+	ASSERT(mi64_test_bit(pshift, j), "pshift bit = 0 for pre-loop step!");
+	ASSERT(mi64_cmpult(x, q, lenQ), "x >= q");
 	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 	if(mi64_cmpugt(x, qhalf, lenQ)) {
 		cyout = mi64_add(x, x, x, lenQ);
 		cyout = mi64_sub(x, q, x, lenQ);
 	} else {
-		cyout = mi64_add(x, x, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+		cyout = mi64_add(x, x, x, lenQ);	ASSERT(cyout == 0ull, "");
 	}
 
   #if MI64_POW_DBG
@@ -8782,21 +8782,21 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 			cyout = mi64_sub(q, lo, lo, lenQ);
 			cyout = mi64_add(lo, hi, x, lenQ);
 		} else {
-			cyout = mi64_sub(hi, lo, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+			cyout = mi64_sub(hi, lo, x, lenQ);	ASSERT(cyout == 0ull, "");
 		}
 
 	#if MI64_POW_DBG
 		if(dbg) { printf("x = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); }
 	#endif
 		// mi64_test_bit(pshift, j) always true for this portion of MMp powering
-		ASSERT(HERE, mi64_test_bit(pshift, j), "pshift bit = 0!");
+		ASSERT(mi64_test_bit(pshift, j), "pshift bit = 0!");
 	#if MI64_POW_DBG
 		if(!mi64_cmpult(x, q, lenQ)) {
 			printf("x < q test failed for k = %llu, j = %u!\n",k,j);
 		}
 		if(dbg) { printf("2x...\n"); }
 	#else
-		ASSERT(HERE, mi64_cmpult(x, q, lenQ), "x >= q");
+		ASSERT(mi64_cmpult(x, q, lenQ), "x >= q");
 	#endif
 
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
@@ -8804,7 +8804,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 			cyout = mi64_add(x, x, x, lenQ);
 			cyout = mi64_sub(x, q, x, lenQ);
 		} else {
-			cyout = mi64_add(x, x, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+			cyout = mi64_add(x, x, x, lenQ);	ASSERT(cyout == 0ull, "");
 		}
 	}
 	for(; j >= 0; j--)
@@ -8818,17 +8818,17 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 			cyout = mi64_sub(q, lo, lo, lenQ);
 			cyout = mi64_add(lo, hi, x, lenQ);
 		} else {
-			cyout = mi64_sub(hi, lo, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+			cyout = mi64_sub(hi, lo, x, lenQ);	ASSERT(cyout == 0ull, "");
 		}
 
 		if((pshift[0] >> j) & (uint64)1) {
-			ASSERT(HERE, mi64_cmpult(x, q, lenQ), "x >= q");
+			ASSERT(mi64_cmpult(x, q, lenQ), "x >= q");
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(mi64_cmpugt(x, qhalf, lenQ)) {
 				cyout = mi64_add(x, x, x, lenQ);
 				cyout = mi64_sub(x, q, x, lenQ);
 			} else {
-				cyout = mi64_add(x, x, x, lenQ);	ASSERT(HERE, cyout == 0ull, "");
+				cyout = mi64_add(x, x, x, lenQ);	ASSERT(cyout == 0ull, "");
 			}
 		}
 	}

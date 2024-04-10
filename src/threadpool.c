@@ -293,7 +293,7 @@ me at: heber.tomer@gmail.com
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
-			ASSERT(HERE, 0, "Aborting.");
+			ASSERT(0, "Aborting.");
 		}
 		CPU_SET(i, &cpu_set);
 		errcode = cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof (cpu_set), &cpu_set);
@@ -338,7 +338,7 @@ me at: heber.tomer@gmail.com
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
-			ASSERT(HERE, 0, "Aborting.");
+			ASSERT(0, "Aborting.");
 		}
 
 	 #if INCLUDE_HWLOC
@@ -401,7 +401,7 @@ me at: heber.tomer@gmail.com
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
-			ASSERT(HERE, 0, "Aborting.");
+			ASSERT(0, "Aborting.");
 		}
 		apolicy.affinity_tag = i; // set affinity tag
 	  #if THREAD_POOL_DEBUG

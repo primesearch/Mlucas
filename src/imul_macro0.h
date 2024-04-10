@@ -1225,14 +1225,14 @@ or the with functions using them (if we declare no _-prepended variables local t
 			qil2 = (uint32) qinv2;\
 			qil3 = (uint32) qinv3;\
 			\
-			DBG_ASSERT(HERE, (ql0  >> 32) == 0,"MOD_INI_Q4: (ql0  >> 32) == 0");\
-			DBG_ASSERT(HERE, (ql1  >> 32) == 0,"MOD_INI_Q4: (ql1  >> 32) == 0");\
-			DBG_ASSERT(HERE, (ql2  >> 32) == 0,"MOD_INI_Q4: (ql2  >> 32) == 0");\
-			DBG_ASSERT(HERE, (ql3  >> 32) == 0,"MOD_INI_Q4: (ql3  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil0 >> 32) == 0,"MOD_INI_Q4: (qil0 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil1 >> 32) == 0,"MOD_INI_Q4: (qil1 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil2 >> 32) == 0,"MOD_INI_Q4: (qil2 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil3 >> 32) == 0,"MOD_INI_Q4: (qil3 >> 32) == 0");\
+			DBG_ASSERT((ql0  >> 32) == 0,"MOD_INI_Q4: (ql0  >> 32) == 0");\
+			DBG_ASSERT((ql1  >> 32) == 0,"MOD_INI_Q4: (ql1  >> 32) == 0");\
+			DBG_ASSERT((ql2  >> 32) == 0,"MOD_INI_Q4: (ql2  >> 32) == 0");\
+			DBG_ASSERT((ql3  >> 32) == 0,"MOD_INI_Q4: (ql3  >> 32) == 0");\
+			DBG_ASSERT((qil0 >> 32) == 0,"MOD_INI_Q4: (qil0 >> 32) == 0");\
+			DBG_ASSERT((qil1 >> 32) == 0,"MOD_INI_Q4: (qil1 >> 32) == 0");\
+			DBG_ASSERT((qil2 >> 32) == 0,"MOD_INI_Q4: (qil2 >> 32) == 0");\
+			DBG_ASSERT((qil3 >> 32) == 0,"MOD_INI_Q4: (qil3 >> 32) == 0");\
 			\
 			qh0  = (uint32)(q0    >> 32);\
 			qh1  = (uint32)(q1    >> 32);\
@@ -1243,14 +1243,14 @@ or the with functions using them (if we declare no _-prepended variables local t
 			qih2 = (uint32)(qinv2 >> 32);\
 			qih3 = (uint32)(qinv3 >> 32);\
 			\
-			DBG_ASSERT(HERE, (qh0  >> 32) == 0,"MOD_INI_Q4: (qh0  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qh1  >> 32) == 0,"MOD_INI_Q4: (qh1  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qh2  >> 32) == 0,"MOD_INI_Q4: (qh2  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qh3  >> 32) == 0,"MOD_INI_Q4: (qh3  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih0 >> 32) == 0,"MOD_INI_Q4: (qih0 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih1 >> 32) == 0,"MOD_INI_Q4: (qih1 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih2 >> 32) == 0,"MOD_INI_Q4: (qih2 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih3 >> 32) == 0,"MOD_INI_Q4: (qih3 >> 32) == 0");\
+			DBG_ASSERT((qh0  >> 32) == 0,"MOD_INI_Q4: (qh0  >> 32) == 0");\
+			DBG_ASSERT((qh1  >> 32) == 0,"MOD_INI_Q4: (qh1  >> 32) == 0");\
+			DBG_ASSERT((qh2  >> 32) == 0,"MOD_INI_Q4: (qh2  >> 32) == 0");\
+			DBG_ASSERT((qh3  >> 32) == 0,"MOD_INI_Q4: (qh3  >> 32) == 0");\
+			DBG_ASSERT((qih0 >> 32) == 0,"MOD_INI_Q4: (qih0 >> 32) == 0");\
+			DBG_ASSERT((qih1 >> 32) == 0,"MOD_INI_Q4: (qih1 >> 32) == 0");\
+			DBG_ASSERT((qih2 >> 32) == 0,"MOD_INI_Q4: (qih2 >> 32) == 0");\
+			DBG_ASSERT((qih3 >> 32) == 0,"MOD_INI_Q4: (qih3 >> 32) == 0");\
 		}
 
 		/* For each input xj, calculates the following sequence:
@@ -1375,7 +1375,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 		char s0[21],s1[21];\
 		uint64 _t,_a,_b;\
 		\
-		ASSERT(HERE, ((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
+		ASSERT(((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
 		MUL_LOHI64((_x), (uint64)(_y), _a, _b);\
 		\
 		_lo = ((uint32)((_x) & 0x00000000ffffffff)) * (_y);	/* a*c */\
@@ -1390,7 +1390,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 			printf("x = %s, y = %s\n", s0[convert_uint64_base10_char(s0,_x )], s1[convert_uint64_base10_char(s1,_y)]);\
 			printf("LO= %s, A = %s\n", s0[convert_uint64_base10_char(s0,_lo)], s1[convert_uint64_base10_char(s1,_a)]);\
 			printf("HI= %s, B = %s\n", s0[convert_uint64_base10_char(s0,_hi)], s1[convert_uint64_base10_char(s0,_b)]);\
-			ASSERT(HERE, 0,"0");\
+			ASSERT(0,"0");\
 		}\
 	}
    #else

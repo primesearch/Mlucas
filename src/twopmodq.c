@@ -46,7 +46,7 @@ uint64 test_modsqr64(uint64 x, uint64 q)
 	uint64 qinv,t,hi,lo;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 0x1, "q must be odd!");
+	ASSERT(q & 0x1, "q must be odd!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 	{
@@ -92,7 +92,7 @@ uint96 test_modsqr96(uint96 x, uint96 q)
 #endif
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q.d0 & 0x1, "q must be odd!");
+	ASSERT(q.d0 & 0x1, "q must be odd!");
 	/* Init qinv = q. Since we're only interested in the bottom 3 bits of q, can use 64-bit math for that:*/
 	qinv.d0 = q.d0;	qinv.d1 = (uint64)0;
 
@@ -134,7 +134,7 @@ uint128 test_modsqr128(uint128 x, uint128 q)
 	uint128 qinv,t,hi,lo;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q.d0 & 0x1, "q must be odd!");
+	ASSERT(q.d0 & 0x1, "q must be odd!");
 	/* Init qinv = q. Since we're only interested in the bottom 3 bits of q, can use 64-bit math for that:*/
 	qinv.d0 = (q.d0+q.d0+q.d0) ^ (uint64)2;
 	qinv.d1 = (uint64)0;
@@ -178,7 +178,7 @@ uint128 test_modsqr128_96(uint128 x, uint128 q)
 	uint128 qinv,t,lo;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q.d0 & 0x1, "q must be odd!");
+	ASSERT(q.d0 & 0x1, "q must be odd!");
 	/* Init qinv = q. Since we're only interested in the bottom 3 bits of q, can use 64-bit math for that:*/
 	qinv.d0 = (q.d0+q.d0+q.d0) ^ (uint64)2;
 	qinv.d1 = (uint64)0;
@@ -386,7 +386,7 @@ uint64 twopmodq63(uint64 p, uint64 q)
 
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 0x1, "q must be odd!");
+	ASSERT(q & 0x1, "q must be odd!");
 
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
@@ -408,7 +408,7 @@ uint64 twopmodq63(uint64 p, uint64 q)
 	{
 		x = x + x - (q & -(x >= qhalf));
 	}
-	DBG_ASSERT(HERE, x < q, "twopmodq63 : x0 < q");
+	DBG_ASSERT(x < q, "twopmodq63 : x0 < q");
 
 #if FAC_DEBUG
 	fprintf(stderr, "twopmodq63 : x0 = %s, q = %s\n", &str0[convert_uint64_base10_char(str0, x)], &str1[convert_uint64_base10_char(str1, q)] );
@@ -483,7 +483,7 @@ uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	qhalf3 = q3>>1;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	// This gives 4-bit inverse:
 	q32_0 = (uint32)q0;
@@ -659,7 +659,7 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 
 	// This gives 4-bit inverse:
 	q32_0 = (uint32)q0;
@@ -927,7 +927,7 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 	uint64 lead6, pshift6, qinv6, zshift6, x6, lo6, hi6;
 	uint64 lead7, pshift7, qinv7, zshift7, x7, lo7, hi7;
 
-	DBG_ASSERT(HERE, (q0 < q1) && (q1 < q2) && (q2 < q3) && (q3 < q4) && (q4 < q5) && (q5 < q6) && (q6 < q7), "twopmodq63_x8: Inputs nonmonotone!");
+	DBG_ASSERT((q0 < q1) && (q1 < q2) && (q2 < q3) && (q3 < q4) && (q4 < q5) && (q5 < q6) && (q6 < q7), "twopmodq63_x8: Inputs nonmonotone!");
 
 	pshift0 = q0 + 63;
 	pshift1 = q1 + 63;
@@ -977,7 +977,7 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 	zshift7 = 63 - lead7;	zshift7 <<= 1;	pshift7 = ~pshift7;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;
@@ -1222,7 +1222,7 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 		start_index = 57-j;
 	}
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, (q & 0x1) && (q > 1), "q must be odd > 1!");
+	ASSERT((q & 0x1) && (q > 1), "q must be odd > 1!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 		qinv = qinv*((uint64)2 - q*qinv);
@@ -1337,8 +1337,8 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 	start_index = 58-j;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
+	ASSERT(q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;
@@ -1572,7 +1572,7 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 1, "q must be odd!");
+	ASSERT(q & 1, "q must be odd!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 	{
@@ -1595,7 +1595,7 @@ uint64 twopmodq64(uint64 p, uint64 q)
 		x = x + x - (q & -(x >= qhalf));
 	}
 #if FAC_DEBUG
-/*	ASSERT(HERE, x < q, "twopmodq64: x0 < q");	*/
+/*	ASSERT(x < q, "twopmodq64: x0 < q");	*/
   #if 0	/* These appear to be benign: */
 	if(x >= q){ sprintf(char_buf, "twopmodq64: (x0 = %s) >= (q = %s)", &str0[convert_uint64_base10_char(str0, x)], &str1[convert_uint64_base10_char(str1, q)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
   #endif
@@ -1661,7 +1661,7 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	// This gives 4-bit inverse:
 	q32_0 = (uint32)q0;
@@ -1834,7 +1834,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 
 	// This gives 4-bit inverse:
 	q32_0 = (uint32)q0;
@@ -2101,11 +2101,11 @@ uint64 twopmodq65(uint64 p, uint64 k)
 if(dbg)printf("twopmodq65:\n");
 #endif
 	// Assume q is 65-bits here, so check that during construction of q = 2.k.p+1:
-	q = k*p;	ASSERT(HERE, q+q < q, "q not 65 bits!");
+	q = k*p;	ASSERT(q+q < q, "q not 65 bits!");
 	q = (q << 1) + 1;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 1, "q must be odd!");
+	ASSERT(q & 1, "q must be odd!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 	{
@@ -2157,7 +2157,7 @@ if(dbg)printf("twopmodq65:\n");
 
 	/* Do the subtraction. Result is in (hi,A). */
 	#if FAC_DEBUG
-		/*ASSERT(HERE, A > B || (A == B && hi >= y), "twopmodq65 : A > B || (A == B && hi >= y)"); */
+		/*ASSERT(A > B || (A == B && hi >= y), "twopmodq65 : A > B || (A == B && hi >= y)"); */
 	#endif
 		A -= B; x = hi; hi -= y;
 		A -= (hi > x);	/* had a borrow */
@@ -2182,8 +2182,8 @@ if(dbg)printf("twopmodq65:\n");
 			/* had a borrow: */
 			A -= (x > hi);
 		#if FAC_DEBUG
-			ASSERT(HERE, ((double)x > (double)hi) == (x > hi),"((double)x > (double)hi) == (x > hi)");
-			ASSERT(HERE, (int64)A >=0,"(int64)A >=0");
+			ASSERT(((double)x > (double)hi) == (x > hi),"((double)x > (double)hi) == (x > hi)");
+			ASSERT((int64)A >=0,"(int64)A >=0");
 		#endif
 		}
 
@@ -2221,7 +2221,7 @@ if(dbg)printf("twopmodq65:\n");
 		B -= (y > t);		/* had a borrow */
 	}
 
-	/*if(y == (uint64)1) ASSERT(HERE, B == 0, "twopmodq65 : B == 0");*/
+	/*if(y == (uint64)1) ASSERT(B == 0, "twopmodq65 : B == 0");*/
 	return (y + FERMAT == 1ull && B == 0ull);
 }
 
@@ -2250,7 +2250,7 @@ uint64 twopmodq65_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;
@@ -2401,7 +2401,7 @@ uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;

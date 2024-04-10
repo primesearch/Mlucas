@@ -283,8 +283,8 @@ int test_mul()
 		#else
 			MUL_LOHI64(in64[i],in64[j], lo1, hi1);
 		#endif
-			ASSERT(HERE, lo1 == lo0, "test_mul() low-output mismatch!");
-			ASSERT(HERE, hi1 == hi0, "test_mul() hi -output mismatch!");
+			ASSERT(lo1 == lo0, "test_mul() low-output mismatch!");
+			ASSERT(hi1 == hi0, "test_mul() hi -output mismatch!");
 
 		/* Squaring is a special case: */
 		  if(i ==j)
@@ -294,8 +294,8 @@ int test_mul()
 		#else
 			SQR_LOHI64(in64[i], lo1, hi1);
 		#endif
-			ASSERT(HERE, lo1 == lo0, "test_mul() low-output mismatch!");
-			ASSERT(HERE, hi1 == hi0, "test_mul() hi -output mismatch!");
+			ASSERT(lo1 == lo0, "test_mul() low-output mismatch!");
+			ASSERT(hi1 == hi0, "test_mul() hi -output mismatch!");
 		  }
 		}
 	}

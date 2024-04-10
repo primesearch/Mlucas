@@ -36,8 +36,8 @@ void print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q)
 	const char csigns[2] = {'+','-'};
 	const char re_im[2] = {'c','s'};
 	char prefix[3];	// 0-slot for overall sign; 1 for complex operator * [Re / Im interchange], 2 for ~ [complex conjugation].
-	ASSERT(HERE, n == (1<<lgn), "n not a power of 2!");
-	ASSERT(HERE, n == p*q, "n != p*q!");
+	ASSERT(n == (1<<lgn), "n not a power of 2!");
+	ASSERT(n == p*q, "n != p*q!");
 	printf("Fundamental-root powers for %d x %d impl of radix-%d DFT:\n",p,q,n);
 	for(i = 1; i < p; i++) {	// Skip 0-row, since those roots = 1
 		ir = reverse(i,lgp);
@@ -231,7 +231,7 @@ void bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*
 	/* If no scratch-space array provided, create one locally: */
 	if(arr_scratch) {
 		/* Don't allow reuse of main array for inits at this time: */
-		ASSERT(HERE, &vec[0] != &arr_scratch[0], "Array re-use not currently supported!");
+		ASSERT(&vec[0] != &arr_scratch[0], "Array re-use not currently supported!");
 		tmp = arr_scratch;
 	} else {
 		tmp = (int *)malloc(n*sizeof(int));
@@ -254,7 +254,7 @@ void bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*
 			i += incr;
 		}
 		printf("] != vector length [%u] in BIT_REVERSE_INT\n",n);
-		ASSERT(HERE,0,"Exiting.");
+		ASSERT(0,"Exiting.");
 	}
 
 	/*...We don't use the final radix for the bit reversal, we simply need it for array bounds checking. */

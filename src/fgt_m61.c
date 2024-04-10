@@ -104,9 +104,9 @@ uint64 prodq8(const uint64 x, const uint64 y)
 #else
 	MUL_LOHI64(x,y,  lo, hi);
 #endif
-	ASSERT(HERE, (lo & 7) == 0, "ERROR: product not divisible by 8 in PRODQ8!");
+	ASSERT((lo & 7) == 0, "ERROR: product not divisible by 8 in PRODQ8!");
 //if(hi + (lo >> 3) > q2) fprintf(stderr, "PRODQ8 inputs: %llu,%llu, outputs: %llu,%llu, result = %llu\n",x,y,lo,hi,hi + (lo >> 3));
-//	ASSERT(HERE, hi + (lo >> 3) <= q2, "ERROR: result out of range in PRODQ8!");
+//	ASSERT(hi + (lo >> 3) <= q2, "ERROR: result out of range in PRODQ8!");
 	return hi + (lo >> 3);		// hi + (lo/8)
 }
 
@@ -116,7 +116,7 @@ uint64 prodq8(const uint64 x, const uint64 y)
 // [2015: Replace elaborate case-based impl of original with simple MULQ, which is fast on more or less all 64-bit arches.]
 uint64 mul_by_3bit(const uint64 a, const uint64 x)
 {
-	ASSERT(HERE, (x >> 61) == 0, "ERROR: x out of range in MUL_BY_3BIT!");
+	ASSERT((x >> 61) == 0, "ERROR: x out of range in MUL_BY_3BIT!");
 	return a * x;
 }
 
@@ -130,7 +130,7 @@ uint64 mul_by_3bit(const uint64 a, const uint64 x)
 // Output bounds: *********************** To-Do! *********************
 uint64 rmul_modq(const uint64 a, const uint64 b)
 {
-	ASSERT(HERE, a < 0x8000000000000000ull && b < 0x4000000000000000ull, "Input(s) out of range!");
+	ASSERT(a < 0x8000000000000000ull && b < 0x4000000000000000ull, "Input(s) out of range!");
 	return prodq8(a<<1, b<<2);
 }
 
@@ -197,12 +197,12 @@ uint64 rmul_modq(const uint64 x, const uint64 y)
 	hi4est = (uint64)dhi - 1;
 	error_mod4 = ( (bd_lo >> 62) - hi4est ) & 3ull; // Error mod 4
 	bd_hi = (hi4est + error_mod4) >> 2;
-	ASSERT(HERE, bd_lo <= (bd_hi << 3) + bd_lo, "ERROR: overflow of b*d(lo + hi>>3) summand!");
+	ASSERT(bd_lo <= (bd_hi << 3) + bd_lo, "ERROR: overflow of b*d(lo + hi>>3) summand!");
 	bd_modq = qreduce((bd_hi << 3) + bd_lo);
 
 	ay = mul_by_3bit((x >> 58),y);
 	cb = mul_by_3bit((y >> 58), (x & two58m1));
-	ASSERT(HERE, cb <= ay+cb, "ERROR: overflow of ay+cb summand!");
+	ASSERT(cb <= ay+cb, "ERROR: overflow of ay+cb summand!");
 	bd_modq = qreduce((bd_hi << 3) + bd_lo);
 
 	// Now form [(a*y + c*b)*2^58 + b*d] mod q.
@@ -465,24 +465,24 @@ The CMUL_MODQ8 variant assumes the inputs are premultiplied by 8 and thus cuts I
 void cmul_modq(const uint64 a0, const uint64 a1, const uint64 b0, const uint64 b1, uint64*xout, uint64*yout)
 {
 	uint64 t00,t01,t11;
-	ASSERT(HERE, (a0 <= bb && a1 <= bb && b0 <= q && b1 <= q), "ERROR: CMUL_MODQ input out of range!");
+	ASSERT((a0 <= bb && a1 <= bb && b0 <= q && b1 <= q), "ERROR: CMUL_MODQ input out of range!");
 
 	// Bounds: b0,b1 in [0,q], so 4(b0+b1) in [0,8q]; prodq8lo/8 always in [0, q].
 	t00 = prodq8(a0, b0<<3);		// a0    in [0, B]: prodq8hi(a0,8b0) in [0, q], t00 in [0, 2q]
 	t11 = prodq8(a1, b1<<3);		// a1    in [0, B]: prodq8hi(a1,8b1) in [0, q], t11 in [0, 2q]
 	*xout = t00 - t11 + q2;		// xout in [0, 4q]
-	ASSERT(HERE, *xout <= q4, "ERROR: xout > 4q in CMUL_MODQ!");
+	ASSERT(*xout <= q4, "ERROR: xout > 4q in CMUL_MODQ!");
 
 #if !KARATSUBA_CMUL
 	// Standard complex 4-multiply:
 	t01   = prodq8(a0, b1<<3);			// a0    in [0, B]: prodq8hi(a0,8b1) in [0, q], t01 in [0, 2q]
 	*yout = prodq8(a1, b0<<3) + t01;	// a1    in [0, B]: prodq8hi(a1,8b0) in [0, q], t10 in [0, 2q]; yout in [0, 4q]
-	ASSERT(HERE, *yout <= q4, "ERROR: yout > 4q in CMUL_MODQ!");
+	ASSERT(*yout <= q4, "ERROR: yout > 4q in CMUL_MODQ!");
 #else
 	// Karatsuba variant:
 	t01 = prodq8((a0 + a1)<<1, (b0 + b1)<<2);	// prodq8hi( 2(a0+a1) , 4(b0+b1) ) in [0,4q], t01 in [0, 5q]
 	*yout = qreduce(t01 - t00 - t11 + q4);	// t01 in [0, 5q] but t01-t00-t11 in [0,4q], so no overflow in t01-t00-t11+q4.
-	ASSERT(HERE, t01 <= (q4 + q), "ERROR: t01 > 5q in Karatsuba-part of CMUL_MODQ!");
+	ASSERT(t01 <= (q4 + q), "ERROR: t01 > 5q in Karatsuba-part of CMUL_MODQ!");
 	// This version reduces both parts of the output:
   #if 0
 	uint64 tmp = (q<<2) - t11;					// tmp in [2q, 4q]
@@ -501,19 +501,19 @@ void cmul_modq(const uint64 a0, const uint64 a1, const uint64 b0, const uint64 b
 void cmul_modq8(const uint64 a0, const uint64 a1, const uint64 b0, const uint64 b1, uint64*xout, uint64*yout)
 {
 	uint64 t00,t01,t11;
-	ASSERT(HERE, ( a0 <= bb && a1 <= bb ), "ERROR: CMUL_MODQ8 A-input out of range!");
-	ASSERT(HERE, (!(b0 & 7) && !(b1 & 7)), "ERROR: CMUL_MODQ8 B-input not divisible by 8!");
+	ASSERT(( a0 <= bb && a1 <= bb ), "ERROR: CMUL_MODQ8 A-input out of range!");
+	ASSERT((!(b0 & 7) && !(b1 & 7)), "ERROR: CMUL_MODQ8 B-input not divisible by 8!");
 
 	// Bounds: b0,b1 in [0,q], so 4(b0+b1) in [0,8q]; prodq8lo/8 always in [0, q].
 	t00 = prodq8(a0, b0);		// a0    in [0, B]: prodq8hi(a0,8b0) in [0, q], t00 in [0, 2q]
 	t11 = prodq8(a1, b1);		// a1    in [0, B]: prodq8hi(a1,8b1) in [0, q], t11 in [0, 2q]
 	*xout = t00 - t11 + q2;		// xout in [0, 4q]
-	ASSERT(HERE, *xout <= q4, "ERROR: xout > 4q in CMUL_MODQ!");
+	ASSERT(*xout <= q4, "ERROR: xout > 4q in CMUL_MODQ!");
 
 	// Standard complex 4-multiply is only option here:
 	t01   = prodq8(a0, b1);			// a0    in [0, B]: prodq8hi(a0,8b1) in [0, q], t01 in [0, 2q]
 	*yout = prodq8(a1, b0) + t01;	// a1    in [0, B]: prodq8hi(a1,8b0) in [0, q], t10 in [0, 2q]; yout in [0, 4q]
-	ASSERT(HERE, *yout <= q4, "ERROR: yout > 4q in CMUL_MODQ!");
+	ASSERT(*yout <= q4, "ERROR: yout > 4q in CMUL_MODQ!");
 	return;
 }
 
@@ -531,10 +531,10 @@ void csqr_modq(const uint64 a0, const uint64 a1, uint64*xout, uint64*yout)
 {
 	// This version reduces both parts of the output...
 	*xout = prodq8((a0 + a1)<<1, (a0 - a1 + q)<<2);	// prodq8hi( 2(a0+a1) , 4(a0-a1+q) ) in [0,4q]; xout in [0,5q]
-	ASSERT(HERE, *xout <= (q4+q), "ERROR: xout >= 5q in CSQR_MODQ!");
+	ASSERT(*xout <= (q4+q), "ERROR: xout >= 5q in CSQR_MODQ!");
 
 	*yout = prodq8(a0<<2, a1<<2);					// prodq8hi(     4*a0 , 4*a1       ) in [0,2q]; yout in [0,3q]
-	ASSERT(HERE, *yout < (q4-q), "ERROR: yout > 3q in CSQR_MODQ!");
+	ASSERT(*yout < (q4-q), "ERROR: yout > 3q in CSQR_MODQ!");
 }
 
 /***************/
@@ -574,12 +574,12 @@ void prim_root_q(const uint64 ord, uint64*root_re, uint64*root_im)
 	uint64 r0,i0,rm,im,rtmp,itmp,pow;
 
 	// Maximal order (q^2-1) = 2^62 * (2^60-1), allowing power-of-2 roots up to 2^62:
-	ASSERT(HERE, zbits < 63, "PRIM_ROOT_Q: Maximal power-of-2 roots = 2^62!");
+	ASSERT(zbits < 63, "PRIM_ROOT_Q: Maximal power-of-2 roots = 2^62!");
 
 	// First raise result to the [(2^60-1)/(ord >> trailz(ord))]th power using LR binary powering:
 	itmp = (1ull << 60) - 1;
 	pow = itmp/(ord >> zbits);		// Odd component of the needed power; this should have 0 remainder for legal ord values
-	ASSERT(HERE, itmp == pow*(ord >> zbits), "pow does not divide 2^60-1!");
+	ASSERT(itmp == pow*(ord >> zbits), "pow does not divide 2^60-1!");
 	pow = pow << (leadz64(pow)+1);	// Left-justify pow and shift leftmost bit off.
 
 	// 6 + I is a primitive root of full order q^2 - 1:

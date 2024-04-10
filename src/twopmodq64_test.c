@@ -113,7 +113,7 @@
 		x = x+x-q+FERMAT;	// In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow.
 		return (x==1);
 	#else	// ifndef __CUDA_ARCH__
-		ASSERT(HERE, 0, "Device code being called in host mode!");
+		ASSERT(0, "Device code being called in host mode!");
 		return 0;
 	#endif
 	}
@@ -246,7 +246,7 @@
 		r += (x3+x3-q3+FERMAT == 1);
 		return r;
 	#else	// ifndef __CUDA_ARCH__
-		ASSERT(HERE, 0, "Device code being called in host mode!");
+		ASSERT(0, "Device code being called in host mode!");
 		return 0;
 	#endif
 	}
@@ -348,7 +348,7 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	// Compute 64-bit mod-inverses starting with 8-bits-good initializers:
 	uint32 q32_0,q32_1,q32_2,q32_3, qi32_0,qi32_1,qi32_2,qi32_3;
@@ -586,7 +586,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
+	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 
 	// Compute 64-bit mod-inverses starting with 8-bits-good initializers:
 	uint32 q32_0,q32_1,q32_2,q32_3,q32_4,q32_5,q32_6,q32_7, qi32_0,qi32_1,qi32_2,qi32_3,qi32_4,qi32_5,qi32_6,qi32_7;

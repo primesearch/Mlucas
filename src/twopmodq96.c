@@ -129,7 +129,7 @@
 		return (x.d1 == qhalf.d1 && x.d0 == (qhalf.d0+1));
 	  #endif
 	#else	// ifndef __CUDA_ARCH__
-		ASSERT(HERE, 0, "Device code being called in host mode!");
+		ASSERT(0, "Device code being called in host mode!");
 		return 0;
 	#endif
 	}
@@ -229,7 +229,7 @@ uint96 twopmodq96(uint64 p, uint64 k)
 #ifdef FAC_DEBUG
 if(dbg)printf("twopmodq96:\n");
 #endif
-	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;
 #ifdef MUL_LOHI64_SUBROUTINE
 	// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
@@ -246,7 +246,7 @@ if(dbg)printf("twopmodq96:\n");
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
 #ifdef FAC_DEBUG
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq96 : (q.d0 & (uint64)1) == 1");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmodq96 : (q.d0 & (uint64)1) == 1");
 #endif
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = (uint64)0;
@@ -287,7 +287,7 @@ if(dbg)printf("twopmodq96:\n");
 	MULL96(q, qinv, x);			MULL128(q, qinv, y);
 	SUB96 (TWO96, x, x);		SUB128 (TWO128, y, y);
 	MULL96(qinv, x, x);			MULL128(qinv, y, y);
-	ASSERT(HERE, x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0, "x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0");
+	ASSERT(x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0, "x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0");
 #endif
 	/* qinv has 96 bits, but only the upper 32 get modified here. */
 #ifdef MUL_LOHI64_SUBROUTINE
@@ -299,7 +299,7 @@ if(dbg)printf("twopmodq96:\n");
 	qinv.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 
 #ifdef FAC_DEBUG
-	ASSERT(HERE, qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq96 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
+	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq96 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
 	if(dbg) printf("q    = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q   )]);
 	if(dbg) printf("qinv = %s\n", &char_buf[convert_uint96_base10_char(char_buf, qinv)]);
 #endif
@@ -333,7 +333,7 @@ if(dbg)printf("twopmodq96:\n");
 	if((pshift >> j) & (uint64)1)
 	{
 	#ifdef FAC_DEBUG
-		ASSERT(HERE, CMPULT96(x, q), "twopmodq96 : CMPULT96(x,q)");
+		ASSERT(CMPULT96(x, q), "twopmodq96 : CMPULT96(x,q)");
 	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT96(x, qhalf)){ ADD96(x, x, x); SUB96(x, q, x); }else{ ADD96(x, x, x); }
@@ -388,7 +388,7 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint96_base10_char(char_buf
 		if((pshift >> j) & (uint64)1)
 		{
 		#ifdef FAC_DEBUG
-			ASSERT(HERE, CMPULT96(x, q), "twopmodq96 : CMPULT96(x,q)");
+			ASSERT(CMPULT96(x, q), "twopmodq96 : CMPULT96(x,q)");
 		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT96(x, qhalf)){ ADD96(x, x, x); SUB96(x, q, x); }else{ ADD96(x, x, x); }
@@ -479,17 +479,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			#endif
 				fprintf(stderr, "twopmodq96_q4: Setting up for as many as %d threads...\n",max_threads);
 			#ifndef COMPILER_TYPE_GCC
-				ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
-				ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-				ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+				ASSERT(max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
+				ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 			}
 			if(sm_arr != 0x0) {	// Have previously-malloc'ed local storage (e.g. unthreaded call to the function)
 				free((void *)sm_arr);	sm_arr=0x0;
 			}
 			// Alloc the local-memory block:
-			sm_arr = ALLOC_UINT64(sm_arr, 0x32*max_threads);	ASSERT(HERE, sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
-			sm_ptr = (uint64*)ALIGN_UINT64(sm_arr);	ASSERT(HERE, ((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
+			sm_arr = ALLOC_UINT64(sm_arr, 0x32*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
+			sm_ptr = (uint64*)ALIGN_UINT64(sm_arr);	ASSERT(((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
 			ptr64 = sm_ptr + 0x30;	// *** PTR-OFFSET IN TERMS OF UINT64 HERE ***
@@ -515,7 +515,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		ptr64 = ((uint64*)__r0) + thr_id*0x32;
 		qptr0  = (uint96*)(ptr64 + 0x00);	qptr1  = (uint96*)(ptr64 + 0x02);	qptr2  = (uint96*)(ptr64 + 0x04);	qptr3  = (uint96*)(ptr64 + 0x06);
 		qinv0  = (uint96*)(ptr64 + 0x08);	qinv1  = (uint96*)(ptr64 + 0x0a);	qinv2  = (uint96*)(ptr64 + 0x0c);	qinv3  = (uint96*)(ptr64 + 0x0e);
@@ -525,7 +525,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		hi0    = (uint96*)(ptr64 + 0x28);	hi1    = (uint96*)(ptr64 + 0x2a);	hi2    = (uint96*)(ptr64 + 0x2c);	hi3    = (uint96*)(ptr64 + 0x2e);
 		ONE96_PTR = (uint96*)(ptr64 + 0x30);
 	//	printf("Thr %d ONE96_PTR address = %llX; data.d0,d1 = %llu,%u\n",thr_id,(uint64)ONE96_PTR,ONE96_PTR->d0,ONE96_PTR->d1);
-		ASSERT(HERE,(ONE96_PTR->d0 == ONE96.d0) && (ONE96_PTR->d1 == ONE96.d1), "Bad data at ONE96_PTR address!");
+		ASSERT((ONE96_PTR->d0 == ONE96.d0) && (ONE96_PTR->d1 == ONE96.d1), "Bad data at ONE96_PTR address!");
 	#endif
 
 		pshift = p + 96;
@@ -544,7 +544,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		if(dbg)	printf("twopmodq96_q4: leadb = %u\n",leadb);
 	#endif
 
-		ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
@@ -570,7 +570,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 	!    Find modular inverse (mod 2^96) of q in preparation for modular multiply.
 	*/
 		/* q must be odd for Montgomery-style modmul to work: */
-		ASSERT(HERE, (q0.d0 & 1) && (q1.d0 & 1) && (q2.d0 & 1) && (q3.d0 & 1), "even modulus!");
+		ASSERT((q0.d0 & 1) && (q1.d0 & 1) && (q2.d0 & 1) && (q3.d0 & 1), "even modulus!");
 		qinv0->d0 = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0->d1 = (uint64)0;
 		qinv1->d0 = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1->d1 = (uint64)0;
 		qinv2->d0 = (q2.d0 + q2.d0 + q2.d0) ^ (uint64)2;	qinv2->d1 = (uint64)0;
@@ -666,7 +666,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			if(CMPUGT96_PTR(x2, qhalf2)){ ADD96_PTR(x2, x2, x2); SUB96_PTR(x2, qptr2, x2); }else{ ADD96_PTR(x2, x2, x2); }
 			if(CMPUGT96_PTR(x3, qhalf3)){ ADD96_PTR(x3, x3, x3); SUB96_PTR(x3, qptr3, x3); }else{ ADD96_PTR(x3, x3, x3); }
 		#ifdef FAC_DEBUG
-			ASSERT(HERE, CMPULT96_PTR(x0, qptr0), "twopmodq96_q4 : CMPULT96(x0,q0)");
+			ASSERT(CMPULT96_PTR(x0, qptr0), "twopmodq96_q4 : CMPULT96(x0,q0)");
 		#endif
 		}
 
@@ -1110,7 +1110,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		if(dbg)	printf("twopmodq96_q4: leadb = %u, pshift = %llu\n",leadb,pshift);
 	#endif
 
-		ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
 	#ifdef MUL_LOHI64_SUBROUTINE
 		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
@@ -1155,7 +1155,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		*/
 		/* q must be odd for Montgomery-style modmul to work: */
 	#ifdef FAC_DEBUG
-		ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq96_q4 : (q0.d0 & (uint64)1) == 1");
+		ASSERT((q0.d0 & (uint64)1) == 1, "twopmodq96_q4 : (q0.d0 & (uint64)1) == 1");
 	#endif
 		qinv0.d0  = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1  = (uint64)0;
 		qinv1.d0  = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1.d1  = (uint64)0;
@@ -1274,10 +1274,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			if(CMPUGT96(x3, qhalf3)){ ADD96(x3, x3, x3); SUB96(x3, q3, x3); }else{ ADD96(x3, x3, x3); }
 		#ifdef FAC_DEBUG
 		//	if(CMPULT96(q0, x0)) { sprintf(char_buf, "twopmodq96_q4 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint96_base10_char(str0, x0)], &str1[convert_uint96_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-			ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
-			ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
-			ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
-			ASSERT(HERE, CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
+			ASSERT(CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
+			ASSERT(CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
+			ASSERT(CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
+			ASSERT(CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
 			if(dbg) {
 				printf("x0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
 				printf("x1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
@@ -1396,10 +1396,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			if((pshift >> j) & (uint64)1)
 			{
 			#ifdef FAC_DEBUG
-				ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
-				ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
-				ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
-				ASSERT(HERE, CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
+				ASSERT(CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
+				ASSERT(CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
+				ASSERT(CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
+				ASSERT(CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
 			#endif
 				/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 				if(CMPUGT96(x0, qhalf0)){ ADD96(x0, x0, x0); SUB96(x0, q0, x0); }else{ ADD96(x0, x0, x0); }
@@ -1458,10 +1458,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			if((pshift >> j) & (uint64)1)
 			{
 			#ifdef FAC_DEBUG
-				ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
-				ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
-				ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
-				ASSERT(HERE, CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
+				ASSERT(CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
+				ASSERT(CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
+				ASSERT(CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
+				ASSERT(CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
 			#endif
 				if(CMPUGT96(x0, qhalf0)){ ADD96(x0, x0, x0); SUB96(x0, q0, x0); }else{ ADD96(x0, x0, x0); }
 				if(CMPUGT96(x1, qhalf1)){ ADD96(x1, x1, x1); SUB96(x1, q1, x1); }else{ ADD96(x1, x1, x1); }
@@ -1582,17 +1582,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			#endif
 				fprintf(stderr, "twopmodq96_q4: Setting up for as many as %d threads...\n",max_threads);
 			#ifndef COMPILER_TYPE_GCC
-				ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
-				ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-				ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+				ASSERT(max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
+				ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 			}
 			if(sm_arr != 0x0) {	// Have previously-malloc'ed local storage (e.g. unthreaded call to the function)
 				free((void *)sm_arr);	sm_arr=0x0;
 			}
 			// Alloc the local-memory block - use uint64 allooc/align macros here, but underlying data are all uint96 = [uint64,uint32] pairs:
-			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x4a*max_threads);	ASSERT(HERE, sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
-			sm_ptr = (uint96*)ALIGN_UINT64(sm_arr);	ASSERT(HERE, ((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
+			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x4a*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
+			sm_ptr = (uint96*)ALIGN_UINT64(sm_arr);	ASSERT(((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
 			ptr32 = (uint32*)(sm_ptr + 0x30);	// perm_mask ptr to permute-index register containing dwords 0-7 = [0,7,1,7,2,7,3,7]
@@ -1628,7 +1628,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		ptr96 = ((uint64*)__r0) + thr_id*0x4a;
 		q0    = ptr96 + 0x00; q1    = ptr96 + 0x01; q2    = ptr96 + 0x02; q3    = ptr96 + 0x03; q4    = ptr96 + 0x04; q5    = ptr96 + 0x05; q6    = ptr96 + 0x06; q7    = ptr96 + 0x07;
 		qinv0 = ptr96 + 0x08; qinv1 = ptr96 + 0x09; qinv2 = ptr96 + 0x0a; qinv3 = ptr96 + 0x0b; qinv4 = ptr96 + 0x0c; qinv5 = ptr96 + 0x0d; qinv6 = ptr96 + 0x0e; qinv7 = ptr96 + 0x0f;
@@ -1637,7 +1637,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		lo0   = ptr96 + 0x28; lo1   = ptr96 + 0x29; lo2   = ptr96 + 0x2a; lo3   = ptr96 + 0x23; lo4   = ptr96 + 0x2c; lo5   = ptr96 + 0x2d; lo6   = ptr96 + 0x2e; lo7   = ptr96 + 0x2f;
 		hi0   = ptr96 + 0x28; hi1   = ptr96 + 0x29; hi2   = ptr96 + 0x2a; hi3   = ptr96 + 0x2b; hi4   = ptr96 + 0x2c; hi5   = ptr96 + 0x2d; hi6   = ptr96 + 0x2e; hi7   = ptr96 + 0x2f;
 		ptr32 = perm_mask = ptr96 + 0x30;	// (0x30 * 3/2) + 2 gives 0x4a uint64 in above alloc
-		ASSERT(HERE,(*ptr32 == 0) && (*(ptr32+1) == 7) && (*(ptr32+1) == 1) && (*(ptr32+1) == 7) && (*(ptr32+1) == 2) && (*(ptr32+1) == 7) && (*(ptr32+1) == 3) && (*(ptr32+1) == 7), "Bad data at perm_mask address!");
+		ASSERT((*ptr32 == 0) && (*(ptr32+1) == 7) && (*(ptr32+1) == 1) && (*(ptr32+1) == 7) && (*(ptr32+1) == 2) && (*(ptr32+1) == 7) && (*(ptr32+1) == 3) && (*(ptr32+1) == 7), "Bad data at perm_mask address!");
 	#endif
 
 		pshift = p + 96;
@@ -1656,7 +1656,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		if(dbg)	printf("twopmodq96_q8: leadb = %u\n",leadb);
 	#endif
 
-		ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0->d0 = q1->d0 = q2->d0 = q3->d0 = q4->d0 = q5->d0 = q6->d0 = q7->d0 = p+p;
 		MUL_LOHI64(q0->d0, k0, q0->d0, q0->d1);
 		MUL_LOHI64(q1->d0, k1, q1->d0, q1->d1);
@@ -2107,7 +2107,7 @@ exit(0);
 		if(dbg)printf("twopmodq96_q8:\n");
 	#endif
 
-		ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
 	#ifdef MUL_LOHI64_SUBROUTINE
 		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
@@ -2153,14 +2153,14 @@ exit(0);
 		*/
 		/* q must be odd for Montgomery-style modmul to work: */
 	#ifdef FAC_DEBUG
-		ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q0.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q1.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q1.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q2.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q2.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q3.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q3.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q4.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q4.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q5.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q5.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q6.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q6.d0 & (uint64)1) == 1");
-		ASSERT(HERE, (q7.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q7.d0 & (uint64)1) == 1");
+		ASSERT((q0.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q0.d0 & (uint64)1) == 1");
+		ASSERT((q1.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q1.d0 & (uint64)1) == 1");
+		ASSERT((q2.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q2.d0 & (uint64)1) == 1");
+		ASSERT((q3.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q3.d0 & (uint64)1) == 1");
+		ASSERT((q4.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q4.d0 & (uint64)1) == 1");
+		ASSERT((q5.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q5.d0 & (uint64)1) == 1");
+		ASSERT((q6.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q6.d0 & (uint64)1) == 1");
+		ASSERT((q7.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q7.d0 & (uint64)1) == 1");
 	#endif
 		qinv0.d0 = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1 = (uint64)0;
 		qinv1.d0 = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1.d1 = (uint64)0;
@@ -2276,14 +2276,14 @@ exit(0);
 		if((pshift >> j) & (uint64)1)
 		{
 		#ifdef FAC_DEBUG
-			ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q8 : CMPULT96(x0,q0)");
-			ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q8 : CMPULT96(x1,q1)");
-			ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q8 : CMPULT96(x2,q2)");
-			ASSERT(HERE, CMPULT96(x3, q3), "twopmodq96_q8 : CMPULT96(x3,q3)");
-			ASSERT(HERE, CMPULT96(x4, q4), "twopmodq96_q8 : CMPULT96(x4,q4)");
-			ASSERT(HERE, CMPULT96(x5, q5), "twopmodq96_q8 : CMPULT96(x5,q5)");
-			ASSERT(HERE, CMPULT96(x6, q6), "twopmodq96_q8 : CMPULT96(x6,q6)");
-			ASSERT(HERE, CMPULT96(x7, q7), "twopmodq96_q8 : CMPULT96(x7,q7)");
+			ASSERT(CMPULT96(x0, q0), "twopmodq96_q8 : CMPULT96(x0,q0)");
+			ASSERT(CMPULT96(x1, q1), "twopmodq96_q8 : CMPULT96(x1,q1)");
+			ASSERT(CMPULT96(x2, q2), "twopmodq96_q8 : CMPULT96(x2,q2)");
+			ASSERT(CMPULT96(x3, q3), "twopmodq96_q8 : CMPULT96(x3,q3)");
+			ASSERT(CMPULT96(x4, q4), "twopmodq96_q8 : CMPULT96(x4,q4)");
+			ASSERT(CMPULT96(x5, q5), "twopmodq96_q8 : CMPULT96(x5,q5)");
+			ASSERT(CMPULT96(x6, q6), "twopmodq96_q8 : CMPULT96(x6,q6)");
+			ASSERT(CMPULT96(x7, q7), "twopmodq96_q8 : CMPULT96(x7,q7)");
 		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT96(x0, qhalf0)){ ADD96(x0, x0, x0); SUB96(x0, q0, x0); }else{ ADD96(x0, x0, x0); }
@@ -2353,14 +2353,14 @@ exit(0);
 			if((pshift >> j) & (uint64)1)
 			{
 			#ifdef FAC_DEBUG
-				ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q8 : CMPULT96(x0,q0)");
-				ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q8 : CMPULT96(x1,q1)");
-				ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q8 : CMPULT96(x2,q2)");
-				ASSERT(HERE, CMPULT96(x3, q3), "twopmodq96_q8 : CMPULT96(x3,q3)");
-				ASSERT(HERE, CMPULT96(x4, q4), "twopmodq96_q8 : CMPULT96(x4,q4)");
-				ASSERT(HERE, CMPULT96(x5, q5), "twopmodq96_q8 : CMPULT96(x5,q5)");
-				ASSERT(HERE, CMPULT96(x6, q6), "twopmodq96_q8 : CMPULT96(x6,q6)");
-				ASSERT(HERE, CMPULT96(x7, q7), "twopmodq96_q8 : CMPULT96(x7,q7)");
+				ASSERT(CMPULT96(x0, q0), "twopmodq96_q8 : CMPULT96(x0,q0)");
+				ASSERT(CMPULT96(x1, q1), "twopmodq96_q8 : CMPULT96(x1,q1)");
+				ASSERT(CMPULT96(x2, q2), "twopmodq96_q8 : CMPULT96(x2,q2)");
+				ASSERT(CMPULT96(x3, q3), "twopmodq96_q8 : CMPULT96(x3,q3)");
+				ASSERT(CMPULT96(x4, q4), "twopmodq96_q8 : CMPULT96(x4,q4)");
+				ASSERT(CMPULT96(x5, q5), "twopmodq96_q8 : CMPULT96(x5,q5)");
+				ASSERT(CMPULT96(x6, q6), "twopmodq96_q8 : CMPULT96(x6,q6)");
+				ASSERT(CMPULT96(x7, q7), "twopmodq96_q8 : CMPULT96(x7,q7)");
 			#endif
 				/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 				if(CMPUGT96(x0, qhalf0)){ ADD96(x0, x0, x0); SUB96(x0, q0, x0); }else{ ADD96(x0, x0, x0); }

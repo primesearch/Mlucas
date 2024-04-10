@@ -547,7 +547,7 @@ Unlike for (mod 60), use simple utility functions to manage these, rather than a
 
 int factor(char *pstring, double bmin, double bmax)
 {
-	ASSERT(HERE, 0, "TF currently not supported as part of Mlucas, only via standalone Mfactor build - please delete any .o files and retry USING 'makemake.sh mfac' from Mluas dir above /src.");
+	ASSERT(0, "TF currently not supported as part of Mlucas, only via standalone Mfactor build - please delete any .o files and retry USING 'makemake.sh mfac' from Mluas dir above /src.");
 	return 1;
 }
 
@@ -732,7 +732,7 @@ int main(int argc, char *argv[])
 	if(cudaError != cudaSuccess)
 	{
 		printf("ERROR: cudaGetLastError() returned %d: %s\n", cudaError, cudaGetErrorString(cudaError));
-		ASSERT(HERE, 0, "factor.c : GPU-side error detected!");
+		ASSERT(0, "factor.c : GPU-side error detected!");
 	}
   #endif
 
@@ -743,7 +743,7 @@ int main(int argc, char *argv[])
 /* Allocate factor_k array and align on 16-byte boundary: */
 	factor_ptmp = ALLOC_UINT64(factor_ptmp, 24);
 	factor_k = ALIGN_UINT64(factor_ptmp);	factor_ptmp = 0x0;
-	ASSERT(HERE, ((uint64)factor_k & 0x3f) == 0, "factor_k not 64-byte aligned!");
+	ASSERT(((uint64)factor_k & 0x3f) == 0, "factor_k not 64-byte aligned!");
 
 /*...initialize logicals and factoring parameters...	*/
 	restart = FALSE;
@@ -924,14 +924,14 @@ Others are optional and in some cases mutually exclusive:
 		{
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			passmin = (uint32)convert_base10_char_uint64(stFlag);
-			ASSERT(HERE, passmin < TF_PASSES,"factor.c: passmin < TF_PASSES");
+			ASSERT(passmin < TF_PASSES,"factor.c: passmin < TF_PASSES");
 		}
 		else if(STREQ(stFlag, "-passmax"))
 		{
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			passmax = (uint32)convert_base10_char_uint64(stFlag);
-			ASSERT(HERE, passmax < TF_PASSES,"factor.c: passmax < TF_PASSES");
-			ASSERT(HERE, passmax >= passmin       ,"factor.c: passmax >= passmin");
+			ASSERT(passmax < TF_PASSES,"factor.c: passmax < TF_PASSES");
+			ASSERT(passmax >= passmin       ,"factor.c: passmax >= passmin");
 		}
 
 		// Number of threads to use?
@@ -953,7 +953,7 @@ Others are optional and in some cases mutually exclusive:
 				NTHREADS = itmp;
 			}
 		  #ifdef NWORD
-			ASSERT(HERE, NTHREADS == 1, "Arbitrary-precision build currently only supports single-threaded runs!");
+			ASSERT(NTHREADS == 1, "Arbitrary-precision build currently only supports single-threaded runs!");
 		  #endif
 		#endif
 		}
@@ -968,11 +968,11 @@ Others are optional and in some cases mutually exclusive:
   #else
 
 	/* If non-standalone mode, make sure statfile name is non-empty: */
-	ASSERT(HERE, STRNEQ(STATFILE, ""), "STATFILE string empty");
+	ASSERT(STRNEQ(STATFILE, ""), "STATFILE string empty");
 	fp = mlucas_fopen(STATFILE, "a");
 	if(!fp) {
 		fprintf(stderr,"ERROR: Unable to open statfile %s for writing.\n",STATFILE);
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	} else {
 		fclose(fp); fp = 0x0;
 	}
@@ -985,12 +985,12 @@ Others are optional and in some cases mutually exclusive:
 		first_entry = FALSE;
 	#ifndef MULTITHREAD
 		#warning Building factor.c in unthreaded (i.e. single-main-thread) mode.
-		ASSERT(HERE, NTHREADS == 1, "NTHREADS must == 1 in single-threaded mode!");
+		ASSERT(NTHREADS == 1, "NTHREADS must == 1 in single-threaded mode!");
 		k_to_try = (uint64 *)calloc(TRYQ * NTHREADS, sizeof(uint64));
 	#else
 		MAX_THREADS = get_num_cores();
-		ASSERT(HERE, MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
-		ASSERT(HERE, MAX_THREADS <= MAX_CORES,"MAX_THREADS exceeds the MAX_CORES setting in Mdata.h .");
+		ASSERT(MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
+		ASSERT(MAX_THREADS <= MAX_CORES,"MAX_THREADS exceeds the MAX_CORES setting in Mdata.h .");
 
 		if(!NTHREADS) {
 			NTHREADS = 1;
@@ -998,7 +998,7 @@ Others are optional and in some cases mutually exclusive:
 			// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
 		} else if(NTHREADS > MAX_CORES) {
 			sprintf(cbuf,"FATAL: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
-			ASSERT(HERE, 0, cbuf);
+			ASSERT(0, cbuf);
 		} else {	// In timing-test mode, allow #threads > #cores
 			if(NTHREADS > MAX_THREADS) {
 				fprintf(stderr,"WARN: NTHREADS = %d exceeds number of cores = %d\n", NTHREADS, MAX_THREADS);
@@ -1021,7 +1021,7 @@ Others are optional and in some cases mutually exclusive:
 		// do TF_PASSES 'work units' (factoring passes for various (k mod TF_CLASSES) k-classes:
 		main_work_units = 0;
 		pool_work_units = NTHREADS;
-		ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("Factor.c: Init threadpool of %d threads\n", NTHREADS);
 
 		// Apr 2015: Init-calls to any inline-asm-using modpow functions:
@@ -1050,7 +1050,7 @@ Others are optional and in some cases mutually exclusive:
 // Oct 2015: GCD-associated self-tests provides a fair bit of added coverage of the mi64 library, so always include:
   #ifdef INCLUDE_PM1
 	/* Simple self-tester for GCD routines in gcd_lehmer.c: */
-	ASSERT(HERE, test_gcd() == 0, "Factor_init : GCD test failed.\n");
+	ASSERT(test_gcd() == 0, "Factor_init : GCD test failed.\n");
 exit(0);
   #endif
 
@@ -1058,44 +1058,44 @@ exit(0);
 	command-line parameter, will attempt to read the other needed run parameters
 	from the corresponding checkpoint file:
 	*/
-	ASSERT(HERE, STRNEQ(pstring,""),"factor.c : pstring empty!");
+	ASSERT(STRNEQ(pstring,""),"factor.c : pstring empty!");
 
 	/* -bmin/bmax used to set bounds for factoring: */
 	if(bmin || bmax) {
-		ASSERT(HERE, (kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0)");
+		ASSERT((kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0)");
 
 		if(bmin < 0) {
-			fprintf(stderr,"ERROR: log2(min factor) must be >= 0. Offending entry = %lf.\n", bmin);		ASSERT(HERE, 0,"0");
+			fprintf(stderr,"ERROR: log2(min factor) must be >= 0. Offending entry = %lf.\n", bmin);		ASSERT(0,"0");
 		} else if(bmin >= MAX_BITS_Q) {
-			fprintf(stderr,"ERROR: log2(min factor) exceeds allowable limit of %u. Offending entry = %lf.\n", MAX_BITS_Q, bmin);	ASSERT(HERE, 0,"0");
+			fprintf(stderr,"ERROR: log2(min factor) exceeds allowable limit of %u. Offending entry = %lf.\n", MAX_BITS_Q, bmin);	ASSERT(0,"0");
 		}
 
 		if(bmax <= 0) {
-			fprintf(stderr,"ERROR: log2(max factor) must be > 0. Offending entry = %lf.\n", bmax);		ASSERT(HERE, 0,"0");
+			fprintf(stderr,"ERROR: log2(max factor) must be > 0. Offending entry = %lf.\n", bmax);		ASSERT(0,"0");
 		} else if(bmax > MAX_BITS_Q) {
-			fprintf(stderr,"ERROR: log2(max factor) exceeds allowable limit of %u. Offending entry = %lf.\n", MAX_BITS_Q, bmax);	ASSERT(HERE, 0,"0");
+			fprintf(stderr,"ERROR: log2(max factor) exceeds allowable limit of %u. Offending entry = %lf.\n", MAX_BITS_Q, bmax);	ASSERT(0,"0");
 		}
 
 		if(bmax < bmin) {
-			fprintf(stderr,"ERROR: (bmax = %lf) < (bmin = %lf)!\n", bmax, bmin);	ASSERT(HERE, 0,"0");
+			fprintf(stderr,"ERROR: (bmax = %lf) < (bmin = %lf)!\n", bmax, bmin);	ASSERT(0,"0");
 		}
 	}
 
 	/* -kmin/kmax used to set bounds for factoring: */
 	if(kmin || kmax) {
-		ASSERT(HERE, kmax != 0 ,"factor.c: kmax not set!");
-		ASSERT(HERE, (int64)kmax > 0, "kmax must be 63 bits or less!");
-		ASSERT(HERE, (bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
+		ASSERT(kmax != 0 ,"factor.c: kmax not set!");
+		ASSERT((int64)kmax > 0, "kmax must be 63 bits or less!");
+		ASSERT((bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
 
 		if(kmax < kmin) {
 			fprintf(stderr,"ERROR: (kmax = %s) < (kmin = %s)!\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)], &char_buf1[convert_uint64_base10_char(char_buf1, kmin)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
-	ASSERT(HERE, bmax > 0.0 || kmax != 0 ,"factor.c: One of bmax or kmax must be set!");
+	ASSERT(bmax > 0.0 || kmax != 0 ,"factor.c: One of bmax or kmax must be set!");
 
-	ASSERT(HERE, (MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+	ASSERT((MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 			  || (MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
 			  || (MODULUS_TYPE ==   MODULUS_TYPE_FERMAT)
 				, "Unsupported modulus type!");
@@ -1119,7 +1119,7 @@ exit(0);
 		nbits_in_p = findex;
 		if(findex > 1000) {	// Large MMp need deeper sieving on each k passing the default sieve
 			kdeep = (uint32 *)calloc( 1024, sizeof(uint32));
-			ASSERT(HERE, kdeep != 0x0, "Calloc of kdeep[] failed!");
+			ASSERT(kdeep != 0x0, "Calloc of kdeep[] failed!");
 		}
 		lenP = (nbits_in_p + 63)>>6;
 		p     = (uint64 *)calloc( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
@@ -1131,7 +1131,7 @@ exit(0);
 	} else {
 		// Convert stringified exponent to mi64 form, using same #limbs as for factor candidates:
 		p = convert_base10_char_mi64(pstring, &lenQ);	// This does the mem-alloc for us in this case
-		lenP = mi64_getlen(p, lenQ); ASSERT(HERE, lenP > 0, "factor.c: Error converting pstring!");
+		lenP = mi64_getlen(p, lenQ); ASSERT(lenP > 0, "factor.c: Error converting pstring!");
 		nbits_in_p = (lenP<<6) - mi64_leadz(p, lenP);
 	}
 
@@ -1157,14 +1157,14 @@ exit(0);
 	// Mersenne numbers must have odd (check primality further on) exponents:
 	if((MODULUS_TYPE != MODULUS_TYPE_FERMAT) && (p[0] & 1) == 0)
     {
-		fprintf(stderr,"p must be odd! Offending p = %s\n", pstring); ASSERT(HERE, 0,"0");
+		fprintf(stderr,"p must be odd! Offending p = %s\n", pstring); ASSERT(0,"0");
 	}
 
 	/* For purposes of the bits-in-p limit, treat Fermat numbers as having 2^findex rather than 2^findex + 1 bits: */
 	if((nbits_in_p - (MODULUS_TYPE == MODULUS_TYPE_FERMAT)) > MAX_BITS_P)
 	{
 		fprintf(stderr,"p too large - limit is %u bits. Offending p = %s\n", MAX_BITS_P, pstring);
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 	// To track lg(q) = lg(2.k.p+1), use approximation q ~= 2.k.p, thus lg(q) ~= lg(2.p) + lg(k).
 	fbits_in_2p = (double)mi64_extract_lead64(p, lenP, &itmp64) - 64;
@@ -1173,16 +1173,16 @@ exit(0);
 //printf("fbits_in_2p += log((double)itmp64)*ILG2 [= %10.4f] = %10.4f\n",log((double)itmp64)*ILG2,fbits_in_2p);
   #if 0	// 11/2013: No clue what I was thinking here...
 	// If 2p < 2^64 we left-justify the leading bits to make result lie in [2^63, 2^64), so result here must always be > 2^63:
-	ASSERT(HERE, fbits_in_2p >= 63, "fbits_in_2p out of range!");
+	ASSERT(fbits_in_2p >= 63, "fbits_in_2p out of range!");
 	fbits_in_2p += nbits_in_p - 64.0;	// lg(2.p) ... Cast 64 to double to avoid signed-int subtract of RHS terms.
   #endif
 	// Do some quick sanity tests of exponent for the various kinds of moduli:
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
-		ASSERT(HERE, findex == mi64_trailz(p, lenP), "Internal Fermat-exponent bad power of 2!");
+		ASSERT(findex == mi64_trailz(p, lenP), "Internal Fermat-exponent bad power of 2!");
 		mi64_shrl(p, q, findex, lenP,lenP);
 		mi64_sub_scalar(q, 1ull, q, lenP);
-		ASSERT(HERE, mi64_iszero(q, lenP), "Internal Fermat-exponent not a power of 2!");
+		ASSERT(mi64_iszero(q, lenP), "Internal Fermat-exponent not a power of 2!");
 	}
 	else
 	{
@@ -1193,14 +1193,14 @@ exit(0);
 			{
 				if(findex == knowns[i]) { break; }
 			}
-			ASSERT(HERE, (knowns[i] != 0), "Double-Mersenne exponent not a known Mersenne prime!");
+			ASSERT((knowns[i] != 0), "Double-Mersenne exponent not a known Mersenne prime!");
 
 			// And now proceed to all-binary-ones test of vector-form M(p):
 			mi64_add_scalar(p, 1ull, q, lenP);
-			ASSERT(HERE, findex == mi64_trailz(q, lenP), "Internal M(M(p))-exponent bad power of 2!");
+			ASSERT(findex == mi64_trailz(q, lenP), "Internal M(M(p))-exponent bad power of 2!");
 			mi64_shrl(q, q, findex, lenP,lenP);
 			mi64_sub_scalar(q, 1ull, q, lenP);
-			ASSERT(HERE, mi64_iszero(q, lenP), "Internal M(M(p))-exponent fails all-binary-ones check!");
+			ASSERT(mi64_iszero(q, lenP), "Internal M(M(p))-exponent fails all-binary-ones check!");
 		}
 		// We can use a lookup table vs known M(p) for all cases, but if Mersenne or M(M(p)) with suitably small p,
 		// add a base-2 Fermat PRP test, more as a self-test of the various modpow routines than anything else:
@@ -1209,7 +1209,7 @@ exit(0);
 			if(!mi64_twopmodq(q, lenP, 0, p, lenP, 0x0))
 			{
 				fprintf(stderr,"WARNING: p = %s is not prime ... proceeding anyway, on presumption user wants this.\n", pstring);
-			//	ASSERT(HERE, 0,"0");	Dec 2019 ... allowing odd composite exponents can still be useful, e.g. ATH used to TF M(p^2) for known Mersenne primes
+			//	ASSERT(0,"0");	Dec 2019 ... allowing odd composite exponents can still be useful, e.g. ATH used to TF M(p^2) for known Mersenne primes
 			}
 		}
 	}
@@ -1278,14 +1278,14 @@ exit(0);
 	if(kmax) {
 		interval_hi = (uint64)ceil((double)kmax/((uint64)len << TF_CLSHIFT));	// Copied from restart-file code below
 		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
-		ASSERT(HERE, lenQ == lenP+(u64_arr[lenP] != 0), "");
+		ASSERT(lenQ == lenP+(u64_arr[lenP] != 0), "");
 
 		nbits_in_q = (lenQ<<6) - mi64_leadz(u64_arr, lenQ);
 
 		if(nbits_in_q > MAX_BITS_Q)
 		{
 			fprintf(stderr,"qmax too large - limit is %u bits. Offending p, kmax = %s, %s\n", MAX_BITS_Q, pstring, &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	}
 
@@ -1323,9 +1323,9 @@ exit(0);
 		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
 	#endif
 		// Init savefile with above read_savefile fields so ensuing checkpoint-writes only need to update the pass# and k:
-//		ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
+//		ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
 	} else {
-		ASSERT(HERE,!itmp,"There were errors reading the savefile ... aborting");
+		ASSERT(!itmp,"There were errors reading the savefile ... aborting");
 		count = 0ull;	// Need to reset == 0 prior to sieving so kvector-fill code works properly
 
 		/* If previous run is not yet complete, ignore any increased factor-bound-related
@@ -1349,19 +1349,19 @@ exit(0);
 			****/
 			if(bmin || bmax) {
 			#if(!defined(P1WORD))
-			//	ASSERT(HERE, 0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
+			//	ASSERT(0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
 			#endif
-				ASSERT(HERE, (kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
+				ASSERT((kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
 
 				if(bmin) {
-					ASSERT(HERE, bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
+					ASSERT(bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
 					if(bmin < bmax_file)
 						fprintf(stderr,"WARNING: Specified bmin (%lf) smaller than previous-run bmax = %lf. Setting equal to avoid overlapping runs.\n", bmin, bmax_file);
 				}
 				bmin = bmax_file;
 				/* We expect any command-line bmax will be > that in the restart file: */
 				if(bmax)
-					ASSERT(HERE, bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
+					ASSERT(bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
 			}
 
 			/****
@@ -1371,26 +1371,26 @@ exit(0);
 					if not we warn and set kmin = kmax_file), and that kmax > kmax_file.
 			****/
 			if(kmin || kmax) {
-				ASSERT(HERE, (bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
+				ASSERT((bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
 				if(kmin) {
-					ASSERT(HERE, kmin >= kmin_file,"kmin >= kmin_file");
+					ASSERT(kmin >= kmin_file,"kmin >= kmin_file");
 					if(kmin < kmax_file)
 						fprintf(stderr,"WARNING: Specified kmin (%s) smaller than previous-run kmax = %s. Setting equal to avoid overlapping runs.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax_file)]);
 				}
 				kmin = kmax_file;
 				/* We expect any command-line kmax will be > that in the restart file: */
 				if(kmax)
-					ASSERT(HERE, kmax > kmax_file,"kmax >= kmax_file");
+					ASSERT(kmax > kmax_file,"kmax >= kmax_file");
 			}
 
 			/****
 				3) -kplus used to increment an upper bound from a previous factoring run:
 			****/
 			if(kplus) {
-				ASSERT(HERE, (bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
+				ASSERT((bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
 				kmin = kmax_file;
 				/* Ensure incremented value kmax fits into a 64-bit unsigned int: */
-				ASSERT(HERE, (kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
+				ASSERT((kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
 				kmax = kmin + kplus;
 				kplus = 0;	/* If kplus != 0 detected further on, that indicates that no valid restart
 							file was found for factoring-bounds incrementing. */
@@ -1410,18 +1410,18 @@ exit(0);
 		if(passmin > (TF_PASSES-1) )
 		{
 			fprintf(stderr,"ERROR: passmin must be <= %u. Offending entry = %u.\n", TF_PASSES-1, passmin);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		if(passmax < passmin)
 		{
 			fprintf(stderr,"ERROR: (passmax = %u) < (passmin = %u)!\n", passmax, passmin);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 		if(passmax > (TF_PASSES-1) )
 		{
 			fprintf(stderr,"ERROR: passmax must be <= %u. Offending entry = %u.\n", TF_PASSES-1, passmax);
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 
 		/**** Process factor candidate bounds: ****/
@@ -1433,16 +1433,16 @@ exit(0);
 	#endif
 		/* Compute kmax if not already set: */
 		if(!kmax) {
-			ASSERT(HERE, bmax <= (nbits_in_p+65), "Specified bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
+			ASSERT(bmax <= (nbits_in_p+65), "Specified bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
 			kmax = given_b_get_k(bmax, two_p, lenQ);
-			ASSERT(HERE, kmax > 0, "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
+			ASSERT(kmax > 0, "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
 		}
 		if(kmin || bmin) {
 			if(kmin == 0ull) {	/* Lower Bound given in log2rithmic form */
-				ASSERT(HERE, bmin <= bmax, "bmin >= bmax!");
+				ASSERT(bmin <= bmax, "bmin >= bmax!");
 				kmin = given_b_get_k(bmin, two_p, lenQ);
 			} else {
-				ASSERT(HERE, kmin <= kmax, "kmin >= kmax!");
+				ASSERT(kmin <= kmax, "kmin >= kmax!");
 			#ifdef P1WORD
 				fqlo = kmin*twop_float + 1.0;
 				bmin = log(fqlo)*ILG2;
@@ -1453,7 +1453,7 @@ exit(0);
 			fqlo = 1.0;
 		#endif
 		}
-ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
+ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
 //**** Do savefile-init here? ******
 		if(kmax || bmax) {
 			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
@@ -1465,14 +1465,14 @@ ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, 
 			#endif
 			}
 		} else
-			ASSERT(HERE, 0 ,"factor.c : One of bmax, kmax must be nonzero!");
+			ASSERT(0 ,"factor.c : One of bmax, kmax must be nonzero!");
 
 		/**** At this point the paired elements bmin|kmin, bmax|kmax are in synchrony. ****/
 
 		/* If kplus given on command line, a valid restart file should have been found
 		and kmax incremented at this point, i.e. kplus should have been reset to zero:
 		*/
-		ASSERT(HERE, kplus == 0, "kplus must be zero here!");
+		ASSERT(kplus == 0, "kplus must be zero here!");
 
 		know = kmin;
 		passnow = passmin;
@@ -1483,7 +1483,7 @@ ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, 
 /****************** SIEVE STUFF: *********************/
 /*****************************************************/
 
-	ASSERT(HERE, NUM_SIEVING_PRIME > 0, "factor.c : NUM_SIEVING_PRIME > 0");
+	ASSERT(NUM_SIEVING_PRIME > 0, "factor.c : NUM_SIEVING_PRIME > 0");
 
 /*   allocate the arrays and initialize the array of sieving primes	*/
 	temp_late = (uint64 *)calloc(len, sizeof(uint64));
@@ -1498,12 +1498,12 @@ ASSERT(HERE,0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, 
 	bit_map2= (uint64 *)calloc(i * NTHREADS, sizeof(uint64));	// 2nd alloc to give each thread 1 bit-clearable copy of master bit_map
 	if (bit_map == NULL) {
 		fprintf(stderr,"Memory allocation failure for BITMAP array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 	bit_atlas = (uint64 *)calloc(i * TF_PASSES, sizeof(uint64));
 	if (bit_atlas == NULL) {
 		fprintf(stderr,"Memory allocation failure for TEMPLATE array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that in bit_atlas]\n",len,i,TF_PASSES);
 
@@ -1511,51 +1511,51 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	psmall = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
 	if (psmall == NULL) {
 		fprintf(stderr,"Memory allocation failure for PSMALL array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
   #endif
 
 	pdiff = (uint8 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint8));
 	if (pdiff == NULL) {
 		fprintf(stderr,"Memory allocation failure for pdiff array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 
 	startval = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
 	if (startval == NULL) {
 		fprintf(stderr,"Memory allocation failure for STARTVAL array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 
 	pinv = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
 	if (pinv == NULL) {
 		fprintf(stderr,"Memory allocation failure for PINV array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 
   #if DBG_SIEVE
 	startval_incr = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
 	if (startval_incr == NULL) {
 		fprintf(stderr,"Memory allocation failure for STARTVAL_INCR array");
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
   #endif
 
 		/* Check integrity (at least in the sense of monotonicity) for the precomputed pseudoprime table: */
 		for(i = 1; i < 9366; ++i) {
-			ASSERT(HERE, f2psp[i] > f2psp[i-1],"Misplaced pseudoprime!");
+			ASSERT(f2psp[i] > f2psp[i-1],"Misplaced pseudoprime!");
 		}
 
 		/* Test some near-2^32 known-prime cases: */
 		curr_p = (uint32)-5;
 		itmp32 = twopmodq32(curr_p-1, curr_p);
-		ASSERT(HERE, itmp32 == 1,"twopmodq32: 2^32 - 5 test fails!");
+		ASSERT(itmp32 == 1,"twopmodq32: 2^32 - 5 test fails!");
 		curr_p = (uint32)-17;
 		itmp32 = twopmodq32(curr_p-1, curr_p);
-		ASSERT(HERE, itmp32 == 1,"twopmodq32: 2^32 -17 test fails!");
+		ASSERT(itmp32 == 1,"twopmodq32: 2^32 -17 test fails!");
 		curr_p = (uint32)-35;	/* Start of the last length-30 curr_p%30 == 11 interval < 2^32; the 6th candidate in that interval, 2^32-17, is prime */
 		itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
-		ASSERT(HERE, itmp32 ==32,"twopmodq32_x8: 2^32 -35 test fails!");
+		ASSERT(itmp32 ==32,"twopmodq32_x8: 2^32 -35 test fails!");
 
 		fprintf(stderr,"Generating difference table of first %u small primes\n", nprime);
 		curr_p = 3;	/* Current prime stored in l. */
@@ -1596,7 +1596,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 			{
 				if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
 				{						// (if it's not a PSP) init for the next gap
-					ASSERT(HERE, curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
+					ASSERT(curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
 					if((curr_p + pdsum_8[j]) == f2psp[f2psp_idx])	/* It's a base-2 pseudoprime */
 					{
 						++f2psp_idx;
@@ -1645,13 +1645,13 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 
   #if 0
 	// Oct 2015: Play with Smarandache numbers ():
-	i = 2000000;	ASSERT(HERE, i <= nprime, "prime limit exceeded in testSmarandache!");
+	i = 2000000;	ASSERT(i <= nprime, "prime limit exceeded in testSmarandache!");
 	testSmarandache(100001,101000, pdiff, i);
 	exit(0);
   #endif
   #if 0
 	// Oct 2018: Play with "sieve survivors" stats: lim(n --> oo) prod_(p <= n)(1-1/p)/(1/ln(p^2))
-	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceeded in testSieveProdAsymp!");
+	i = 1000000000;	ASSERT(i <= MAX_SIEVING_PRIME, "prime limit exceeded in testSieveProdAsymp!");
 	struct qfloat qfprod = QHALF, qt;
 	double prod = 0.5, log_psq = log((double)i*i);
 	for(m = 0, curr_p = 3; m < nprime; m++) {
@@ -1766,7 +1766,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 		if(p > curr_p) break;
 		curr_p -= (pdiff[nprime--] << 1);
 	#ifdef FAC_DEBUG
-		ASSERT(HERE, curr_p == prime[nprime], "factor.c : curr_p == prime[nprime]");
+		ASSERT(curr_p == prime[nprime], "factor.c : curr_p == prime[nprime]");
 	#endif
 	}
 	MAX_SIEVING_PRIME = curr_p;
@@ -1792,7 +1792,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	#else	// 4620 classes:
 		pass_targ = CHECK_PKMOD4620(p,lenP, k_targ, 0x0) - 1;
 	#endif
-		ASSERT(HERE, (pass_targ < TF_PASSES), "Candidate factor set via k_targ is not a possible factor for this exponent!");
+		ASSERT((pass_targ < TF_PASSES), "Candidate factor set via k_targ is not a possible factor for this exponent!");
 		printf("Target pass for debug-factor = %u\n",pass_targ);
 	}
 
@@ -1805,7 +1805,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 /*
 	const int pmod_vec[] = { 1, 7,11,13,17,19,23,29,31,37,41,43,47,49,53,59, 2,4,8,16,32, 0x0};
 	for(i = 0; pmod_vec[i] != 0; i++) {
-		ASSERT(HERE, CHECK_PKMOD60(pmod_vec[i], k, incr) == 16, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES = 16!\n");
+		ASSERT(CHECK_PKMOD60(pmod_vec[i], k, incr) == 16, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES = 16!\n");
 	}
 	exit(0);
 Mersenne Mp: Acceptable km-values for the 16 possible pm (= p%60) values:
@@ -1833,7 +1833,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	pm = 32: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
 */
 	i = CHECK_PKMOD60  (&itmp64,1, k, incr);
-	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[1,7,11,13,17,19,23,29,31,37,41,43,47,49,53,59] (mod 60).\n");
+	ASSERT(i == TF_PASSES, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[1,7,11,13,17,19,23,29,31,37,41,43,47,49,53,59] (mod 60).\n");
 /*
 	printf("k mod 60 = [");
 	for(i = 0, j = 0; i < 16; i++) {
@@ -1845,7 +1845,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 */
   #else	// 4620 classes:
 	i = CHECK_PKMOD4620(&itmp64,1, k, incr);
-	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[960 possible values] (mod 4620).\n");
+	ASSERT(i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[960 possible values] (mod 4620).\n");
   #endif
 
 	/* If it's a restart, interval_lo for the initial pass will be based
@@ -1893,7 +1893,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
   #ifdef FAC_DEBUG
 	/* Make sure the range of k's for the run contains any target factor: */
 	if(k_targ)
-		ASSERT(HERE, (kmin <= k_targ) && (kmax >= k_targ),"k_targ not in [kmin, kmax]");
+		ASSERT((kmin <= k_targ) && (kmax >= k_targ),"k_targ not in [kmin, kmax]");
   #endif
 
   #ifdef FACTOR_STANDALONE
@@ -2018,7 +2018,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 		}
 		/* Should never reach this regular-loop-exit point: */
 		fprintf(stderr,"ERROR: failed to find a multiple of prime %u\n", curr_p);
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 
 	KLOOP:
 		/* Propagate copies of length (regs_todo) bit-cleared portion of sieve to remaining parts of sieve.
@@ -2054,7 +2054,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
   #ifdef FACTOR_STANDALONE
 	 printf(   "TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
   #else
-	ASSERT(HERE, fp == 0x0,"0");
+	ASSERT(fp == 0x0,"0");
 	fp = mlucas_fopen(STATFILE,"a");
 	fprintf(fp,"TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
 	fclose(fp); fp = 0x0;
@@ -2121,11 +2121,11 @@ L3:
 	}	/* end of K loop	*/
 //printf("L3: template word %u [used %u copies] bit_atlas chart %u, word %u, bit %u\n",(uint32)k,ncopies,l,word,bit);	exit(0);
 	// For 60|4620 classes expect to end at bit 15|63 of the last word of each of the TF_PASSES = 16|960 sievelets (a.k.a. charts in our atlas):
-	ASSERT(HERE, (k == 0) && (l == 0), "bit_atlas init: Exit check 1 failed!");
+	ASSERT((k == 0) && (l == 0), "bit_atlas init: Exit check 1 failed!");
   #if TF_CLASSES == 60
-	ASSERT(HERE, (word == 4254) && (bit == 15), "bit_atlas init: Exit check 2 failed!");
+	ASSERT((word == 4254) && (bit == 15), "bit_atlas init: Exit check 2 failed!");
   #else	// 4620 classes:
-	ASSERT(HERE, (word == 3535) && (bit == 63), "bit_atlas init: Exit check 2 failed!");
+	ASSERT((word == 3535) && (bit == 63), "bit_atlas init: Exit check 2 failed!");
   #endif
 
   #ifdef FAC_DEBUG
@@ -2157,27 +2157,27 @@ L3:
 	switch(pmodNC)
 	{
 		/*   p mod 12 = 1:	*/
-		case  1:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case  1"); break;	/* k mod 5 .ne. 2	*/
-		case 37:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==48&&incr[i++]==59&&incr[i++]==60, "factor.c : case 37"); break;	/* k mod 5 .ne. 1	*/
-		case 13:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==47&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==60, "factor.c : case 13"); break;	/* k mod 5 .ne. 4	*/
-		case 49:ASSERT(HERE, incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case 49"); break;	/* k mod 5 .ne. 3	*/
+		case  1:ASSERT(incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case  1"); break;	/* k mod 5 .ne. 2	*/
+		case 37:ASSERT(incr[i++]== 3&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==48&&incr[i++]==59&&incr[i++]==60, "factor.c : case 37"); break;	/* k mod 5 .ne. 1	*/
+		case 13:ASSERT(incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==47&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==60, "factor.c : case 13"); break;	/* k mod 5 .ne. 4	*/
+		case 49:ASSERT(incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case 49"); break;	/* k mod 5 .ne. 3	*/
 		/*   p mod 12 == 7:	*/
-		case 31:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==60, "factor.c : case 31"); break;	/* k mod 5 .ne. 2	*/
-		case  7:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==33&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==57&&incr[i++]==60, "factor.c : case  7"); break;	/* k mod 5 .ne. 1	*/
-		case 43:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==32&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 43"); break;	/* k mod 5 .ne. 4	*/
-		case 19:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 19"); break;	/* k mod 5 .ne. 3	*/
+		case 31:ASSERT(incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==60, "factor.c : case 31"); break;	/* k mod 5 .ne. 2	*/
+		case  7:ASSERT(incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==33&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==57&&incr[i++]==60, "factor.c : case  7"); break;	/* k mod 5 .ne. 1	*/
+		case 43:ASSERT(incr[i++]== 5&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==32&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 43"); break;	/* k mod 5 .ne. 4	*/
+		case 19:ASSERT(incr[i++]== 5&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 19"); break;	/* k mod 5 .ne. 3	*/
 		/*   p mod 12 == 5:	*/
-		case 41:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 4&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==55&&incr[i++]==60, "factor.c : case 41"); break;	/* k mod 5 .ne. 2	*/
-		case 17:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==28&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 17"); break;	/* k mod 5 .ne. 1	*/
-		case 53:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==27&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 53"); break;	/* k mod 5 .ne. 4	*/
-		case 29:ASSERT(HERE, incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 29"); break;	/* k mod 5 .ne. 3	*/
+		case 41:ASSERT(incr[i++]== 3&&incr[i++]== 4&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==55&&incr[i++]==60, "factor.c : case 41"); break;	/* k mod 5 .ne. 2	*/
+		case 17:ASSERT(incr[i++]== 3&&incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==28&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 17"); break;	/* k mod 5 .ne. 1	*/
+		case 53:ASSERT(incr[i++]== 3&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==27&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 53"); break;	/* k mod 5 .ne. 4	*/
+		case 29:ASSERT(incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 29"); break;	/* k mod 5 .ne. 3	*/
 		/*   p mod 12 == 11:	*/
-		case 11:ASSERT(HERE, incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==60, "factor.c : case 11"); break;	/* k mod 5 .ne. 2	*/
-		case 47:ASSERT(HERE, incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==13&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 47"); break;	/* k mod 5 .ne. 1	*/
-		case 23:ASSERT(HERE, incr[i++]== 1&&incr[i++]==12&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 23"); break;	/* k mod 5 .ne. 4	*/
-		case 59:ASSERT(HERE, incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 59"); break;	/* k mod 5 .ne. 3	*/
+		case 11:ASSERT(incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==60, "factor.c : case 11"); break;	/* k mod 5 .ne. 2	*/
+		case 47:ASSERT(incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==13&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 47"); break;	/* k mod 5 .ne. 1	*/
+		case 23:ASSERT(incr[i++]== 1&&incr[i++]==12&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 23"); break;	/* k mod 5 .ne. 4	*/
+		case 59:ASSERT(incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 59"); break;	/* k mod 5 .ne. 3	*/
 		default:
-			ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_FERMAT,"Only Mersenne and fermat-number factoring supported!");
+			ASSERT(MODULUS_TYPE == MODULUS_TYPE_FERMAT,"Only Mersenne and fermat-number factoring supported!");
 	}
   #endif
 
@@ -2266,10 +2266,10 @@ candidate factors that survive sieving.	*/
 				/* Starting no.-of-times-through-sieve = kmin/(64*len) : */
 				if(pass == passnow && (know > kmin)) {
 					interval_lo = know/((uint64)len << TF_CLSHIFT);
-					ASSERT(HERE, know == interval_lo *(len << TF_CLSHIFT),"know == interval_lo*(len << TF_CLSHIFT)");
+					ASSERT(know == interval_lo *(len << TF_CLSHIFT),"know == interval_lo*(len << TF_CLSHIFT)");
 				} else {
 					interval_lo = kmin/((uint64)len << TF_CLSHIFT);
-					ASSERT(HERE, kmin == interval_lo *(len << TF_CLSHIFT),"kmin == interval_lo*(len << TF_CLSHIFT)");
+					ASSERT(kmin == interval_lo *(len << TF_CLSHIFT),"kmin == interval_lo*(len << TF_CLSHIFT)");
 				}
 			} else {
 				interval_lo = interval_hi;	// This is what defines a 'no-op' pool task.
@@ -2277,7 +2277,7 @@ candidate factors that survive sieving.	*/
 			/* Set initial k for this pass to default value (= incr[pass]) + interval_lo*(64*len),
 			(assume this could be as large as 64 bits), then use it to set initial q for this pass:
 			*/
-			ASSERT(HERE, (double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
+			ASSERT((double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
 			k = (uint64)incr[pass] + interval_lo*(len << TF_CLSHIFT);
 		//	fprintf(stderr," [*** Init pass %u data: k0 = %llu, word0 = %16llX\n",pass,k,bit_map[0]);
 			struct fac_thread_data_t* targ = tdat + thr_id;
@@ -2351,7 +2351,7 @@ candidate factors that survive sieving.	*/
 
 		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
 			// Posix sleep() too granular here; use finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-			ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
+			ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 		}
 		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
 	};	// wave-loop
@@ -2374,7 +2374,7 @@ candidate factors that survive sieving.	*/
 		/* If debugging sieve, make sure critical bit hasn't been cleared: */
 		if( k_targ && (((bit_map[i64_targ] >> bit_targ) & 1) == 0) ) {
 			fprintf(stderr,"Critical bit cleared in master bitmap!\n");
-			ASSERT(HERE, 0,"0");
+			ASSERT(0,"0");
 		}
 	#endif
 
@@ -2383,7 +2383,7 @@ candidate factors that survive sieving.	*/
 			printf("pass = %u",pass);	fflush(stdout);
 		}
 	#else
-		ASSERT(HERE, fp == 0x0,"0");
+		ASSERT(fp == 0x0,"0");
 		fp = mlucas_fopen(STATFILE,"a");
 		fprintf(fp,"Starting Trial-factoring Pass %2u...\n",pass);
 		fclose(fp); fp = 0x0;
@@ -2392,16 +2392,16 @@ candidate factors that survive sieving.	*/
 		/* Starting no.-of-times-through-sieve = kmin/(64*len) : */
 		if(pass == passnow && (know > kmin)) {
 			interval_lo = know/((uint64)len << TF_CLSHIFT);
-			ASSERT(HERE, know == interval_lo*((uint64)len << TF_CLSHIFT),"know == interval_lo*((uint64)len << TF_CLSHIFT)");
+			ASSERT(know == interval_lo*((uint64)len << TF_CLSHIFT),"know == interval_lo*((uint64)len << TF_CLSHIFT)");
 		} else {
 			interval_lo = kmin/((uint64)len << TF_CLSHIFT);
-			ASSERT(HERE, kmin == interval_lo*((uint64)len << TF_CLSHIFT),"kmin == interval_lo*((uint64)len << TF_CLSHIFT)");
+			ASSERT(kmin == interval_lo*((uint64)len << TF_CLSHIFT),"kmin == interval_lo*((uint64)len << TF_CLSHIFT)");
 		}
 
 		/* Set initial k for this pass to default value (= incr[pass]) + interval_lo*(64*len),
 		(assume this could be as large as 64 bits), then use it to set initial q for this pass:
 		*/
-		ASSERT(HERE, (double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
+		ASSERT((double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
 		k = (uint64)incr[pass] + interval_lo*(len << TF_CLSHIFT);
 
 		i = nprime;	// Remember, MAX_SIEVING_PRIME is a *variable* and set at runtime, as opposed to the predef NUM_SIEVING_PRIME;
@@ -2439,7 +2439,7 @@ candidate factors that survive sieving.	*/
 		if(cudaError != cudaSuccess)
 		{
 			printf("ERROR: cudaGetLastError() returned %d: %s\n", cudaError, cudaGetErrorString(cudaError));
-			ASSERT(HERE, 0, "factor.c : GPU-side error detected!");
+			ASSERT(0, "factor.c : GPU-side error detected!");
 		}
 	#endif
 
@@ -2472,7 +2472,7 @@ candidate factors that survive sieving.	*/
 		printf(   "Clocks =%s\n",get_time_str(tdiff));
 	}
   #else
-	ASSERT(HERE, fp == 0x0,"0");
+	ASSERT(fp == 0x0,"0");
 	fp = mlucas_fopen(STATFILE,"a");
 	fprintf(fp,"Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
 	/* Since we're done accumulating cycle count, divide to get total time in seconds: */
@@ -2492,7 +2492,7 @@ candidate factors that survive sieving.	*/
 	/* If a test factor was given, make sure we found at least one factor: */
 	if(k_targ > 0)
 	{
-		ASSERT(HERE, nfactor > 0,"k_targ > 0 but failed to find at least one factor");
+		ASSERT(nfactor > 0,"k_targ > 0 but failed to find at least one factor");
 	}
   #endif
 
@@ -2566,7 +2566,7 @@ MFACTOR_HELP:
   #endif
 	/* If we reached here other than via explicit invocation of the help menu, assert: */
 	if(!STREQ(stFlag, "-h"))
-		ASSERT(HERE, 0,"Mfactor: Unrecognized command-line option!");
+		ASSERT(0,"Mfactor: Unrecognized command-line option!");
 	return(0);
   #endif
 }
@@ -2709,27 +2709,27 @@ MFACTOR_HELP:
 			itmp = fscanf(fp,"%s\n",cstr);
 			if(itmp <= 0 || !STREQ(cstr,pstring)) {
 				sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",cstr,pstring);
-				ASSERT(HERE,0,char_buf0);
+				ASSERT(0,char_buf0);
 			}
 			itmp = fscanf(fp,"%u\n",&i  );
 			if(itmp <= 0 || i != TF_PASSES      ) {
 				sprintf(char_buf0,"Line 1 entry found in factoring savefile [%d] does not match exponent of run [%d].",i,TF_PASSES);
-				ASSERT(HERE,0,char_buf0);
+				ASSERT(0,char_buf0);
 			}
 			// See if restart file has a pass/max-k-reached entry matching the current pass:
 			while(fgets(cstr,STR_MAX_LEN,fp)) {
 				if((char_addr = strstr(cstr,"Pass ")) != 0) {
 					itmp = sscanf(char_addr,"%u",i);
 					if(itmp <= 0) {
-						fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+						fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(0,"0");
 					}
 					if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
-						ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+						ASSERT(!found_pass, "Multiple current-pass entry found in savefile!");
 						found_pass = TRUE;
 						// Read the max-k-reached value
-						ASSERT(HERE,((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
+						ASSERT(((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
 						itmp = sscanf(char_addr,"%llu",k);
-						ASSERT(HERE,itmp >= 0,"Unable to read max-k-reached value!");
+						ASSERT(itmp >= 0,"Unable to read max-k-reached value!");
 						// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
 					}
 				}
@@ -2737,7 +2737,7 @@ MFACTOR_HELP:
 			/* pstring*/
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);		ASSERT(0,"0");
 			}
 			/* Strip the expected newline char from in_line: */
 			char_addr = strstr(in_line, "\n");
@@ -2745,7 +2745,7 @@ MFACTOR_HELP:
 				*char_addr = '\0';
 			/* Make sure restart-file and current-run pstring match: */
 			if(STRNEQ(in_line, pstring)) {
-				fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring, curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring, curr_line, RESTARTFILE);		ASSERT(0,"0");
 			}
 
 			/* bmin */
@@ -2753,7 +2753,7 @@ MFACTOR_HELP:
 			fgets(cbuf, STR_MAX_LEN*2, fp);
 			itmp = sscanf(cbuf, "%lf", &bmin_file);
 			if(itmp != 1) {
-				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(0,"0");
 			}
 
 			/* bmax */
@@ -2761,7 +2761,7 @@ MFACTOR_HELP:
 			fgets(cbuf, STR_MAX_LEN*2, fp);
 			itmp = sscanf(cbuf, "%lf", &bmax_file);
 			if(itmp != 1) {
-				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(0,"0");
 			}
 
 		/************************************
@@ -2776,7 +2776,7 @@ MFACTOR_HELP:
 	GET_LINE4:
 		/**** redo this ****/
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: 'KMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'KMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "KMin");
 			/* Since the preceding fscanf call may leave us at the end of curr_line-1
@@ -2787,7 +2787,7 @@ MFACTOR_HELP:
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				kmin_file = convert_base10_char_uint64(char_addr);
@@ -2796,15 +2796,15 @@ MFACTOR_HELP:
 			/* KNow */
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (KNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (KNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "KNow");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: 'KNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'KNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				know_file = convert_base10_char_uint64(char_addr);
@@ -2813,15 +2813,15 @@ MFACTOR_HELP:
 			/* KMax */
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (KMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (KMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "KMax");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: 'KMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'KMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				kmax_file = convert_base10_char_uint64(char_addr);
@@ -2830,71 +2830,71 @@ MFACTOR_HELP:
 			/* PassMin */
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "PassMin");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: 'PassMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'PassMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				passmin_file = (uint32)convert_base10_char_uint64(char_addr);
-				ASSERT(HERE, passmin_file < TF_PASSES,"factor.c: passmin < TF_PASSES");
+				ASSERT(passmin_file < TF_PASSES,"factor.c: passmin < TF_PASSES");
 			}
 
 			/* PassNow */
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (PassNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (PassNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "PassNow");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: 'PassNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'PassNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				passnow_file = (uint32)convert_base10_char_uint64(char_addr);
-				ASSERT(HERE, passnow_file < TF_PASSES,"factor.c: passnow < TF_PASSES");
-				ASSERT(HERE, passnow_file >= passmin_file  ,"factor.c: passnow_file >= passmin_file");
+				ASSERT(passnow_file < TF_PASSES,"factor.c: passnow < TF_PASSES");
+				ASSERT(passnow_file >= passmin_file  ,"factor.c: passnow_file >= passmin_file");
 			}
 
 			/* PassMax */
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (PassMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (PassMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "PassMax");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: 'PassMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: 'PassMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				passmax_file = (uint32)convert_base10_char_uint64(char_addr);
-				ASSERT(HERE, passmax_file < TF_PASSES,"factor.c: passmax_file < TF_PASSES");
-				ASSERT(HERE, passmax_file >= passnow_file  ,"factor.c: passmax_file >= passnow_file");
+				ASSERT(passmax_file < TF_PASSES,"factor.c: passmax_file < TF_PASSES");
+				ASSERT(passmax_file >= passnow_file  ,"factor.c: passmax_file >= passnow_file");
 			}
 
 			/* Number of q's tried: */
 			++curr_line;
 			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			}
 			char_addr = strstr(in_line, "#Q tried");
 			if(!char_addr) {
-				fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+				fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
 				char_addr = strstr(in_line, "=");
 				if(!char_addr) {
-					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
 				char_addr++;
 				count = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
@@ -2939,12 +2939,12 @@ MFACTOR_HELP:
 			if(bmin || bmax)
 			{
 			#if(!defined(P1WORD))
-			//	ASSERT(HERE, 0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
+			//	ASSERT(0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
 			#endif
-				ASSERT(HERE, (kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
+				ASSERT((kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
 
 				if(bmin) {
-					ASSERT(HERE, bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
+					ASSERT(bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
 					if(bmin < bmax_file)
 						fprintf(stderr,"WARNING: Specified bmin (%lf) smaller than previous-run bmax = %lf. Setting equal to avoid overlapping runs.\n", bmin, bmax_file);
 				}
@@ -2952,7 +2952,7 @@ MFACTOR_HELP:
 
 				/* We expect any command-line bmax will be > that in the restart file: */
 				if(bmax)
-					ASSERT(HERE, bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
+					ASSERT(bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
 			}
 
 			/****
@@ -2963,10 +2963,10 @@ MFACTOR_HELP:
 			****/
 			if(kmin || kmax)
 			{
-				ASSERT(HERE, (bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
+				ASSERT((bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
 
 				if(kmin) {
-					ASSERT(HERE, kmin >= kmin_file,"kmin >= kmin_file");
+					ASSERT(kmin >= kmin_file,"kmin >= kmin_file");
 					if(kmin < kmax_file)
 						fprintf(stderr,"WARNING: Specified kmin (%s) smaller than previous-run kmax = %s. Setting equal to avoid overlapping runs.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax_file)]);
 				}
@@ -2974,7 +2974,7 @@ MFACTOR_HELP:
 
 				/* We expect any command-line kmax will be > that in the restart file: */
 				if(kmax)
-					ASSERT(HERE, kmax > kmax_file,"kmax >= kmax_file");
+					ASSERT(kmax > kmax_file,"kmax >= kmax_file");
 			}
 
 			/****
@@ -2982,11 +2982,11 @@ MFACTOR_HELP:
 			****/
 			if(kplus)
 			{
-				ASSERT(HERE, (bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
+				ASSERT((bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
 
 				kmin = kmax_file;
 				/* Ensure incremented value kmax fits into a 64-bit unsigned int: */
-				ASSERT(HERE, (kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
+				ASSERT((kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
 				kmax = kmin + kplus;
 				kplus = 0;	/* If kplus != 0 detected further on, that indicates that no valid restart
 							file was found for factoring-bounds incrementing. */
@@ -3016,7 +3016,7 @@ MFACTOR_HELP:
 
 	  #ifdef FAC_DEBUG
 		// compute qstart = 2.kstart.p + 1:
-		ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
+		ASSERT(0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 		q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 		printf(" Initial q for this pass = %s.\n", &char_buf0[convert_mi64_base10_char(char_buf0, q, lenQ, 0)]);
 	  #endif
@@ -3083,7 +3083,7 @@ MFACTOR_HELP:
 				if((k <= k_targ) && (k_targ < (k+(sieve_len<<6))))
 				{
 					itmp64 = k_targ - k;
-					ASSERT(HERE, itmp64%TF_CLASSES == 0,"(k_targ - k)%TF_CLASSES == 0");
+					ASSERT(itmp64%TF_CLASSES == 0,"(k_targ - k)%TF_CLASSES == 0");
 					itmp64 /= TF_CLASSES;
 					i64_targ = itmp64 >> 6;
 					bit_targ = itmp64 & 63;
@@ -3139,7 +3139,7 @@ MFACTOR_HELP:
 				curr_p += (pdiff[m] << 1);
 				if(curr_p > bit_len && !((nprime - m)&63)) {	// 2nd clause is to make Loop #2 count a multiple of 64
 					curr_p -= (pdiff[m] << 1);
-					ASSERT(HERE, curr_p < p[0],"On Loop 1 exit: curr_p >= p!");
+					ASSERT(curr_p < p[0],"On Loop 1 exit: curr_p >= p!");
 					break;
 				}
 				l = startval[m];
@@ -3225,15 +3225,15 @@ MFACTOR_HELP:
 					#endif
 					#if DBG_SIEVE
 						if(k_targ && l == (i64_targ*64 + bit_targ)) {
-							fprintf(stderr,"Critical bit being cleared by prime %u, with offset %u\n", curr_p, startval[m]);	ASSERT(HERE, 0,"0");
+							fprintf(stderr,"Critical bit being cleared by prime %u, with offset %u\n", curr_p, startval[m]);	ASSERT(0,"0");
 						}
 					#endif
 						l += curr_p;
 					}
 					/*...save new startvalue:	*/
 				#if DBG_SIEVE
-					ASSERT(HERE, (startval[m] + startval_incr[m]) < (curr_p + curr_p), "factor.c : (startval[m] + startval_incr[m]) < (curr_p + curr_p)");
-					ASSERT(HERE, l-bit_len == (startval[m] + startval_incr[m])%curr_p, "factor.c : l-bit_len == (startval[m] + startval_incr[m])%curr_p");
+					ASSERT((startval[m] + startval_incr[m]) < (curr_p + curr_p), "factor.c : (startval[m] + startval_incr[m]) < (curr_p + curr_p)");
+					ASSERT(l-bit_len == (startval[m] + startval_incr[m])%curr_p, "factor.c : l-bit_len == (startval[m] + startval_incr[m])%curr_p");
 				#endif
 					startval[m] = l-bit_len;
 				}
@@ -3249,7 +3249,7 @@ MFACTOR_HELP:
 		  #else
 			ihi = (sieve_len*64)/TF_CLASSES;	// 64*sieve_len divisible by TF_CLASSES, no need for padding
 		  #endif
-			ASSERT(HERE, ihi == ((bit_len+63)>>6), "Ihi value-check failed!");
+			ASSERT(ihi == ((bit_len+63)>>6), "Ihi value-check failed!");
 		#ifdef FAC_DEBUG
 			m = 0;	// accum popc
 			for(i = 0; i < ihi; i++) {
@@ -3282,7 +3282,7 @@ MFACTOR_HELP:
 						if((bit_map2[i] >> bit) & 1)
 							printf("Trying k_targ = %llu...\n", k_targ);
 						else
-							ASSERT(HERE, 0,"0");
+							ASSERT(0,"0");
 					}
 				#endif
 
@@ -3307,7 +3307,7 @@ MFACTOR_HELP:
 						//	printf("Count = %u * 2^%u checkpoint: Thread %u locked mutex_mi64 ... ",(uint32)(count >> CMASKBITS),CMASKBITS,tid);
 						#endif
 							fp = mlucas_fopen(OFILE,"a");
-							ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
+							ASSERT(0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 							q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 						#ifdef FAC_DEBUG
 							sprintf(cbuf, " Count = %u * 2^%u: k = %llu, Current q = %s\n",
@@ -3325,7 +3325,7 @@ MFACTOR_HELP:
 								if(res != (mi64_twopmodq(p, lenP, k, q, lenQ, q2) == 1) || q2[0] != u64_arr[0]) {
 									sprintf(cbuf, "ERROR: Spot-check k = %llu, Results of mi64_twopmodq_qmmp and mi64_twopmodq differ!\n", k);
 									fprintf(fp,"%s", cbuf);
-									ASSERT(HERE, 0, cbuf);
+									ASSERT(0, cbuf);
 								}
 							}
 
@@ -3336,7 +3336,7 @@ MFACTOR_HELP:
 								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %llu, Current q = %s: k must be 64-bit!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
-								ASSERT(HERE, 0, cbuf);
+								ASSERT(0, cbuf);
 							}
 							if(!mi64_cmp_eq_scalar(u64_arr, 1ull, lenQ))
 							{
@@ -3344,7 +3344,7 @@ MFACTOR_HELP:
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],
 									&cbuf2[convert_mi64_base10_char(cbuf2, u64_arr, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
-								ASSERT(HERE, 0, cbuf);
+								ASSERT(0, cbuf);
 							}
 
 							/* If q is composite [only check this in debug mode since it costs more than checking
@@ -3367,12 +3367,12 @@ MFACTOR_HELP:
 										printf("Thread %u, k = %llu: q = ",tid,k);
 										if(lenQ > 1)printf("2^64 * %llu + ",q[1]);
 										printf("%llu has a small divisor: %u\n",q[0], l);
-										ASSERT(HERE, 0, "Abort...");
+										ASSERT(0, "Abort...");
 									#else
 										sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %llu, Current q = %s has a small divisor: %u\n",
 											(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],l);
 										fprintf(fp,"%s", cbuf);
-										ASSERT(HERE, 0, cbuf);
+										ASSERT(0, cbuf);
 									#endif
 									}
 								}
@@ -3413,9 +3413,9 @@ MFACTOR_HELP:
 									if(k < 1000) {
 										printf("Do deep sieving for k = %u\n",(uint32)k);
 									/****** Apr 2105: This all needs to be made thread-safe ******/
-									ASSERT(HERE, 0, "This all needs to be made thread-safe!");
+									ASSERT(0, "This all needs to be made thread-safe!");
 										kdeep[*ndeep++] = (uint32)k;
-										ASSERT(HERE, *ndeep < 1024, "Increase allocation of kdeep[] array or use deeper sieving bound to reduce #candidate k's!");
+										ASSERT(*ndeep < 1024, "Increase allocation of kdeep[] array or use deeper sieving bound to reduce #candidate k's!");
 									//	itmp64 = factor_qmmp_sieve64((uint32)findex, k, MAX_SIEVING_PRIME+2, 0x0001000000000000ull);
 									//	if(itmp64) {
 									//		printf("Q( k = %u ) has a small factor: %20llu\n",(uint32)k, itmp64);
@@ -3423,25 +3423,25 @@ MFACTOR_HELP:
 									}
 									res = 0;
 								} else {
-									ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
+									ASSERT(0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 									q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 									res = (mi64_twopmodq_qmmp(findex, k, u64_arr) == 1);
 								// Uncomment to debug by comparing the results of the slow and fast-MMp-optimized modmul routines
 								/*
 									if(res != (mi64_twopmodq(p, lenP, k, q, lenQ, q2) == 1) || q2[0] != u64_arr[0]) {
-										ASSERT(HERE, 0, "bzzt!");
+										ASSERT(0, "bzzt!");
 									}
 								*/
 								}
 							} else {
-								ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
+								ASSERT(0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 								q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 								res = mi64_twopmodq(p, lenP, k, q, lenQ, u64_arr);
 							}
 
 						  #elif(defined(P4WORD))
 
-							ASSERT(HERE, 0ull == mi64_mul_scalar(two_p,k,(uint64*)&q256,lenQ), "2.k.p overflows!");
+							ASSERT(0ull == mi64_mul_scalar(two_p,k,(uint64*)&q256,lenQ), "2.k.p overflows!");
 							q256.d0 += 1;	// No need to check for carry since 2.k.p even
 							p256.d0 = p[0]; p256.d1 = p[1]; p256.d2 = p[2]; p256.d3 = p[3];
 							t256 = twopmodq256(p256,q256);
@@ -3451,12 +3451,12 @@ MFACTOR_HELP:
 
 						   #ifdef USE_FLOAT
 
-							ASSERT(HERE, !p[2], "twopmodq200: p[2] nonzero!");
+							ASSERT(!p[2], "twopmodq200: p[2] nonzero!");
 							x256 = twopmodq200_8WORD_qmmp(p,k);	res = (uint64)CMPEQ256(x256, ONE256);
 
 						   #else
 
-							ASSERT(HERE, 0ull == mi64_mul_scalar(two_p,k,(uint64*)&q192,lenQ), "2.k.p overflows!");
+							ASSERT(0ull == mi64_mul_scalar(two_p,k,(uint64*)&q192,lenQ), "2.k.p overflows!");
 							q192.d0 += 1;	// No need to check for carry since 2.k.p even
 							p192.d0 = p[0]; p192.d1 = p[1]; p192.d2 = p[2];
 							t192 = twopmodq192(p192,q192);
@@ -3505,7 +3505,7 @@ MFACTOR_HELP:
 							  #endif
 								else
 								{
-									ASSERT(HERE, fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
+									ASSERT(fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
 								  #if USE_128x96 == 1
 									/* Use strictly  96-bit routines: */
 									res = twopmodq96	(p[0],k);
@@ -3514,7 +3514,7 @@ MFACTOR_HELP:
 									res = twopmodq128_96(p[0],k);
 								  #else
 									/* Use fully 128-bit routines: */
-								//	ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,(uint64*)&q128,lenQ), "2.k.p overflows!");
+								//	ASSERT(0 == mi64_mul_scalar(two_p,k,(uint64*)&q128,lenQ), "2.k.p overflows!");
 									res = twopmodq128x2(p,k);
 								  #endif
 								}
@@ -3531,7 +3531,7 @@ MFACTOR_HELP:
 								#error	TRYQ = 2 / P3WORD only allowed if USE_FLOAT is defined!
 							#endif	/* #ifdef USE_FMADD */
 
-							ASSERT(HERE, !p[2], "twopmodq200: p[2] nonzero!");
+							ASSERT(!p[2], "twopmodq200: p[2] nonzero!");
 							res  = twopmodq200_8WORD_qmmp_x2_sse2(p,k_to_try[0],k_to_try[1]);
 
 						  #elif(defined(P1WORD))
@@ -3558,7 +3558,7 @@ MFACTOR_HELP:
 
 						  #ifdef P3WORD
 
-						//	ASSERT(HERE, !p[2], "twopmodq200: p[2] nonzero!");
+						//	ASSERT(!p[2], "twopmodq200: p[2] nonzero!");
 							res = twopmodq192_q4(p,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 
 						  #elif(defined(P2WORD))
@@ -3609,7 +3609,7 @@ MFACTOR_HELP:
 									res = twopmodq72_q4(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 							  #endif
 								else {
-									ASSERT(HERE, fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
+									ASSERT(fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
 								#if USE_128x96 == 1
 									/* Use strictly  96-bit routines: */
 									res = twopmodq96_q4		(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3], 0,tid);
@@ -3670,7 +3670,7 @@ MFACTOR_HELP:
 									res = twopmodq65_q8(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7]);
 							  #endif
 								else {
-									ASSERT(HERE, fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
+									ASSERT(fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
 								#if USE_128x96 == 1
 									/* Use strictly  96-bit routines: */
 									res = twopmodq96_q8		(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7], 0,tid);
@@ -3773,7 +3773,7 @@ MFACTOR_HELP:
 												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
 												for(j = 0; j < *nfactor; j++) {
 													q2[lenP] = mi64_mul_scalar( p, 2*factor_k[j], q2, lenP);
-													ASSERT(HERE, lenP == 1 && q2[lenP] == 0ull, "Unexpected carryout in known-factor computation!");
+													ASSERT(lenP == 1 && q2[lenP] == 0ull, "Unexpected carryout in known-factor computation!");
 													q2[0] += 1;	// q2 = 2.k.p + 1; No need to check for carry since 2.k.p even
 													mi64_clear(u64_arr, lenQ);	// Use u64_arr for quotient; only care if remainder == 0 or not
 													if(mi64_div(q,q2,lenQ,lenQ,u64_arr,0x0)) {
@@ -3801,11 +3801,11 @@ MFACTOR_HELP:
 									#ifdef FACTOR_STANDALONE
 										fprintf(stderr,"%s", cbuf);
 									#else
-										fp = mlucas_fopen(STATFILE,"a");	ASSERT(HERE, fp != 0x0,"0");
+										fp = mlucas_fopen(STATFILE,"a");	ASSERT(fp != 0x0,"0");
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
 									#endif
-										fp = mlucas_fopen(   OFILE,"a");	ASSERT(HERE, fp != 0x0,"0");
+										fp = mlucas_fopen(   OFILE,"a");	ASSERT(fp != 0x0,"0");
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
 									#ifdef QUIT_WHEN_FACTOR_FOUND
@@ -3847,14 +3847,14 @@ MFACTOR_HELP:
 
 				#ifdef P4WORD
 
-					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
+					ASSERT(0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
 					q[0] += 1;	// No need to check for carry since 2.k.p even
 					t256 = twopmodq256(*(uint256*)p,*(uint256*)q);
 					res = CMPEQ256(t256, ONE256);
 
 				#elif(defined(P3WORD))
 
-					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
+					ASSERT(0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
 					q[0] += 1;	// No need to check for carry since 2.k.p even
 					t192 = twopmodq192(*(uint192*)p,*(uint192*)q);
 					res = CMPEQ192(t192, ONE192);
@@ -3887,12 +3887,12 @@ MFACTOR_HELP:
 						#ifdef FACTOR_STANDALONE
 							fprintf(stderr,"%s", cbuf);
 						#else
-							fp = mlucas_fopen(STATFILE,"a");	ASSERT(HERE, fp != 0x0,"0");
+							fp = mlucas_fopen(STATFILE,"a");	ASSERT(fp != 0x0,"0");
 							fprintf(fp,"%s", cbuf);
 							fclose(fp); fp = 0x0;
 						#endif
 
-							fp = mlucas_fopen(   OFILE,"a");	ASSERT(HERE, fp != 0x0,"0");
+							fp = mlucas_fopen(   OFILE,"a");	ASSERT(fp != 0x0,"0");
 							fprintf(fp,"%s", cbuf);
 							fclose(fp); fp = 0x0;
 
@@ -3920,7 +3920,7 @@ MFACTOR_HELP:
 		// Every 1024th pass, write the checkpoint file, with format as described previously:
 		if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi)) {
 			i = write_savefile(RESTARTFILE, pstring, pass, k, count);	// Only overwrite passnow, know and count fields of savefile
-			ASSERT(HERE,!i,"There were errors writing the savefile ... aborting");
+			ASSERT(!i,"There were errors writing the savefile ... aborting");
 		}	/* Successfully wrote restart file. */
 	#endif /* #if !FAC_DEBUG */
 	}
@@ -3956,12 +3956,12 @@ MFACTOR_HELP:
 			if(!fp) {
 				fprintf(stderr,"INFO: factoring savefile %s not found - will create.\n",RESTARTFILE);
 			} else {	// If file exists, it should have the proper first 2 lines:
-				itmp = fscanf(fp,"%s\n",cstr); if(itmp <= 0 || !STREQ(cstr,pstring)) ASSERT(HERE,0,"Line 1 entry found in factoring savefile does not match exponent of run.");
-				itmp = fscanf(fp,"%u\n",&i  ); if(itmp <= 0 || i != TF_PASSES      ) ASSERT(HERE,0,"Line 2 entry found in factoring savefile does not match TF_PASSES value of build.");
+				itmp = fscanf(fp,"%s\n",cstr); if(itmp <= 0 || !STREQ(cstr,pstring)) ASSERT(0,"Line 1 entry found in factoring savefile does not match exponent of run.");
+				itmp = fscanf(fp,"%u\n",&i  ); if(itmp <= 0 || i != TF_PASSES      ) ASSERT(0,"Line 2 entry found in factoring savefile does not match TF_PASSES value of build.");
 			}
 			if(!fq) {
 				fprintf(stderr,"INFO: Unable to open factoring savefile %s for reading and/or %s.tmp for writing...quitting.\n",RESTARTFILE,RESTARTFILE);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 
 			curr_line = 0;
@@ -3970,14 +3970,14 @@ MFACTOR_HELP:
 			itmp = fprintf(fq,"%s\n",pstring);
 			if(itmp <= 0) {
 				fprintf(stderr,"ERROR: unable to write Line %d (current exponent) to %s.\n", curr_line, TMPFILE);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 			/* TF_PASSES: */
 			++curr_line;
 			itmp = fprintf(fq,"%u\n",TF_PASSES);
 			if(itmp <= 0) {
 				fprintf(stderr,"ERROR: unable to write Line %d (TF_PASSES of build) to %s!\n", curr_line, TMPFILE);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 
 			// Now copy any remaining entries in existing file, modifying only the one corr. to the current pass, if it exists:
@@ -3986,10 +3986,10 @@ MFACTOR_HELP:
 					if((char_addr = strstr(cstr,"Pass ")) != 0) {
 						itmp = sscanf(char_addr,"%u",i);
 						if(itmp <= 0) {
-							fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+							fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(0,"0");
 						}
 						if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
-							ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+							ASSERT(!found_pass, "Multiple current-pass entry found in savefile!");
 							found_pass = TRUE;
 							// Calculate the current k-value
 							k = (uint64)incr + (sweep+1)*(sieve_len<<6);
@@ -4005,7 +4005,7 @@ MFACTOR_HELP:
 			fclose(fq); fq = 0x0;
 			if(rename(TMPFILE,RESTARTFILE)) {
 				sprintf(cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
-				ASSERT(HERE,0,cstr);
+				ASSERT(0,cstr);
 			}
 		}	// Successfully updated restart file.
 	  #endif /* #if !FAC_DEBUG */
@@ -4121,7 +4121,7 @@ uint32 CHECK_PKMOD60(uint64*p, uint32 lenP, uint64 k, uint32*incr)
 			return i;
 		}
 	}
-	ASSERT(HERE, i == 16, "Expect precisely 16 valid k (mod 60) classes!");
+	ASSERT(i == 16, "Expect precisely 16 valid k (mod 60) classes!");
 //printf("\n");
 	return i;	// Nonzero return value indicates success
 }
@@ -4189,7 +4189,7 @@ uint32 CHECK_PKMOD4620(uint64*p, uint32 lenP, uint64 k, uint32*incr)
 			return i;
 		}
 	}
-	ASSERT(HERE, i == 960, "Expect precisely 960 valid k (mod 4620) classes!");
+	ASSERT(i == 960, "Expect precisely 960 valid k (mod 4620) classes!");
 	return i;	// Nonzero return value indicates success
 }
 
@@ -4209,7 +4209,7 @@ uint32 twop_mod_smallp(const int MODULUS_TYPE, const uint64*two_p, const uint32 
 		r += (-((int32)r < 0)) & curr_p;
 		r += r;
 		if(r >= curr_p) { r -= curr_p; }
-	//	ASSERT(HERE, r == mi64_div_y32(two_p, curr_p, 0x0, len2P), "Fast 2p (mod q) for MMp fails!");
+	//	ASSERT(r == mi64_div_y32(two_p, curr_p, 0x0, len2P), "Fast 2p (mod q) for MMp fails!");
 	} else {
 		r = mi64_div_y32(two_p, curr_p, 0x0, len2P);
 	}
@@ -4238,7 +4238,7 @@ void	get_startval(
 	curr_p = p_last_small;
 	for(m = nclear; m < nprime; m++)
 	{
-		curr_p += (pdiff[m] << 1);	ASSERT(HERE, pprimeF(curr_p,2), "Alleged curr_p is Composite!");
+		curr_p += (pdiff[m] << 1);	ASSERT(pprimeF(curr_p,2), "Alleged curr_p is Composite!");
 		uint32 twop_mod_currp = twop_mod_smallp(MODULUS_TYPE, two_p, findex, lenQ, curr_p);	// This handles both the 1-word and multiword-exponent cases
 		// Special-handling code for p == curr_p case - this is needed to prevent 0-input  assertion in the modinv computation below.
 		// Dec 2019: Replaced (p == curr_p) with if() clause which also catches curr_p-divides-exponent for composite exponents:
@@ -4323,7 +4323,7 @@ void	get_startval(
 		if(interval_lo != 0) {
 			/* bit_len is a uint32, so use i (also a 32-bit) in place of k (64-bit) here: */
 			i = ceil(1.0*bit_len/curr_p);
-			ASSERT(HERE, i*curr_p - bit_len == curr_p - (bit_len % curr_p), "i*curr_p - bit_len == curr_p - (bit_len % curr_p)");
+			ASSERT(i*curr_p - bit_len == curr_p - (bit_len % curr_p), "i*curr_p - bit_len == curr_p - (bit_len % curr_p)");
 
 			/* Now calculate dstartval for the actual current-pass kmin value,
 			according to the number of times we'd need to run through the sieve
@@ -4337,10 +4337,10 @@ void	get_startval(
 				startval[m] = dstartval;
 
 		#ifdef FAC_DEBUG
-			ASSERT(HERE, startval     [m] < curr_p, "factor.c : startval     [m] < curr_p");
+			ASSERT(startval     [m] < curr_p, "factor.c : startval     [m] < curr_p");
 		  #if DBG_SIEVE
 			startval_incr[m] = i*curr_p - bit_len;
-			ASSERT(HERE, startval_incr[m] < curr_p, "factor.c : startval_incr[m] < curr_p");
+			ASSERT(startval_incr[m] < curr_p, "factor.c : startval_incr[m] < curr_p");
 		  #endif
 		#endif
 		}

@@ -2525,7 +2525,7 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		 return ERR_FFTLENGTH_ILLEGAL;
 	}
 
-	ASSERT(HERE, rvec[0] <= MAX_RADIX, "Leading radix exceeds value of MAX_RADIX set in Mdata.h file!");
+	ASSERT(rvec[0] <= MAX_RADIX, "Leading radix exceeds value of MAX_RADIX set in Mdata.h file!");
 
 	// Check that there are at least 2 radices:
 	if(numrad < 2) {
@@ -2535,7 +2535,7 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 
 	/* If user provided a radix array, make sure they gave a valid dimension: */
 	if(radix_vec)
-		ASSERT(HERE, radix_vec_dim >=	numrad,"get_fft_radices: radix_vec_dim has illegal value!");
+		ASSERT(radix_vec_dim >=	numrad,"get_fft_radices: radix_vec_dim has illegal value!");
 
 	/* Check that N/2 = {product of the radices}, and if valid nradices and radix_vec pointers supplied,
 	copy radices to the latter and	numrad to the former: */
@@ -2560,7 +2560,7 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 	if(rad_prod != n/2)
 	{
 		fprintf(stderr,"N = %u, radix_set = %u : product of complex radices %u != (FFT length/2)\n", n, radix_set, rad_prod);
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 	}
 
 	return 0;
@@ -2596,18 +2596,18 @@ void	test_fft_radixtables()
 			}
 			else if(retval == ERR_RADIXSET_UNAVAILABLE)
 			{
-				ASSERT(HERE, radset != 0, "test_fft_radixtables: Should only see ERR_RADIXSET_UNAVAILABLE for nonzero radix set index!");
+				ASSERT(radset != 0, "test_fft_radixtables: Should only see ERR_RADIXSET_UNAVAILABLE for nonzero radix set index!");
 				break;
 			}
 			else if(retval == ERR_FFTLENGTH_ILLEGAL)
 			{
 				fprintf(stderr,"ERROR: illegal FFT length %u K in test_fft_radixtables self-test!\n",kblocks);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 			else
 			{
 				fprintf(stderr,"ERROR: unknown return value %d in test_fft_radixtables self-test; i = %d, kblocks = %u, radset = %u.\n", retval, i, kblocks, radset);
-				ASSERT(HERE, 0,"0");
+				ASSERT(0,"0");
 			}
 		}
 		++i;
@@ -2624,18 +2624,18 @@ uint32 get_default_fft_length(uint64 p)
 	uint32 leadingRadixVec[N_LEADING_RADICES] = {8,9,10,11,12,13,14,15};
 	uint32 i, twoK, fftLen;
 
-	ASSERT(HERE, PMAX > PMIN,"get_default_fft_length: PMAX > PMIN");
+	ASSERT(PMAX > PMIN,"get_default_fft_length: PMAX > PMIN");
 	if(p < PMIN || p > PMAX)
 	{
 		fprintf(stderr,"get_default_fft_length: invalid value for exponent %llu\n",p);
-		ASSERT(HERE, 0,"0");
+		ASSERT(0,"0");
 		return 0;
 	}
 
 	/* Starting with N = 1K, Loop over all FFT lengths of form {8,9,10,11,12,13,14,15}*2^m,
 	and return the smallest one for which maxP >= p: */
 	i = 0;
-	ASSERT(HERE, 1024%leadingRadixVec[i] == 0,"get_default_fft_length: 1024%leadingRadixVec[0] == 0");
+	ASSERT(1024%leadingRadixVec[i] == 0,"get_default_fft_length: 1024%leadingRadixVec[0] == 0");
 	twoK = 1024/leadingRadixVec[i];
 	fftLen = leadingRadixVec[i]*twoK;
 	for(;;)
@@ -2664,7 +2664,7 @@ uint32 get_default_fft_length(uint64 p)
 	if((fftLen >> 10) == 589824)
 		fprintf(stderr,"get_default_fft_length: Allowing fftLen 576M just for informational purposes ... note this length is not supported.\n");
 	else
-		ASSERT(HERE, 0,"get_default_fft_length: fftLen > MAX_FFT_LENGTH_IN_K!");
+		ASSERT(0,"get_default_fft_length: fftLen > MAX_FFT_LENGTH_IN_K!");
 	return 0;
 }
 
@@ -2679,7 +2679,7 @@ uint32 get_nextlarger_fft_length(uint32 n)
 	if(get_fft_radices((n >> 10), 0, 0x0, 0x0, 0) != 0)
 	{
 		sprintf(cbuf, "get_nextlarger_fft_length: Illegal or Unsupported input FFT length %u\n", n);
-		ASSERT(HERE, 0, cbuf);
+		ASSERT(0, cbuf);
 	}
 
 	/* Extract leading 4 bits of input FFT lengths, thus decomposing it into the form {8,9,10,11,12,13,14,15}*2^m,
@@ -2688,7 +2688,7 @@ uint32 get_nextlarger_fft_length(uint32 n)
 	*/
 	rem2 = 32 - leadz32(n) - 4;
 	lead4 = n >> rem2;
-	ASSERT(HERE, lead4 > 7 && lead4 < 16,"get_nextlarger_fft_length: leading 4 bits of input FFT length out of range!");
+	ASSERT(lead4 > 7 && lead4 < 16,"get_nextlarger_fft_length: leading 4 bits of input FFT length out of range!");
 
 	/* Make sure next-larger FFT length is supported: */
 	++lead4;

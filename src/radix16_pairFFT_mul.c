@@ -247,7 +247,7 @@ void radix16_pairFFT_mul(
 	if(INIT_ARRAYS)
 	{
 		nsave = n;
-		ASSERT(HERE, N2 == n/2, "N2 bad!");
+		ASSERT(N2 == n/2, "N2 bad!");
 
 	#if SYMM == 2	// Use complex-plane symmetries to reduce fraction of rt1 array actually needed
 		nh = n/(NRT<<2);	// #rt1 elts in each quadrant
@@ -282,7 +282,7 @@ void radix16_pairFFT_mul(
 			free((void *)index_ptmp);	index_ptmp=0x0;
 		}
 		index_ptmp = ALLOC_INT(index_ptmp, N2/16);
-		ASSERT(HERE, index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
+		ASSERT(index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.
@@ -321,7 +321,7 @@ void radix16_pairFFT_mul(
 		  if(j2_start == n-32)break;
 
 		  blocklen_sum = blocklen_sum + blocklen;
-		  ASSERT(HERE, i != 0,"ERROR 10!");
+		  ASSERT(i != 0,"ERROR 10!");
 		  blocklen = (radix_prim[i-1]-1)*blocklen_sum;
 
 		  j2_start = j2_start+(blocklen<<2);
@@ -342,14 +342,14 @@ void radix16_pairFFT_mul(
 	/*...If a new runlength, should not get to this point: */
 	if(n != nsave) {
 		sprintf(cbuf,"ERROR: %s: INIT_ARRAYS not invoked for new runlength!",func);
-		ASSERT(HERE, 0,cbuf);
+		ASSERT(0,cbuf);
 	}
 
 	/* If precomputing a forward FFT of a set of inputs, make sure
 	they're in the uv-vector and the abcd-multiplier vectors are null: */
 	if(FORWARD_FFT_ONLY == 1 && (ab_mul != 0x0 || cd_mul != 0x0)) {
 		sprintf(cbuf,"%s: FORWARD_FFT_ONLY = TRUE but non-null abcd-multiplier vectors!",func);
-		ASSERT(HERE, 0,cbuf);
+		ASSERT(0,cbuf);
 	}
 
 /* Init the loop-control variables: */
@@ -1179,7 +1179,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 			// Dec 2015: Despite all my efforts, simply not yet able to wring out remaining bug(s) in indexing scheme
 			// here. If and when I do finally get things working, also need to fuse the 2 x PAIR_MUL occurrences on
 			// each line into a working single ABCD_MUL macro, which avoids the work-duplication of the 2 x PAIR_MUL:
-			ASSERT(HERE, 0, "Linear-combo algorithm not yet working!");
+			ASSERT(0, "Linear-combo algorithm not yet working!");
 			/*
 			Dyadic muls of the forward FFT outputs with the corresponding a/b and c/d-vector data so as to
 			obtain FFT(a*u-b*v, c*u-d*v). u,v in ajp*r,i; a,b in ab_mul[even,odd]; c,d in cd_mul[even,odd]:

@@ -229,8 +229,12 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 	__device__
 	void	ASSERT(long line, char*file, int expr, char*assert_string);
 #else
-	void	ASSERT	(long line, char*file, int expr, char*assert_string);
+	// void	ASSERT	(long line, char*file, int expr, char*assert_string);
+	void _ASSERT(const char*assertion, const char*file, long line, const char*func, bool expr, const char*assert_string);
 #endif
+
+#define ASSERT(expr, assert_string) _ASSERT(#expr, __FILE__, __LINE__, __func__, (expr), assert_string)
+
 void	VAR_WARN(char *typelist, ...);
 
 void	byte_bitstr(const uint8  byte, char*ostr);

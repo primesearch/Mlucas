@@ -58,7 +58,7 @@ uint64 twopmodq128_96(uint64 p, uint64 k)
 if(dbg)printf("twopmodq128_96:\n");
 #endif
 
-	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;	q.d1 = 0;
 #ifdef MUL_LOHI64_SUBROUTINE
 	MUL_LOHI64(q.d0, k,&q.d0,&q.d1);
@@ -66,7 +66,7 @@ if(dbg)printf("twopmodq128_96:\n");
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
 #endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
-	ASSERT(HERE, (q.d1 >> 32) == 0, "(q.d1 >> 32) != 0");
+	ASSERT((q.d1 >> 32) == 0, "(q.d1 >> 32) != 0");
 
 	if(first_entry || p != psave)
 	{
@@ -105,7 +105,7 @@ if(dbg)printf("twopmodq128_96:\n");
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq128_96 : (q.d0 & (uint64)1) == 1");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmodq128_96 : (q.d0 & (uint64)1) == 1");
 #endif
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = (uint64)0;
@@ -144,7 +144,7 @@ if(dbg)printf("twopmodq128_96:\n");
 #endif
 
 #if FAC_DEBUG
-	ASSERT(HERE, qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128_96 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
+	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128_96 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
 #endif
 
 #if FAC_DEBUG
@@ -182,7 +182,7 @@ if(dbg)printf("twopmodq128_96:\n");
 	if((pshift >> j) & (uint64)1)
 	{
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x,q), "twopmodq128_96 : CMPULT128(x,q)");
+		ASSERT(CMPULT128(x,q), "twopmodq128_96 : CMPULT128(x,q)");
 	#endif
 		ADD128(x,x,x);
 		if(CMPULE128(q,x)) SUB128(x,q,x);
@@ -223,7 +223,7 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_bu
 		if((pshift >> j) & (uint64)1)
 		{
 		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x,q), "twopmodq128_96 : CMPULT128(x,q)");
+			ASSERT(CMPULT128(x,q), "twopmodq128_96 : CMPULT128(x,q)");
 		#endif
 			ADD128(x,x,x);	/* Since we're using 128-bit arithmetic for the add, x+x cannot overflow. */
 			if(CMPULE128(q,x)) SUB128(x,q,x);
@@ -298,7 +298,7 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	if(dbg)	printf("start_index = %u\n", (uint32)start_index);
 #endif
 
-	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
 	q0.d1 = q1.d1 = q2.d1 = q3.d1 = 0;
 #ifdef MUL_LOHI64_SUBROUTINE
@@ -312,10 +312,10 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 	MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
 #endif
-	ASSERT(HERE, (q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
-	ASSERT(HERE, (q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
-	ASSERT(HERE, (q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
-	ASSERT(HERE, (q3.d1 >> 32) == 0, "(q3.d1 >> 32) != 0");
+	ASSERT((q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
+	ASSERT((q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
+	ASSERT((q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
+	ASSERT((q3.d1 >> 32) == 0, "(q3.d1 >> 32) != 0");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
@@ -324,10 +324,10 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
-	ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q0.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q1.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q1.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q2.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q2.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q3.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q3.d0 & (uint64)1) == 1");
+	ASSERT((q0.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q0.d0 & (uint64)1) == 1");
+	ASSERT((q1.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q1.d0 & (uint64)1) == 1");
+	ASSERT((q2.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q2.d0 & (uint64)1) == 1");
+	ASSERT((q3.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q3.d0 & (uint64)1) == 1");
 #endif
 	qinv0.d0 = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1 = (uint64)0;
 	qinv1.d0 = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1.d1 = (uint64)0;
@@ -420,10 +420,10 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	if((pshift >> j) & (uint64)1)
 	{
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x0, q0), "twopmodq128_96_q4 : CMPULT128(x0, q0)");
-		ASSERT(HERE, CMPULT128(x1, q1), "twopmodq128_96_q4 : CMPULT128(x1, q1)");
-		ASSERT(HERE, CMPULT128(x2, q2), "twopmodq128_96_q4 : CMPULT128(x2, q2)");
-		ASSERT(HERE, CMPULT128(x3, q3), "twopmodq128_96_q4 : CMPULT128(x3, q3)");
+		ASSERT(CMPULT128(x0, q0), "twopmodq128_96_q4 : CMPULT128(x0, q0)");
+		ASSERT(CMPULT128(x1, q1), "twopmodq128_96_q4 : CMPULT128(x1, q1)");
+		ASSERT(CMPULT128(x2, q2), "twopmodq128_96_q4 : CMPULT128(x2, q2)");
+		ASSERT(CMPULT128(x3, q3), "twopmodq128_96_q4 : CMPULT128(x3, q3)");
 	#endif
 		ADD128(x0, x0, x0);
 		ADD128(x1, x1, x1);
@@ -468,10 +468,10 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 
 		/* For unknown reasons, the 8-operand version of MULL128 was slower than one-at-a-time. */
 #if FAC_DEBUG
-	ASSERT(HERE, CMPEQ128(lo,lo0), "twopmodq128_96_q4 : CMPEQ128(SQR_LO)");
-	ASSERT(HERE, hi.d1 == 0      , "twopmodq128_96_q4 : hi.d1 != 0");
+	ASSERT(CMPEQ128(lo,lo0), "twopmodq128_96_q4 : CMPEQ128(SQR_LO)");
+	ASSERT(hi.d1 == 0      , "twopmodq128_96_q4 : hi.d1 != 0");
 	hi64 = hi.d0;
-	ASSERT(HERE, hi64 == hi0     , "twopmodq128_96_q4 : CMPEQ128(SQR_HI)");
+	ASSERT(hi64 == hi0     , "twopmodq128_96_q4 : CMPEQ128(SQR_HI)");
 	x=lo0;y=qinv0;
 	MULL128(x,y,lo);
 #endif
@@ -484,11 +484,11 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	/* Need to be careful about the order of the 2 inputs here,
 	as MULH128x96 assumes the 2nd input is the one which is < 2^96: */
 #if FAC_DEBUG
-	ASSERT(HERE, CMPEQ128(lo,lo0), "twopmodq128_96_q4 : CMPEQ128(MULL128)");
+	ASSERT(CMPEQ128(lo,lo0), "twopmodq128_96_q4 : CMPEQ128(MULL128)");
 	x=lo0;y=q0;
 	MULH128(x,y,lo);
 	MULH128(y,x,hi);
-	ASSERT(HERE, CMPEQ128(lo, hi), "twopmodq128_96_q4 : MULH(X,Y) != MULH(Y,X)");
+	ASSERT(CMPEQ128(lo, hi), "twopmodq128_96_q4 : MULH(X,Y) != MULH(Y,X)");
 #endif
 		MULH128x96_q4(
 		  lo0, q0, lo0
@@ -503,7 +503,7 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 		, q3, lo3, lo3);
 	#endif
 #if FAC_DEBUG
-	ASSERT(HERE, CMPEQ128(lo,lo0), "twopmodq128_96_q4 : CMPEQ128(MULH())");
+	ASSERT(CMPEQ128(lo,lo0), "twopmodq128_96_q4 : CMPEQ128(MULH())");
 	/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 	if(lo.d1 != 0 || hi64 < lo.d0)
 	{
@@ -523,7 +523,7 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 		if(lo2.d1 != 0 || hi2 < lo2.d0){ SUB128(q2, lo2, x2);	x2.d0 +=  hi2; x2.d1 += (x2.d0 < hi2); } else { x2.d0 =  hi2 - lo2.d0; x2.d1 = (uint64)0; }
 		if(lo3.d1 != 0 || hi3 < lo3.d0){ SUB128(q3, lo3, x3);	x3.d0 +=  hi3; x3.d1 += (x3.d0 < hi3); } else { x3.d0 =  hi3 - lo3.d0; x3.d1 = (uint64)0; }
 #if FAC_DEBUG
-	ASSERT(HERE, CMPEQ128( x, x0), "twopmodq128_96_q4 : CMPEQ128(MULH())");
+	ASSERT(CMPEQ128( x, x0), "twopmodq128_96_q4 : CMPEQ128(MULH())");
 #endif
 
 #if FAC_DEBUG
@@ -537,10 +537,10 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_bu
 	if(CMPULE128(q0,x)) SUB128(x,q0,x);
 #endif
 		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x0, q0), "twopmodq128_96_q4 : CMPULT128(x0, q0)");
-			ASSERT(HERE, CMPULT128(x1, q1), "twopmodq128_96_q4 : CMPULT128(x1, q1)");
-			ASSERT(HERE, CMPULT128(x2, q2), "twopmodq128_96_q4 : CMPULT128(x2, q2)");
-			ASSERT(HERE, CMPULT128(x3, q3), "twopmodq128_96_q4 : CMPULT128(x3, q3)");
+			ASSERT(CMPULT128(x0, q0), "twopmodq128_96_q4 : CMPULT128(x0, q0)");
+			ASSERT(CMPULT128(x1, q1), "twopmodq128_96_q4 : CMPULT128(x1, q1)");
+			ASSERT(CMPULT128(x2, q2), "twopmodq128_96_q4 : CMPULT128(x2, q2)");
+			ASSERT(CMPULT128(x3, q3), "twopmodq128_96_q4 : CMPULT128(x3, q3)");
 		#endif
 			ADD128(x0, x0, x0);
 			ADD128(x1, x1, x1);
@@ -557,7 +557,7 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_bu
 		}
 #if FAC_DEBUG
 if(dbg)printf("\n");
-	ASSERT(HERE, CMPEQ128( x, x0), "twopmodq128_96_q4 : CMPEQ128(MULH())");
+	ASSERT(CMPEQ128( x, x0), "twopmodq128_96_q4 : CMPEQ128(MULH())");
 #endif
 	}
 
@@ -638,7 +638,7 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 		pshift = ~pshift;
 	}
 
-	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
 	q0.d1 = q1.d1 = q2.d1 = q3.d1 = q4.d1 = q5.d1 = q6.d1 = q7.d1 = 0;
 #ifdef MUL_LOHI64_SUBROUTINE
@@ -669,28 +669,28 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	q5.d0 += 1;
 	q6.d0 += 1;
 	q7.d0 += 1;
-	ASSERT(HERE, (q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
-	ASSERT(HERE, (q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
-	ASSERT(HERE, (q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
-	ASSERT(HERE, (q3.d1 >> 32) == 0, "(q3.d1 >> 32) != 0");
-	ASSERT(HERE, (q4.d1 >> 32) == 0, "(q4.d1 >> 32) != 0");
-	ASSERT(HERE, (q5.d1 >> 32) == 0, "(q5.d1 >> 32) != 0");
-	ASSERT(HERE, (q6.d1 >> 32) == 0, "(q6.d1 >> 32) != 0");
-	ASSERT(HERE, (q7.d1 >> 32) == 0, "(q7.d1 >> 32) != 0");
+	ASSERT((q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
+	ASSERT((q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
+	ASSERT((q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
+	ASSERT((q3.d1 >> 32) == 0, "(q3.d1 >> 32) != 0");
+	ASSERT((q4.d1 >> 32) == 0, "(q4.d1 >> 32) != 0");
+	ASSERT((q5.d1 >> 32) == 0, "(q5.d1 >> 32) != 0");
+	ASSERT((q6.d1 >> 32) == 0, "(q6.d1 >> 32) != 0");
+	ASSERT((q7.d1 >> 32) == 0, "(q7.d1 >> 32) != 0");
 
 	/*
 	!    Find modular inverse (mod 2^128) of q in preparation for modular multiply.
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
-	ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q0.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q1.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q1.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q2.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q2.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q3.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q3.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q4.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q4.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q5.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q5.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q6.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q6.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q7.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q7.d0 & (uint64)1) == 1");
+	ASSERT((q0.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q0.d0 & (uint64)1) == 1");
+	ASSERT((q1.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q1.d0 & (uint64)1) == 1");
+	ASSERT((q2.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q2.d0 & (uint64)1) == 1");
+	ASSERT((q3.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q3.d0 & (uint64)1) == 1");
+	ASSERT((q4.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q4.d0 & (uint64)1) == 1");
+	ASSERT((q5.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q5.d0 & (uint64)1) == 1");
+	ASSERT((q6.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q6.d0 & (uint64)1) == 1");
+	ASSERT((q7.d0 & (uint64)1) == 1, "twopmodq128_96_q8 : (q7.d0 & (uint64)1) == 1");
 #endif
 	qinv0.d0 = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1 = (uint64)0;
 	qinv1.d0 = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1.d1 = (uint64)0;
@@ -801,14 +801,14 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	if((pshift >> j) & (uint64)1)
 	{
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x0, q0), "twopmodq128_96_q8 : CMPULT128(x0, q0)");
-		ASSERT(HERE, CMPULT128(x1, q1), "twopmodq128_96_q8 : CMPULT128(x1, q1)");
-		ASSERT(HERE, CMPULT128(x2, q2), "twopmodq128_96_q8 : CMPULT128(x2, q2)");
-		ASSERT(HERE, CMPULT128(x3, q3), "twopmodq128_96_q8 : CMPULT128(x3, q3)");
-		ASSERT(HERE, CMPULT128(x4, q4), "twopmodq128_96_q8 : CMPULT128(x4, q4)");
-		ASSERT(HERE, CMPULT128(x5, q5), "twopmodq128_96_q8 : CMPULT128(x5, q5)");
-		ASSERT(HERE, CMPULT128(x6, q6), "twopmodq128_96_q8 : CMPULT128(x6, q6)");
-		ASSERT(HERE, CMPULT128(x7, q7), "twopmodq128_96_q8 : CMPULT128(x7, q7)");
+		ASSERT(CMPULT128(x0, q0), "twopmodq128_96_q8 : CMPULT128(x0, q0)");
+		ASSERT(CMPULT128(x1, q1), "twopmodq128_96_q8 : CMPULT128(x1, q1)");
+		ASSERT(CMPULT128(x2, q2), "twopmodq128_96_q8 : CMPULT128(x2, q2)");
+		ASSERT(CMPULT128(x3, q3), "twopmodq128_96_q8 : CMPULT128(x3, q3)");
+		ASSERT(CMPULT128(x4, q4), "twopmodq128_96_q8 : CMPULT128(x4, q4)");
+		ASSERT(CMPULT128(x5, q5), "twopmodq128_96_q8 : CMPULT128(x5, q5)");
+		ASSERT(CMPULT128(x6, q6), "twopmodq128_96_q8 : CMPULT128(x6, q6)");
+		ASSERT(CMPULT128(x7, q7), "twopmodq128_96_q8 : CMPULT128(x7, q7)");
 	#endif
 		ADD128(x0, x0, x0);
 		ADD128(x1, x1, x1);
@@ -929,14 +929,14 @@ if(dbg)printf("j = %2d, Res = %20llu + 2^64* %20llu",j,x0.d0,x0.d1);
 		if((pshift >> j) & (uint64)1)
 		{
 		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x0, q0), "twopmodq128_96_q8 : CMPULT128(x0, q0)");
-			ASSERT(HERE, CMPULT128(x1, q1), "twopmodq128_96_q8 : CMPULT128(x1, q1)");
-			ASSERT(HERE, CMPULT128(x2, q2), "twopmodq128_96_q8 : CMPULT128(x2, q2)");
-			ASSERT(HERE, CMPULT128(x3, q3), "twopmodq128_96_q8 : CMPULT128(x3, q3)");
-			ASSERT(HERE, CMPULT128(x4, q4), "twopmodq128_96_q8 : CMPULT128(x4, q4)");
-			ASSERT(HERE, CMPULT128(x5, q5), "twopmodq128_96_q8 : CMPULT128(x5, q5)");
-			ASSERT(HERE, CMPULT128(x6, q6), "twopmodq128_96_q8 : CMPULT128(x6, q6)");
-			ASSERT(HERE, CMPULT128(x7, q7), "twopmodq128_96_q8 : CMPULT128(x7, q7)");
+			ASSERT(CMPULT128(x0, q0), "twopmodq128_96_q8 : CMPULT128(x0, q0)");
+			ASSERT(CMPULT128(x1, q1), "twopmodq128_96_q8 : CMPULT128(x1, q1)");
+			ASSERT(CMPULT128(x2, q2), "twopmodq128_96_q8 : CMPULT128(x2, q2)");
+			ASSERT(CMPULT128(x3, q3), "twopmodq128_96_q8 : CMPULT128(x3, q3)");
+			ASSERT(CMPULT128(x4, q4), "twopmodq128_96_q8 : CMPULT128(x4, q4)");
+			ASSERT(CMPULT128(x5, q5), "twopmodq128_96_q8 : CMPULT128(x5, q5)");
+			ASSERT(CMPULT128(x6, q6), "twopmodq128_96_q8 : CMPULT128(x6, q6)");
+			ASSERT(CMPULT128(x7, q7), "twopmodq128_96_q8 : CMPULT128(x7, q7)");
 		#endif
 			ADD128(x0, x0, x0);
 			ADD128(x1, x1, x1);

@@ -1866,7 +1866,7 @@ to balanced-digit floating-point form. Outputs have the following size ranges:
 	uint64 __tmp64;\
 	int64 __itmp, __cy;\
 	\
-	DBG_ASSERT(HERE, (__x.d1 >> 14) == 0, "Input > 78-bit limit!");\
+	DBG_ASSERT((__x.d1 >> 14) == 0, "Input > 78-bit limit!");\
 	\
 	/* Digit 0: */\
 	__tmp64 = __x.d0;\
@@ -1892,7 +1892,7 @@ to balanced-digit floating-point form. Outputs have the following size ranges:
 	/* No balanced-digit normalization of MSW: */\
 	__fword2 = (double)__tmp64;\
 	\
-	DBG_ASSERT(HERE, __fword2 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
+	DBG_ASSERT(__fword2 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
 }
 
 /* Converts a 78-bit unsigned input __x (stored in balanced-digit
@@ -1907,7 +1907,7 @@ floating-point form) to a uint96. Assumes the FP input is properly normalized.
 	if(__itmp < 0)	/* If current digit < 0, add the base and set carry = -1	*/\
 	{\
 		__itmp += TWO26FLOAT;\
-		DBG_ASSERT(HERE, __itmp >= 0, "Normalized digit still < 0!");\
+		DBG_ASSERT(__itmp >= 0, "Normalized digit still < 0!");\
 		__cy = -1;\
 	}\
 	else\
@@ -1921,7 +1921,7 @@ floating-point form) to a uint96. Assumes the FP input is properly normalized.
 	if(__itmp < 0)\
 	{\
 		__itmp += TWO26FLOAT;\
-		DBG_ASSERT(HERE, __itmp >= 0, "Normalized digit still < 0!");\
+		DBG_ASSERT(__itmp >= 0, "Normalized digit still < 0!");\
 		__cy = -1;\
 	}\
 	else\
@@ -1935,7 +1935,7 @@ floating-point form) to a uint96. Assumes the FP input is properly normalized.
 	if(__itmp < 0)\
 	{\
 		__itmp += TWO26FLOAT;\
-		DBG_ASSERT(HERE, __itmp >= 0, "Normalized digit still < 0!");\
+		DBG_ASSERT(__itmp >= 0, "Normalized digit still < 0!");\
 		__cy = -1;\
 	}\
 	else\
@@ -1945,8 +1945,8 @@ floating-point form) to a uint96. Assumes the FP input is properly normalized.
 	__x.d0 += ((uint64)__itmp << 52);\
 	__x.d1  = ((uint64)__itmp >> 12) & 0x0000000000003fff;	/* Only case where we really need the (uint64) cast */\
 	\
-	DBG_ASSERT(HERE, (__x.d1 >> 14) == 0, "Output > 78-bit limit!");\
-	DBG_ASSERT(HERE,  __cy          == 0, "Nonzero exit carry!");\
+	DBG_ASSERT((__x.d1 >> 14) == 0, "Output > 78-bit limit!");\
+	DBG_ASSERT(__cy          == 0, "Nonzero exit carry!");\
 }
 
 /* Takes a 78-bit unsigned input __x stored in balanced-digit floating-point form
@@ -1968,8 +1968,8 @@ and renormalizes with respect to the balanced-digit base.
 	/* Digit 2: */\
 	__x2 += __fcy;\
 	\
-	DBG_ASSERT(HERE, __x2 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __x2 >= 0         , "MSW < 0!");\
+	DBG_ASSERT(__x2 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
+	DBG_ASSERT(__x2 >= 0         , "MSW < 0!");\
 }
 
 /* Takes a 156-bit unsigned input __x stored in balanced-digit floating-point form
@@ -2013,10 +2013,10 @@ separately, we require the MSW of each to be nonnegative, i.e. we don't balance 
 	/* Digit 5: */\
 	__x5 += __fcy;\
 	\
-	DBG_ASSERT(HERE, __x2 >= 0         , "_x2 < 0!");\
-	DBG_ASSERT(HERE, __x2 <= TWO26FLOAT, "_x2 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __x5 >= 0         , "MSW < 0!");\
-	DBG_ASSERT(HERE, __x5 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
+	DBG_ASSERT(__x2 >= 0         , "_x2 < 0!");\
+	DBG_ASSERT(__x2 <= TWO26FLOAT, "_x2 > TWO26FLOAT");\
+	DBG_ASSERT(__x5 >= 0         , "MSW < 0!");\
+	DBG_ASSERT(__x5 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
 }
 
 /**********************************************************************************/
@@ -2069,9 +2069,9 @@ ASSUMES:
 	double __fcy;\
 	uint32 __itmp;\
 	\
-	DBG_ASSERT(HERE, __fx0 < TWO26FLOAT, "x0 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __fx1 < TWO26FLOAT, "x1 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __fx2 < TWO26FLOAT, "x2 > TWO26FLOAT");\
+	DBG_ASSERT(__fx0 < TWO26FLOAT, "x0 > TWO26FLOAT");\
+	DBG_ASSERT(__fx1 < TWO26FLOAT, "x1 > TWO26FLOAT");\
+	DBG_ASSERT(__fx2 < TWO26FLOAT, "x2 > TWO26FLOAT");\
 	\
 	/* Digit 0: */\
 	__fprod0  =  __fx0*__fx0;\
@@ -2105,10 +2105,10 @@ ASSUMES:
 	/* Digit 5: */\
 	__fprod5  = __fcy;\
 	\
-	DBG_ASSERT(HERE, __fprod2 >= 0         , "_x2 < 0!");\
-	DBG_ASSERT(HERE, __fprod2 <= TWO26FLOAT, "_x2 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __fprod5 >= 0         , "MSW < 0!");\
-	DBG_ASSERT(HERE, __fprod5 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
+	DBG_ASSERT(__fprod2 >= 0         , "_x2 < 0!");\
+	DBG_ASSERT(__fprod2 <= TWO26FLOAT, "_x2 > TWO26FLOAT");\
+	DBG_ASSERT(__fprod5 >= 0         , "MSW < 0!");\
+	DBG_ASSERT(__fprod5 <= TWO26FLOAT, "MSW > TWO26FLOAT");\
 }
 
 #ifdef __CUDACC__
@@ -2483,7 +2483,7 @@ double __mo52 = fma(__y1,TWO26FLOAT,__y0);	/* mo52 = y0 + y1*2^26 */\
 		__itmp   = (__lo2 < 0);\
 		__lo2   += (double)(__itmp << 26);\
 		/* Require output to be nonnegative, so leave MSW unbalanced: */\
-		DBG_ASSERT(HERE, __lo2 >= 0, "MSW < 0!");\
+		DBG_ASSERT(__lo2 >= 0, "MSW < 0!");\
 	}
 
 #endif
@@ -2564,13 +2564,13 @@ we code so that any or all of __X, __Y and __LO may have the same addresses.
 	double __fcy, __tmp, __prod3, __prod4;\
 	uint32 __itmp;\
 	\
-	DBG_ASSERT(HERE, __x0 < TWO26FLOAT, "x0 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __x1 < TWO26FLOAT, "x1 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __x2 < TWO26FLOAT, "x2 > TWO26FLOAT");\
+	DBG_ASSERT(__x0 < TWO26FLOAT, "x0 > TWO26FLOAT");\
+	DBG_ASSERT(__x1 < TWO26FLOAT, "x1 > TWO26FLOAT");\
+	DBG_ASSERT(__x2 < TWO26FLOAT, "x2 > TWO26FLOAT");\
 	\
-	DBG_ASSERT(HERE, __y0 < TWO26FLOAT, "y0 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __y1 < TWO26FLOAT, "y1 > TWO26FLOAT");\
-	DBG_ASSERT(HERE, __y2 < TWO26FLOAT, "y2 > TWO26FLOAT");\
+	DBG_ASSERT(__y0 < TWO26FLOAT, "y0 > TWO26FLOAT");\
+	DBG_ASSERT(__y1 < TWO26FLOAT, "y1 > TWO26FLOAT");\
+	DBG_ASSERT(__y2 < TWO26FLOAT, "y2 > TWO26FLOAT");\
 	\
 	/* Digit 0: */\
 	__tmp  =  __x0*__y0;\
@@ -2610,7 +2610,7 @@ we code so that any or all of __X, __Y and __LO may have the same addresses.
 	/* Digit 5: */\
 	__hi2    = __fcy;\
 	\
-	DBG_ASSERT(HERE, __hi2 >= 0, "MSW < 0!");\
+	DBG_ASSERT(__hi2 >= 0, "MSW < 0!");\
 }
 
 #ifdef __CUDACC__
