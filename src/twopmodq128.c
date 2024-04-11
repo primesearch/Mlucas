@@ -1159,7 +1159,7 @@ if(dbg) printf("twopmodq128_q8:\n");
 	for(j = start_index-2; j >= 0; j--)
 	{
 #if FAC_DEBUG
-if(dbg) printf("A: x = %20llu + 2^64* %20llu\n",x0.d0,x0.d1);
+if(dbg) printf("A: x = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0,x0.d1);
 #endif
 	#if THREE_OP128
 		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
@@ -1206,8 +1206,8 @@ if(dbg) printf("A: x = %20llu + 2^64* %20llu\n",x0.d0,x0.d1);
 		, x6, lo6, hi6
 		, x7, lo7, hi7);
 #if FAC_DEBUG
-if(dbg) printf("B: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
-if(dbg) printf("B: h = %20llu + 2^64* %20llu\n",hi0.d0,hi0.d1);
+if(dbg) printf("B: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
+if(dbg) printf("B: h = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",hi0.d0,hi0.d1);
 #endif
 
 		/* For unknown reasons, the 8-operand version of MULL128 was slower than one-at-a-time. */
@@ -1242,7 +1242,7 @@ if(dbg) printf("B: h = %20llu + 2^64* %20llu\n",hi0.d0,hi0.d1);
 		MULL128(lo7, qinv7, lo7);
 		*/
 #if FAC_DEBUG
-if(dbg) printf("C: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
+if(dbg) printf("C: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
 
 		MULH128_q8(
@@ -1275,7 +1275,7 @@ if(dbg) printf("C: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
 		MULH128(lo7, q7, lo7);
 		*/
 #if FAC_DEBUG
-if(dbg) printf("D: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
+if(dbg) printf("D: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
 	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
@@ -1288,7 +1288,7 @@ if(dbg) printf("D: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
 		if(CMPULT128(hi6, lo6)) { SUB128(q6, lo6, lo6);	ADD128(lo6, hi6, x6); } else { SUB128(hi6, lo6, x6); }
 		if(CMPULT128(hi7, lo7)) { SUB128(q7, lo7, lo7);	ADD128(lo7, hi7, x7); } else { SUB128(hi7, lo7, x7); }
 #if FAC_DEBUG
-if(dbg) printf("j = %2d, Res = %20llu + 2^64* %20llu",j,x0.d0,x0.d1);
+if(dbg) printf("j = %2d, Res = %20" PRIu64 " + 2^64* %20" PRIu64,j,x0.d0,x0.d1);
 #endif
 
 		if(TEST_BIT128(pshift, j))
@@ -1303,7 +1303,7 @@ if(dbg) printf("j = %2d, Res = %20llu + 2^64* %20llu",j,x0.d0,x0.d1);
 			if(CMPUGT128(x6, qhalf6)){ ADD128(x6, x6, x6); SUB128(x6, q6, x6); }else{ ADD128(x6, x6, x6); }
 			if(CMPUGT128(x7, qhalf7)){ ADD128(x7, x7, x7); SUB128(x7, q7, x7); }else{ ADD128(x7, x7, x7); }
 #if FAC_DEBUG
-if(dbg) printf(" *2 = %20llu + 2^64* %20llu",x0.d0,x0.d1);
+if(dbg) printf(" *2 = %20" PRIu64 " + 2^64* %20" PRIu64,x0.d0,x0.d1);
 #endif
 		}
 #if FAC_DEBUG
@@ -1341,7 +1341,7 @@ if(dbg) printf("\n");
 	SUB128(x7, q7, x7);
 
 #if FAC_DEBUG
-if(dbg) printf("x0 = %20llu + 2^64* %20llu\n",x0.d0, x0.d1);
+if(dbg) printf("x0 = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0, x0.d1);
 #endif
 
 	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */

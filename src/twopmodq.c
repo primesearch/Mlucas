@@ -233,7 +233,7 @@ uint32 test_twopmodq64(uint32 imax)
 	  #endif
 		mi64_div(prod128, &q, 2,1, 0x0,&rem);	// Omit quotient computation; remainder in rem
 		if(rem != 1) {
-			fprintf(stderr,"Mismatch in test_twopmodq64: p = %llu; q = %llu: 2^[+|-p] (mod q) = %llu, %llu.\n",p,q,pos,neg);
+			fprintf(stderr,"Mismatch in test_twopmodq64: p = %" PRIu64 "; q = %" PRIu64 ": 2^[+|-p] (mod q) = %" PRIu64 ", %" PRIu64 ".\n",p,q,pos,neg);
 			return 1;
 		}
 	}
@@ -454,7 +454,7 @@ uint64 twopmodq63(uint64 p, uint64 q)
 uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 //int dbg = ( (p == (1ull<<32)) && ( (k0 == 2958ull) || (k1 == 2958ull) || (k2 == 2958ull) || (k3 == 2958ull) ) );
-//if(dbg) printf("Hit! k0-3 = %llu, %llu, %llu, %llu\n",k0, k1, k2, k3);
+//if(dbg) printf("Hit! k0-3 = %" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 "\n",k0, k1, k2, k3);
 	 int32 j;
 	uint32 q32_0, q32_1, q32_2, q32_3;
 	uint32 qinv32_0, qinv32_1, qinv32_2, qinv32_3;
@@ -552,7 +552,7 @@ uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		x3 = x3 + x3 - (q3 & -(x3 >= qhalf3));
 	}
 
-//if(dbg) printf("q1 = %llu: x1 = %llu\n",q1,x1);
+//if(dbg) printf("q1 = %" PRIu64 ": x1 = %" PRIu64 "\n",q1,x1);
 	for(j = start_index-2; j >= 0; j--)
 	{
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
@@ -618,14 +618,14 @@ uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 			if(x2 >= q2) x2 -= q2;
 			if(x3 >= q3) x3 -= q3;
 		#endif
-//if(dbg) printf("2*x^2 = %llu\n",x1);
+//if(dbg) printf("2*x^2 = %" PRIu64 "\n",x1);
  		} else {
-//if(dbg) printf("  x^2 = %llu\n",x1);
+//if(dbg) printf("  x^2 = %" PRIu64 "\n",x1);
 		}
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-//if(dbg) printf("xout = %llu\n",x1+x1-q1+FERMAT);
+//if(dbg) printf("xout = %" PRIu64 "\n",x1+x1-q1+FERMAT);
 	r = 0;
 	if(x0+x0-q0+FERMAT == 1)r += 1;
 	if(x1+x1-q1+FERMAT == 1)r += 2;
@@ -1195,7 +1195,7 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 //	debug = (q == 640126220763136ull);	/* Uncomment (debug = ...) part and customize q to enable debug-printing */
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 pshift, qhalf, qinv, x, rsqr;
-	if(debug) printf("twopmmodq64: computing 2^%llu (mod %llu)\n",p,q);
+	if(debug) printf("twopmmodq64: computing 2^%" PRIu64 " (mod %" PRIu64 ")\n",p,q);
 	// If p <= 64, directly compute 2^p (mod q):
 	if(p < 64)
 		return (1ull < p) % q;
@@ -1209,7 +1209,7 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	if(nshift) {
 		// p >= nshift guaranteed here:
 		q >>= nshift; p -= nshift;	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
-		if(debug) printf("Removed power-of-2 from q: q' = (q >> %u) = %llu\n",nshift,q);
+		if(debug) printf("Removed power-of-2 from q: q' = (q >> %u) = %" PRIu64 "\n",nshift,q);
 	}
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 	// Extract leftmost 7 bits of (p - 64); if > 64, use leftmost 6 instead:
@@ -1237,16 +1237,16 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 		MONT_MUL64(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
  	}
 	if(debug) {
-		printf("leadb = %u, x0 = %llu\n",leadb,x);
-		printf("pshift = p - %u = %llu\n",64,pshift);
+		printf("leadb = %u, x0 = %" PRIu64 "\n",leadb,x);
+		printf("pshift = p - %u = %" PRIu64 "\n",64,pshift);
 		pow = leadb + 64;
-		printf("twopmmodq64: Initial power = 2^(%u+64) = 2^%u mod q' = %llu\n",leadb,pow,x);
+		printf("twopmmodq64: Initial power = 2^(%u+64) = 2^%u mod q' = %" PRIu64 "\n",leadb,pow,x);
 		printf("twopmmodq64: Looping over %u remaining bits in power:\n",start_index);
 	}
 	for(j = start_index-1; j >= 0; j--) {
 		curr_bit = (pshift >> j) & (uint64)1;
 		MONT_SQR64(x,q,qinv,x);
-		if(debug) { pow = 2*pow + curr_bit - 64; printf("\tJ = %2u: [bit = %u]pow = %u, x = %llu\n",j,curr_bit,pow,x); }
+		if(debug) { pow = 2*pow + curr_bit - 64; printf("\tJ = %2u: [bit = %u]pow = %u, x = %" PRIu64 "\n",j,curr_bit,pow,x); }
 		if(curr_bit) {
 			if(x > qhalf) {	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 				x = x + x;	x -= q;
@@ -1257,12 +1257,12 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	}
 	// May 2022: Since pre-subtracted 64 from computed powermod exponent, no need to un-scale the loop output anymore:
 	// MONT_UNITY_MUL64(x,q,qinv,x);
-	if(debug) printf("pow = %u, x = %llu\n",pow,x);
+	if(debug) printf("pow = %u, x = %" PRIu64 "\n",pow,x);
 	// If we applied an initial right-justify shift to the modulus, restore the shift to the
 	// current (partial) remainder and re-add the off-shifted part of the true remainder.
 	if(nshift) {
 		x = (x << nshift);// + rem_save;
-		if(debug) printf("Restoring power-of-2: pow = %u, x *= 2^%u = %llu\n",pow+nshift,nshift,x);
+		if(debug) printf("Restoring power-of-2: pow = %u, x *= 2^%u = %" PRIu64 "\n",pow+nshift,nshift,x);
 	}
 	return x;
 }
@@ -2147,7 +2147,7 @@ if(dbg)printf("twopmodq65:\n");
 	!	Get SQR_HIGH_EXACT(x) - MULH_EXACT(q, lo*qinv), normalizing as we go.
 	*/
 	#if FAC_DEBUG
-		if(dbg) printf("twopmodq65: while(%llu++ < %llu) || (%llu+=%llu < %llu)\n",A,B,hi,q,y);
+		if(dbg) printf("twopmodq65: while(%" PRIu64 "++ < %" PRIu64 ") || (%" PRIu64 "+=%" PRIu64 " < %" PRIu64 ")\n",A,B,hi,q,y);
 	#endif
 		while(A < B || (A == B && hi < y))	/* SQR_HIGH_EXACT(x) < MULH_EXACT(q, lo*qinv); add q until >= . */
 		{
@@ -2165,18 +2165,18 @@ if(dbg)printf("twopmodq65:\n");
 	/* ...and normalize. Result is in (x, A).. */
 		x = hi;
 	#if FAC_DEBUG
-		if(dbg) printf("twopmodq65: while(A=%llu-- > 1) || (%llu-=%llu >=%llu)\n",A,x,q,q);
+		if(dbg) printf("twopmodq65: while(A=%" PRIu64 "-- > 1) || (%" PRIu64 "-=%" PRIu64 " >=%" PRIu64 ")\n",A,x,q,q);
 	#endif
 		while(A > 1 || (A == 1 && x >= q)) {
 			--A; x -= q;
 		#if FAC_DEBUG
-			if(dbg) printf("twopmodq65: A = %llu, x-q = %llu, q = %llu, hi = %llu\n",A,x,q,hi);
-			if(dbg) printf("twopmodq65: (x > hi) = %llu\n",(x > hi));
-			if(dbg) printf("twopmodq65: (x <=hi) = %llu\n",(x <=hi));
-			if(dbg) printf("twopmodq65: (hi < x) = %llu\n",(hi < x));
-			if(dbg) printf("twopmodq65: (hi <=x) = %llu\n",(hi <=x));
-			if(dbg) printf("twopmodq65: (hi >=x) = %llu\n",(hi >=x));
-			if(dbg) printf("twopmodq65: (hi -x ) = %llu - %llu = %llu\n",hi,x,(hi - x));
+			if(dbg) printf("twopmodq65: A = %" PRIu64 ", x-q = %" PRIu64 ", q = %" PRIu64 ", hi = %" PRIu64 "\n",A,x,q,hi);
+			if(dbg) printf("twopmodq65: (x > hi) = %" PRIu64 "\n",(x > hi));
+			if(dbg) printf("twopmodq65: (x <=hi) = %" PRIu64 "\n",(x <=hi));
+			if(dbg) printf("twopmodq65: (hi < x) = %" PRIu64 "\n",(hi < x));
+			if(dbg) printf("twopmodq65: (hi <=x) = %" PRIu64 "\n",(hi <=x));
+			if(dbg) printf("twopmodq65: (hi >=x) = %" PRIu64 "\n",(hi >=x));
+			if(dbg) printf("twopmodq65: (hi -x ) = %" PRIu64 " - %" PRIu64 " = %" PRIu64 "\n",hi,x,(hi - x));
 			if(dbg) printf("twopmodq65: (hi.-x.) = %lf  - %lf  = %lf \n",(double)hi,(double)x,((double)hi - (double)x));
 		#endif
 			/* had a borrow: */
@@ -2195,7 +2195,7 @@ if(dbg)printf("twopmodq65:\n");
 
 			/* ...and normalize the result. */
 		#if FAC_DEBUG
-			if(dbg) printf("twopmodq65: while(B=%llu-- > 1) || (%llu-=%llu >=%llu)\n",B,y,q,q);
+			if(dbg) printf("twopmodq65: while(B=%" PRIu64 "-- > 1) || (%" PRIu64 "-=%" PRIu64 " >=%" PRIu64 ")\n",B,y,q,q);
 		#endif
 			while(B > 1 || (B == 1 && y >= q))
 			{
@@ -2214,7 +2214,7 @@ if(dbg)printf("twopmodq65:\n");
 
 	/* ...and normalize the result. */
 #if FAC_DEBUG
-	if(dbg) printf("twopmodq65:#while(%llu-- > 1) || (%llu-=%llu >=%llu)\n",B,y,q,q);
+	if(dbg) printf("twopmodq65:#while(%" PRIu64 "-- > 1) || (%" PRIu64 "-=%" PRIu64 " >=%" PRIu64 ")\n",B,y,q,q);
 #endif
 	while(B > 1 || (B == 1 && y >= q)) {
 		--B; t = y; y -= q;

@@ -118,7 +118,7 @@
 		/*...Double and return.	These are specialized for the case
 		where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 		*/
-//(p == 18276023 && k == 760542841672ull)printf("q = [%u,%llu], x = [%u,%llu]\n",q.d1,q.d0, x.d1,x.d0);
+//(p == 18276023 && k == 760542841672ull)printf("q = [%u,%" PRIu64 "], x = [%u,%" PRIu64 "]\n",q.d1,q.d0, x.d1,x.d0);
 	  #if 1				// I should read my own comments ... since x = (q+1)/2 implies divisibility can replace this...
 		ADD96(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^95, so x + x cannot overflow. */
 		q.d0 -= FERMAT;
@@ -369,15 +369,15 @@ if(dbg)printf("twopmodq96:\n");
 			SUB96(q, lo, lo);
 			ADD96(lo, hi, x);
 #ifdef FAC_DEBUG
-	if(dbg) printf("q-l   = %10u, %20llu\n", lo.d1, lo.d0);
-	if(dbg) printf("q-l+h = %10u, %20llu\n",  x.d1,  x.d0);
+	if(dbg) printf("q-l   = %10u, %20" PRIu64 "\n", lo.d1, lo.d0);
+	if(dbg) printf("q-l+h = %10u, %20" PRIu64 "\n",  x.d1,  x.d0);
 #endif
 		}
 		else
 		{
 			SUB96(hi, lo, x);
 #ifdef FAC_DEBUG
-	if(dbg) printf("q=h-l = %10u, %20llu\n",  x.d1,  x.d0);
+	if(dbg) printf("q=h-l = %10u, %20" PRIu64 "\n",  x.d1,  x.d0);
 #endif
 		}
 
@@ -496,7 +496,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			for(j = 0; j < max_threads; ++j) {
 				// These data fixed within each thread's local store:
 				*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
-			//	printf("INIT: Thr %d ONE96_PTR address = %llX; data.d0,d1 = %llu,%u\n",thr_id,(uint64)ptr64,((uint96 *)ptr64)->d0,((uint96 *)ptr64)->d1);
+			//	printf("INIT: Thr %d ONE96_PTR address = %" PRIX64 "; data.d0,d1 = %" PRIu64 ",%u\n",thr_id,(uint64)ptr64,((uint96 *)ptr64)->d0,((uint96 *)ptr64)->d1);
 				ptr64 += 0x32;	// Move on to next thread's local store
 			}
 		#else
@@ -524,7 +524,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		qhalf0 = (uint96*)(ptr64 + 0x20);	qhalf1 = (uint96*)(ptr64 + 0x22);	qhalf2 = (uint96*)(ptr64 + 0x24);	qhalf3 = (uint96*)(ptr64 + 0x26);
 		hi0    = (uint96*)(ptr64 + 0x28);	hi1    = (uint96*)(ptr64 + 0x2a);	hi2    = (uint96*)(ptr64 + 0x2c);	hi3    = (uint96*)(ptr64 + 0x2e);
 		ONE96_PTR = (uint96*)(ptr64 + 0x30);
-	//	printf("Thr %d ONE96_PTR address = %llX; data.d0,d1 = %llu,%u\n",thr_id,(uint64)ONE96_PTR,ONE96_PTR->d0,ONE96_PTR->d1);
+	//	printf("Thr %d ONE96_PTR address = %" PRIX64 "; data.d0,d1 = %" PRIu64 ",%u\n",thr_id,(uint64)ONE96_PTR,ONE96_PTR->d0,ONE96_PTR->d1);
 		ASSERT((ONE96_PTR->d0 == ONE96.d0) && (ONE96_PTR->d1 == ONE96.d1), "Bad data at ONE96_PTR address!");
 	#endif
 
@@ -1107,7 +1107,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		pshift = ~pshift;
 	#ifdef FAC_DEBUG
-		if(dbg)	printf("twopmodq96_q4: leadb = %u, pshift = %llu\n",leadb,pshift);
+		if(dbg)	printf("twopmodq96_q4: leadb = %u, pshift = %" PRIu64 "\n",leadb,pshift);
 	#endif
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
@@ -1599,7 +1599,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			for(j = 0; j < max_threads; ++j) {
 				// These data fixed within each thread's local store:
 				*ptr32 = 0;	*(ptr32+1) = 7;	*(ptr32+1) = 1;	*(ptr32+1) = 7;	*(ptr32+1) = 2;	*(ptr32+1) = 7;	*(ptr32+1) = 3;	*(ptr32+1) = 7;
-			//	printf("INIT: Thr %d perm_mask address = %llX; data.d0-7 = %llu,%u\n",thr_id,(uint64)ptr96,((uint96 *)ptr96)->d0,((uint96 *)ptr96)->d1);
+			//	printf("INIT: Thr %d perm_mask address = %" PRIX64 "; data.d0-7 = %" PRIu64 ",%u\n",thr_id,(uint64)ptr96,((uint96 *)ptr96)->d0,((uint96 *)ptr96)->d1);
 				ptr32 += 3 * 0x4a;	// Move on to next thread's local store; 3x accounts for size differntial between uint32 and uint96
 			}
 		#else

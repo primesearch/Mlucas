@@ -327,7 +327,7 @@
 uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 //int dbg = ( (p == (1ull<<32)) && ( (k0 == 2958ull) || (k1 == 2958ull) || (k2 == 2958ull) || (k3 == 2958ull) ) );
-//if(dbg) printf("Hit! k0-3 = %llu, %llu, %llu, %llu\n",k0, k1, k2, k3);
+//if(dbg) printf("Hit! k0-3 = %" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 "\n",k0, k1, k2, k3);
 	int32 j;
 	uint64 r = (p<<1), q0 = 1+r*k0, q1 = 1+r*k1, q2 = 1+r*k2, q3 = 1+r*k3
 	, qinv0, qinv1, qinv2, qinv3
@@ -407,7 +407,7 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		x2 = y2;
 		x3 = y3;
 	}
-//if(dbg) printf("x0 = %llu\n",x0);
+//if(dbg) printf("x0 = %" PRIu64 "\n",x0);
 
 //printf("twopmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1)] );
 //for(j = start_index-2; j >= 0; j--) {
@@ -553,7 +553,7 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 //printf("twopmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1+x1-q1)] );
 //exit(0);
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-//if(dbg) printf("xout = %llu\n",x0+x0-q0+FERMAT);
+//if(dbg) printf("xout = %" PRIu64 "\n",x0+x0-q0+FERMAT);
 	r = 0;
 	if(x0+x0-q0+FERMAT == 1) r +=  1;
 	if(x1+x1-q1+FERMAT == 1) r +=  2;

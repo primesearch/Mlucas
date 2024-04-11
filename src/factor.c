@@ -1311,7 +1311,7 @@ exit(0);
 	else
 		fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
 
-	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %llu factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
+	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %" PRIu64 " factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
 
 	/**** process restart-file and any command-line params: ****/
 	// Note: return value of read_savefile is signed:
@@ -1799,7 +1799,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
   #endif
 
 	itmp64 = (uint64)mi64_div_y32(p,TF_CLASSES,0x0,lenP);
-//	printf("p %% 60 = %llu\n",itmp64);
+//	printf("p %% 60 = %" PRIu64 "\n",itmp64);
 
   #if TF_CLASSES == 60
 /*
@@ -2279,7 +2279,7 @@ candidate factors that survive sieving.	*/
 			*/
 			ASSERT((double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
 			k = (uint64)incr[pass] + interval_lo*(len << TF_CLSHIFT);
-		//	fprintf(stderr," [*** Init pass %u data: k0 = %llu, word0 = %16llX\n",pass,k,bit_map[0]);
+		//	fprintf(stderr," [*** Init pass %u data: k0 = %" PRIu64 ", word0 = %16" PRIX64 "\n",pass,k,bit_map[0]);
 			struct fac_thread_data_t* targ = tdat + thr_id;
 			targ->count = &count;
 			targ->tid = thr_id;		// Within the per-thread TFing, only the pool-thread ID matters
@@ -2344,7 +2344,7 @@ candidate factors that survive sieving.	*/
 		#if 0
 			printf("adding pool task %d with pool ID [%d]\n",thr_id,((struct thread_init *)(&task_control)->data)->thread_num);
 			struct fac_thread_data_t* targ = tdat + thr_id;
-			printf("This task has: pass %u, interval_[lo,hi] = [%llu,%llu]\n",targ->pass,targ->interval_lo,targ->interval_hi);
+			printf("This task has: pass %u, interval_[lo,hi] = [%" PRIu64 ",%" PRIu64 "]\n",targ->pass,targ->interval_lo,targ->interval_hi);
 			printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 		#endif
 		}
@@ -2465,7 +2465,7 @@ candidate factors that survive sieving.	*/
   #ifdef FACTOR_STANDALONE
 	if(!restart)
 	{
-		printf(   "%s(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n",
+		printf(   "%s(%s) has %u factors in range k = [%" PRIu64 ", %" PRIu64 "], passes %u-%u\n",
 	 	NUM_PREFIX[MODULUS_TYPE], pstring, nfactor, kmin, kmax, passmin, passmax);
 		printf(   "Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
 		/* Since we're done accumulating cycle count, divide to get total time in seconds: */
@@ -2482,9 +2482,9 @@ candidate factors that survive sieving.	*/
 
 	fp = mlucas_fopen(   OFILE,"a");
   #ifdef P1WORD
-	 fprintf(fp,"M(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
+	 fprintf(fp,"M(%s) has %u factors in range k = [%" PRIu64 ", %" PRIu64 "], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
   #else
-	 fprintf(fp,"M(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
+	 fprintf(fp,"M(%s) has %u factors in range k = [%" PRIu64 ", %" PRIu64 "], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
   #endif
 	fclose(fp); fp = 0x0;
 
@@ -2728,7 +2728,7 @@ MFACTOR_HELP:
 						found_pass = TRUE;
 						// Read the max-k-reached value
 						ASSERT(((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
-						itmp = sscanf(char_addr,"%llu",k);
+						itmp = sscanf(char_addr,"%" PRIu64,k);
 						ASSERT(itmp >= 0,"Unable to read max-k-reached value!");
 						// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
 					}
@@ -3021,7 +3021,7 @@ MFACTOR_HELP:
 		printf(" Initial q for this pass = %s.\n", &char_buf0[convert_mi64_base10_char(char_buf0, q, lenQ, 0)]);
 	  #endif
 //if(pass==4)
-//	printf("\nPass %u: k0 = %u, word0 prior to deep-prime clearing = %16llX\n",pass,(uint32)kstart,bit_map[0]);
+//	printf("\nPass %u: k0 = %u, word0 prior to deep-prime clearing = %16" PRIX64 "\n",pass,(uint32)kstart,bit_map[0]);
 		// Compute startbit k (occurrence of first multiple of prime curr_p in first pass through the relevant sievelet:
 		if((lenP == 1) && (p[0] <= MAX_SIEVING_PRIME))
 			get_startval(MODULUS_TYPE, p[0], findex, two_p, lenQ, bit_len, interval_lo, incr, nclear, nprime, p_last_small, pdiff, startval);
@@ -3033,7 +3033,7 @@ MFACTOR_HELP:
 #ifdef MULTITHREAD
 //if(tid == 0)
 #endif
-//	printf("sweep %llu: k0 = %llu, count %llu: k0-3 = %llu,%llu,%llu,%llu\n",sweep,kstart,count,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
+//	printf("sweep %" PRIu64 ": k0 = %" PRIu64 ", count %" PRIu64 ": k0-3 = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",sweep,kstart,count,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 
 			/* Accumulate the cycle count every so often to avoid problems with integer overflow
 			of the clock() result, if clock_t happens to be a 32-bit int type on the host platform:
@@ -3068,7 +3068,7 @@ MFACTOR_HELP:
 			fbits_in_k = log((double)k + TF_CLASSES*bit_len)*ILG2;	// Use k-value at end of upcoming pass thru sieve as upper-bound
 			fbits_in_q = fbits_in_2p + fbits_in_k;
 	//	if(fbits_in_q > 64)
-	//	printf("sweep = %llu: fbits_in_q = fbits_in_2p [%10.4f] + fbits_in_k [%10.4f] = %10.4f\n",sweep,fbits_in_2p,fbits_in_k,fbits_in_q);
+	//	printf("sweep = %" PRIu64 ": fbits_in_q = fbits_in_2p [%10.4f] + fbits_in_k [%10.4f] = %10.4f\n",sweep,fbits_in_2p,fbits_in_k,fbits_in_q);
 
 		/*********************************************/
 		#if DBG_SIEVE
@@ -3241,7 +3241,7 @@ MFACTOR_HELP:
 
 		#endif	// USE_AVX512 ?
 
-//	if(pass==4)printf("\nPass %u: word0 after deep-prime clearing = %16llX\n",pass,bit_map2[0]);
+//	if(pass==4)printf("\nPass %u: word0 after deep-prime clearing = %16" PRIX64 "\n",pass,bit_map2[0]);
 
 			// Now run through the bits of the current copy of the sieve, trial dividing if a bit = 1:
 		  #if TF_CLASSES == 60
@@ -3262,7 +3262,7 @@ MFACTOR_HELP:
 		  #ifdef MULTITHREAD
 			if(tid == 0)
 		  #endif
-			printf("%u [%6.2f%%] survived; count = %llu\n",m,100.*(float)m/bit_len,count);
+			printf("%u [%6.2f%%] survived; count = %" PRIu64 "\n",m,100.*(float)m/bit_len,count);
 		#endif
 
 			bit_hi = 64;
@@ -3276,11 +3276,11 @@ MFACTOR_HELP:
 				{
 				#ifdef FAC_DEBUG
 					/* If a known factor is specified, here it is in the bitmap: */
-					if(ABS((int64)(k-k_targ)) < 1000) printf("Trying k = %llu\n",k);
+					if(ABS((int64)(k-k_targ)) < 1000) printf("Trying k = %" PRIu64 "\n",k);
 					if(k == k_targ) {
 						printf("here it is: sweep = %s, bitmap word = %u, bit = %3u\n", &cbuf[convert_uint64_base10_char(cbuf, sweep)], i, bit);
 						if((bit_map2[i] >> bit) & 1)
-							printf("Trying k_targ = %llu...\n", k_targ);
+							printf("Trying k_targ = %" PRIu64 "...\n", k_targ);
 						else
 							ASSERT(0,"0");
 					}
@@ -3301,7 +3301,7 @@ MFACTOR_HELP:
 						*/
 						if((count & countmask) == 0)
 						{
-							fprintf(stderr,"[k = %llu]",k);
+							fprintf(stderr,"[k = %" PRIu64 "]",k);
 						#ifdef MULTITHREAD
 							pthread_mutex_lock(&mutex_mi64);
 						//	printf("Count = %u * 2^%u checkpoint: Thread %u locked mutex_mi64 ... ",(uint32)(count >> CMASKBITS),CMASKBITS,tid);
@@ -3310,7 +3310,7 @@ MFACTOR_HELP:
 							ASSERT(0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 							q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 						#ifdef FAC_DEBUG
-							sprintf(cbuf, " Count = %u * 2^%u: k = %llu, Current q = %s\n",
+							sprintf(cbuf, " Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s\n",
 								(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 							fprintf(stderr, "%s", cbuf);
 						#endif
@@ -3323,7 +3323,7 @@ MFACTOR_HELP:
 							if(MODULUS_TYPE == MODULUS_TYPE_MERSMERS) {
 								res = (mi64_twopmodq_qmmp(findex, k, u64_arr) == 1);
 								if(res != (mi64_twopmodq(p, lenP, k, q, lenQ, q2) == 1) || q2[0] != u64_arr[0]) {
-									sprintf(cbuf, "ERROR: Spot-check k = %llu, Results of mi64_twopmodq_qmmp and mi64_twopmodq differ!\n", k);
+									sprintf(cbuf, "ERROR: Spot-check k = %" PRIu64 ", Results of mi64_twopmodq_qmmp and mi64_twopmodq differ!\n", k);
 									fprintf(fp,"%s", cbuf);
 									ASSERT(0, cbuf);
 								}
@@ -3333,14 +3333,14 @@ MFACTOR_HELP:
 							mi64_clear(u64_arr, lenQ);	// Use q2 for quotient [i.e. factor-candidate k] and u64_arr for remainder
 							mi64_div(q,two_p,lenQ,lenQ,q2,u64_arr);
 							if(mi64_getlen(q2, lenQ) != 1) {
-								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %llu, Current q = %s: k must be 64-bit!\n",
+								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: k must be 64-bit!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
 								ASSERT(0, cbuf);
 							}
 							if(!mi64_cmp_eq_scalar(u64_arr, 1ull, lenQ))
 							{
-								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %llu, Current q = %s: q mod (2p) = %s != 1!\n",
+								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: q mod (2p) = %s != 1!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],
 									&cbuf2[convert_mi64_base10_char(cbuf2, u64_arr, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
@@ -3354,7 +3354,7 @@ MFACTOR_HELP:
 							mi64_sub_scalar(q2,1ull,q2,lenQ);	// Re-use q2 to store q-1
 							if(mi64_twopmodq(q2, lenQ, 0, q, lenQ, 0x0) != 1) {
 							#if SPOT_CHECK
-								printf(" INFO: Spot-check q with k = %llu is composite\n",k);
+								printf(" INFO: Spot-check q with k = %" PRIu64 " is composite\n",k);
 							#endif
 								l = 3;
 								for(m = 0; m < nprime; m++) {
@@ -3364,12 +3364,12 @@ MFACTOR_HELP:
 									if(mi64_is_div_by_scalar32((uint32 *)q, l, lenQ)) {
 									#ifdef MULTITHREAD
 									//	if(tid != 0) break;	// Can make thread-specific by fiddling the rhs of the !=
-										printf("Thread %u, k = %llu: q = ",tid,k);
-										if(lenQ > 1)printf("2^64 * %llu + ",q[1]);
-										printf("%llu has a small divisor: %u\n",q[0], l);
+										printf("Thread %u, k = %" PRIu64 ": q = ",tid,k);
+										if(lenQ > 1)printf("2^64 * %" PRIu64 " + ",q[1]);
+										printf("%" PRIu64 " has a small divisor: %u\n",q[0], l);
 										ASSERT(0, "Abort...");
 									#else
-										sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %llu, Current q = %s has a small divisor: %u\n",
+										sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s has a small divisor: %u\n",
 											(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],l);
 										fprintf(fp,"%s", cbuf);
 										ASSERT(0, cbuf);
@@ -3378,7 +3378,7 @@ MFACTOR_HELP:
 								}
 							} else {
 							#if SPOT_CHECK
-								printf(" INFO: Spot-check q with k = %llu is base-2 PRP\n",k);
+								printf(" INFO: Spot-check q with k = %" PRIu64 " is base-2 PRP\n",k);
 							#endif
 							}
 							fclose(fp); fp = 0x0;
@@ -3418,7 +3418,7 @@ MFACTOR_HELP:
 										ASSERT(*ndeep < 1024, "Increase allocation of kdeep[] array or use deeper sieving bound to reduce #candidate k's!");
 									//	itmp64 = factor_qmmp_sieve64((uint32)findex, k, MAX_SIEVING_PRIME+2, 0x0001000000000000ull);
 									//	if(itmp64) {
-									//		printf("Q( k = %u ) has a small factor: %20llu\n",(uint32)k, itmp64);
+									//		printf("Q( k = %u ) has a small factor: %20" PRIu64 "\n",(uint32)k, itmp64);
 									//	}
 									}
 									res = 0;
@@ -3742,7 +3742,7 @@ MFACTOR_HELP:
 									q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 									if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1)
 									{
-										fprintf(stderr, "ERROR: k = %llu, post-check indicates this does not yield a factor.\n", k_to_try[l]);
+										fprintf(stderr, "ERROR: k = %" PRIu64 ", post-check indicates this does not yield a factor.\n", k_to_try[l]);
 									//	printf("Args sent to mi64_twopmodq:\n");
 									//	printf("p = %s\n", &cbuf[convert_mi64_base10_char(cbuf, p, lenP, 0)]);
 									//	printf("q = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
@@ -3759,9 +3759,9 @@ MFACTOR_HELP:
 										if(mi64_pprimeF(q, 3ull, lenQ)) {
 											factor_k[(*nfactor)++] = k_to_try[l];
 											if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%llu. This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
+												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
 											else
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %llu. This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
+												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
 										#ifdef FAC_DEBUG
 											if(TRYQM1 > 1)
 												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
@@ -3786,9 +3786,9 @@ MFACTOR_HELP:
 														to get k2 from k and k1, use k2 = (k - k1)/f1: */
 														factor_k[*nfactor-1] = (factor_k[*nfactor-1] - factor_k[j])/q2[0];
 														if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2^(%u+2)*%llu.\n",findex,factor_k[j]);
+															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2^(%u+2)*%" PRIu64 ".\n",findex,factor_k[j]);
 														else
-															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2*p*k + 1 with k = %llu.\n",factor_k[j]);
+															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2*p*k + 1 with k = %" PRIu64 ".\n",factor_k[j]);
 													}
 													mi64_set_eq(q, u64_arr, lenQ);
 												}
@@ -3840,9 +3840,9 @@ MFACTOR_HELP:
 					itmp64 = mi64_mul_scalar(two_p,k_to_try[l],q,lenQ);
 					// Should only happen benignly, for q just above a wordcount boundary due to padding at high end of current sieve interval
 				//	if(itmp64)
-				//		fprintf(stderr,"2.k.p overflows for k = %llu, result = %llu*2^64 + %llu\n",k_to_try[l],itmp64,q[0]);
+				//		fprintf(stderr,"2.k.p overflows for k = %" PRIu64 ", result = %" PRIu64 "*2^64 + %" PRIu64 "\n",k_to_try[l],itmp64,q[0]);
 					q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-				//	if(k_to_try[0] > 16300000 && k_to_try[0] < 16340000)printf("A: Trying k[%u] = %llu, q = %s\n",l,k_to_try[l],&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
+				//	if(k_to_try[0] > 16300000 && k_to_try[0] < 16340000)printf("A: Trying k[%u] = %" PRIu64 ", q = %s\n",l,k_to_try[l],&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 				#endif
 
 				#ifdef P4WORD
@@ -3993,7 +3993,7 @@ MFACTOR_HELP:
 							found_pass = TRUE;
 							// Calculate the current k-value
 							k = (uint64)incr + (sweep+1)*(sieve_len<<6);
-							fprintf(fq,"Pass %u: %llu\n",pass,k);
+							fprintf(fq,"Pass %u: %" PRIu64 "\n",pass,k);
 						} else			// Otherwise just copy as-is
 							fputs(cstr,fq);
 					} else {	// Just copy as-is
@@ -4035,9 +4035,9 @@ MFACTOR_HELP:
 	  #ifdef MULTITHREAD
 
 		pthread_mutex_lock(&mutex_updatecount);
-	//	printf("Thread %u locked mutex_updatecount ... Updating q-tried count: %llu + %llu = ",tid,*(targ->count),count);
+	//	printf("Thread %u locked mutex_updatecount ... Updating q-tried count: %" PRIu64 " + %" PRIu64 " = ",tid,*(targ->count),count);
 		*(targ->count) += count;
-	//	printf("%llu ... Thread %u done.\n",*(targ->count),tid);
+	//	printf("%" PRIu64 " ... Thread %u done.\n",*(targ->count),tid);
 		pthread_mutex_unlock(&mutex_updatecount);
 		return 0x0;
 	  #else
@@ -4158,7 +4158,7 @@ uint32 CHECK_PKMOD4620(uint64*p, uint32 lenP, uint64 k, uint32*incr)
 		} else {
 			// Mersenne: For a valid p-mod, the only possible value of km are those for which k == +-1 (mod 8) [by quadratic residuacity]
 			// and for which GCD(2*km*pm + 1, 2*4620) = 1, i.e. (2*km*pm + 1) is not divisible by 3,5,7 or 11.
-		//	printf("CHECK_PKMOD4620: pm,km = %u,%u: q = %llu [mod 8 = %u]\n",pm,km,q,(uint32)q&7);
+		//	printf("CHECK_PKMOD4620: pm,km = %u,%u: q = %" PRIu64 " [mod 8 = %u]\n",pm,km,q,(uint32)q&7);
 			if(((q&7) == 1) || ((q&7) == 7)) {
 				if((q%3 == 0) || (q%5 == 0) || (q%7 == 0) || (q%11 == 0))
 					return 0;
@@ -4366,7 +4366,7 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 	l = i-64;
 	k = (uint64)(pow(2.0, bits-l)/(double)itmp64);
 //	convert_uint64_base2_char(cbuf, itmp64);
-//	printf("2*p = %16llX has %u bits, lead64 = %s ==> k = %16llu.\n",itmp64,i,cbuf,k);
+//	printf("2*p = %16" PRIX64 " has %u bits, lead64 = %s ==> k = %16" PRIu64 ".\n",itmp64,i,cbuf,k);
 #endif
 	return k;
 }
@@ -4440,7 +4440,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 			char_addr++;
 			tf_passes = convert_base10_char_uint64(char_addr);
 			if(tf_passes != TF_PASSES) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s: TF_PASSES value [%llu] mismatches that of build [%u]!\n",curr_line,fname, tf_passes, (uint32)TF_PASSES);
+				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s: TF_PASSES value [%" PRIu64 "] mismatches that of build [%u]!\n",curr_line,fname, tf_passes, (uint32)TF_PASSES);
 			}
 		}
 
@@ -4774,7 +4774,7 @@ int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 
 		} else if(passnow > passnow_file) {
 			/* No-op */
 		} else {
-			++nerr; fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, passnow[%u] should be same as file[%u] and know[%llu] greater than file[%llu], or passnow should be greater!\n",fname,passnow,passnow_file,know,know_file);
+			++nerr; fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, passnow[%u] should be same as file[%u] and know[%" PRIu64 "] greater than file[%" PRIu64 "], or passnow should be greater!\n",fname,passnow,passnow_file,know,know_file);
 		}
 
 		/* Line 10: passmax: */

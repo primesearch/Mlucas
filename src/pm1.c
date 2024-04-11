@@ -267,7 +267,7 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 		B2 = (B2 + 999999)*inv1m;	B2 *= 1000000;	ASSERT(B2 >= 1000000, "B2 unacceptably small!");
 	}
 	pm1_check_bounds();	// This sanity-checks the bounds and sets B2_start = B1 if unset.
-	sprintf(cbuf,"Setting default p-1 stage bounds b1 = %u, b2_start = %llu, b2 = %llu.\n",B1,B2_start,B2);
+	sprintf(cbuf,"Setting default p-1 stage bounds b1 = %u, b2_start = %" PRIu64 ", b2 = %" PRIu64 ".\n",B1,B2_start,B2);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	return 1;
 }
@@ -283,10 +283,10 @@ uint32 pm1_check_bounds() {
 		if(B1 < 10000) { sprintf(cbuf,"The minimum P-1 Stage 1 bound = 10000; resetting to that.\n"); mlucas_fprint(cbuf,pm1_standlone+1); B1 = 10000; }
 	#endif
 		if(B2_start) {
-			if(B2_start > B2) { sprintf(cbuf,"P-1 Stage 2 starting bound [= %llu] must be less than or equal to Stage 2 bound [= %llu].\n",B2_start,B2); break; }
-			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %llu] must be greater than or equal to that of Stage 1 [= %u].\n",B2,B1); break; }
+			if(B2_start > B2) { sprintf(cbuf,"P-1 Stage 2 starting bound [= %" PRIu64 "] must be less than or equal to Stage 2 bound [= %" PRIu64 "].\n",B2_start,B2); break; }
+			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %" PRIu64 "] must be greater than or equal to that of Stage 1 [= %u].\n",B2,B1); break; }
 		} else if(B2) {	// Stage 2 takes off where Stage 1 left off
-			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %llu] set nonzero but < Stage 1 bound [= %u] ... no Stage 2 will be run.\n",B2,B1); }
+			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %" PRIu64 "] set nonzero but < Stage 1 bound [= %u] ... no Stage 2 will be run.\n",B2,B1); }
 			B2_start = B1;
 		} else {	// No Stage 2 - Can set both of these to 0 or B1 in this case
 			B2_start = B2 = (uint64)0;
@@ -370,11 +370,11 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		fprintf(stderr,"Product of Stage 1 prime powers used %u mi64_mul_scalar() calls; max-multiplier %u bits\n",nmul, 64-leadz64(maxmult));
 		fprintf(stderr,"Limbs of PM1_S1_PRODUCT, low to high:\n");
 		for(i = 0; i < len; i+=8) {
-			fprintf(stderr,"%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx\n",PM1_S1_PRODUCT[i],PM1_S1_PRODUCT[i+1],PM1_S1_PRODUCT[i+2],PM1_S1_PRODUCT[i+3],PM1_S1_PRODUCT[i+4],PM1_S1_PRODUCT[i+5],PM1_S1_PRODUCT[i+6],PM1_S1_PRODUCT[i+7]);
+			fprintf(stderr,"%" PRIx64 ",%" PRIx64 ",%" PRIx64 ",%" PRIx64 ",%" PRIx64 ",%" PRIx64 ",%" PRIx64 ",%" PRIx64 "\n",PM1_S1_PRODUCT[i],PM1_S1_PRODUCT[i+1],PM1_S1_PRODUCT[i+2],PM1_S1_PRODUCT[i+3],PM1_S1_PRODUCT[i+4],PM1_S1_PRODUCT[i+5],PM1_S1_PRODUCT[i+6],PM1_S1_PRODUCT[i+7]);
 		}
 		exit(0);
 	*/
-	//	fprintf(stderr,"PM1_S1_PRODUCT limbs[%u,%u,...,1,0] = %016llX,%016llX,...,%016llX,%016llX\n",len-1,len-2,PM1_S1_PRODUCT[len-1],PM1_S1_PRODUCT[len-2],PM1_S1_PRODUCT[1],PM1_S1_PRODUCT[0]);
+	//	fprintf(stderr,"PM1_S1_PRODUCT limbs[%u,%u,...,1,0] = %016" PRIX64 ",%016" PRIX64 ",...,%016" PRIX64 ",%016" PRIX64 "\n",len-1,len-2,PM1_S1_PRODUCT[len-1],PM1_S1_PRODUCT[len-2],PM1_S1_PRODUCT[1],PM1_S1_PRODUCT[0]);
 		// Ignore the #iters != 0 user needed to set to invoke selfTest mode, replace with nbits in S1 prime-powers product:
 		PM1_S1_PROD_BITS = nbits-1;	// Leftmost bit accounted for by setting initial seed in the LR-modular binary powering
 		// Bit-reverse s1 product, leaving leftmost 1-bit off. REMEMBER, this puts the 0-bits corresponding to the
@@ -401,7 +401,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 	sprintf(cbuf,"Product of Stage 1 prime powers with b1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	PRP_BASE = 3;
-	sprintf(cbuf,"BRed (PM1_S1_PRODUCT sans leading bit) has %u limbs, Res64 = %llu\n",len,PM1_S1_PROD_RES64);
+	sprintf(cbuf,"BRed (PM1_S1_PRODUCT sans leading bit) has %u limbs, Res64 = %" PRIu64 "\n",len,PM1_S1_PROD_RES64);
 	mlucas_fprint(cbuf,pm1_standlone+0);
 	return len;	// return actual #limbs of product, not initial overestimate
 }
@@ -422,10 +422,10 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 	mult = 140091319777ull;
 	cy = mi64_mul_scalar(accum, mult, accum, len);	++*nmul;
 	accum[len] = cy; len += (cy != 0ull);
-	fprintf(stderr,"Pre-loop accumulator = %llu + 2^64*%llu",accum[0],accum[1]);
+	fprintf(stderr,"Pre-loop accumulator = %" PRIu64 " + 2^64*%" PRIu64,accum[0],accum[1]);
   }
 #endif
-//	fprintf(stderr,"Stage 1 exponent = %llu.",accum[0]);
+//	fprintf(stderr,"Stage 1 exponent = %" PRIu64 ".",accum[0]);
 	while(p < b1) {
 		mult = 1ull;
 		for(i = 0; i < loop; i++) {
@@ -507,7 +507,7 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uin
 	}
 	for(i = 0; i < nlimbs; i++) { itmp64 += arr[i]; }
 	if(itmp64 != isum64) {
-		sprintf(cbuf, "INFO: %s: Computed checksum[%llX] mismatches one[%llX] appended to savefile data.\n",func,itmp64,isum64);
+		sprintf(cbuf, "INFO: %s: Computed checksum[%" PRIX64 "] mismatches one[%" PRIX64 "] appended to savefile data.\n",func,itmp64,isum64);
 		*sum64 = 0ull;
 		goto PM1_S1P_READ_RETURN;
 	} else {
@@ -561,7 +561,7 @@ PM1_S1P_READ_RETURN:
 		// Write 8 bytes of simple (sum of limbs, mod 2^64) checksum, after comparing arglist version to one computed from actual data:
 		for(i = 0; i < nlimbs; i++) { itmp64 += arr[i]; }
 		if(itmp64 != sum64) {
-			sprintf(cbuf, "INFO: %s: Computed checksum[%llX] mismatches one[%llX] in arglist.\n",func,itmp64,sum64);
+			sprintf(cbuf, "INFO: %s: Computed checksum[%" PRIX64 "] mismatches one[%" PRIX64 "] in arglist.\n",func,itmp64,sum64);
 			goto PM1_S1P_WRITE_RETURN;
 		}
 		for(j = 0; j < 64; j += 8) {
@@ -853,7 +853,7 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 	}
 	// Init b = fwdFFT(a); only need this if power != 2^k, in which case we only need autosquarings:
 #ifdef PM1_DEBUG
-	fprintf(stderr,"MODPOW: pow = %llu\n",pow);
+	fprintf(stderr,"MODPOW: pow = %" PRIu64 "\n",pow);
 #endif
 	if(!isPow2_64(pow)) {
 		memcpy(b,a,nbytes);	// b = a           vvvv + 4 to effect "Do in-place forward FFT only; low bit = 0 here implies pure-int input"
@@ -1087,7 +1087,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	} else {	// In the case of a standalone S2 interval (B2_small > B1), set psmall = 0 and reloc_start = UINT64_MAX:
 		psmall = 0; reloc_start = -1ull;
 	}
-	sprintf(cbuf,"Using B2_start = %llu, B2 = %llu, Bigstep = %u, M = %u\n",B2_start,B2,bigstep,m);
+	sprintf(cbuf,"Using B2_start = %" PRIu64 ", B2 = %" PRIu64 ", Bigstep = %u, M = %u\n",B2_start,B2,bigstep,m);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	uint32 reloc_on = FALSE;	// Gets switched to TRUE (= start using semiprimes which are multiples of psmall) when q > reloc_start
 
@@ -1099,7 +1099,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		tmp = (q0/(uint64)bigstep - 1)<<1;	// tmp holds m_max as a uint64
 		// For this condition to be hit implies q0 quite small, but makes sure resulting m is 32-bit anyway:
 		if((uint64)m < tmp) {
-			sprintf(cbuf, "Nonsensical value of M_max = %llu in qlo-underflow check ... aborting.",tmp);
+			sprintf(cbuf, "Nonsensical value of M_max = %" PRIu64 " in qlo-underflow check ... aborting.",tmp);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 		}
 		m = tmp-1;
@@ -1144,7 +1144,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// ...and num_b*m "buffers" for precomputed bigstep-coprime odd-square powers of the stage 1 residue:
 	for(i = 0; i < num_b*m; i++) {
 		buf[i] = a + i*npad;
-//		fprintf(stderr,"buf[%3d] = 0x%llX\n",i,(uint64)buf[i]);
+//		fprintf(stderr,"buf[%3d] = %#" PRIX64 "\n",i,(uint64)buf[i]);
 		ASSERT(((intptr_t)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
 	}
 	// Still do fwdFFT(1) as init-FFT step in non-(p+1) build, but use uppermost buf[] entry to hold as throwaway result:
@@ -1413,7 +1413,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		#ifdef PM1_DEBUG
 			fprintf(stderr,"%u^2.",j);
 		#endif
-//			fprintf(stderr,"buf[%3d] = 0x%llX\n",i,(uint64)buf[i]);
+//			fprintf(stderr,"buf[%3d] = %#" PRIX64 "\n",i,(uint64)buf[i]);
 			ASSERT(((intptr_t)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
 			memcpy(buf[i++],mult[0],nbytes);	// buf[i++] = mult[0] = fwd-FFT-pass-1-done(A^1,9,25,...)
 		}
@@ -1430,7 +1430,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// vec1,vec2 will hold stage 1 residue A (stored in FP form in pow[]) and its mod-inverse in packed-bit form
 	vec1[nlimb-1] = 0ull;
 	convert_res_FP_bytewise(pow,(uint8*)vec1, n, p, &Res64,&Res35m1,&Res36m1);
-fprintf(stderr,"#1: vec1 = A^+1 checksums = %llu,%llu,%llu; FP(A)[0:1] = %10.2f,%10.2f\n",Res64,Res35m1,Res36m1, pow[0],pow[1]);
+fprintf(stderr,"#1: vec1 = A^+1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 "; FP(A)[0:1] = %10.2f,%10.2f\n",Res64,Res35m1,Res36m1, pow[0],pow[1]);
 	// First see if there's a savefile-copy of the s1 residue-inverse:
 	strcpy(inv_file, RESTARTFILE);
 	inv_file[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
@@ -1469,7 +1469,7 @@ fprintf(stderr,"#1: vec1 = A^+1 checksums = %llu,%llu,%llu; FP(A)[0:1] = %10.2f,
 		}
 	}
 	convert_res_bytewise_FP((uint8*)vec2, a, n, p);	// Use a[] to hold inverse A^-1 until done with it
-fprintf(stderr,"#1: vec2 = A^-1 checksums = %llu,%llu,%llu; FP(A^-1)[0:1] = %10.2f,%10.2f\n",Res64,Res35m1,Res36m1, a[0],a[1]);
+fprintf(stderr,"#1: vec2 = A^-1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 "; FP(A^-1)[0:1] = %10.2f,%10.2f\n",Res64,Res35m1,Res36m1, a[0],a[1]);
    #ifdef PM1_DEBUG
 	fprintf(stderr,"Checking mod-inverse...\n");
 	// Debug: check inverse ... start with copies of A (pow[]) and A^-1 (a[]) into mult0-1:
@@ -1514,7 +1514,7 @@ fprintf(stderr,"#1: vec2 = A^-1 checksums = %llu,%llu,%llu; FP(A^-1)[0:1] = %10.
 	convert_res_bytewise_FP((uint8*)vec2,buf[0], n, p);	// buf[0] = V[1]
 	// Now recover original vec2 = A^-1 from the FP version in a[]:
 	convert_res_FP_bytewise(a,(uint8*)vec2, n, p, &Res64, &Res35m1, &Res36m1);
-fprintf(stderr,"#2: vec2 = A^-1 checksums = %llu,%llu,%llu\n",Res64,Res35m1,Res36m1);
+fprintf(stderr,"#2: vec2 = A^-1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",Res64,Res35m1,Res36m1);
    #else
 	// Original FP code for V[1] lacks post-add normalization:
 	for(i = 0; i < npad; i++) { buf[0][i] = pow[i] + a[i]; }	// V[1] = A^1 + A^-1
@@ -1739,9 +1739,9 @@ MME = 0;
 			}
 			// If nsquares > B2_start, arrtmp holds the S2 interim residue for q = nsquares; set up to restart S2 at that point.
 			if(qlo >= B2_start) {
-				snprintf(cbuf,STR_MAX_LEN*2, "Read stage 2 savefile %s ... restarting stage 2 from q = %llu.\n",savefile,qlo);
+				snprintf(cbuf,STR_MAX_LEN*2, "Read stage 2 savefile %s ... restarting stage 2 from q = %" PRIu64 ".\n",savefile,qlo);
 			} else {	// If user running a new partial S2 interval with bounds larger than a previous S2 run, allow but info-print to that effect:
-				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile has qlo[%llu] <= B2_start[%llu] ... Stage 2 interval will skip intervening primes.\n",func,qlo,B2_start);
+				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile has qlo[%" PRIu64 "] <= B2_start[%" PRIu64 "] ... Stage 2 interval will skip intervening primes.\n",func,qlo,B2_start);
 			}
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			restart = TRUE;
@@ -1758,7 +1758,7 @@ MME = 0;
 	if(!qlo) {			// If qlo unset, set = default stage 2 starting point ... if qlo already set via restart-file
 		qlo = B2_start;	// read, it will automatically be > our small-prime-relocation-reflecting value of B2_start.
 		if(psmall && B2_start > B1) {	// If psmall = 0, it's an S2 continuation run, no relocation done
-			sprintf(cbuf,"Small-prime[%u] relocation: will start Stage 2 at bound %llu\n",psmall,qlo);
+			sprintf(cbuf,"Small-prime[%u] relocation: will start Stage 2 at bound %" PRIu64 "\n",psmall,qlo);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
 	}
@@ -1776,7 +1776,7 @@ MME = 0;
 		sprintf(cbuf,"k must be 32-bit!");
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 	}
-	sprintf(cbuf,"Stage 2 q0 = %llu, k0 = %u\n",q0,k0);
+	sprintf(cbuf,"Stage 2 q0 = %" PRIu64 ", k0 = %u\n",q0,k0);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	/*
 	Expanded-match-window scheme needs us to precompute singleton-prime-q's bitmap corresponding to M intervals
@@ -2050,7 +2050,7 @@ MME = 0;
 	{
 		if(!reloc_on && q >= reloc_start) {	// Start including relocation-semiprimes once S@ passes this point
 			reloc_on = TRUE;
-			sprintf(cbuf,"Hit q = %llu >= reloc_start[%llu] ... enabling small-prime relocation.\n",q,reloc_start);
+			sprintf(cbuf,"Hit q = %" PRIu64 " >= reloc_start[%" PRIu64 "] ... enabling small-prime relocation.\n",q,reloc_start);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
 		// Only start actual 0-interval and extended-window pairing when q hits q0:
@@ -2061,7 +2061,7 @@ MME = 0;
 			center of the expanded-match window, recompute same batch of stage 2 powering pairs q1,q2[i] = k*D +- b[i]
 			and process the both-q1-and-q2-prime pairs: */
 		#ifdef PM1_DEBUG
-			fprintf(stderr,"k = %u: q = %llu\n",k,q);
+			fprintf(stderr,"k = %u: q = %" PRIu64 "\n",k,q);
 			fprintf(stderr,"Processing 0-interval prime pairs:\n");
 		#endif
 			map_lo = map + m2*wsize + (wsize>>1);	// ptr to midpoint of 0-interval map word
@@ -2071,9 +2071,9 @@ MME = 0;
 			#ifdef PM1_DEBUG
 				q1 = q - b[i]; q2 = q + b[i];
 				bit = pprimeF64(q1,2ull); if(p1 != bit)
-					fprintf(stderr,"Mismatch: q1 = %llu[%u], bytevec_test_bit returns %u\n",q1,bit,p1);
+					fprintf(stderr,"Mismatch: q1 = %" PRIu64 "[%u], bytevec_test_bit returns %u\n",q1,bit,p1);
 				bit = pprimeF64(q2,2ull); if(p2 != bit)
-					fprintf(stderr,"Mismatch: q2 = %llu[%u], bytevec_test_bit returns %u\n",q2,bit,p2);
+					fprintf(stderr,"Mismatch: q2 = %" PRIu64 "[%u], bytevec_test_bit returns %u\n",q2,bit,p2);
 			#endif
 				// Skip a given value of i if one or both of q1,q2[i] are composite according to a 2-prp test:
 				j = p1+p2;
@@ -2083,12 +2083,12 @@ MME = 0;
 					if(j < m)
 						continue;
 				#ifdef PM1_DEBUG
-					fprintf(stderr,"\tq1 = %llu[%u], q2 = %llu[%u], 1-prime\n",q1,p1,q2,p2);
+					fprintf(stderr,"\tq1 = %" PRIu64 "[%u], q2 = %" PRIu64 "[%u], 1-prime\n",q1,p1,q2,p2);
 				#endif
 					ns++;
 				} else {
 				#ifdef PM1_DEBUG
-					fprintf(stderr,"\tq1 = %llu[%u], q2 = %llu[%u], both prime\n",q1,p1,q2,p2);
+					fprintf(stderr,"\tq1 = %" PRIu64 "[%u], q2 = %" PRIu64 "[%u], both prime\n",q1,p1,q2,p2);
 				#endif
 					np++;
 				}
@@ -2143,16 +2143,16 @@ MME = 0;
 					p1 = bytevec_test_bit(map_lo,j); p2 = bytevec_test_bit(map_hi,j);
 					q1 = q - b[tmp+j]; q2 = q + b[tmp+j];
 					bit = pprimeF64(q1,2ull); if(p1 != bit)
-						fprintf(stderr,"Mismatch: q1 = %llu[%u], bytevec_test_bit returns %u\n",q1,bit,p1);
+						fprintf(stderr,"Mismatch: q1 = %" PRIu64 "[%u], bytevec_test_bit returns %u\n",q1,bit,p1);
 					bit = pprimeF64(q2,2ull); if(p2 != bit)
-						fprintf(stderr,"Mismatch: q2 = %llu[%u], bytevec_test_bit returns %u\n",q2,p2,bit);
+						fprintf(stderr,"Mismatch: q2 = %" PRIu64 "[%u], bytevec_test_bit returns %u\n",q2,p2,bit);
 				#endif
 					// For thus-paired prime-q's, update stage 2 accumulator:
 					p1 = bytevec_test_bit(lo,j);
 					if(p1) {
 						np++;
 					#ifdef PM1_DEBUG
-						fprintf(stderr,"\tq = %llu -+ %u: q1 = %llu[%u], q2 = %llu[%u], paired singles\n",q,b[tmp+j],q-b[tmp+j],p1,q+b[tmp+j],p2);
+						fprintf(stderr,"\tq = %" PRIu64 " -+ %u: q1 = %" PRIu64 "[%u], q2 = %" PRIu64 "[%u], paired singles\n",q,b[tmp+j],q-b[tmp+j],p1,q+b[tmp+j],p2);
 					#endif
 					#ifndef PM1_STANDALONE
 					 #ifdef USE_VEC_DBL_SUB
@@ -2194,7 +2194,7 @@ MME = 0;
 					#ifdef PM1_DEBUG
 						q1 = q-b[tmp+i]; q2 = q+b[tmp+i];
 						p1 = pprimeF64(q1,2ull); p2 = pprimeF64(q2,2ull);	// Run q1,q2 through a base-2 Fermat-composite test
-						fprintf(stderr,"\tq = %llu -+ %u: q1 = %llu[%u], q2 = %llu[%u], 1-prime\n",q,b[tmp+i],q1,p1,q2,p2);
+						fprintf(stderr,"\tq = %" PRIu64 " -+ %u: q1 = %" PRIu64 "[%u], q2 = %" PRIu64 "[%u], 1-prime\n",q,b[tmp+i],q1,p1,q2,p2);
 					#endif
 					#ifndef PM1_STANDALONE
 					 #ifdef USE_VEC_DBL_SUB
@@ -2247,7 +2247,7 @@ MME = 0;
 			Working leftward from right endpoint of interval, init single 2*num_b-bit accumulator.
 		*/
 	#ifdef PM1_DEBUG
-		fprintf(stderr,"New upper-interval with q0 = %llu, tagging its primes:\n",tmp);
+		fprintf(stderr,"New upper-interval with q0 = %" PRIu64 ", tagging its primes:\n",tmp);
 	#endif
 	/*
 		Prime relocation: Illustrate using psmall = 11, but analogous pattering holds for psmall = 7 (D = 330|660):
@@ -2309,13 +2309,13 @@ MME = 0;
 					if(bytevec_test_bit(rmap,j      )) {
 						q1 *= pinv64;
 					#ifdef PM1_DEBUG
-						fprintf(stderr,"reloc q1: %llu => %llu\n",q1,q1*psmall);
+						fprintf(stderr,"reloc q1: %" PRIu64 " => %" PRIu64 "\n",q1,q1*psmall);
 					#endif
 					}
 					if(bytevec_test_bit(rmap,i+num_b)) {
 						q2 *= pinv64;
 					#ifdef PM1_DEBUG
-						fprintf(stderr,"reloc q2: %llu => %llu\n",q2,q2*psmall);
+						fprintf(stderr,"reloc q2: %" PRIu64 " => %" PRIu64 "\n",q2,q2*psmall);
 					#endif
 					}
 				}
@@ -2336,7 +2336,7 @@ MME = 0;
 				if(psmall && bytevec_test_bit(rmap,j)) {
 					q1 *= pinv64;
 				#ifdef PM1_DEBUG
-					fprintf(stderr,"reloc q: %llu => %llu\n",q1,q1*psmall);
+					fprintf(stderr,"reloc q: %" PRIu64 " => %" PRIu64 "\n",q1,q1*psmall);
 				#endif
 				}
 				p1 = pprimeF64(q1,2ull);
@@ -2446,7 +2446,7 @@ MME = 0;
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",local_time);
 			AME /= (nmodmul - nmodmul_save);
 			// Print [date in hh:mm:ss | p | stage progress | %-complete | time | per-iter time | Res64 | max ROE:
-			snprintf(cbuf,STR_MAX_LEN*2, "[%s] %s %s = %llu [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016llX. AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
+			snprintf(cbuf,STR_MAX_LEN*2, "[%s] %s %s = %" PRIu64 " [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016" PRIX64 ". AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
 				, timebuffer, PSTRING, "S2 at q", q+bigstep, (float)(q-B2_start)/(float)(B2-B2_start) * 100,get_time_str(*tdiff)
 				, 1000*get_time(*tdiff)/(nmodmul - nmodmul_save), Res64, AME, MME);
 			mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
@@ -2497,7 +2497,7 @@ S2_RETURN:
 
   #ifdef PM1_DEBUG
   #warning Revert this preprocessor flag!
-	fprintf(stderr,"Res64 = 0x%016llX; clocks =%s, MaxErr = %10.9f\n",arrtmp[0],get_time_str(*tdiff),MME);
+	fprintf(stderr,"Res64 = %#016" PRIX64 "; clocks =%s, MaxErr = %10.9f\n",arrtmp[0],get_time_str(*tdiff),MME);
   if(p == 33554432) {  // F25: check if the known factor divides the S2 result:
 	ASSERT(MODULUS_TYPE == MODULUS_TYPE_FERMAT, "This p-1 self-test requires Fermat-mod mode!");
 	int isfact = mi64_is_div_by_scalar64(arrtmp,2170072644496392193ull,nlimb);	// k = 2^5.3^2.37.997.11066599

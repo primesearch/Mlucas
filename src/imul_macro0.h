@@ -247,10 +247,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 		hi2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 		hi3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 	\
-		/*lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20llu %20llu %20llu\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20llu %20llu %20llu\n",x0,b,hi0);*/\
-		/*lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20llu %20llu %20llu\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20llu %20llu %20llu\n",x1,b,hi1);*/\
-		/*lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20llu %20llu %20llu\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20llu %20llu %20llu\n",x2,b,hi2);*/\
-		/*lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20llu %20llu %20llu\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20llu %20llu %20llu\n",x3,b,hi3);*/\
+		/*lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,b,hi0);*/\
+		/*lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,b,hi1);*/\
+		/*lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,b,hi2);*/\
+		/*lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,b,hi3);*/\
 	\
 		/* loj = MULL64(loj,qinvj) : */\
 	\
@@ -281,10 +281,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 		y2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 		y3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 	\
-	/*a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20llu %20llu %20llu\n",x0,a,lo0);*/\
-	/*a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20llu %20llu %20llu\n",x1,a,lo1);*/\
-	/*a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20llu %20llu %20llu\n",x2,a,lo2);*/\
-	/*a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20llu %20llu %20llu\n",x3,a,lo3);*/\
+	/*a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);*/\
+	/*a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);*/\
+	/*a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);*/\
+	/*a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);*/\
 	}
 
 /********************************************************************************/
@@ -1292,10 +1292,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 			hi2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 			hi3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 		/* DEBUG:\
-		lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20llu %20llu %20llu\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20llu %20llu %20llu\n",x0,b,hi0);	\
-		lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20llu %20llu %20llu\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20llu %20llu %20llu\n",x1,b,hi1);	\
-		lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20llu %20llu %20llu\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20llu %20llu %20llu\n",x2,b,hi2);	\
-		lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20llu %20llu %20llu\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20llu %20llu %20llu\n",x3,b,hi3);	\
+		lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,b,hi0);	\
+		lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,b,hi1);	\
+		lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,b,hi2);	\
+		lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,b,hi3);	\
 		*/\
 			/* loj = MULL64(loj,qinvj) : */\
 		/* DEBUG:\
@@ -1326,10 +1326,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 			y2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 			y3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 		/* DEBUG:\
-			a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20llu %20llu %20llu\n",x0,a,lo0);	\
-			a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20llu %20llu %20llu\n",x1,a,lo1);	\
-			a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20llu %20llu %20llu\n",x2,a,lo2);	\
-			a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20llu %20llu %20llu\n",x3,a,lo3);	\
+			a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	\
+			a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	\
+			a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	\
+			a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	\
 		*/\
 		}
 

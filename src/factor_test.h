@@ -645,18 +645,18 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		pm60 = p64%60;
 		km60 = k  %60;
 		if(!CHECK_PKMOD60(&p64,1, km60, 0x0)) {
-			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
+			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %" PRIu64 " %4u %" PRIu64 " %4u\n",p64,pm60,k,km60);
 			ASSERT(0,"0");
 		}
 		pm60 = p64%4620;
 		km60 = k  %4620;
 		if(!CHECK_PKMOD4620(&p64,1, km60, 0x0)) {
-			fprintf(stderr,"Illegal (p,k) mod 4620 pair: p,p mod 4620, k,k mod 4620 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
+			fprintf(stderr,"Illegal (p,k) mod 4620 pair: p,p mod 4620, k,k mod 4620 = %" PRIu64 " %4u %" PRIu64 " %4u\n",p64,pm60,k,km60);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq64(p64, q64);
 		if(res64 != q64-1ull) {	// Nov 2021: fiddled twopmodq64() to return true-mod
-			fprintf(stderr,"ERROR: twopmodq64(F%u, k = %llu) returns non-unity result %u\n",(uint32)ffac64[i].p,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq64(F%u, k = %" PRIu64 ") returns non-unity result %u\n",(uint32)ffac64[i].p,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	}
@@ -744,11 +744,11 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		lenQ = (l+63)>>6;
 		q[0] = k;		q[lenQ] = mi64_shl(q,q,l,lenQ);	lenQ += (q[lenQ] != 0ull);
 		q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-	//printf("Testing F%u, q = %llu * 2^%u + 1, lenQ = %u...\n",j,k,l,lenQ);
+	//printf("Testing F%u, q = %" PRIu64 " * 2^%u + 1, lenQ = %u...\n",j,k,l,lenQ);
 		uint32 res1 = mi64_twopmodq(p, lenP, k << (l-j-1), q, lenQ, q2);	// Fiddle k to put q in Mersenne-like form = 2.k'.2^j + 1
 			//	res1 = mi64_twopmodq_qferm(j, k << (l-j), q2);
 		if(res1 != 1) {
-			fprintf(stderr,"ERROR: mi64_twopmodq(F%u, q = %llu * 2^%u + 1 = %s) returns non-unity result %s\n",j,k,l,
+			fprintf(stderr,"ERROR: mi64_twopmodq(F%u, q = %" PRIu64 " * 2^%u + 1 = %s) returns non-unity result %s\n",j,k,l,
 					&cbuf1[convert_mi64_base10_char(cbuf1, q, lenQ, 0)],
 					&cbuf2[convert_mi64_base10_char(cbuf2,q2, lenQ, 0)]);
 			ASSERT(0,"0");
@@ -776,18 +776,18 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		compositeness test as an exponent filter: */
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
-			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
+			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %" PRIu64 " %4u %" PRIu64 " %4u\n",p64,pm60,k,km60);
 			ASSERT(0,"0");
 		}
 
 		if((res64 = twopmodq63(p64, q64)) != 1ull)
 		{
-			fprintf(stderr,"ERROR: twopmodq63(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq63(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		if((res64 = twopmodq64(p64, q64)) != 1ull)
 		{
-			fprintf(stderr,"ERROR: twopmodq64(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq64(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 
@@ -796,7 +796,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	/* this is currently sse2/msvc only :
@@ -804,7 +804,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		x256 = twopmodq200_8WORD_DOUBLE((uint64*)&p192, k);	res64 = !x256.d3 && (uint64)CMPEQ192(x256, ONE192);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq200_8WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq200_8WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	*/
@@ -813,7 +813,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res96 = twopmodq96(p64, k);
 		if(!CMPEQ96(ONE96,res96))
 		{
-			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
+			fprintf(stderr,"ERROR: twopmodq96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
 			ASSERT(0,"0");
 		}
@@ -821,7 +821,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq128_96(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 		}
 
 	#ifdef USE_FMADD
@@ -829,7 +829,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -840,7 +840,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE_q2(p64,k,k, 0,0);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2( %llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2( %" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -849,7 +849,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE_q2(p64,k,k);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2( %llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2( %" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -857,14 +857,14 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq63_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq63_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq63_q4( %" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #ifdef USE_FLOAT
 		res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4( %" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -873,7 +873,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4( %" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -881,40 +881,40 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq96_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq96_q4( %" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96_q4( %llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96_q4( %" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 8)
 		res64 = twopmodq63_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq63_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq63_q8( %" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #if defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8( %" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq96_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq96_q8( %" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96_q8( %llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96_q8( %" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 16)
@@ -922,7 +922,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE_q16(p64 ,karr, 0,0);
 		if(res64 != 0xffff)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %" PRIu64 ", k = %" PRIu64 " x 16) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #else
@@ -931,13 +931,13 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	#elif(TRYQ >= 32)
 		res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 		if(res64 != 0xffffffff) {
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %" PRIu64 ", k = %" PRIu64 " x 32) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 //	#elif(TRYQ == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 		if(res64 != 0xffffffffffffffff) {
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %" PRIu64 ", k = %" PRIu64 " x 64) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -964,19 +964,19 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		compositeness test as an exponent filter: */
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
-			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
+			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %" PRIu64 " %4u %" PRIu64 " %4u\n",p64,pm60,k,km60);
 			ASSERT(0,"0");
 		}
 
 		if(q64%(2*p64) != 1)
 		{
-			fprintf(stderr,"ERROR : (p, q) = ( %llu, %llu ) : q mod (2p) = %llu != 1!\n",p64,q64, q64%(2*p64));
+			fprintf(stderr,"ERROR : (p, q) = ( %" PRIu64 ", %" PRIu64 " ) : q mod (2p) = %" PRIu64 " != 1!\n",p64,q64, q64%(2*p64));
 			ASSERT(0,"0");
 		}
 
 		if((res64 = twopmodq64(p64, q64)) != 1ull)
 		{
-			fprintf(stderr,"ERROR: twopmodq64(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq64(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 
@@ -985,7 +985,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -993,7 +993,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res96 = twopmodq96(p64, k);
 		if(!CMPEQ96(ONE96,res96))
 		{
-			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
+			fprintf(stderr,"ERROR: twopmodq96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
 			ASSERT(0,"0");
 		}
@@ -1001,7 +1001,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq128_96(p64,k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 
@@ -1010,7 +1010,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE(p64,k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 
@@ -1022,7 +1022,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE_q2(p64, k,k, 0,0);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2( %llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2( %" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1031,7 +1031,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE_q2(p64, k,k);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1039,14 +1039,14 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq64_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq64_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq64_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #ifdef USE_FLOAT
 		res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1055,47 +1055,47 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq96_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 8)
 		res64 = twopmodq64_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq64_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq64_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #if defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%llu, k = %llu x 4 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq96_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 16)
@@ -1103,7 +1103,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE_q16(p64 ,karr, 0,0);
 		if(res64 != 0xffff)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %" PRIu64 ", k = %" PRIu64 " x 16) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #else
@@ -1112,13 +1112,13 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	#elif(TRYQ >= 32)
 		res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 		if(res64 != 0xffffffff) {
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %" PRIu64 ", k = %" PRIu64 " x 32) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 //	#elif(TRYQ == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 		if(res64 != 0xffffffffffffffff) {
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %" PRIu64 ", k = %" PRIu64 " x 64) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -1144,12 +1144,12 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		compositeness test as an exponent filter: */
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
-			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %llu %4u\n",p64,pm60,k,km60);
+			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %" PRIu64 " %4u %" PRIu64 " %4u\n",p64,pm60,k,km60);
 			ASSERT(0,"0");
 		}
 		if((res64 = twopmodq65(p64,k)) != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq65(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq65(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 
@@ -1157,7 +1157,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -1165,7 +1165,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res96 = twopmodq96(p64, k);
 		if(!CMPEQ96(ONE96,res96))
 		{
-			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
+			fprintf(stderr,"ERROR: twopmodq96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
 			ASSERT(0,"0");
 		}
@@ -1173,7 +1173,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq128_96(p64,k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 
@@ -1182,7 +1182,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -1193,7 +1193,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE_q2(p64, k,k, 0,0);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2(%" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1202,7 +1202,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE_q2(p64, k,k);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1210,14 +1210,14 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq65_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq65_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq65_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #ifdef USE_FLOAT
 		res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1226,47 +1226,47 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq100_2WORD_DOUBLE_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq96_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q4(p64,k,k,k,k);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 8)
 		res64 = twopmodq65_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq65_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq65_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #if defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%llu, k = %llu x 4 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
 		res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq96_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 		res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#elif(TRYQ == 16)
@@ -1274,7 +1274,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		res64 = twopmodq78_3WORD_DOUBLE_q16(p64 ,karr, 0,0);
 		if(res64 != 0xffff)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %" PRIu64 ", k = %" PRIu64 " x 16) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #else
@@ -1283,13 +1283,13 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	#elif(TRYQ >= 32)
 		res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 		if(res64 != 0xffffffff) {
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %" PRIu64 ", k = %" PRIu64 " x 32) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 //	#elif(TRYQ == 64)
 		res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 		if(res64 != 0xffffffffffffffff) {
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %" PRIu64 ", k = %" PRIu64 " x 64) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -1348,14 +1348,14 @@ if((q128.d1 >> 14) == 0) {
 	dbl = (double)q96.d0 + (double)q96.d1*TWO64FLOAT;
 	rnd = log(dbl)/log(2.0);
 	if(rnd > 77)
-		printf("p = %10llu, p,k (mod 60) = %2u, %2u, lg(q) = %10.5f\n",p64,pm60,km60,rnd);
+		printf("p = %10" PRIu64 ", p,k (mod 60) = %2u, %2u, lg(q) = %10.5f\n",p64,pm60,km60,rnd);
 }
 */
 		/* This property only applies for prime exponents, so use a quick base-2 Fermat
 		compositeness test as an exponent filter: */
 		if(twopmodq64(p64-1, p64) == 1ull && !CHECK_PKMOD60(&p64,1, km60, 0x0))
 		{
-			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %llu %4u %s %4u\n",p64,pm60,
+			fprintf(stderr,"Illegal (p,k) mod 60 pair: p,p mod 60, k,k mod 60 = %" PRIu64 " %4u %s %4u\n",p64,pm60,
 					&cbuf1[convert_uint128_base10_char(cbuf1, x128)],km60);
 			ASSERT(0,"0");
 		}
@@ -1378,7 +1378,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq78_3WORD_DOUBLE(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  }
@@ -1387,7 +1387,7 @@ if((q128.d1 >> 14) == 0) {
 		res96 = twopmodq96(p64, k);
 		if(!CMPEQ96(ONE96,res96))
 		{
-			fprintf(stderr,"ERROR: twopmodq96(%llu, k = %llu) returns non-unity result %s\n",p64,k,
+			fprintf(stderr,"ERROR: twopmodq96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %s\n",p64,k,
 					&cbuf2[convert_uint96_base10_char(cbuf2, res96)]);
 			ASSERT(0,"0");
 		}
@@ -1395,7 +1395,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq128_96(p64, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq128_96(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128_96(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	}
@@ -1414,7 +1414,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq128x2((uint64 *)&p128, k);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq128x2(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq128x2(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	}
@@ -1424,7 +1424,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq100_2WORD_DOUBLE(p64, q128);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	#endif
@@ -1437,7 +1437,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq78_3WORD_DOUBLE_q2(p64, k,k, 0,0);
 			if(res64 != 3)
 			{
-				fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q2(%" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 		}
@@ -1447,7 +1447,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq100_2WORD_DOUBLE_q2(p64, k,k);
 		if(res64 != 3)
 		{
-			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%llu, k = %llu x 2 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+			fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q2(%" PRIu64 ", k = %" PRIu64 " x 2 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 			ASSERT(0,"0");
 		}
 	  #endif
@@ -1462,7 +1462,7 @@ if((q128.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q4(p64, k,k,k,k, 0,0);
 				if(res64 != 15)
 				{
-					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 					ASSERT(0,"0");
 				}
 			}
@@ -1472,20 +1472,20 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq100_2WORD_DOUBLE_q4(p64,k,k,k,k);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq100_2WORD_DOUBLE_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 		#endif
 			res64 = twopmodq96_q4(p64,k,k,k,k, 0,0);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq96_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 			res64 = twopmodq128_96_q4(p64,k,k,k,k);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq128_96_q4(%llu, k = %llu x 4 ) failed to find factor, res = 0x%1X.\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq128_96_q4(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#1X.\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 		}	// k must be 64-bit
@@ -1500,7 +1500,7 @@ if((q128.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q8(p64, karr, 0,0);
 				if(res64 != 255)
 				{
-					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%llu, k = %llu x 4 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q8(%" PRIu64 ", k = %" PRIu64 " x 4 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 					ASSERT(0,"0");
 				}
 			}
@@ -1508,19 +1508,19 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq96_q8(p64,k,k,k,k,k,k,k,k, 0,0);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq96_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 			res64 = twopmodq128_96_q8(p64,k,k,k,k,k,k,k,k);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq128_96_q8(%llu, k = %llu x 8 ) failed to find factor, res = 0x%2X.\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq128_96_q8(%" PRIu64 ", k = %" PRIu64 " x 8 ) failed to find factor, res = %#2X.\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 			res64 = twopmodq128_q8((uint64 *)&p128,k,k,k,k,k,k,k,k);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq128_q8( %s, %s x 8 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq128_q8( %s, %s x 8 ) failed to find factor, res = %#1X.\n",
 					&cbuf0[convert_uint128_base10_char(cbuf0,p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1,q128)], (uint32)res64);
 				ASSERT(0,"0");
@@ -1536,7 +1536,7 @@ if((q128.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q16(p64 ,karr, 0,0);
 				if(res64 != 0xffff)
 				{
-					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %llu, k = %llu x 16) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q16( %" PRIu64 ", k = %" PRIu64 " x 16) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 					ASSERT(0,"0");
 				}
 			}
@@ -1549,7 +1549,7 @@ if((q128.d1 >> 14) == 0) {
 			if((q96.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q32(p64 ,karr, 0,0);
 				if(res64 != 0xffffffff) {
-					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %llu, k = %llu x 32) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q32( %" PRIu64 ", k = %" PRIu64 " x 32) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 					ASSERT(0,"0");
 				}
 			}
@@ -1559,7 +1559,7 @@ if((q128.d1 >> 14) == 0) {
 			if((q96.d1 >> 14) == 0) {
 				res64 = twopmodq78_3WORD_DOUBLE_q64(p64 ,karr, 0,0);
 				if(res64 != 0xffffffffffffffff) {
-					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %llu, k = %llu x 64) failed to find factor, res = 0x%4X.\n",p64,k, (uint32)res64);
+					fprintf(stderr,"ERROR: twopmodq78_3WORD_DOUBLE_q64( %" PRIu64 ", k = %" PRIu64 " x 64) failed to find factor, res = %#4X.\n",p64,k, (uint32)res64);
 					ASSERT(0,"0");
 				}
 			}
@@ -1773,7 +1773,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq128x2((uint64 *)&p128, k);
 			if(res64 != 1)
 			{
-				fprintf(stderr,"ERROR: twopmodq128x2(%llu, k = %llu) returns non-unity result %u\n",p64,k, (uint32)res64);
+				fprintf(stderr,"ERROR: twopmodq128x2(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
 				ASSERT(0,"0");
 			}
 
@@ -1781,7 +1781,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq128_q4((uint64 *)&p128,k,k,k,k);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq128_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq128_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 					&cbuf0[convert_uint128_base10_char(cbuf0,p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1,q128)], (uint32)res64);
 				ASSERT(0,"0");
@@ -1790,7 +1790,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq128_q8((uint64 *)&p128,k,k,k,k,k,k,k,k);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq128_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
+				fprintf(stderr,"ERROR: twopmodq128_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 					&cbuf0[convert_uint128_base10_char(cbuf0,p128)],
 					&cbuf1[convert_uint128_base10_char(cbuf1,q128)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2051,7 +2051,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq160_q4(p192,q192,q192,q192,q192);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq160_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+			fprintf(stderr,"ERROR: twopmodq160_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 			ASSERT(0,"0");
@@ -2060,7 +2060,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
 		if(res64 != 15)
 		{
-			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 			ASSERT(0,"0");	// *** disable this to allow fast-UMULH192 timing-testing ***
@@ -2070,7 +2070,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq160_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq160_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
+			fprintf(stderr,"ERROR: twopmodq160_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 			ASSERT(0,"0");
@@ -2079,7 +2079,7 @@ if((q128.d1 >> 14) == 0) {
 		res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 		if(res64 != 255)
 		{
-			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
+			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 			ASSERT(0,"0");
@@ -2148,7 +2148,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq160_q4(p192,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq160_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq160_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2157,7 +2157,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2170,7 +2170,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq160_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq160_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
+				fprintf(stderr,"ERROR: twopmodq160_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2179,7 +2179,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
+				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2242,7 +2242,7 @@ if((q128.d1 >> 14) == 0) {
 			x256 = twopmodq200_8WORD_DOUBLE((uint64*)&p192, x192.d0);	res64 = !x256.d3 && (uint64)CMPEQ192(x256, ONE192);
 			if(res64 != 1)
 			{
-				fprintf(stderr,"ERROR: twopmodq200( %s, %s ) returns non-unity result %llu\n",
+				fprintf(stderr,"ERROR: twopmodq200( %s, %s ) returns non-unity result %" PRIu64 "\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], res64);
 				ASSERT(0,"0");
@@ -2283,7 +2283,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 15)
 			{
-				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2295,7 +2295,7 @@ if((q128.d1 >> 14) == 0) {
 			res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 255)
 			{
-				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = 0x%2X.\n",
+				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 						&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2413,7 +2413,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf1[convert_uint64_base10_char (cbuf1, fac63[i].q)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, x128)],
 					&cbuf3[convert_uint64_base10_char (cbuf3, fac64[i3].q)]);
-				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1,q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2426,7 +2426,7 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf1[convert_uint64_base10_char (cbuf1, fac63[i].q)],
 					&cbuf2[convert_uint128_base10_char(cbuf2, x128)],
 					&cbuf3[convert_uint64_base10_char (cbuf3, fac64[i3].q)]);
-				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 4 ) failed to find factor, res = 0x%1X.\n",
+				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1,q192)], (uint32)res64);
 				ASSERT(0,"0");
@@ -2468,11 +2468,11 @@ if((q128.d1 >> 14) == 0) {
 	  {
 		p128.d0 = p192.d0;
 		p128.d1 = p192.d1;
-	printf("twopmodq200, p = %s, k = %llu\n", fac256->p, x256.d0);
+	printf("twopmodq200, p = %s, k = %" PRIu64 "\n", fac256->p, x256.d0);
 		x256 = twopmodq200_8WORD_DOUBLE(p128, x256.d0);	res64 = !x256.d3 && (uint64)CMPEQ192(x256, ONE192);
 		if(res64 != 1)
 		{
-			fprintf(stderr,"ERROR: twopmodq200( %s, %s ) returns non-unity result %llu\n",
+			fprintf(stderr,"ERROR: twopmodq200( %s, %s ) returns non-unity result %" PRIu64 "\n",
 					&cbuf0[convert_uint256_base10_char(cbuf0, p256)],
 					&cbuf1[convert_uint256_base10_char(cbuf1, q256)], res64);
 			ASSERT(0,"0");

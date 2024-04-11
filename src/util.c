@@ -803,7 +803,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			} else {	// Fill in any remaining slots with 63-bit test data. of which we know we have > (1<<10):
 				p = fac63[i-nelt64].p;
 				q = fac63[i-nelt64].q;
-	//if((i-nelt64) < 10)printf("p[%3d] = %u: q = %llu ... ",i, p, q);
+	//if((i-nelt64) < 10)printf("p[%3d] = %u: q = %" PRIu64 " ... ",i, p, q);
 			}
 			ASSERT(p != 0, "p must be nonzero!");
 			// Compute auxiliary TF data:
@@ -825,7 +825,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			ASSERT(k*(p<<1)+1 == q, "k computed incorrectly!");
 			*(h_p     + i) = p          ;	*(h_pshft + i) = pshift     ;	*(h_k + i) = k;
 			*(h_zshft + i) = zshift     ;	*(h_stidx + i) = start_index;
-		//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",i, p, pshift, zshift, start_index, k);
+		//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %" PRIu64 "\n",i, p, pshift, zshift, start_index, k);
 		}
 		printf("Testing %d = %d 64-bit and %d 63-bit known-factors...",N,nelt64,N-nelt64);
 
@@ -834,7 +834,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -871,7 +871,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			j = (uint32)twopmodq64((uint64)p, q);
 			if((j != 1) || (*(h_B + i) != 1)) {
 				printf("cudaVecModpowTest64: Mismatch between Ref and GPU result:\n");
-				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,q) = %u, %llu\n", i,*(h_B + i), j,p,q);
+				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,q) = %u, %" PRIu64 "\n", i,*(h_B + i), j,p,q);
 				ASSERT(0, "cudaVecModpowTest64 failed!");
 			}
 		}
@@ -918,7 +918,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -957,7 +957,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		for(i = 0; i < N; ++i) {
 			if(*(h_B + i) != 1) {
 				printf("cudaVecModpowTest78_0: Mismatch between Ref and GPU result:\n");
-				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %llu\n", i,*(h_B + i), j,p,k);
+				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %" PRIu64 "\n", i,*(h_B + i), j,p,k);
 				ASSERT(*(h_B + i) == 1, "cudaVecModpowTest78_0 failed!");
 			}
 		}
@@ -1009,7 +1009,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			k = (uint64)rnd;
 			*(h_p     + nelts) = p          ;	*(h_pshft + nelts) = pshift     ;	*(h_k + nelts) = k;
 			*(h_zshft + nelts) = zshift     ;	*(h_stidx + nelts) = start_index;
-	//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
+	//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %" PRIu64 "\n",nelts, p, pshift, zshift, start_index, k);
 			++nelts;
 		}
 		printf("Testing %d 78-bit known-factors...",nelts);
@@ -1041,7 +1041,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -1079,7 +1079,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			j = (uint32)twopmodq78_3WORD_DOUBLE((uint64)p, k);
 			if((j != 1) || (*(h_B + i) != 1)) {
 				printf("cudaVecModpowTest78: Mismatch between Ref and GPU result:\n");
-				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %llu\n", i,*(h_B + i), j,p,k);
+				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %" PRIu64 "\n", i,*(h_B + i), j,p,k);
 				ASSERT(0, "cudaVecModpowTest78 failed!");
 			}
 		}
@@ -1145,12 +1145,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			k = x96.d0;
 			// Skip any (p,q) pair for which the k > 2^64:
 			if(x96.d1 != 0) {	// x128 holds k
-			//	printf("Warning: k > 2^64 detected for (p,q) = %u,[%u*2^64 + %llu] ... skipping this datum.\n",p,q96.d1,q96.d0);
+			//	printf("Warning: k > 2^64 detected for (p,q) = %u,[%u*2^64 + %" PRIu64 "] ... skipping this datum.\n",p,q96.d1,q96.d0);
 				continue;
 			}
 			*(h_p     + nelts) = p          ;	*(h_pshft + nelts) = pshift     ;	*(h_k + nelts) = k;
 			*(h_zshft + nelts) = zshift     ;	*(h_stidx + nelts) = start_index;
-	//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
+	//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %" PRIu64 "\n",nelts, p, pshift, zshift, start_index, k);
 			++nelts;
 		}
 		printf("Testing %d 96-bit known-factors...",nelts);
@@ -1182,7 +1182,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -1221,7 +1221,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			j = (q96.d1 == 0) && (q96.d0 == 1);
 			if((j != 1) || (*(h_B + i) != 1)) {
 				printf("cudaVecModpowTest96: Mismatch between Ref and GPU result:\n");
-				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %llu\n", i,*(h_B + i), j,p,k);
+				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %" PRIu64 "\n", i,*(h_B + i), j,p,k);
 				ASSERT(0, "cudaVecModpowTest96 failed!");
 			}
 		}
@@ -1506,7 +1506,7 @@ void host_init(void)
 	uint64 vec[max_test_dim], exp;	// Use a known M-prime exponent and dimension vec suitably
 	const uint32 mers_expos[] = {61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941,11213,19937,21701,0x0};
 	for(i = 0, exp = (uint64)mers_expos[i]; exp != 0; i++) {
-		fprintf(stderr,"TEST_MI64_PRP: Base-3 Fermat-PRP test of M(%llu)...\n",exp);
+		fprintf(stderr,"TEST_MI64_PRP: Base-3 Fermat-PRP test of M(%" PRIu64 ")...\n",exp);
 		ASSERT(exp < (max_test_dim<<6), "Bignum-PRP test exponent larger than test-vec dimension permits!");
 		j = mi64_init_mers_or_ferm_modulus(exp, 0, vec);
 		ASSERT(mi64_pprimeF(vec,3ull,j), "TEST_MI64_PRP: Base-3 Fermat-PRP test fails!");
@@ -1806,13 +1806,13 @@ exit(0);
 	uint64 cy1 = mi64_add(u,v,x,n);
 	uint64 cy2 = mi64_add_ref(u,v,y,n);
 	if(cy1 != cy2) {
-		printf("Carryout mismatch: cy1 = %llu, cy2 = %llu\n",cy1,cy2);
+		printf("Carryout mismatch: cy1 = %" PRIu64 ", cy2 = %" PRIu64 "\n",cy1,cy2);
 	//	ASSERT(0, "Incorrect mi64_add carryout");	// GCC 4.4.5 builds on my SB give carry-mismatch here ... wtf?
 	}
 	for(i = 0; i < n; i++)
 	{
 		if(x[i] != y[i]) {
-			printf("Output mismatch: x[%d] = %llu, y[%d] = %llu\n",i,x[i],i,y[i]);
+			printf("Output mismatch: x[%d] = %" PRIu64 ", y[%d] = %" PRIu64 "\n",i,x[i],i,y[i]);
 			ASSERT(0, "Incorrect mi64_add output element");
 		}
 	}
@@ -1825,7 +1825,7 @@ exit(0);
 	}
 	clock2 = clock();
 	tdiff = (double)(clock2 - clock1);
-	printf	("mi64_add: Time for %llu limbs =%s\n",(uint64)iters*n, get_time_str(tdiff));
+	printf	("mi64_add: Time for %" PRIu64 " limbs =%s\n",(uint64)iters*n, get_time_str(tdiff));
 	exit(0);
 #endif
 	/************************************************************/
@@ -1964,7 +1964,7 @@ uint32 get_system_ram(void) {
 	MEMORYSTATUSEX memInfo;
 	memInfo.dwLength = sizeof(memInfo);
 	GlobalMemoryStatusEx(&memInfo);
-	fprintf(stderr, "System total RAM = %llu, free RAM = %llu\n", memInfo.ullTotalPhys>>20, memInfo.ullAvailPhys>>20);
+	fprintf(stderr, "System total RAM = %" PRIu64 ", free RAM = %" PRIu64 "\n", memInfo.ullTotalPhys>>20, memInfo.ullAvailPhys>>20);
 	return memInfo.ullAvailPhys>>20;
 
 #elif defined(OS_TYPE_MACOSX)
@@ -2836,7 +2836,7 @@ ASSERT(((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	{
 		order = 1ull << i;
 		prim_root_q(order, &root_re,&root_im);
-	//	printf("FGT: prim-root of order 2^%2u = %llu + I*%llu\n",i, root_re,root_im);
+	//	printf("FGT: prim-root of order 2^%2u = %" PRIu64 " + I*%" PRIu64 "\n",i, root_re,root_im);
 		// Check order-primitivity of roots of order > 1 by powering result up to 2nd order; result must == -1 (mod q):
 		if(i > 0) {
 			for(j = 1; j < i; j++) {
@@ -2855,7 +2855,7 @@ ASSERT(((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	// Power-of-2 roots satisfy simple conjugate rule, modular analog of complex conj(Re,Im) = (Re,-Im):
 	order = 16;	prim_root_q(order, &root_re,&root_im);
 	pow_modq(order-1, root_re,root_im, &re,&im);
-	printf("FGT: prim-root of order %u = %llu + I*%llu, Conjugate = %llu + I*%llu [q-Im = %llu]\n",(uint32)order, root_re,root_im, re,im,q-im);
+	printf("FGT: prim-root of order %u = %" PRIu64 " + I*%" PRIu64 ", Conjugate = %" PRIu64 " + I*%" PRIu64 " [q-Im = %" PRIu64 "]\n",(uint32)order, root_re,root_im, re,im,q-im);
 //	FGT: prim-root of order 16 = 1693317751237720973 + I*2283815672160731785,
 //					Conjugate =  1693317751237720973 + I*  22027337052962166 [q-Im = 2283815672160731785]
 	ASSERT(root_re == re && root_im == (q-im), "Bad power-of-2 conjugate!");
@@ -2863,7 +2863,7 @@ ASSERT(((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	// Non-power-of-2 roots satisfy no simple conjugate rules, so multiply root and its conjugate together as sanity check:
 	order = 24;	prim_root_q(order, &root_re,&root_im);
 	pow_modq(order-1, root_re,root_im, &re,&im);
-	printf("FGT: prim-root of order %u = %llu + I*%llu, Conjugate = %llu + I*%llu [q-Im = %llu]\n",(uint32)order, root_re,root_im, re,im,q-im);
+	printf("FGT: prim-root of order %u = %" PRIu64 " + I*%" PRIu64 ", Conjugate = %" PRIu64 " + I*%" PRIu64 " [q-Im = %" PRIu64 "]\n",(uint32)order, root_re,root_im, re,im,q-im);
 	cmul_modq(root_re,root_im, re,im, &re,&im);
 	re = qreduce_full(re);	im = qreduce_full(im);
 	ASSERT(re == 1ull && im == 0ull, "Bad non-power-of-2 conjugate!");
@@ -2880,7 +2880,7 @@ ASSERT(((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	printf("Powers of prim-root:\n");
 	re = root_re;	im = root_im;
 	for(i = 0; i < order; i++) {
-		printf("%2u: %20llu[-= %20llu] + I*%20llu[-= %20llu]\n",i+1, re,q-re,im,q-im);
+		printf("%2u: %20" PRIu64 "[-= %20" PRIu64 "] + I*%20" PRIu64 "[-= %20" PRIu64 "]\n",i+1, re,q-re,im,q-im);
 		cmul_modq(root_re,root_im, re,im, &re,&im);
 		re = qreduce_full(re);	im = qreduce_full(im);
 	}
@@ -2928,7 +2928,7 @@ The four [+-d,+-d] and four powers of I are just the eight 8th roots of unity wh
 	{
 		order *= odd_ord_facs[i];
 		prim_root_q(order, &root_re,&root_im);
-	//	printf("FGT: prim-root of order %llu = %llu + I*%llu\n",order, root_re,root_im);
+	//	printf("FGT: prim-root of order %" PRIu64 " = %" PRIu64 " + I*%" PRIu64 "\n",order, root_re,root_im);
 		ASSERT(root_im == 0ull, "Odd roots must be strictly real!!");
 		// Check order-primitivity of roots by raising result to (order)th power; result must == -1 (mod q):
 		pow_modq(order, root_re,root_im, &root_re,&root_im);
@@ -3128,10 +3128,10 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			  #endif
 			  /*
 				if(pow2 == 53 && i < 100) {
-					printf("I = %d: ax = %llu ay = %llu ahi,alo = %f,%f\n",i, *ax,*ay, *ahi,*alo);
-					printf("I = %d: bx = %llu by = %llu bhi,blo = %f,%f\n",i, *bx,*by, *bhi,*blo);
-					printf("I = %d: cx = %llu cy = %llu chi,clo = %f,%f\n",i, *cx,*cy, *chi,*clo);
-					printf("I = %d: dx = %llu dy = %llu dhi,dlo = %f,%f\n",i, *dx,*dy, *dhi,*dlo);
+					printf("I = %d: ax = %" PRIu64 " ay = %" PRIu64 " ahi,alo = %f,%f\n",i, *ax,*ay, *ahi,*alo);
+					printf("I = %d: bx = %" PRIu64 " by = %" PRIu64 " bhi,blo = %f,%f\n",i, *bx,*by, *bhi,*blo);
+					printf("I = %d: cx = %" PRIu64 " cy = %" PRIu64 " chi,clo = %f,%f\n",i, *cx,*cy, *chi,*clo);
+					printf("I = %d: dx = %" PRIu64 " dy = %" PRIu64 " dhi,dlo = %f,%f\n",i, *dx,*dy, *dhi,*dlo);
 				}
 			  */
 				if(cmp_fma_lohi_vs_exact(*ax,*ay,*ahi,*alo, iax,iay,iahi,ialo)) { ++nerr; printf("ERROR: pow2 = %d, I = %d, A-outputs differ!\n",pow2,i); ASSERT(0, "fma_dmult tests failed!"); }
@@ -3144,9 +3144,9 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 				r1 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				r2 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				mul50x50_debug(r1,r2, &lo,&hi);
-				printf("mul50x50_: a,b = %llu, %llu\n",*(uint64*)&r1,*(uint64*)&r2);
-				printf("mul50x50_: lo = %16llu\n",*(uint64*)alo);
-				printf("mul50x50_: hi = %16llu\n",*(uint64*)ahi);
+				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",*(uint64*)&r1,*(uint64*)&r2);
+				printf("mul50x50_: lo = %16" PRIu64 "\n",*(uint64*)alo);
+				printf("mul50x50_: hi = %16" PRIu64 "\n",*(uint64*)ahi);
 			  #endif
 
 			/******************** experimental code: Try squaring [lo,hi] (in ymm1,2), sans intermediate base-normalizations: *******************/
@@ -3225,10 +3225,10 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			// Use 1.0f as format - .0 means no fractional part, and i/o routines will override the length-1 with actual length:
 			if(cy_max > 0) {
 				itmp64 = cy_max; itmp32 = trailz64(itmp64); itmp64 >>= itmp32;
-				printf("\tcy_max = %1.0f =  %llu * 2^%u\n",cy_max,itmp64,itmp32);
+				printf("\tcy_max = %1.0f =  %" PRIu64 " * 2^%u\n",cy_max,itmp64,itmp32);
 			} else if(cy_max < 0) {
 				itmp64 =-cy_max; itmp32 = trailz64(itmp64); itmp64 >>= itmp32;
-				printf("\tcy_max = %1.0f = -%llu * 2^%u\n",cy_max,itmp64,itmp32);
+				printf("\tcy_max = %1.0f = -%" PRIu64 " * 2^%u\n",cy_max,itmp64,itmp32);
 			} else {
 				printf("\tcy_max =  0\n");
 			}
@@ -3302,9 +3302,9 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 		if(retval) {
 			printf("In cmp_fma_lohi_vs_exact: FMA-double and pure-int DMUL results differ!\n");
 			printf("dx = %f; dy = %f; hi,lo = %f,%f\n",dx,dy, dhi * (1 - 2*(s1 != 0)), dlo * (1 - 2*(s0 != 0)));
-			printf("ix = %lld; iy = %lld; ihi,lo = %lld,%llu\n",ix,iy, ihi,ilo);
-			printf("Unsigned FMA result: ihi = %llX; ilo = %llX\n",*(uint64*)&dhi,*(uint64*)&dlo);
-			printf("nsh1,0 = %d,%d: ehi = %llu; elo = %llu [mlo = %c%llu]\n",nsh1,nsh0,exact.d1,exact.d0, char_sgn[s1 ^ s0],m0);
+			printf("ix = %" PRId64 "; iy = %" PRId64 "; ihi,lo = %" PRId64 ",%" PRIu64 "\n",ix,iy, ihi,ilo);
+			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",*(uint64*)&dhi,*(uint64*)&dlo);
+			printf("nsh1,0 = %d,%d: ehi = %" PRIu64 "; elo = %" PRIu64 " [mlo = %c%" PRIu64 "]\n",nsh1,nsh0,exact.d1,exact.d0, char_sgn[s1 ^ s0],m0);
 		}
 		return retval;
 	}
@@ -4623,9 +4623,9 @@ DEV uint64 egcd64(uint64 *x, uint64 *y)
 	/* Sign of these 3 doesn't matter since they're just temporaries: */
 	uint64 d, e, f;
 	if(*x == *y) {
-		printf("ERROR: eGCD of identical arguments x = y = %llu is illegal!\n", *x);	ASSERT(0,"0");
+		printf("ERROR: eGCD of identical arguments x = y = %" PRIu64 " is illegal!\n", *x);	ASSERT(0,"0");
 	} else if((*x | *y) == 0ull) {
-		printf("ERROR: eGCD called with zero input: x = %llu, y = %llu\n", *x, *y);		ASSERT(0,"0");
+		printf("ERROR: eGCD called with zero input: x = %" PRIu64 ", y = %" PRIu64 "\n", *x, *y);		ASSERT(0,"0");
 	}
 	while(w) {
 		q = g/w;
@@ -4869,7 +4869,7 @@ uint32 x128_div_y32(uint128 *x, uint32 y)
 		cy = (two64mody >> 63);
 		two64mody += (-cy) & y;
 		two64divy += (cy == 0);
-/*printf("INIT: two64divy, two64mody = %20llu %20llu\n\n", two64divy, two64mody); */
+/*printf("INIT: two64divy, two64mody = %20" PRIu64 " %20" PRIu64 "\n\n", two64divy, two64mody); */
 	}
 
 	/* Divide high digit by y, storing remainder in cy: */
@@ -4887,7 +4887,7 @@ uint32 x128_div_y32(uint128 *x, uint32 y)
 	prior to dividing risks unsigned integer overflow:
 	*/
 	(x->d0) = cy*two64divy + tsum/y + (x->d0)/y;
-/*printf("%20llu %20llu %2llu %2llu\n", x->d1, x->d0, cy, rem); */
+/*printf("%20" PRIu64 " %20" PRIu64 " %2" PRIu64 " %2" PRIu64 "\n", x->d1, x->d0, cy, rem); */
 	return (uint32)rem;
 }
 
@@ -5370,7 +5370,7 @@ double	convert_base10_char_double (const char*char_buf)
 	and return that; otherwise we return (double)curr_sum*curr_mul .
 	*/
 #if 0
-	printf("convert_base10_char_double: char_buf = %s, curr_sum = %llu, curr_mul = %lf\n",char_buf, curr_sum, curr_mul);
+	printf("convert_base10_char_double: char_buf = %s, curr_sum = %" PRIu64 ", curr_mul = %lf\n",char_buf, curr_sum, curr_mul);
 #endif
 	if(curr_mul == 0.0)
 	{

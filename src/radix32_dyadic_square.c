@@ -1039,7 +1039,7 @@ printf("c[%2d] = %18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f
 
 		add0 = &a[j1];
 		add1 = &a[j1+stridh];
-	//	printf("stride = %d, add0,1 = %llX, %llX, diff = %llX\n",stride,(int64)add0,(int64)add1, (int64)add1-(int64)add0);	exit(0);
+	//	printf("stride = %d, add0,1 = %" PRIX64 ", %" PRIX64 ", diff = %" PRIX64 "\n",stride,(int64)add0,(int64)add1, (int64)add1-(int64)add0);	exit(0);
 	//	ASSERT((j1+stride) == (j+stride) + ( ((j+stride) >> DAT_BITS) << PAD_BITS ) , "add1 calculation violates padded index rules!");
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:

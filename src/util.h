@@ -107,7 +107,7 @@ for(i = 0; i < 256; i++) {
 	for(j = bit ; j < 8; j++) {
 		x32 += 0xf<<(4*j);
 	}
-	printf("0x%8X,",x32);
+	printf("%#8X,",x32);
 }
 printf("\n");
 */

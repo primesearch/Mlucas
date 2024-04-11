@@ -94,11 +94,11 @@ The key 3-operation sequence here is as follows:
 		int fidx;
 	#if FAC_DEBUG
 		if(dbg) {
-			printf("twopmodq78_3WORD_DOUBLE with p = %u, k = %llu, tid = %u\n",p,k,i);
+			printf("twopmodq78_3WORD_DOUBLE with p = %u, k = %" PRIu64 ", tid = %u\n",p,k,i);
 		}
 	#endif
 /*
-if(k == 7946076362870052)printf("In twopmodq78_3WORD_DOUBLE with i = %u, p = %u, k = %llu\n",i,p,k);
+if(k == 7946076362870052)printf("In twopmodq78_3WORD_DOUBLE with i = %u, p = %u, k = %" PRIu64 "\n",i,p,k);
 */
 		q.d0 = p+p;
 	#ifdef MUL_LOHI64_SUBROUTINE
@@ -138,7 +138,7 @@ if(k == 7946076362870052)printf("In twopmodq78_3WORD_DOUBLE with i = %u, p = %u,
 		MULH64(q.d0, qinv.d0, hi64);
 		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
 		qinv.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
-//	if(i == 0)printf("In twopmodq78_gpu with p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,k,zshift,start_index);
+//	if(i == 0)printf("In twopmodq78_gpu with p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", p,pshift,k,zshift,start_index);
 		/* Convert qinv to floating form: */
 		CVT_UINT78_3WORD_DOUBLE(qinv, fqinv0,fqinv1,fqinv2);
 	#if FAC_DEBUG
@@ -284,7 +284,7 @@ z0 = 6272576; z12 = 898312175313603; z=z0+a*z12	<*** z0 is +1 too large ***
 		SUB96(x,q,x);
 	#if FAC_DEBUG
 		if(dbg) {
-			printf("k = %llu: X_out = %u*2^64 + %llu\n", x.d1,x.d0);
+			printf("k = %" PRIu64 ": X_out = %u*2^64 + %" PRIu64 "\n", x.d1,x.d0);
 		}
 	#endif
 		return (CMPEQ96(x, ONE96));
@@ -757,7 +757,7 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 
 #if FAC_DEBUG
 	if(dbg) {
-		printf("%s with p = %llu, k = %llu\n",func,p,k);
+		printf("%s with p = %" PRIu64 ", k = %" PRIu64 "\n",func,p,k);
 	}
 #endif
 	ASSERT((p >> 63) == 0, "twopmodq78_q2 : p must be < 2^63!");
@@ -812,7 +812,7 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 
 		pshift = ~pshift;
 	  #if FAC_DEBUG
-		if(dbg) printf("pshift = 0x%llX\n",pshift);
+		if(dbg) printf("pshift = %#" PRIX64 "\n",pshift);
 	  #endif
 	}
 
@@ -864,7 +864,7 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 #endif
 	qinv.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
 
-//	printf("twopmodq78_3WORD_DOUBLE with p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", (uint32)p,(uint32)pshift,k,zshift,start_index);
+//	printf("twopmodq78_3WORD_DOUBLE with p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", (uint32)p,(uint32)pshift,k,zshift,start_index);
 
 	/* Convert qinv to floating form: */
 /*	cvt_uint78_3word_double(qinv, &fqinv0,&fqinv1,&fqinv2);	*/
@@ -988,7 +988,7 @@ if(~pshift != p+78) {
 	SUB96(x,lo,x);
 #if FAC_DEBUG
 	if(dbg) {
-		printf("X_out[A] = %u*2^64 + %llu\n", x.d1,x.d0);
+		printf("X_out[A] = %u*2^64 + %" PRIu64 "\n", x.d1,x.d0);
 	}
 #endif
 } else {
@@ -997,7 +997,7 @@ if(~pshift != p+78) {
 	SUB96(x,q,x);
 #if FAC_DEBUG
 	if(dbg) {
-		printf("X_out[B] = %u*2^64 + %llu\n", x.d1,x.d0);
+		printf("X_out[B] = %u*2^64 + %" PRIu64 "\n", x.d1,x.d0);
 	}
 #endif
 }
@@ -1126,7 +1126,7 @@ if(~pshift != p+78) {
 
 	#if FAC_DEBUG
 		if(dbg) {
-			printf("%s with p = %llu, k0 = %llu, k1 = %llu\n",func,p,k0,k1);
+			printf("%s with p = %" PRIu64 ", k0 = %" PRIu64 ", k1 = %" PRIu64 "\n",func,p,k0,k1);
 		}
 	#endif
 
@@ -1162,7 +1162,7 @@ if(~pshift != p+78) {
 
 			pshift = ~pshift;
 		  #if FAC_DEBUG
-			if(dbg) printf("pshift = 0x%llX\n",pshift);
+			if(dbg) printf("pshift = %#" PRIX64 "\n",pshift);
 		  #endif
 		}
 
@@ -1271,7 +1271,7 @@ if(~pshift != p+78) {
 		two26i = sc_ptr + 0x1c;
 		sse2_rnd=sc_ptr + 0x1e;
 		half   = sc_ptr + 0x20;
-	//	printf("Thr %d ONE96_PTR address = %llX; data.d0,d1 = %llu,%u\n",thr_id,(uint64)ONE96_PTR,ONE96_PTR->d0,ONE96_PTR->d1);
+	//	printf("Thr %d ONE96_PTR address = %" PRIX64 "; data.d0,d1 = %" PRIu64 ",%u\n",thr_id,(uint64)ONE96_PTR,ONE96_PTR->d0,ONE96_PTR->d1);
 		tmp = (vec_dbl*)sse2_rnd; ASSERT((tmp->d0 == crnd) && (tmp->d1 == crnd), "Bad data at sse2_rnd address!");
 	  #endif
 
@@ -4866,7 +4866,7 @@ if(~pshift != p+78) {
 					*two13i, *two26f,*two26i, *two52f,*two52i;
 
 		#if FAC_DEBUG
-			if(dbg) printf("%s with p = %llu, k[] = %llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+			if(dbg) printf("%s with p = %" PRIu64 ", k[] = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
 						func,p,k[0x0],k[0x1],k[0x2],k[0x3],k[0x4],k[0x5],k[0x6],k[0x7],k[0x8],k[0x9],k[0xa],k[0xb],k[0xc],k[0xd],k[0xe],k[0xf]);
 		#endif
 			if(p != psave)
@@ -4890,7 +4890,7 @@ if(~pshift != p+78) {
 								// Result in [0,76], i.e. qinv << (zshift<<1) always has at least the leading bit set.
 				pshift = ~pshift;
 			  #if FAC_DEBUG
-				if(dbg) printf("pshift = 0x%llX\n",pshift);
+				if(dbg) printf("pshift = %#" PRIX64 "\n",pshift);
 			  #endif
 			}
 
@@ -5237,7 +5237,7 @@ if(~pshift != p+78) {
 
 		#if FAC_DEBUG
 		  if(dbg) {
-			printf("p = %llu, k0 = %llu, start_index0 = %u, initial shift = %u\n",p,k[0],start_index,zshift);
+			printf("p = %" PRIu64 ", k0 = %" PRIu64 ", start_index0 = %u, initial shift = %u\n",p,k[0],start_index,zshift);
 			printf("On modpow-loop entry: start_index = %u,\n\tfx0-2 = %20.15f, %20.15f, %20.15f, %20.15f\n",start_index, *fx0[0],*fx1[0],*fx2[0]);
 		  }
 		#endif
@@ -5359,7 +5359,7 @@ if(~pshift != p+78) {
 
 		#if FAC_DEBUG
 			if(dbg) {
-				printf("xout_q16 = %llX\n",r);
+				printf("xout_q16 = %" PRIX64 "\n",r);
 				exit(0);
 			}
 		#endif

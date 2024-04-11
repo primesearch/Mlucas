@@ -1192,7 +1192,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	// v20: Add support for mod_mul with one input being in precomputed fwd-FFTed form:
 #ifdef MULTITHREAD
 	for(i = 0; i < nchunks; ++i) { tdat[i].arrdat = a; tdat[i].fwd_fft = fwd_fft; tdat[i].c = c; }
-//	printf("Thread 0: arrdat = 0x%llX, fwd_fft = 0x%llX\n",tdat[0].arrdat,tdat[0].fwd_fft);
+//	printf("Thread 0: arrdat = %#" PRIX64 ", fwd_fft = %#" PRIX64 "\n",tdat[0].arrdat,tdat[0].fwd_fft);
 #endif
 
 	/*...Init clock counter:	*/
@@ -1216,7 +1216,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		goto undo_initial_ffft_pass;
 	if((mode_flag & 1) == 0)
 	{
-	//	fprintf(stderr,"Array = 0x%llX, Iter = %u, Fwd-WT: mode_flag = 0x%X, ilo = %u, a[1] = %18.10f\n",(uint64)a,ilo+1,mode_flag,ilo,a[1]);
+	//	fprintf(stderr,"Array = %#" PRIX64 ", Iter = %u, Fwd-WT: mode_flag = %#X, ilo = %u, a[1] = %18.10f\n",(uint64)a,ilo+1,mode_flag,ilo,a[1]);
 		// Mar 2017: Can skip this step if it's the start of a production test (note that any initial-residue shift
 		// in such cases is handled via single-array-word forward-DWT-weighting in the Mlucas.c shift_word() function),
 		// but need it if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
@@ -1389,7 +1389,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
 		RES_SHIFT += ((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1);	// No mod needed on this add, since result of pvs line even and < p, which is itself even in the Fermat-mod case (p = 2^m)
 		const char flip[2] = {' ','*'};
-//	printf("Iter %d: shift = [%c]%llu\n",iter,flip[RES_SIGN],RES_SHIFT);
+//	printf("Iter %d: shift = [%c]%" PRIu64 "\n",iter,flip[RES_SIGN],RES_SHIFT);
 	#endif
 	}
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
@@ -1569,9 +1569,9 @@ if(iter < ihi) {
 	ASSERT(!MLUCAS_KEEP_RUNNING, "Premature iteration-loop exit due to unexpected condition!");
 	ierr = ERR_INTERRUPT;
 	ROE_ITER = iter;	// Function return value used for error code, so save number of last-iteration-completed-before-interrupt here
-//	fprintf(stderr,"Caught signal at iter = %u; mode_flag = 0x%X\n",iter,mode_flag);
+//	fprintf(stderr,"Caught signal at iter = %u; mode_flag = %#X\n",iter,mode_flag);
 	mode_flag &= 0xfffffffd;	// v20: In case of interrupt-exit override any mode_flag "skip undo of initial DIF pass" setting
-//	fprintf(stderr,"After ^2-toggle, mode_flag = 0x%X, (mode_flag >> 1) = 0x%X\n",mode_flag,mode_flag>>1);
+//	fprintf(stderr,"After ^2-toggle, mode_flag = %#X, (mode_flag >> 1) = %#X\n",mode_flag,mode_flag>>1);
 }
 
 #ifdef RTIME
@@ -1600,10 +1600,10 @@ if(iter < ihi) {
 
 	// v20: Add support for fwd_fft_only|mode_flag as described in top-of-function comments
 undo_initial_ffft_pass:
-//	printf("Iter %u: ierr = %u, fwd_fft = %llu, mode_flag = %u\n",iter,ierr,fwd_fft,mode_flag);
+//	printf("Iter %u: ierr = %u, fwd_fft = %" PRIu64 ", mode_flag = %u\n",iter,ierr,fwd_fft,mode_flag);
 	if((mode_flag >> 1) == 0)
 	{
-	//	fprintf(stderr,"Array = 0x%llX, Iter = %u, Inv-WT: mode_flag = 0x%X\n",(uint64)a,iter,mode_flag);
+	//	fprintf(stderr,"Array = %#" PRIX64 ", Iter = %u, Inv-WT: mode_flag = %#X\n",(uint64)a,iter,mode_flag);
 		func_dit1(a,n);
 
 	/*...and unweight the data array.	*/

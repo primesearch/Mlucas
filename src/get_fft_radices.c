@@ -2627,7 +2627,7 @@ uint32 get_default_fft_length(uint64 p)
 	ASSERT(PMAX > PMIN,"get_default_fft_length: PMAX > PMIN");
 	if(p < PMIN || p > PMAX)
 	{
-		fprintf(stderr,"get_default_fft_length: invalid value for exponent %llu\n",p);
+		fprintf(stderr,"get_default_fft_length: invalid value for exponent %" PRIu64 "\n",p);
 		ASSERT(0,"0");
 		return 0;
 	}

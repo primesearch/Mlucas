@@ -1068,8 +1068,8 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	/*
 	lo = (hi << 52) + (lo >> 12) + (lo & 1) + (uint64)(adhi + bchi);
  	hi = (hi >> 12);
-	printf("mul_hi = %16llX = %20llu\n", hi, hi);
-	printf("mul_lo = %16llX = %20llu\n", lo, lo);
+	printf("mul_hi = %16" PRIX64 " = %20" PRIu64 "\n", hi, hi);
+	printf("mul_lo = %16" PRIX64 " = %20" PRIu64 "\n", lo, lo);
 	*/
 
 	return_val.hi = (hi >> (11-bvac));
@@ -1635,7 +1635,7 @@ struct qfloat qfdif(struct qfloat q1, struct qfloat q2)
 		else	/* Hi part is zero. Assuming lo part has lzlo lead zeros, right-shift lo (11-lzlo) bits and put that into hi. */
 		{
 		#if QFDEBUG
-			printf("WARNING: catastrophic loss of precision in subtract:\n %16llX %16llX -\n %16llX %16llX\n", ptr0->hi, ptr0->lo, ptr1->hi, ptr1->lo);
+			printf("WARNING: catastrophic loss of precision in subtract:\n %16" PRIX64 " %16" PRIX64 " -\n %16" PRIX64 " %16" PRIX64 "\n", ptr0->hi, ptr0->lo, ptr1->hi, ptr1->lo);
 		#endif
 		//	return QZRO; *** Taking the easy way out breaks older already-tested stuff in qtest() ***
 			if((int32)rshift > 0)	/* Lo part has > 53 SB, upper 53 of which get put into hi part. */
@@ -2142,7 +2142,7 @@ struct qfloat qfexp(struct qfloat x)
 	pow2 = (xabs.hi >> 52) - 0x3fd;
 	if(abs(pow2) > 9) {	// If arg > +- 512, check for over/underflow which occurs for |arg| ~> 700
 		if(darg > 700) {
-			fprintf(stderr,"QFEXP: xabs.hi = %16llX, pow2 = %u, darg = %10.10e\n",xabs.hi,pow2,darg);
+			fprintf(stderr,"QFEXP: xabs.hi = %16" PRIX64 ", pow2 = %u, darg = %10.10e\n",xabs.hi,pow2,darg);
 			ASSERT(0,"expo overflow!");
 		} else if(darg < -700) {
 			return QZRO;	// expo underflow flushes to zero
@@ -3020,12 +3020,12 @@ int qtest(void)
 	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1) & 0x000000000000FFFFull;	// Mask off high 48 bits of x87_sexp field, as these are uninited
 	if(x87_mant != 0xB17217F7D1CF79ACull) {
 		printf("ln2 = %30.20Le\n", ld);
-		printf("x87_mant = %16llx, expected 0xB17217F7D1CF79ACull\n", x87_mant);	// x87_mant = b17217f7d1cf79ac, left-shift one place to off-shift hidden bit
+		printf("x87_mant = %16" PRIx64 ", expected 0xB17217F7D1CF79ACull\n", x87_mant);	// x87_mant = b17217f7d1cf79ac, left-shift one place to off-shift hidden bit
 		WARN(HERE, "Ln2 long-double mantissa conversion error", "", 0);
 	}
 //	ASSERT(x87_mant == 0xB17217F7D1CF79ACull, "Ln2 long-double mantissa conversion error");
 
-//	printf("x87_sexp = %16llx\n", x87_sexp);	// x87_sexp = 3ffe, clear high 4 bits to get qfloat/double-compatible exp-field
+//	printf("x87_sexp = %16" PRIx64 "\n", x87_sexp);	// x87_sexp = 3ffe, clear high 4 bits to get qfloat/double-compatible exp-field
 	ASSERT(x87_sexp == 0x0000000000003FFEull, "Ln2 long-double exponent conversion error");
 
 	asm ("fld1;"
@@ -3037,12 +3037,12 @@ int qtest(void)
 
 	if(x87_mant != 0xB504F333F9DE6484ull) {
 		printf("-Sqrt2 = %30.20Le\n", ld);
-		printf("x87_mant = %16llx, expected 0xB504F333F9DE6484ull\n", x87_mant);
+		printf("x87_mant = %16" PRIx64 ", expected 0xB504F333F9DE6484ull\n", x87_mant);
 		WARN(HERE, "-Sqrt2 long-double mantissa conversion error", "", 0);
 	}
 //	ASSERT(x87_mant == 0xB504F333F9DE6484ull, "-Sqrt2 long-double mantissa conversion error");
 
-//	printf("x87_sexp = %16llx\n", x87_sexp);
+//	printf("x87_sexp = %16" PRIx64 "\n", x87_sexp);
 	ASSERT(x87_sexp == 0x000000000000BFFFull, "-Sqrt2 long-double exponent conversion error");
 
 #endif
@@ -3069,50 +3069,50 @@ int qtest(void)
 #endif
 	c = 0.0;	d = qfdbl(QZRO);
 #if QFDEBUG
-		printf("dble(0.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(0.0) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 12 in qfloat.c");
 
 	c = 1.0;	d = qfdbl(QONE);
 #if QFDEBUG
-		printf("dble(1.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(1.0) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 14 in qfloat.c");
 
 	c = 2.0;	d = qfdbl(QTWO);
 #if QFDEBUG
-		printf("dble(2.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(2.0) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 16 in qfloat.c");
 
 	c =-2.0;	d = qfdbl(qfneg(QTWO));
 #if QFDEBUG
-		printf("dble(-2.0)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(-2.0)= %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 18 in qfloat.c");
 
 	c = 2*pi;	d = qfdbl(Q2PI);
 #if QFDEBUG
-		printf("dble(2pi) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(2pi) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 20 in qfloat.c");
 
 	c =log(2.0);d = qfdbl(QLN2);
 #if QFDEBUG
-		printf("dble(ln2) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(ln2) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 22 in qfloat.c");
 
 	c = exp(1.0);
 	d = qfdbl(QEXP);
 #if QFDEBUG
-		printf("dble(exp) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(exp) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 24 in qfloat.c");
 
 	c = -c;		d = qfdbl(qfneg(QEXP));
 #if QFDEBUG
-		printf("dble(-exp)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(-exp)= %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
 #endif
 	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 26 in qfloat.c");
 
@@ -3150,7 +3150,7 @@ int qtest(void)
 	/* e*e: 	0x401D8E64B8D4DDAD, 0xCC33A3BA206B68AC	*/
 	q = qfmul(QEXP,QEXP);
 #if QFDEBUG
-		printf("      e*e  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("      e*e  = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 		printf("dble( e*e) = %25.16e\n",qfdbl(q));
 #endif
 	qref.hi = 0x401D8E64B8D4DDADull;	qref.lo = 0xCC33A3BA206B68ACull;
@@ -3162,7 +3162,7 @@ int qtest(void)
 	/* ln2*e:	0x3FFE258ECC242F82, 0x5DEC567E6A0E1111	*/
 	q = qfmul(QLN2,QEXP);
 #if QFDEBUG
-		printf("     L2*e  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("     L2*e  = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 		printf("dble(L2*e) = %25.16e\n",qfdbl(q));
 #endif
 	qref.hi = 0x3FFE258ECC242F82ull;	qref.lo = 0x5DEC567E6A0E1111ull;
@@ -3172,7 +3172,7 @@ int qtest(void)
 	/* ln2^2:	0x3FDEBFBDFF82C58E, 0xA86F16B06EC97360	*/
 	q = qfmul(QLN2,QLN2);
 #if QFDEBUG
-		printf("     L2^2  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("     L2^2  = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 		printf("dble(L2^2) = %25.16e\n",qfdbl(q));
 #endif
 	qref.hi = 0x3FDEBFBDFF82C58Eull;	qref.lo = 0xA86F16B06EC97360ull;
@@ -3182,7 +3182,7 @@ int qtest(void)
 	/* ln2*2pi:	0x40116BB24190A0B6, 0xE765BE0D06135E60	*/
 	q = qfmul(QLN2,Q2PI);
 #if QFDEBUG
-		printf("     Ln2*pi = %16llX  %16llX\n",q.hi,q.lo);
+		printf("     Ln2*pi = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 		printf("dble(Ln2*pi)= %25.16e\n",qfdbl(q));
 #endif
 	qref.hi = 0x40116BB24190A0B6ull;	qref.lo = 0xE765BE0D06135E60ull;
@@ -3192,7 +3192,7 @@ int qtest(void)
 	/* 2pi*e:	0x403114580B45D474, 0x9E6108579A2D0CA7	*/
 	q = qfmul(Q2PI,QEXP);
 #if QFDEBUG
-		printf("     pi*e  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("     pi*e  = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 		printf("dble(pi*e) = %25.16e\n",qfdbl(q));
 #endif
 	qref.hi = 0x403114580B45D474ull;	qref.lo = 0x9E6108579A2D0CA7ull;
@@ -3202,7 +3202,7 @@ int qtest(void)
 	/* 2pi*2pi:	0x4043BD3CC9BE45DE, 0x5A4ADC4D9B301183	*/
 	q = qfmul(Q2PI,Q2PI);
 #if QFDEBUG
-		printf("  (2*pi)^2 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("  (2*pi)^2 = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 		printf("dble(2pi^2)= %25.16e\n",qfdbl(q));
 		printf("dble(2pi^2)= %25.16e\n",pi*pi);
 #endif
@@ -3227,7 +3227,7 @@ int qtest(void)
 	/* 2*pi+e:	0x402200C04CE72C66, 0x7821CB48D9B947AC	*/
 	q = qfadd(QEXP,Q2PI);
 #if QFDEBUG
-		printf("  2*pi + e = %16llX  %16llX\n",q.hi,q.lo);
+		printf("  2*pi + e = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x402200C04CE72C66ull;	qref.lo = 0x7821CB48D9B947ACull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3251,7 +3251,7 @@ int qtest(void)
 	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
 	q = qfsub(q, q);
 #if QFDEBUG
-		printf("result1 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("result1 = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = qref.lo = 0x0000000000000000ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3261,7 +3261,7 @@ int qtest(void)
 	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
 	q = qfsub(p, q);
 #if QFDEBUG
-		printf("result2 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("result2 = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x38A0000000000000ull;	qref.lo = 0x0000000000000000ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3272,7 +3272,7 @@ int qtest(void)
 	q.hi = 0x00FFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
 	q = qfsub(p, q);
 #if QFDEBUG
-		printf("result3 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("result3 = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x0000000000000000ull;	qref.lo = 0x0000000000004000ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3282,7 +3282,7 @@ int qtest(void)
 	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
 	q = qfsub(q, q);
 #if QFDEBUG
-		printf("result4 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("result4 = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = qref.lo = 0ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3293,7 +3293,7 @@ int qtest(void)
 	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
 	q = qfsub(p, q);
 #if QFDEBUG
-		printf("result5 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("result5 = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0ull;	qref.lo = 1ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3302,7 +3302,7 @@ int qtest(void)
 	/* 2*pi-e:	0x400C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
 	q = qfsub(Q2PI,QEXP);
 #if QFDEBUG
-		printf("    2pi- e = %16llX  %16llX\n",q.hi,q.lo);
+		printf("    2pi- e = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x400C84EC1D7402C7ull;	qref.lo = 0x39DB360DDEDB4F60ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3311,7 +3311,7 @@ int qtest(void)
 	/* e-2*pi:	0xC00C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
 	r = qfsub(QEXP,Q2PI);
 #if QFDEBUG
-		printf("     e-2pi = %16llX  %16llX\n",r.hi,r.lo);
+		printf("     e-2pi = %16" PRIX64 "  %16" PRIX64 "\n",r.hi,r.lo);
 #endif
 	if(!(qfcmpeq(r, qfneg(q)))) ASSERT(0,"ERROR 54 in qfloat.c");
 
@@ -3332,7 +3332,7 @@ int qtest(void)
 	/* sqrt(2):	0x3FF6A09E667F3BCC, 0x908B2FB1366EA958, qfsqrt gives ...956. */
 	q = qfsqrt(QTWO);
 #if QFDEBUG
-		printf("sqrt(2) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("sqrt(2) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FF6A09E667F3BCCull;	qref.lo = 0x908B2FB1366EA958ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3359,7 +3359,7 @@ int qtest(void)
 	/* 1/(2*pi):0x3FC45F306DC9C882, 0xA53F84EAFA3EA69B(B81B...), qfinv gives ...698. */
 	q = qfinv(Q2PI);
 #if QFDEBUG
-		printf("1/(2*pi) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("1/(2*pi) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FC45F306DC9C882ull;	qref.lo = 0xA53F84EAFA3EA69Bull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3372,7 +3372,7 @@ int qtest(void)
 	/* 1/e:		0x3FD78B56362CEF37, 0xC6AEB7B1E0A4153E(4376...), qfinv gives ...53C. */
 	q = qfinv(QEXP);
 #if QFDEBUG
-		printf("1/e      = %16llX  %16llX\n",q.hi,q.lo);
+		printf("1/e      = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FD78B56362CEF37ull;	qref.lo = 0xC6AEB7B1E0A4153Eull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3385,7 +3385,7 @@ int qtest(void)
 	/* 1/ln2:	0x3FF71547652B82FE, 0x1777D0FFDA0D23A7(D11D...), qfinv gives ...3A6. */
 	q = qfinv(QLN2);
 #if QFDEBUG
-		printf("1/ln(2)  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("1/ln(2)  = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FF71547652B82FEull;	qref.lo = 0x1777D0FFDA0D23A7ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3411,7 +3411,7 @@ int qtest(void)
 	/* 2*pi/ln2:0x40222123045B5DEB, 0x9C5398CE82C06E4B(80DB...), qfdiv gives ...E4A. */
 	q = qfdiv(Q2PI, QLN2);
 #if QFDEBUG
-		printf("2*pi/ln(2)  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("2*pi/ln(2)  = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x40222123045B5DEBull;	qref.lo = 0x9C5398CE82C06E4Bull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3484,7 +3484,7 @@ int qtest(void)
 	/* tan(Pi/4):	Compare to 1: */
 	q = qftan(QPI4TH);
 #if QFDEBUG
-		printf("qtfan(PI/4) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qtfan(PI/4) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = QONE.hi;	qref.lo = QONE.lo;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3510,7 +3510,7 @@ int qtest(void)
 	/* cot(Pi/4):	Compare to 1: */
 	q = qfcot(QPI4TH);
 #if QFDEBUG
-		printf("qfcot(PI/4) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qfcot(PI/4) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = QONE.hi;	qref.lo = QONE.lo;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3536,7 +3536,7 @@ int qtest(void)
 	/* atan(1):	Compare to precomputed Pi/4: */
 	q = qfatan(QONE);
 #if QFDEBUG
-		printf("qatan(1) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qatan(1) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = QPI4TH.hi;	qref.lo = QPI4TH.lo;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3562,7 +3562,7 @@ int qtest(void)
 	/* log(2):	Compare to precomputed QLN2 = {0x3FE62E42FEFA39EFull, 0x35793C7673007E5Full}: */
 	q = qflog(QTWO);
 #if QFDEBUG
-		printf("qlog(2) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qlog(2) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FE62E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3573,7 +3573,7 @@ int qtest(void)
 	q = qflog(q);
 
 #if QFDEBUG
-		printf("qlog(2^64) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qlog(2^64) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x40462E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3599,7 +3599,7 @@ int qtest(void)
 	/* exp(1):	0x4005BF0A8B145769, 0x5355FB8AC404E7A7(9E3B...), qfexp gives ...4E7A7, ~116 bits of accuracy. */
 	q = qfexp(QONE);
 #if QFDEBUG
-		printf("qexp(1) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qexp(1) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x4005BF0A8B145769ull;	qref.lo = 0x5355FB8AC404E7A7ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3613,7 +3613,7 @@ int qtest(void)
 	/* cos(1):	0x3FE14A280FB5068B, 0x923848CDB2ED0E37(A534...), qfcs1 gives ...D0E38, ~116 bits of accuracy */
 	q = qfcs1(QONE);
 #if QFDEBUG
-		printf("qcs1(1) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qcs1(1) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FE14A280FB5068Bull;	qref.lo = 0x923848CDB2ED0E37ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3625,14 +3625,14 @@ int qtest(void)
 
 	r = qfcos(QONE);
 #if QFDEBUG
-		printf("qcos(1) = %16llX  %16llX\n",r.hi,r.lo);
+		printf("qcos(1) = %16" PRIX64 "  %16" PRIX64 "\n",r.hi,r.lo);
 #endif
 	if(!(qfcmpeq(r, q))) ASSERT(0,"ERROR 70 in qfloat.c");
 
 	/* sin(1):	0x3FEAED548F090CEE, 0x0418DD3D2138A1E7(8651...), qfsn1 gives ...8A1E9, ~115 bits of accuracy */
 	q = qfsn1(QONE);
 #if QFDEBUG
-		printf("qsn1(1) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qsn1(1) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FEAED548F090CEEull;	qref.lo = 0x0418DD3D2138A1E7ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3644,14 +3644,14 @@ int qtest(void)
 
 	r = qfsin(QONE);
 #if QFDEBUG
-		printf("qsin(1) = %16llX  %16llX\n",r.hi,r.lo);
+		printf("qsin(1) = %16" PRIX64 "  %16" PRIX64 "\n",r.hi,r.lo);
 #endif
 	if(!(qfcmpeq(r, q))) ASSERT(0,"ERROR 74 in qfloat.c");
 
 	/* cos(100):0x3FEB981DBF665FDF, 0x63F433736617A041(5D8A...), qfcos gives ...7A023, ~114 bits of accuracy */
 	q = qfcos(i64_to_q((int64)100));
 #if QFDEBUG
-		printf("qcos(100) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qcos(100) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0x3FEB981DBF665FDFull;	qref.lo = 0x63F433736617A041ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3664,7 +3664,7 @@ int qtest(void)
 	/* sin(100):0xBFE03425B78C4DB8, 0x0708F6155D083EB2(1C6B...), qfsin gives ...83EE5, ~109 bits of accuracy */
 	q = qfsin(i64_to_q((int64)100));
 #if QFDEBUG
-		printf("qsin(100) = %16llX  %16llX\n",q.hi,q.lo);
+		printf("qsin(100) = %16" PRIX64 "  %16" PRIX64 "\n",q.hi,q.lo);
 #endif
 	qref.hi = 0xBFE03425B78C4DB8ull;	qref.lo = 0x0708F6155D083EB2ull;
 	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
@@ -3765,7 +3765,7 @@ int qtest(void)
 	q = qfmul_pow2(QONE, -1);
 	i128 = qfnint(q);
 #if QFDEBUG
-		printf("qfnint(0.5) = %16llX  %16llX\n",i128.d1,i128.d0);
+		printf("qfnint(0.5) = %16" PRIX64 "  %16" PRIX64 "\n",i128.d1,i128.d0);
 #endif
 	ASSERT((!i128.d1 && i128.d0 == (uint64)1),"ERROR 80 in qfloat.c");
 

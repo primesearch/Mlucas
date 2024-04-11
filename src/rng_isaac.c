@@ -162,7 +162,7 @@ double	rng_isaac_rand_double_norm_pos()
 	/* GCC compiler bug: needed to insert the explicit range-check here, otherwise compiler 'optimized' the (*(double *)&iran64) to zero: */
 	if(retval < 0.0 || retval > 1.0)
 	{
-		sprintf(cbuf, "rng_isaac_rand_double_norm_pos: itmp64 = %16llx, iran64 = %16llx, retval = %lf not in [0,1]!\n", itmp64, iran64, retval);
+		sprintf(cbuf, "rng_isaac_rand_double_norm_pos: itmp64 = %16" PRIx64 ", iran64 = %16" PRIx64 ", retval = %lf not in [0,1]!\n", itmp64, iran64, retval);
 		ASSERT(0, cbuf);
 	}
 	return retval;
@@ -193,7 +193,7 @@ double	rng_isaac_rand_double_norm_pm1()
 	/* GCC compiler bug: needed to insert the explicit range-check here, otherwise compiler 'optimized' the (*(double *)&iran64) to zero: */
 	if(retval < -1.0 || retval > 1.0)
 	{
-		sprintf(cbuf, "rng_isaac_rand_double_norm_pm1: itmp64 = %16llx, iran64 = %16llx, retval = %lf not in [0,1]!\n", itmp64, iran64, retval);
+		sprintf(cbuf, "rng_isaac_rand_double_norm_pm1: itmp64 = %16" PRIx64 ", iran64 = %16" PRIx64 ", retval = %lf not in [0,1]!\n", itmp64, iran64, retval);
 		ASSERT(0, cbuf);
 	}
 	return retval;

@@ -162,10 +162,10 @@
 			__cpuid(CPUInfo, i);
 		#if 0
 			printf("\nFor InfoType %d\n", i);
-			printf("CPUInfo[0] = 0x%x\n", CPUInfo[0]);
-			printf("CPUInfo[1] = 0x%x\n", CPUInfo[1]);
-			printf("CPUInfo[2] = 0x%x\n", CPUInfo[2]);
-			printf("CPUInfo[3] = 0x%x\n", CPUInfo[3]);
+			printf("CPUInfo[0] = %#x\n", CPUInfo[0]);
+			printf("CPUInfo[1] = %#x\n", CPUInfo[1]);
+			printf("CPUInfo[2] = %#x\n", CPUInfo[2]);
+			printf("CPUInfo[3] = %#x\n", CPUInfo[3]);
 		#endif
 			/* Interpret CPU feature information. */
 			if(i == 1)
@@ -199,10 +199,10 @@
 		{
 			__cpuid(CPUInfo, i);
 			printf("\nFor InfoType %x\n", i);
-			printf("CPUInfo[0] = 0x%x\n", CPUInfo[0]);
-			printf("CPUInfo[1] = 0x%x\n", CPUInfo[1]);
-			printf("CPUInfo[2] = 0x%x\n", CPUInfo[2]);
-			printf("CPUInfo[3] = 0x%x\n", CPUInfo[3]);
+			printf("CPUInfo[0] = %#x\n", CPUInfo[0]);
+			printf("CPUInfo[1] = %#x\n", CPUInfo[1]);
+			printf("CPUInfo[2] = %#x\n", CPUInfo[2]);
+			printf("CPUInfo[3] = %#x\n", CPUInfo[3]);
 
 			/* Interpret CPU brand string and cache information. */
 			if(i == 0x80000002)

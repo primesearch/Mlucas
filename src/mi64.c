@@ -208,7 +208,7 @@ void	mi64_brev(uint64 x[], uint32 n)
 		x[wi] &= ~mi;			x[wj] &= ~mj;			// Mask off the bits to be swapped
 		x[wi] ^= bj<<i;			x[wj] ^= bi<<j;			// XOR each the just-zeroed bits with the bit-to-be-swapped-in
 	}
-printf("0x%2X,",(uint8)x[0]);
+printf("%#2X,",(uint8)x[0]);
 }
 /*
 Bytewise version:
@@ -421,7 +421,7 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
 	uint64 cy, mask64 = (-1ull << i) & -(uint64)(i != 0);	// = (-1ull << i) if Mersenne, 0 if Fermat
 	ASSERT((x[len-1] & mask64) == 0ull, "mi64_shlc: x[] has set bits beyond [nbits] position in high word!");
-//	printf("mi64_shlc: %u bits, %u limbs, mask64 = 0x%llX, high limb = 0x%llX\n",nbits,len,mask64,x[len-1]);
+//	printf("mi64_shlc: %u bits, %u limbs, mask64 = %#" PRIX64 ", high limb = %#" PRIX64 "\n",nbits,len,mask64,x[len-1]);
   #ifndef __CUDA_ARCH__
 	/* Scratch array for storing off-shifted intermediate (need this to support in-place functionality): */
 	static uint64 *u = 0x0;
@@ -808,7 +808,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	*/
   #if MI64_SHL1_DBG
 	if(dbg)
-		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
+		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = %#X,%#X, base-addr for SHL macro = %#X\n",nshift,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
   #endif
 	// Full-vector (except for x[0]) processing loop if no ASM; high-words cleanup-loop if ASM:
 	for(i = len-1; i >= i1; i--) {
@@ -1102,19 +1102,19 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	// Low-end clean-up loop (only used in ASM-loop case):
 	for(i = i0-1; i > 0; i--) {
 	#if MI64_SHL1_DBG
-		if(dbg) printf("Low-end clean-up loop: x[%u,%u] = 0x%16llX,0x%16llX; <<%u,>>%u = 0x%16llX,0x%16llX\n",i,i-1,x[i],x[i-1],nshift,m64bits,(x[i] << nshift),(x[i-1] >> m64bits));
+		if(dbg) printf("Low-end clean-up loop: x[%u,%u] = %#16" PRIX64 ",%#16" PRIX64 "; <<%u,>>%u = %#16" PRIX64 ",%#16" PRIX64 "\n",i,i-1,x[i],x[i-1],nshift,m64bits,(x[i] << nshift),(x[i-1] >> m64bits));
 	#endif
 		y[i] = (x[i] << nshift) + (x[i-1] >> m64bits);
 	#if MI64_SHL1_DBG
-		if(dbg) printf("    ==> y[%u] = 0x%16llX\n",i,y[i]);
+		if(dbg) printf("    ==> y[%u] = %#16" PRIX64 "\n",i,y[i]);
 	#endif
 	}
 	// Least-significant element gets zeros shifted in from the right:
 	y[0] = (x[0] << nshift);
   #if MI64_SHL1_DBG
 	if(len < 1000) {
-		if(lo64 != ref[len]) { printf("SHL1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,lo64,len,ref[len]); ASSERT(0, "Exiting!"); }
-		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, misalign = %u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2)); ASSERT(0, "Exiting!"); } } }
+		if(lo64 != ref[len]) { printf("SHL1 Carryout mismatch: (y[%u] = %16" PRIX64 ") != (ref[%u] = %16" PRIX64 ")\n",len,lo64,len,ref[len]); ASSERT(0, "Exiting!"); }
+		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16" PRIX64 ") != (ref[%u] = %16" PRIX64 ")\n",i,y[i],i,ref[i]); printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, misalign = %u, use_asm = %u; x,y = %#X,%#X, base-addr for SHL macro = %#X\n",nshift,len,i0,i1,leftover,x_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2)); ASSERT(0, "Exiting!"); } } }
 	}
   #endif
 	return lo64;
@@ -1253,7 +1253,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 
   #if MI64_SHR1_DBG
 	if(dbg)
-		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHRL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
+		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = %#X,%#X, base-addr for SHRL macro = %#X\n",nshift,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
   #endif
 	// Low-end cleanup-loop if ASM:
 	for(i = 0; i < i0; i++) {
@@ -1607,8 +1607,8 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 
   #if MI64_SHR1_DBG
 	if(len < 1000) {
-		if(hi64 != ref[len]) { printf("SHR1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,hi64,len,ref[len]); ASSERT(0, "Exiting!"); }
-		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); ASSERT(0, "Exiting!"); } } }
+		if(hi64 != ref[len]) { printf("SHR1 Carryout mismatch: (y[%u] = %16" PRIX64 ") != (ref[%u] = %16" PRIX64 ")\n",len,hi64,len,ref[len]); ASSERT(0, "Exiting!"); }
+		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16" PRIX64 ") != (ref[%u] = %16" PRIX64 ")\n",i,y[i],i,ref[i]); ASSERT(0, "Exiting!"); } } }
 	}
   #endif
 	return hi64;
@@ -1975,7 +1975,7 @@ double	mi64_cvt_double(const uint64 x[], uint32 len)
 	/* GCC bug: needed to add the explicit sign-check below, otherwise GCC 'optimizes' away the (*(double *)&itmp64): */
 	retval = *(double *)&itmp64;
 	if(retval < 0.0) {
-		sprintf(cbuf, "rng_isaac_rand_double_norm_pos: lead64 = %16llx, itmp64 = %16llx, retval = %lf not in [0,1]!\n", lead64, itmp64, retval);
+		sprintf(cbuf, "rng_isaac_rand_double_norm_pos: lead64 = %16" PRIx64 ", itmp64 = %16" PRIx64 ", retval = %lf not in [0,1]!\n", lead64, itmp64, retval);
 		ASSERT(0, cbuf);
 	}
 	return retval;
@@ -2850,9 +2850,9 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 	if(!mi64_cmp_eq(u,z,len) || (cy != c2)) {
 		for(i = 0; i < len; i++) {
 		//	if(u[i] != z[i])
-			printf("i = %u Error: U = %20llu, Z = %20llu, Diff = %20lld\n",i,u[i],z[i],(int64)(u[i]-z[i]) );
+			printf("i = %u Error: U = %20" PRIu64 ", Z = %20" PRIu64 ", Diff = %20" PRId64 "\n",i,u[i],z[i],(int64)(u[i]-z[i]) );
 		}
-		if(cy != c2) printf("Carry Error: c2 = %20llu, cy = %20llu, Diff = %20lld\n",c2,cy,(int64)(c2-cy) );
+		if(cy != c2) printf("Carry Error: c2 = %20" PRIu64 ", cy = %20" PRIu64 ", Diff = %20" PRId64 "\n",c2,cy,(int64)(c2-cy) );
 		ASSERT(0, "mi64_add ASM result incorrect!");
 	}
 	free((void *)u); u = 0x0;
@@ -3067,7 +3067,7 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 		z[len] = mi64_mul_scalar(x+1, x[0], z+1, len-1);
 	  #if MI64_SQR_DBG
 		if(dbg) {
-			printf("x0*x[1...n-1] = %llu * %s...\n",x[0],&cbuf[convert_mi64_base10_char(cbuf,x+1,len-1,0)]);
+			printf("x0*x[1...n-1] = %" PRIu64 " * %s...\n",x[0],&cbuf[convert_mi64_base10_char(cbuf,x+1,len-1,0)]);
 			printf("            ... -> z = %s...\n",&cbuf[convert_mi64_base10_char(cbuf,z,2*len,0)]);
 		}
 	  #endif
@@ -3077,7 +3077,7 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 			z[len+j] = mi64_mul_scalar_add_vec2(x+i, x[j], z+i+j, z+i+j, len-i);
 		  #if MI64_SQR_DBG
 			if(dbg) {
-				printf("x%u*x[%u...n-1] = %llu * %s...\n",j,i,x[j],&cbuf[convert_mi64_base10_char(cbuf,x+i,len-i,0)]);
+				printf("x%u*x[%u...n-1] = %" PRIu64 " * %s...\n",j,i,x[j],&cbuf[convert_mi64_base10_char(cbuf,x+i,len-i,0)]);
 				printf("          ... += z = %s...\n",&cbuf[convert_mi64_base10_char(cbuf,z,2*len,0)]);
 			}
 		  #endif
@@ -3230,7 +3230,7 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 			continue;
 		u[len] = mi64_mul_scalar(x, y[j], u, len);
 	#if MI64_MULHI_DBG
-		if(dbg) { printf("mi64_mul_vector_hi_half: j = %d, cy = %20llu, U = %s\n",j,u[len], &cbuf[convert_mi64_base10_char(cbuf, u, len+1, 0)]); }
+		if(dbg) { printf("mi64_mul_vector_hi_half: j = %d, cy = %20" PRIu64 ", U = %s\n",j,u[len], &cbuf[convert_mi64_base10_char(cbuf, u, len+1, 0)]); }
 	#endif
 		/* Add j-word-left-shifted u[] to v[]: */
 		/*** 11/2013: Simply could not get this to work using any opt-level > 0 under debian/gcc4.6 ***/
@@ -3240,7 +3240,7 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 		if(dbg) { printf("mi64_mul_vector_hi_half: j = %d, V = %s\n",j, &cbuf[convert_mi64_base10_char(cbuf, v, len+j+1, 0)]); }
 		if(dbg) {
 			for(i=0;i<=len;++i) {
-				printf("v[%2d] = %20llu\n",i+j,v[i+j]);
+				printf("v[%2d] = %20" PRIu64 "\n",i+j,v[i+j]);
 			}
 		}
 	#endif
@@ -3576,15 +3576,15 @@ void	mi64_mul_vector_hi_fast(const uint64 y[], const uint64 p, const uint64 k, u
 // 1. compute z' = (2k-1).y via vector-scalar mul, the carryout word cw = ((2k-1).Y >> B);
 	cw = mi64_mul_scalar(y,k2m1,z,len);	// z' = (2k-1).y
 	bw0 = z[len-1];
-//if(k==900) printf("Mi64: bw0 = %20llu, cw = %20llu, z` = %s\n", bw0,cw,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
+//if(k==900) printf("Mi64: bw0 = %20" PRIu64 ", cw = %20" PRIu64 ", z` = %s\n", bw0,cw,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
 // 2. compute low n words of z = z' + y via vector-vector add, any carryout of that gets added to a 2nd copy of cw, cz;
 	cz = cw + mi64_add(y,z,z, len);	// z = z' + y
-//if(k==900) printf("Mi64: cz = %20llu, z = %s\n", cz,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
+//if(k==900) printf("Mi64: cz = %20" PRIu64 ", z = %s\n", cz,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
 
 // 3. compute low n words of z >> (b-p), then separately shift in cz from the left, via (2^b*cz) >> (b-p) = (cz << p).
 	ASSERT((len<<6) > p, "shift parameters out of range!");
 	bw1 = mi64_shrl(z,z,(len<<6)-p,len,len);	// low n words of z >> (b-p); high 64 bits of off-shifted portion saved in bw1
-//if(k==900) printf("Mi64: bw1 = %20llu, z>> = %s\n", bw1,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
+//if(k==900) printf("Mi64: bw1 = %20" PRIu64 ", z>> = %s\n", bw1,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
 
 /* Check for borrow-on-subtract of to-be-off-shifted sections: have a borrow if
 	z' (result from above mul_scalar, not including the carryout word cw) >	((z << p) % 2^b) (off-shifted portion of z = z' + y above, left-justified to fill a b-bit field)
@@ -3884,7 +3884,7 @@ uint32	mi64_cvt_double_uint64(const double a[], uint32 n, uint64 x[], uint64 y[]
 		y[len++] = curr_im64;
 		nbits += curr_bits;
 	}
-//	printf("mi64_cvt_double_uint64: Final a[%u,%u] = %15.3f,%15.3f; x,y[%u] = %llu,%llu\n",j,j+1,a[j],a[j+1],len-1,x[len-1],y[len-1]);
+//	printf("mi64_cvt_double_uint64: Final a[%u,%u] = %15.3f,%15.3f; x,y[%u] = %" PRIu64 ",%" PRIu64 "\n",j,j+1,a[j],a[j+1],len-1,x[len-1],y[len-1]);
 	ASSERT(nbits == n*FFT_MUL_BITS,"nbits == n*FFT_MUL_BASE!");
 	ASSERT(len == (n>>2)          ,"len should == n/4!");
 	ASSERT(ABS(cy_re) <= 1 && ABS(cy_im) <= 1,"Output carry out of range!");
@@ -3962,7 +3962,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	  #endif
 	  #if MI64_PRP_DBG
 	  if(dbg) {
-		printf("mi64_scalar_modpow_lr: %llu^%s (mod q = %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,q,len,0)]);
+		printf("mi64_scalar_modpow_lr: %" PRIu64 "^%s (mod q = %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,q,len,0)]);
 		printf("Using Montgomery-multiply remaindering.\n");
 	  }
 	  #endif
@@ -4029,7 +4029,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		j = mi64_leadz(b,len); start_index = (len<<6) - j;
 	  #if MI64_PRP_DBG
 	  if(dbg) {
-		printf("base a[] = %llu, start_bit = %d\n",a,start_index-2);
+		printf("base a[] = %" PRIu64 ", start_bit = %d\n",a,start_index-2);
 		printf("R*a (mod q) = %s\n",&cbuf[convert_mi64_base10_char(cbuf,c,wlen, 0)]);
 	  }
 	  #endif
@@ -4048,7 +4048,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			if(mi64_test_bit(b,j)) {
 				i64 = mi64_mul_scalar(prod, a, prod, wlen2);	ASSERT(i64 == 0ull, "Unexpected carry out of a*x^2!");
 		      #if MI64_PRP_DBG
-				if(dbg) printf("*= %llu = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
+				if(dbg) printf("*= %" PRIu64 " = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
 		      #endif
 			}
 		  #endif	// endif !DO_N_MODSQUARES
@@ -4067,7 +4067,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			}
 		   #if MI64_PRP_DBG
 			if(dbg) printf("(mod q) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
-			if(dbg && !(j & 1023)) printf("At bit %d: Res64 = %016llX\n",j,c[0]);
+			if(dbg && !(j & 1023)) printf("At bit %d: Res64 = %016" PRIX64 "\n",j,c[0]);
 		   #endif
 		}
 		// Do a final Montmul-by-1 to remove the excess *R (mod q); hi = 0 here simplifies things:
@@ -4098,7 +4098,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	  #endif
 	  #if MI64_PRP_DBG
 	  if(dbg) {
-		printf("mi64_scalar_modpow_lr: %llu^%s (mod %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,b,len,0)]);
+		printf("mi64_scalar_modpow_lr: %" PRIu64 "^%s (mod %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,b,len,0)]);
 	  }
 	  #endif
 		if(!a) {	// a = 0; set result c[] = 0 and return
@@ -4116,7 +4116,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		j = leadz64(b[wlen-1]); start_index = (wlen<<6) - j;
 	  #if MI64_PRP_DBG
 	  if(dbg) {
-		printf("base a[] = %llu, start_bit = %d\n",a,start_index-1);
+		printf("base a[] = %" PRIu64 ", start_bit = %d\n",a,start_index-1);
 		printf("x0 = %s, len = %u\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)], wlen);
 	  }
 	  #endif
@@ -4138,7 +4138,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			if(mi64_test_bit(b,j)) {
 				prod[wlen] = mi64_mul_scalar(c, a, prod, wlen);
 		   #if MI64_PRP_DBG
-			if(dbg) printf("*= %llu = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
+			if(dbg) printf("*= %" PRIu64 " = %s\n", a, &cbuf[convert_mi64_base10_char(cbuf, prod, wlen+1, 0)]);
 		   #endif
 				mi64_div_binary(prod, n, wlen+1, wlen, 0x0,0x0, c); 	// x = prod % p
 		   #if MI64_PRP_DBG
@@ -4146,7 +4146,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		   #endif
 			}
 		  #endif	// endif !DO_N_MODSQUARES
-			if(!(j & 1023)) printf("At bit %d: Res64 = %016llX\n",j,c[0]);
+			if(!(j & 1023)) printf("At bit %d: Res64 = %016" PRIX64 "\n",j,c[0]);
 		}
 	#if MI64_PRP_DBG
 	  if(dbg) printf("retval = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
@@ -4686,7 +4686,7 @@ void mi64_modmul53_batch(const double a[], const double b[], const double m[], d
 			: "cc","memory","rax","rbx","rcx","rdx"	/* Clobbered registers */\
 		);
 		if(r[i] != rem64 && r[i] != im+rem64) {	// Allow for rem to be either in [-m/2,+m/2] or in [0,m)
-			printf("[%2u/%2u]: %16llu * %16llu / %16llu = %16llu[quo], %16llu[rem], DP rem = %16.0f\n",i,ndata,ia,ib,im,quo64,rem64, r[i]);
+			printf("[%2u/%2u]: %16" PRIu64 " * %16" PRIu64 " / %16" PRIu64 " = %16" PRIu64 "[quo], %16" PRIu64 "[rem], DP rem = %16.0f\n",i,ndata,ia,ib,im,quo64,rem64, r[i]);
 			if(++nerr > 1000) exit(0);
 		}
 	//	ASSERT(r[i] == rem64, "Modmul result differs from reference!");
@@ -4717,7 +4717,7 @@ Test harness code:
 			if(a > m) a %= m;
 			if(b > m) b %= m;
 			uint64 r = mi64_modmul64(a,b,m);
-		//	printf("(%llu * %llu) mod %llu = %llu\n",a,b,m,r);
+		//	printf("(%" PRIu64 " * %" PRIu64 ") mod %" PRIu64 " = %" PRIu64 "\n",a,b,m,r);
 		}
 	}
 */
@@ -4850,7 +4850,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 		// for which the true q = 13545154436197203258, but FDIV produces 13545154436197203256.
 		// with this added check I got 10^11 sets of genuine 64-bit inputs to run sans errors:
 		if(r >= m) {
-		//	printf("a,b,m = %llu, %llu, %llu; FDIV-mod gives r = %llu\n",a,b,m,r);
+		//	printf("a,b,m = %" PRIu64 ", %" PRIu64 ", %" PRIu64 "; FDIV-mod gives r = %" PRIu64 "\n",a,b,m,r);
 			r -= m;
 		}
 		/* This was the code to normalize one of the inputs before I used the -= 2^63 trick, so you can see the usefulness of the latter:
@@ -5208,7 +5208,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 	}
 	hi = lo + lenS;	// *** lo:hi pointer pairs must be offset by amount reflecting #words in right-justified modulus! ***
   #if MI64_DIV_MONT
-	if(dbg)printf("mi64_div_mont: setting hi = lo + lenS = %llX\n",(uint64)hi);
+	if(dbg)printf("mi64_div_mont: setting hi = lo + lenS = %" PRIX64 "\n",(uint64)hi);
   #endif
 
 	// If single-word odd-component divisor, use specialized single-word-divisor version:
@@ -5337,7 +5337,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 				mi64_set_eq(itmp,tmp,lenS);	// itmp = tmp
 			}
 		#if MI64_DIV_MONT
-			if(dbg)printf("v-cy = %s, bw = %llu\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)], bw);
+			if(dbg)printf("v-cy = %s, bw = %" PRIu64 "\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)], bw);
 		#endif
 
 			// Now do the Montgomery mod: cy = umulh( w, mull(tmp, yinv) );
@@ -5494,7 +5494,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 				// Now do the Montgomery mod: cy = umulh( y, mull(tmp, yinv) );
 				mi64_mul_vector_lo_half(tmp,yinv,tmp, lenS);	// tmp = tmp*yinv + bw;
 			#if MI64_DIV_MONT
-				if(dbg)printf("tmp*yinv = %s, bw = %llu\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)], bw);
+				if(dbg)printf("tmp*yinv = %s, bw = %" PRIu64 "\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)], bw);
 			#endif
 				// Do double-wide product. Fast-divisibility test needs just high half (stored in hi); low half (lo) useful to extract true-mod
 				mi64_mul_vector(tmp,lenS,w,lenS,lo, (uint32*)&j);	// lo:hi = MUL_LOHI(q, tmp); cy is in hi half
@@ -6085,10 +6085,10 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 		if(itmp64 > q) {
 			// This check allows us to differentiate between incorrect upward-rounded and (rarer) downward-rounded cases:
 			if(DNINT(fquo) == (double)rem64) {	// Incorrect   upward-rounded, e.g. fquo = 1084809392143.0001, exact = 1084809392142.999...
-			//	printf("%sA: q = %llu < itmp64 = (int64)%lld, fquo = %20.4f, (double)rem64 = %20.4f\n",func,q,(int64)itmp64, fquo, (double)rem64);
+			//	printf("%sA: q = %" PRIu64 " < itmp64 = (int64)%" PRId64 ", fquo = %20.4f, (double)rem64 = %20.4f\n",func,q,(int64)itmp64, fquo, (double)rem64);
 				itmp64 += q;
 			} else {							// Incorrect downward-rounded, e.g. fquo = 7344640876302.9990, exact = 7344640876303.0000002...
-			//	printf("%sB: q = %llu < itmp64 = (int64)%lld, fquo = %20.4f *** Bad Downward ***\n",func,q,(int64)itmp64, fquo);
+			//	printf("%sB: q = %" PRIu64 " < itmp64 = (int64)%" PRId64 ", fquo = %20.4f *** Bad Downward ***\n",func,q,(int64)itmp64, fquo);
 				itmp64 -= q;
 			}
 		}
@@ -6134,7 +6134,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 
 		// Floating-point computation of 2^96 % q not 100% reliable - this pure-int code is our safety net:
 		if(itmp64 > q) {
-			printf("Error correction failed: itmp64 = (int64)%lld, q = %llu [lq(q) = %6.4f]\n",(int64)itmp64,q,log(q)/log(2));
+			printf("Error correction failed: itmp64 = (int64)%" PRId64 ", q = %" PRIu64 " [lq(q) = %6.4f]\n",(int64)itmp64,q,log(q)/log(2));
 			// In such cases re-do using the slower but bulletproof pure-integer method.
 			// Use mod-doublings to get 2^68 (mod q), followed by 3 MONT_SQR64:
 			itmp64 = 0x8000000000000000ull % q;	// 2^63 (mod q)
@@ -6177,7 +6177,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 	MONT_SQR64(itmp64,q,qinv,rem64);
 
 #if MI64_RAD_POW64_DBG
-	if(dbg)printf("B^2 mod q = %20llu\n",rem64);
+	if(dbg)printf("B^2 mod q = %20" PRIu64 "\n",rem64);
 #endif
 
 	/* rem64 holds B^2 mod q - Now compute sequence of powers needed to obtain B^len mod q via Montgomery-muls: */
@@ -6213,7 +6213,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 		}
 	}
 #if MI64_RAD_POW64_DBG
-	if(dbg && p > 2)printf("B^%u mod q = %20llu\n",n,rem64);
+	if(dbg && p > 2)printf("B^%u mod q = %20" PRIu64 "\n",n,rem64);
 #endif
 	return rem64;
 }
@@ -6444,7 +6444,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 #endif
 
 #if MI64_ISDIV_X4_DBG
-	if(dbg)printf("4-way carryouts: cy0-3 = %20llu, %20llu, %20llu, %20llu\n",cy0,cy1,cy2,cy3);
+	if(dbg)printf("4-way carryouts: cy0-3 = %20" PRIu64 ", %20" PRIu64 ", %20" PRIu64 ", %20" PRIu64 "\n",cy0,cy1,cy2,cy3);
 #endif
 	retval += ((cy0 == 0) && (nshift0 <= trailx));
 	retval += ((cy1 == 0) && (nshift1 <= trailx)) << 1;
@@ -6539,7 +6539,7 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 #endif
 
 #if MI64_ISDIV_U2_DBG
-	if(dbg)printf("Half-length carryouts: cy0 = %20llu, cy1 = %20llu\n",cy0,cy1);
+	if(dbg)printf("Half-length carryouts: cy0 = %20" PRIu64 ", cy1 = %20" PRIu64 "\n",cy0,cy1);
 #endif
 	// Compute radix-power; add 1 since used high-MUL version of the scaled-remainder algo ( = Algorithm A in the paper)
 	rpow = radix_power64(q,qinv,len2+1);
@@ -6548,8 +6548,8 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 	MONT_MUL64(cy1,rpow,q,qinv,cy1);	// cy1*B^p (mod q)
 #if MI64_ISDIV_U2_DBG
 	if(dbg) {
-		printf("s1     mod q) = %20llu\n",cy0);
-		printf("s2*B^p mod q) = %20llu\n",cy1);
+		printf("s1     mod q) = %20" PRIu64 "\n",cy0);
+		printf("s2*B^p mod q) = %20" PRIu64 "\n",cy1);
 	}
 #endif
 	// Sum the scaled partial remainders:
@@ -6558,13 +6558,13 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 	// Negation (mod q) needed for Algo A scaled remainder
 	if(cy0) cy0 = q-cy0 ;
 #if MI64_ISDIV_U2_DBG
-	if(dbg)printf("(s1 + s2*B^p) mod q = %20llu, q = %20llu\n",cy0,q);
+	if(dbg)printf("(s1 + s2*B^p) mod q = %20" PRIu64 ", q = %20" PRIu64 "\n",cy0,q);
 #endif
 	// One more modmul of sum by same power of the base gives true remainder - may as well, since we already have B^p handy:
 	MONT_MUL64(cy0,rpow,q,qinv,cy0);
 #if MI64_ISDIV_U2_DBG
 	if(dbg) {
-		printf("True mod x mod q = %20llu\n",cy0);
+		printf("True mod x mod q = %20" PRIu64 "\n",cy0);
 		exit(0);
 	}
 #endif
@@ -6724,7 +6724,7 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 #endif
 
 #if MI64_ISDIV_U4_DBG
-	if(dbg)printf("Half-length carryouts: cy0-3 = %20llu, %20llu, %20llu, %20llu\n",cy0,cy1,cy2,cy3);
+	if(dbg)printf("Half-length carryouts: cy0-3 = %20" PRIu64 ", %20" PRIu64 ", %20" PRIu64 ", %20" PRIu64 "\n",cy0,cy1,cy2,cy3);
 #endif
 	// Compute radix-power; add 1 since used high-MUL version of the scaled-remainder algo ( = Algorithm A in the paper)
 	rpow = radix_power64(q,qinv,len4+1);
@@ -6736,13 +6736,13 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	// Negation (mod q) needed for Algo A scaled remainder
 	if(cy0) cy0 = q-cy0 ;
 #if MI64_ISDIV_U4_DBG
-	if(dbg) printf("(sum0-3) mod q = %20llu, q = %20llu\n",cy0,q);
+	if(dbg) printf("(sum0-3) mod q = %20" PRIu64 ", q = %20" PRIu64 "\n",cy0,q);
 #endif
 	// One more modmul of sum by same power of the base gives true remainder:
 	MONT_MUL64(cy0,rpow,q,qinv,cy0);
 #if MI64_ISDIV_U4_DBG
 	if(dbg) {
-		printf("True mod x mod q = %20llu\n",cy0);
+		printf("True mod x mod q = %20" PRIu64 "\n",cy0);
 		exit(0);
 	}
 #endif
@@ -6768,9 +6768,9 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 	uint64 qinv,tmp = 0,bw,cy,lo,rem64,rem_save = 0,itmp64,mask,*iptr;
 	double fquo,fqinv;
 /* Debug:
-printf("x[]/q, quotient q = %llu, base b = 2^64\n",q);
+printf("x[]/q, quotient q = %" PRIu64 ", base b = 2^64\n",q);
 for(i = 0; i < len; i++)
-	printf("x[%u] = %20llu;\n",i,x[i]);
+	printf("x[%u] = %20" PRIu64 ";\n",i,x[i]);
 printf("\n");
 */
 	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
@@ -6814,12 +6814,12 @@ printf("\n");
 	if(dbg) {
 		printf("%s: nshift = %u, Input vector: x = 0;\n",func,nshift,q);
 		if(len > 100) {
-			printf("x[%u] = %20llu, ... x[0] = %20llu\n",len-1,x[len-1],x[0]);	// Pari-debug inputs; For every i++, shift count += 64
+			printf("x[%u] = %20" PRIu64 ", ... x[0] = %20" PRIu64 "\n",len-1,x[len-1],x[0]);	// Pari-debug inputs; For every i++, shift count += 64
 		} else {
-			for(i = 0; i < len; i++) printf("i = %u; x+=%20llu<<(i<<6);\n",i,x[i]);	// Pari-debug inputs; For every i++, shift count += 64
+			for(i = 0; i < len; i++) printf("i = %u; x+=%20" PRIu64 "<<(i<<6);\n",i,x[i]);	// Pari-debug inputs; For every i++, shift count += 64
 			printf("\n");
 		}
-		printf("q = %20llu; qinv = %20llu\n",q,qinv);
+		printf("q = %20" PRIu64 "; qinv = %20" PRIu64 "\n",q,qinv);
 	}
 #endif
 
@@ -6833,7 +6833,7 @@ printf("\n");
 		#if MI64_DIV_MONT64
 			bw = cy;	// Save a copy of the borrow flag for debug-printing
 			itmp64 = tmp + ((-cy)&q);	// Expected value of low-half of MUL_LOHI
-	//		if(dbg)printf("i = %4u, tmp*qinv = %20llu\n",i,tmp*qinv);
+	//		if(dbg)printf("i = %4u, tmp*qinv = %20" PRIu64 "\n",i,tmp*qinv);
 		#endif
 			tmp = tmp*qinv + cy;
 			// Do double-wide product. Fast-divisibility test needs just high half (stored in cy); low half (tmp) needed to extract true-mod
@@ -6843,7 +6843,7 @@ printf("\n");
 			MUL_LOHI64(q, tmp,  tmp, cy);
 		#endif
 		#if MI64_DIV_MONT64
-	//		if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
+	//		if(dbg)printf("i = %4u, lo = %20" PRIu64 ", hi = %20" PRIu64 ", bw = %1u\n",i,tmp,cy,(uint32)bw);
 			ASSERT(itmp64 == tmp, "Low-half product check mismatch!");
 		#endif
 		}
@@ -6871,7 +6871,7 @@ printf("\n");
 			MUL_LOHI64(q, tmp,  tmp, cy);
 		#endif
 		#if MI64_DIV_MONT64
-	//		if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
+	//		if(dbg)printf("i = %4u, lo = %20" PRIu64 ", hi = %20" PRIu64 ", bw = %1u\n",i,tmp,cy,(uint32)bw);
 			ASSERT(*iptr == tmp, "Low-half product check mismatch!");
 		#endif
 		}
@@ -6881,7 +6881,7 @@ printf("\n");
 		cy = (cy > *iptr);
 		tmp = tmp + ((-cy)&q);
 	#if MI64_DIV_MONT64
-	//	if(dbg)printf("i = %4u, lo_out = %20llu\n",i,tmp);
+	//	if(dbg)printf("i = %4u, lo_out = %20" PRIu64 "\n",i,tmp);
 	#endif
 	}
 
@@ -6910,7 +6910,7 @@ printf("\n");
 			rem64 = rem64 - q*(uint64)fquo;
 		}
 		if(rem64 != tmp%q) {
-			fprintf(stderr,"WARNING: Bad floating-point mod in mi64_div_by_scalar64! x = %llu, q = %llu: exact remainder = %llu, FP gives %llu.\n",x[0],q,tmp%q,rem64);
+			fprintf(stderr,"WARNING: Bad floating-point mod in mi64_div_by_scalar64! x = %" PRIu64 ", q = %" PRIu64 ": exact remainder = %" PRIu64 ", FP gives %" PRIu64 ".\n",x[0],q,tmp%q,rem64);
 			rem64 = tmp%q;	// Replace FP-approximation result with exact
 		}
 		if(y) {
@@ -6939,7 +6939,7 @@ printf("\n");
 	// current (partial) remainder and re-add the off-shifted part of the true remainder.
 	rem64 = (rem64 << nshift) + rem_save;
 #if MI64_DIV_MONT64
-	if(dbg)printf("True mod: x mod q = %20llu\n",rem64);
+	if(dbg)printf("True mod: x mod q = %20" PRIu64 "\n",rem64);
 #endif
 
 	if(!y)	// Only remainder needed
@@ -6956,7 +6956,7 @@ printf("\n");
 		bw = 0;	cy = rem64;
 		for(i = 0; i < len; ++i) {
 		#if MI64_DIV_MONT64
-	//		if(dbg && i%(len>>2) == 0)printf("bw = %1llu, cy%1u = %20llu\n",bw,i/(len>>2),cy);	// Use to debug loop-folded implemntation
+	//		if(dbg && i%(len>>2) == 0)printf("bw = %1" PRIu64 ", cy%1u = %20" PRIu64 "\n",bw,i/(len>>2),cy);	// Use to debug loop-folded implemntation
 		#endif
 			tmp = x[i] - bw - cy;
 			/*  Since may be working in-place, need an extra temp here due to asymmetry of subtract: */
@@ -6971,7 +6971,7 @@ printf("\n");
 			MUL_LOHI64(q, tmp,  lo, cy);
 		#endif
 		#if MI64_DIV_MONT64
-	//		if(dbg)printf("i = %4u, quot[i] = %20llu, lo1 = %20llu, lo2 = %20llu, hi = %20llu, bw = %1u\n",i,tmp,itmp64,lo,cy,(uint32)bw);
+	//		if(dbg)printf("i = %4u, quot[i] = %20" PRIu64 ", lo1 = %20" PRIu64 ", lo2 = %20" PRIu64 ", hi = %20" PRIu64 ", bw = %1u\n",i,tmp,itmp64,lo,cy,(uint32)bw);
 			ASSERT(itmp64 == lo, "Low-half product check mismatch!");
 		#endif
 			y[i] = tmp;
@@ -6990,7 +6990,7 @@ printf("\n");
 			MUL_LOHI64(q, tmp,  lo, cy);
 		#endif
 		#if MI64_DIV_MONT64
-	//		if(dbg)printf("i = %4u, quot[i] = %20llu\n",i,tmp);
+	//		if(dbg)printf("i = %4u, quot[i] = %20" PRIu64 "\n",i,tmp);
 		#endif
 			y[i] = tmp;
 		}
@@ -6998,12 +6998,12 @@ printf("\n");
 	ASSERT(bw == 0 && cy == 0, "bw/cy check!");
 #if MI64_DIV_MONT64
 	if(dbg) {
-		printf("len = %u, q = %llu, nshift = %u, rem = %llu\n",len,q,nshift,rem64);
+		printf("len = %u, q = %" PRIu64 ", nshift = %u, rem = %" PRIu64 "\n",len,q,nshift,rem64);
 		if(len > 100) {
-			printf("Quotient y[%u] = %20llu, y[%u] = %20llu, ... y[0] = %20llu\n",len-1,y[len-1],len-2,y[len-2],y[0]);	// Pari-debug inputs; For every i++, shift count += 64
+			printf("Quotient y[%u] = %20" PRIu64 ", y[%u] = %20" PRIu64 ", ... y[0] = %20" PRIu64 "\n",len-1,y[len-1],len-2,y[len-2],y[0]);	// Pari-debug inputs; For every i++, shift count += 64
 		} else {
 			printf("Quotient y = 0;\n");
-			for(i = 0; i < len; i++) printf("i = %u; y+=%20llu<<(i<<6);\n",i,y[i]);	// Pari-debug inputs; For every i++, shift count += 64
+			for(i = 0; i < len; i++) printf("i = %u; y+=%20" PRIu64 "<<(i<<6);\n",i,y[i]);	// Pari-debug inputs; For every i++, shift count += 64
 			printf("\n");
 		}
 	}
@@ -7204,7 +7204,7 @@ See similar behavior for 4-way-split version of the algorithm.
 #endif
 
 #if MI64_DIV_MONT64_U2
-	if(dbg)printf("Half-length carryouts: cy0 = %20llu, cy1 = %20llu\n",cy0,cy1);
+	if(dbg)printf("Half-length carryouts: cy0 = %20" PRIu64 ", cy1 = %20" PRIu64 "\n",cy0,cy1);
 #endif
 
 	if(!nshift) {	// Odd modulus uses Algo A
@@ -7224,7 +7224,7 @@ See similar behavior for 4-way-split version of the algorithm.
 	MONT_MUL64(cy0,rpow,q,qinv,cy0);
 
 #if MI64_DIV_MONT64_U2
-	if(dbg) printf("True mod %c = %20llu\n",'A'+(nshift != 0),cy0);
+	if(dbg) printf("True mod %c = %20" PRIu64 "\n",'A'+(nshift != 0),cy0);
 #endif
 
 	// If we applied an initial right-justify shift to the modulus, restore the shift to the
@@ -7255,7 +7255,7 @@ See similar behavior for 4-way-split version of the algorithm.
 		MULH64(q,tmp0, cy0);			MULH64(q,tmp1, cy1);
 	#endif
 	#if MI64_DIV_MONT64_U2
-		if(dbg)printf("quot[%2u] = %20llu, quot[%2u] = %20llu, bw0,1 = %1u,%1u, cy0,1 = %20llu,%20llu\n",i,tmp0,i+len2,tmp1,(uint32)bw0,(uint32)bw1,cy0,cy1);
+		if(dbg)printf("quot[%2u] = %20" PRIu64 ", quot[%2u] = %20" PRIu64 ", bw0,1 = %1u,%1u, cy0,1 = %20" PRIu64 ",%20" PRIu64 "\n",i,tmp0,i+len2,tmp1,(uint32)bw0,(uint32)bw1,cy0,cy1);
 	#endif
 		// Write quotient word(s):
 		y[i] = tmp0;					y[i+len2] = tmp1;
@@ -7798,7 +7798,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 #endif
 
 #if MI64_DIV_MONT64_U4
-	if(dbg)printf("Half-length carryouts: cy0-3 = %20llu, %20llu, %20llu, %20llu\n",cy0,cy1,cy2,cy3);
+	if(dbg)printf("Half-length carryouts: cy0-3 = %20" PRIu64 ", %20" PRIu64 ", %20" PRIu64 ", %20" PRIu64 "\n",cy0,cy1,cy2,cy3);
 #endif
 
 #ifdef USE_AVX2
@@ -7830,7 +7830,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	MONT_MUL64(cy0,rpow,q,qinv,cy0);
 
 #if MI64_DIV_MONT64_U4
-	if(dbg) printf("True mod %c = %20llu\n",'A'+(nshift != 0),cy0);
+	if(dbg) printf("True mod %c = %20" PRIu64 "\n",'A'+(nshift != 0),cy0);
 #endif
 
 	// If we applied an initial right-justify shift to the modulus, restore the shift to the
@@ -7862,7 +7862,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		MULH64(q,tmp0, cy0);		MULH64(q,tmp1, cy1);		MULH64(q,tmp2, cy2);		MULH64(q,tmp3, cy3);
 	#endif
 	#if MI64_DIV_MONT64_U4
-		if(dbg)printf("quot[%2u,%2u,%2u,%2u] = %20llu,%20llu,%20llu,%20llu, bw0-3 = %1u,%1u,%1u,%1u, cy0-3 = %20llu,%20llu,%20llu,%20llu\n",i0,i1,i2,i3,tmp0,tmp1,tmp2,tmp3,(uint32)bw0,(uint32)bw1,(uint32)bw2,(uint32)bw3,cy0,cy1,cy2,cy3);
+		if(dbg)printf("quot[%2u,%2u,%2u,%2u] = %20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 ", bw0-3 = %1u,%1u,%1u,%1u, cy0-3 = %20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 "\n",i0,i1,i2,i3,tmp0,tmp1,tmp2,tmp3,(uint32)bw0,(uint32)bw1,(uint32)bw2,(uint32)bw3,cy0,cy1,cy2,cy3);
 	#endif
 		// Write quotient words:
 		y[i] = tmp0;				y[i+len4] = tmp1;			y[i+len2] = tmp2;			y[i+len2+len4] = tmp3;
@@ -8311,7 +8311,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	uint64 lead_chunk, lo64, cyout;
 	uint32 lenP, lenQ, qbits, log2_numbits, start_index, zshift;
   #if MI64_POW_DBG
-	if(dbg) printf("mi64_twopmodq: F%u with k = %llu\n",pow2,k);
+	if(dbg) printf("mi64_twopmodq: F%u with k = %" PRIu64 "\n",pow2,k);
   #endif
 	if(first_entry) {
 		first_entry = FALSE;
@@ -8339,7 +8339,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	hi = lo + lenQ;	// Pointer to high half of double-wide product
 
   #if MI64_POW_DBG
-	if(dbg) printf("mi64_twopmodq: k = %llu, len = %u, lenQ = %u\n",k,len,lenQ);
+	if(dbg) printf("mi64_twopmodq: k = %" PRIu64 ", len = %u, lenQ = %u\n",k,len,lenQ);
   #endif
 	qbits = lenQ << 6;
 	mi64_shrl_short(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
@@ -8349,7 +8349,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	ASSERT(!pshift[lenP], "pshift overflows!");
 
   #if MI64_POW_DBG
-	if(dbg) printf("Init: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ);
+	if(dbg) printf("Init: k = %" PRIu64 ", lenP = %u, lenQ = %u\n",k,lenP,lenQ);
   #endif
 	log2_numbits = ceil(log(1.0*qbits)/log(2.0));
 	/*
@@ -8378,12 +8378,12 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	if(lead_chunk >= qbits) {
 		lead_chunk >>= 1;
 	#if MI64_POW_DBG
-		if(dbg) printf("lead%u = %llu\n", log2_numbits-1,lead_chunk);
+		if(dbg) printf("lead%u = %" PRIu64 "\n", log2_numbits-1,lead_chunk);
 	#endif
 		start_index = pbits-(log2_numbits-1);	/* Use only the leftmost log2_numbits-1 bits */
 	} else {
 	#if MI64_POW_DBG
-		if(dbg) printf("lead%u = %llu\n", log2_numbits  ,lead_chunk);
+		if(dbg) printf("lead%u = %" PRIu64 "\n", log2_numbits  ,lead_chunk);
 	#endif
 		start_index = pbits-log2_numbits;
 	}
@@ -8494,7 +8494,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 			if(!mi64_cmp_eq(lo,x,lenQ)) {
 				printf("lo = MULH_QFERM = %s\n", &cbuf[convert_mi64_base10_char(cbuf,lo, lenQ, 0)] );
 				printf("lo = MULH       = %s\n", &cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)] );
-				printf("Mismatch! pow2 = %u, k = %llu\n",pow2,k);
+				printf("Mismatch! pow2 = %u, k = %" PRIu64 "\n",pow2,k);
 				exit(0);
 			}
 		}
@@ -8586,7 +8586,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		lenQ = lenP;
 	}
   #if MI64_POW_DBG
-	if(dbg) { printf("mi64_twopmodq_qmmp: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
+	if(dbg) { printf("mi64_twopmodq_qmmp: k = %" PRIu64 ", lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
   #endif
 
 	if(first_entry || (p != psave) || (lenQ != lenQ_save))
@@ -8602,7 +8602,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		pshift[lenP] = mi64_add_scalar(pshift, lenP*64, pshift, lenP);
 		ASSERT(!pshift[lenP], "pshift overflows!");
 	#if MI64_POW_DBG
-		if(dbg) { printf("mi64_twopmodq_qmmp: Init: k = %llu, lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
+		if(dbg) { printf("mi64_twopmodq_qmmp: Init: k = %" PRIu64 ", lenP = %u, lenQ = %u\n",k,lenP,lenQ); }
 	#endif
 		lenQ_save = lenQ;
 		free((void *)q    );
@@ -8646,12 +8646,12 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		if(lead_chunk >= qbits) {
 			lead_chunk >>= 1;
 		#if MI64_POW_DBG
-			if(dbg) { printf("lead%u = %llu\n", log2_numbits-1,lead_chunk); }
+			if(dbg) { printf("lead%u = %" PRIu64 "\n", log2_numbits-1,lead_chunk); }
 		#endif
 			start_index = pbits-(log2_numbits-1);	/* Use only the leftmost log2_numbits-1 bits */
 		} else {
 		#if MI64_POW_DBG
-			if(dbg) { printf("lead%u = %llu\n", log2_numbits  ,lead_chunk); }
+			if(dbg) { printf("lead%u = %" PRIu64 "\n", log2_numbits  ,lead_chunk); }
 		#endif
 			start_index = pbits-log2_numbits;
 		}
@@ -8792,7 +8792,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		ASSERT(mi64_test_bit(pshift, j), "pshift bit = 0!");
 	#if MI64_POW_DBG
 		if(!mi64_cmpult(x, q, lenQ)) {
-			printf("x < q test failed for k = %llu, j = %u!\n",k,j);
+			printf("x < q test failed for k = %" PRIu64 ", j = %u!\n",k,j);
 		}
 		if(dbg) { printf("2x...\n"); }
 	#else

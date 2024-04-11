@@ -774,7 +774,7 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 		__vout.d2 = __lo + __cy;\
 		__cw = __hi + (__vout.d2 < __lo);	/* carryout into cw */\
 		__lo = __vout.d2;	/* bw0 = z[len-1]; */\
-/*if(__k==900) {printf("Macro: bw0 = %20llu, cw = %20llu, z` = %s\n", __lo,__cw,&char_buf[convert_uint192_base10_char(char_buf,__vout)]);}*/\
+/*if(__k==900) {printf("Macro: bw0 = %20" PRIu64 ", cw = %20" PRIu64 ", z` = %s\n", __lo,__cw,&char_buf[convert_uint192_base10_char(char_buf,__vout)]);}*/\
 	/* 2. compute low n words of z = z' + y via vector-vector add, any carryout of that gets added to a 2nd copy of cw, cz: */\
 		/* mi64_add(y,z,z, len):	// z = z' + y */\
 		__vout.d0 = __vin.d0 + __vout.d0;\
@@ -789,9 +789,9 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 		__cy = (__hi < __vin.d2);\
 		__vout.d2 += __hi;\
 		__cy += (__vout.d2 < __hi);\
-/*if(__k==900) {printf("Macro: __vout.d2 [out] = %20llu\n", __vout.d2);}*/\
+/*if(__k==900) {printf("Macro: __vout.d2 [out] = %20" PRIu64 "\n", __vout.d2);}*/\
 		__cz = __cw + __cy;	/* cz = cw + mi64_add(y,z,z, len);	// z = z' + y */\
-/*if(__k==900) {printf("Macro: cz = %20llu, z = %s\n", __cz,&char_buf[convert_uint192_base10_char(char_buf,__vout)]);}*/\
+/*if(__k==900) {printf("Macro: cz = %20" PRIu64 ", z = %s\n", __cz,&char_buf[convert_uint192_base10_char(char_buf,__vout)]);}*/\
 \
 	/* 3. compute low n words of z >> (b-p), then separately shift in cz from the left, via (2^b*cz) >> (b-p) = (cz << p). */\
 		/* bw1 = mi64_shrl(z,z,nshift,len);	// low n words of z >> (b-p); high 64 bits of off-shifted portion saved in bw1 */\
@@ -818,7 +818,7 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 			/* Most-significant element gets zeros shifted in from the left: */\
 			__vout.d2 >>= __rembits;\
 		}\
-/*if(__k==900) {printf("Macro: bw1 = %20llu, z>> = %s\n", __hi,&char_buf[convert_uint192_base10_char(char_buf,__vout)]);}*/\
+/*if(__k==900) {printf("Macro: bw1 = %20" PRIu64 ", z>> = %s\n", __hi,&char_buf[convert_uint192_base10_char(char_buf,__vout)]);}*/\
 \
 		/* Check for borrow-on-subtract of to-be-off-shifted sections: */\
 		__bw = (__lo > __hi);\

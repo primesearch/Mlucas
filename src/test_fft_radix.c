@@ -429,7 +429,7 @@ void test_fft_radix(void)
 		#ifdef USE_FGT61
 			matmod[i][j].d0 = rm;
 			matmod[i][j].d1 = im;
-	//	printf("\t[%2d] = %20llu, %20llu\n",j, rm,im);
+	//	printf("\t[%2d] = %20" PRIu64 ", %20" PRIu64 "\n",j, rm,im);
 			cmul_modq(m0,m1, rm,im, &rm,&im);	// ... [j]col has [m0,m1]^j
 			rm = qreduce_full(rm);	im = qreduce_full(im);
 		#endif
@@ -971,10 +971,10 @@ void test_fft_radix(void)
 		// We only deploy FGT-based DFTs once the floating version has been tested, so no point doing the sorting
 		// here, just compare using the (presumably correct) output-index permutations derived for the float code:
 	#ifdef USE_FGT61
-		printf("I = %3u: DIF-ref: %20llu  %20llu,  FGT: %20llu  %20llu",i, bmod[2*j],bmod[2*j+1], amod[j1],amod[j2]);
+		printf("I = %3u: DIF-ref: %20" PRIu64 "  %20" PRIu64 ",  FGT: %20" PRIu64 "  %20" PRIu64,i, bmod[2*j],bmod[2*j+1], amod[j1],amod[j2]);
 		if(bmod[2*j] != amod[j1] || bmod[2*j+1] != amod[j2]) {
 			if(bmod[2*j] != qreduce_full(amod[j1]) || bmod[2*j+1] != qreduce_full(amod[j2])) {
-				printf("\tDiff = %20lld  %20lld\n",bmod[2*j]-amod[j1], bmod[2*j+1]-amod[j2]);
+				printf("\tDiff = %20" PRId64 "  %20" PRId64 "\n",bmod[2*j]-amod[j1], bmod[2*j+1]-amod[j2]);
 			} else {
 				printf("\tMatch (mod q)\n");
 			}
@@ -1113,7 +1113,7 @@ void test_fft_radix(void)
 		// Since we negated Im-part above, must analogize to q - (pre-negation)a[j2] here:
 		amod[j1] =             a[j1];	// Here, the cast-to-uint64 is implied by the assignment ...
 		amod[j2] = q + (uint64)a[j2];	// ...but here need explicit cast to ensure integer addition.
-		printf("DIT-in[%2u]: float = [%10.5f,%10.5f]; int = [ %llu, q - %llu]\n",i, a[j1],a[j2] ,amod[j1],q - amod[j2]);
+		printf("DIT-in[%2u]: float = [%10.5f,%10.5f]; int = [ %" PRIu64 ", q - %" PRIu64 "]\n",i, a[j1],a[j2] ,amod[j1],q - amod[j2]);
 	#endif
 	}
 
@@ -1290,10 +1290,10 @@ void test_fft_radix(void)
 		// here, just compare using the (presumably correct) output-index permutations derived for the float code:
 	#ifdef USE_FGT61
 		// Flip sign on Im-part of ref-outputs:
-		printf("I = %3u: DIT-ref: %20llu  %20llu,  FGT: %20llu  %20llu",i, bmod[2*i],q-bmod[2*i+1], amod[j1],amod[j2]);
+		printf("I = %3u: DIT-ref: %20" PRIu64 "  %20" PRIu64 ",  FGT: %20" PRIu64 "  %20" PRIu64,i, bmod[2*i],q-bmod[2*i+1], amod[j1],amod[j2]);
 		if(bmod[2*i] != amod[j1] || q-bmod[2*i+1] != amod[j2]) {
 			if(bmod[2*i] != qreduce_full(amod[j1]) || q-bmod[2*i+1] != qreduce_full(amod[j2])) {
-				printf("\tDiff = %20lld  %20lld\n",bmod[2*i]-amod[j1], (q-bmod[2*i+1])-amod[j2]);
+				printf("\tDiff = %20" PRId64 "  %20" PRId64 "\n",bmod[2*i]-amod[j1], (q-bmod[2*i+1])-amod[j2]);
 			} else {
 				printf("\tMatch (mod q)\n");
 			}
@@ -1396,10 +1396,10 @@ void test_fft_radix(void)
 			printf("%4d  %25.15f  %25.15f, ERR= %15.10e\n",i,a[j1], a[j2], CABS(err_r, err_i));
 		}
 	#ifdef USE_FGT61
-		printf("I = %3u: DIF+DIT ref: [%lld,%lld],  FGT: [%20llu,%20llu]",i, (uint64)arrtmp[2*i],(uint64)arrtmp[2*i+1], amod[j1]/RADIX,amod[j2]/RADIX);
+		printf("I = %3u: DIF+DIT ref: [%" PRId64 ",%" PRId64 "],  FGT: [%20" PRIu64 ",%20" PRIu64 "]",i, (uint64)arrtmp[2*i],(uint64)arrtmp[2*i+1], amod[j1]/RADIX,amod[j2]/RADIX);
 		if((uint64)arrtmp[2*i] != amod[j1]/RADIX || (uint64)arrtmp[2*i+1] != amod[j2]/RADIX) {
 			if((uint64)arrtmp[2*i] != qreduce_full(amod[j1])/RADIX || (uint64)arrtmp[2*i+1] != qreduce_full(amod[j2])/RADIX) {
-				printf("\tMismatch! mod-outputs (mod RADIX) = [%20llu,%20llu]\n",amod[j1]%RADIX, amod[j2]%RADIX);
+				printf("\tMismatch! mod-outputs (mod RADIX) = [%20" PRIu64 ",%20" PRIu64 "]\n",amod[j1]%RADIX, amod[j2]%RADIX);
 			} else {
 				printf("\tMatch (mod q)\n");
 			}
@@ -1481,7 +1481,7 @@ void matmul_fgtmod(uint128 **mat, uint128 vec_in[], uint128 vec_out[], int nrow,
 			cmul_modq(mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, &rm,&im);
 			// CMUL_MODQ outputs in 0,4b - must feed to qreduce() prior to accumulating:
 			rm = qreduce(rm);	im = qreduce(im);
-	//	if(!i) printf("\t[%2d] = [%llu,%llu] * [%llu,%llu] = [%llu,%llu]\n",j, mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, rm,im);
+	//	if(!i) printf("\t[%2d] = [%" PRIu64 ",%" PRIu64 "] * [%" PRIu64 ",%" PRIu64 "] = [%" PRIu64 ",%" PRIu64 "]\n",j, mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, rm,im);
 			rm += vec_out[i].d0;
 			im += vec_out[i].d1;
 			// Normalize to ensure accumulated sum in [0,q-1]:

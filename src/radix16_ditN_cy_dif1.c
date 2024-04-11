@@ -685,7 +685,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 			// Up-multiply the complex exponential:
 			qn = qfmul(qx, qc); qt = qfmul(qy, qs); qmul = qfsub(qn, qt);	// Store qxnew in qmul for now.
 			qn = qfmul(qx, qs); qt = qfmul(qy, qc); qy   = qfadd(qn, qt); qx = qmul;
-			printf("j = %3u: cos[j*Pi/2] = 0x%16llX, sin[j*Pi/2] = 0x%16llX\n",j,qfdbl_as_uint64(qx),qfdbl_as_uint64(qy));
+			printf("j = %3u: cos[j*Pi/2] = %#16" PRIX64 ", sin[j*Pi/2] = %#16" PRIX64 "\n",j,qfdbl_as_uint64(qx),qfdbl_as_uint64(qy));
 		}
 		exit(0);
 	#endif
@@ -2115,22 +2115,22 @@ for(outer=0; outer <= 1; outer++)
 	#ifdef USE_FGT61
 		if(!j) {
 			printf("J = 0, wraparound INputs:\n");
-			printf("a1p0r,a1p0i, b1p0r,b1p0i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2    ],a[j2    +1], b[j2    ],b[j2    +1]);
-			printf("a1p1r,a1p1i, b1p1r,b1p1i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p1 ],a[j2+p1 +1], b[j2+p1 ],b[j2+p1 +1]);
-			printf("a1p2r,a1p2i, b1p2r,b1p2i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p2 ],a[j2+p2 +1], b[j2+p2 ],b[j2+p2 +1]);
-			printf("a1p3r,a1p3i, b1p3r,b1p3i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p3 ],a[j2+p3 +1], b[j2+p3 ],b[j2+p3 +1]);
-			printf("a1p4r,a1p4i, b1p4r,b1p4i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p4 ],a[j2+p4 +1], b[j2+p4 ],b[j2+p4 +1]);
-			printf("a1p5r,a1p5i, b1p5r,b1p5i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p5 ],a[j2+p5 +1], b[j2+p5 ],b[j2+p5 +1]);
-			printf("a1p6r,a1p6i, b1p6r,b1p6i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p6 ],a[j2+p6 +1], b[j2+p6 ],b[j2+p6 +1]);
-			printf("a1p7r,a1p7i, b1p7r,b1p7i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p7 ],a[j2+p7 +1], b[j2+p7 ],b[j2+p7 +1]);
-			printf("a1p8r,a1p8i, b1p8r,b1p8i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p8 ],a[j2+p8 +1], b[j2+p8 ],b[j2+p8 +1]);
-			printf("a1p9r,a1p9i, b1p9r,b1p9i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p9 ],a[j2+p9 +1], b[j2+p9 ],b[j2+p9 +1]);
-			printf("a1pAr,a1pAi, b1pAr,b1pAi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p10],a[j2+p10+1], b[j2+p10],b[j2+p10+1]);
-			printf("a1pBr,a1pBi, b1pBr,b1pBi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p11],a[j2+p11+1], b[j2+p11],b[j2+p11+1]);
-			printf("a1pCr,a1pCi, b1pCr,b1pCi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p12],a[j2+p12+1], b[j2+p12],b[j2+p12+1]);
-			printf("a1pDr,a1pDi, b1pDr,b1pDi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p13],a[j2+p13+1], b[j2+p13],b[j2+p13+1]);
-			printf("a1pEr,a1pEi, b1pEr,b1pEi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p14],a[j2+p14+1], b[j2+p14],b[j2+p14+1]);
-			printf("a1pFr,a1pFi, b1pFr,b1pFi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p15],a[j2+p15+1], b[j2+p15],b[j2+p15+1]);
+			printf("a1p0r,a1p0i, b1p0r,b1p0i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2    ],a[j2    +1], b[j2    ],b[j2    +1]);
+			printf("a1p1r,a1p1i, b1p1r,b1p1i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p1 ],a[j2+p1 +1], b[j2+p1 ],b[j2+p1 +1]);
+			printf("a1p2r,a1p2i, b1p2r,b1p2i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p2 ],a[j2+p2 +1], b[j2+p2 ],b[j2+p2 +1]);
+			printf("a1p3r,a1p3i, b1p3r,b1p3i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p3 ],a[j2+p3 +1], b[j2+p3 ],b[j2+p3 +1]);
+			printf("a1p4r,a1p4i, b1p4r,b1p4i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p4 ],a[j2+p4 +1], b[j2+p4 ],b[j2+p4 +1]);
+			printf("a1p5r,a1p5i, b1p5r,b1p5i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p5 ],a[j2+p5 +1], b[j2+p5 ],b[j2+p5 +1]);
+			printf("a1p6r,a1p6i, b1p6r,b1p6i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p6 ],a[j2+p6 +1], b[j2+p6 ],b[j2+p6 +1]);
+			printf("a1p7r,a1p7i, b1p7r,b1p7i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p7 ],a[j2+p7 +1], b[j2+p7 ],b[j2+p7 +1]);
+			printf("a1p8r,a1p8i, b1p8r,b1p8i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p8 ],a[j2+p8 +1], b[j2+p8 ],b[j2+p8 +1]);
+			printf("a1p9r,a1p9i, b1p9r,b1p9i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p9 ],a[j2+p9 +1], b[j2+p9 ],b[j2+p9 +1]);
+			printf("a1pAr,a1pAi, b1pAr,b1pAi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p10],a[j2+p10+1], b[j2+p10],b[j2+p10+1]);
+			printf("a1pBr,a1pBi, b1pBr,b1pBi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p11],a[j2+p11+1], b[j2+p11],b[j2+p11+1]);
+			printf("a1pCr,a1pCi, b1pCr,b1pCi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p12],a[j2+p12+1], b[j2+p12],b[j2+p12+1]);
+			printf("a1pDr,a1pDi, b1pDr,b1pDi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p13],a[j2+p13+1], b[j2+p13],b[j2+p13+1]);
+			printf("a1pEr,a1pEi, b1pEr,b1pEi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p14],a[j2+p14+1], b[j2+p14],b[j2+p14+1]);
+			printf("a1pFr,a1pFi, b1pFr,b1pFi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p15],a[j2+p15+1], b[j2+p15],b[j2+p15+1]);
 		}
 	#endif
 			a[j2    ] *= radix_inv;
@@ -2169,22 +2169,22 @@ for(outer=0; outer <= 1; outer++)
 			b[j2+p15] = mul_pow2_modq( b[j2+p15], 57);
 		if(j==1) {
 			printf("J = 0, wraparound OUTputs:\n");
-			printf("a1p0r,a1p0i, b1p0r,b1p0i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2    -1],a[j2    ], b[j2    -1],b[j2    ]);
-			printf("a1p1r,a1p1i, b1p1r,b1p1i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p1 -1],a[j2+p1 ], b[j2+p1 -1],b[j2+p1 ]);
-			printf("a1p2r,a1p2i, b1p2r,b1p2i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p2 -1],a[j2+p2 ], b[j2+p2 -1],b[j2+p2 ]);
-			printf("a1p3r,a1p3i, b1p3r,b1p3i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p3 -1],a[j2+p3 ], b[j2+p3 -1],b[j2+p3 ]);
-			printf("a1p4r,a1p4i, b1p4r,b1p4i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p4 -1],a[j2+p4 ], b[j2+p4 -1],b[j2+p4 ]);
-			printf("a1p5r,a1p5i, b1p5r,b1p5i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p5 -1],a[j2+p5 ], b[j2+p5 -1],b[j2+p5 ]);
-			printf("a1p6r,a1p6i, b1p6r,b1p6i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p6 -1],a[j2+p6 ], b[j2+p6 -1],b[j2+p6 ]);
-			printf("a1p7r,a1p7i, b1p7r,b1p7i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p7 -1],a[j2+p7 ], b[j2+p7 -1],b[j2+p7 ]);
-			printf("a1p8r,a1p8i, b1p8r,b1p8i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p8 -1],a[j2+p8 ], b[j2+p8 -1],b[j2+p8 ]);
-			printf("a1p9r,a1p9i, b1p9r,b1p9i = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p9 -1],a[j2+p9 ], b[j2+p9 -1],b[j2+p9 ]);
-			printf("a1pAr,a1pAi, b1pAr,b1pAi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p10-1],a[j2+p10], b[j2+p10-1],b[j2+p10]);
-			printf("a1pBr,a1pBi, b1pBr,b1pBi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p11-1],a[j2+p11], b[j2+p11-1],b[j2+p11]);
-			printf("a1pCr,a1pCi, b1pCr,b1pCi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p12-1],a[j2+p12], b[j2+p12-1],b[j2+p12]);
-			printf("a1pDr,a1pDi, b1pDr,b1pDi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p13-1],a[j2+p13], b[j2+p13-1],b[j2+p13]);
-			printf("a1pEr,a1pEi, b1pEr,b1pEi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p14-1],a[j2+p14], b[j2+p14-1],b[j2+p14]);
-			printf("a1pFr,a1pFi, b1pFr,b1pFi = %20.10e, %20.10e, %20llu, %20llu\n",a[j2+p15-1],a[j2+p15], b[j2+p15-1],b[j2+p15]);
+			printf("a1p0r,a1p0i, b1p0r,b1p0i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2    -1],a[j2    ], b[j2    -1],b[j2    ]);
+			printf("a1p1r,a1p1i, b1p1r,b1p1i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p1 -1],a[j2+p1 ], b[j2+p1 -1],b[j2+p1 ]);
+			printf("a1p2r,a1p2i, b1p2r,b1p2i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p2 -1],a[j2+p2 ], b[j2+p2 -1],b[j2+p2 ]);
+			printf("a1p3r,a1p3i, b1p3r,b1p3i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p3 -1],a[j2+p3 ], b[j2+p3 -1],b[j2+p3 ]);
+			printf("a1p4r,a1p4i, b1p4r,b1p4i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p4 -1],a[j2+p4 ], b[j2+p4 -1],b[j2+p4 ]);
+			printf("a1p5r,a1p5i, b1p5r,b1p5i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p5 -1],a[j2+p5 ], b[j2+p5 -1],b[j2+p5 ]);
+			printf("a1p6r,a1p6i, b1p6r,b1p6i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p6 -1],a[j2+p6 ], b[j2+p6 -1],b[j2+p6 ]);
+			printf("a1p7r,a1p7i, b1p7r,b1p7i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p7 -1],a[j2+p7 ], b[j2+p7 -1],b[j2+p7 ]);
+			printf("a1p8r,a1p8i, b1p8r,b1p8i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p8 -1],a[j2+p8 ], b[j2+p8 -1],b[j2+p8 ]);
+			printf("a1p9r,a1p9i, b1p9r,b1p9i = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p9 -1],a[j2+p9 ], b[j2+p9 -1],b[j2+p9 ]);
+			printf("a1pAr,a1pAi, b1pAr,b1pAi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p10-1],a[j2+p10], b[j2+p10-1],b[j2+p10]);
+			printf("a1pBr,a1pBi, b1pBr,b1pBi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p11-1],a[j2+p11], b[j2+p11-1],b[j2+p11]);
+			printf("a1pCr,a1pCi, b1pCr,b1pCi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p12-1],a[j2+p12], b[j2+p12-1],b[j2+p12]);
+			printf("a1pDr,a1pDi, b1pDr,b1pDi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p13-1],a[j2+p13], b[j2+p13-1],b[j2+p13]);
+			printf("a1pEr,a1pEi, b1pEr,b1pEi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p14-1],a[j2+p14], b[j2+p14-1],b[j2+p14]);
+			printf("a1pFr,a1pFi, b1pFr,b1pFi = %20.10e, %20.10e, %20" PRIu64 ", %20" PRIu64 "\n",a[j2+p15-1],a[j2+p15], b[j2+p15-1],b[j2+p15]);
 		}
 		#endif
 		}
@@ -2784,10 +2784,10 @@ void radix16_dit_pass1	(double a[],             int n)
 	/*...Block 1: t1,9,17,25	*/
 /*
 printf("Block 1 float/int inputs:\n");
-printf("1 ,2  float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t1 ,t2 , m1 ,m2 , q-qreduce_full(m1 ),q-qreduce_full(m2 ));
-printf("9 ,10 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t9 ,t10, m9 ,m10, q-qreduce_full(m9 ),q-qreduce_full(m10));
-printf("17,18 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t17,t18, m17,m18, q-qreduce_full(m17),q-qreduce_full(m18));
-printf("25,26 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t25,t26, m25,m26, q-qreduce_full(m25),q-qreduce_full(m26));
+printf("1 ,2  float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t1 ,t2 , m1 ,m2 , q-qreduce_full(m1 ),q-qreduce_full(m2 ));
+printf("9 ,10 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t9 ,t10, m9 ,m10, q-qreduce_full(m9 ),q-qreduce_full(m10));
+printf("17,18 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t17,t18, m17,m18, q-qreduce_full(m17),q-qreduce_full(m18));
+printf("25,26 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t25,t26, m25,m26, q-qreduce_full(m25),q-qreduce_full(m26));
 */
 		rt =t9 ;	t9 =t1 -rt;	t1 =t1 +rt;			rm =m9 ;	m9 =qreduce(m1 -rm+q4);	m1 =qreduce(m1 +rm);	// +:   0,8b -> 0,b
 		it =t10;	t10=t2 -it;	t2 =t2 +it;			im =m10;	m10=qreduce(m2 -im+q4);	m2 =qreduce(m2 +im);	// -: -4b,4b -> 0,b
@@ -2804,10 +2804,10 @@ printf("25,26 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t
 	/*...Block 3: t5,13,21,29	*/
 /*
 printf("Block 3 float/int inputs:\n");
-printf("5 ,6  float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t5 ,t6 , m5 ,m6 , q-qreduce_full(m5 ),q-qreduce_full(m6 ));
-printf("13,14 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t13,t14, m13,m14, q-qreduce_full(m13),q-qreduce_full(m14));
-printf("21,22 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t21,t22, m21,m22, q-qreduce_full(m21),q-qreduce_full(m22));
-printf("29,30 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t29,t30, m29,m30, q-qreduce_full(m29),q-qreduce_full(m30));
+printf("5 ,6  float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t5 ,t6 , m5 ,m6 , q-qreduce_full(m5 ),q-qreduce_full(m6 ));
+printf("13,14 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t13,t14, m13,m14, q-qreduce_full(m13),q-qreduce_full(m14));
+printf("21,22 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t21,t22, m21,m22, q-qreduce_full(m21),q-qreduce_full(m22));
+printf("29,30 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t29,t30, m29,m30, q-qreduce_full(m29),q-qreduce_full(m30));
 */
 		rt =t13;	t13=t5 -t14;	t5 =t5 +t14;	rm =m13;m13=qreduce(m5-m14+q4);	m5 =qreduce(m5 +m14+q4);	// all 4 outs in -4b,4b;
 					t14=t6 +rt;		t6 =t6 -rt;				m14=qreduce(m6+rm +q4);	m6 =qreduce(m6 -rm +q4);	// reduce all 4 to 0,b.
@@ -2826,10 +2826,10 @@ t21=rt;	rt =(t29-t30)*ISRT2;it =(t29+t30)*ISRT2;	rm = mul_i2(m29-m30+q4);	im = m
 	/*...Block 2: t3,11,19,27	*/
 /*
 printf("Block 2 float/int inputs:\n");
-printf("3 ,4  float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t3 ,t4 , m3 ,m4 , q-qreduce_full(m3 ),q-qreduce_full(m4 ));
-printf("11,12 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t11,t12, m11,m12, q-qreduce_full(m11),q-qreduce_full(m12));
-printf("19,20 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t19,t20, m19,m20, q-qreduce_full(m19),q-qreduce_full(m20));
-printf("27,28 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t27,t28, m27,m28, q-qreduce_full(m27),q-qreduce_full(m28));
+printf("3 ,4  float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t3 ,t4 , m3 ,m4 , q-qreduce_full(m3 ),q-qreduce_full(m4 ));
+printf("11,12 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t11,t12, m11,m12, q-qreduce_full(m11),q-qreduce_full(m12));
+printf("19,20 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t19,t20, m19,m20, q-qreduce_full(m19),q-qreduce_full(m20));
+printf("27,28 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t27,t28, m27,m28, q-qreduce_full(m27),q-qreduce_full(m28));
 */
 		rt =(t12+t11)*ISRT2;it =(t12-t11)*ISRT2;	rm = mul_i2(m12+m11+q4);im = mul_i2(m12-m11+q4);	// 0,b30
 		t11 = t3 -rt;		t3 = t3 +rt;			m11 = m3 -rm;		m3 = m3 +rm;	//  3, 4 in -2b,2b+b30
@@ -2856,10 +2856,10 @@ t19=rt;	rt =t27*s + t28*c;	it =t28*s - t27*c;		cmul_modq8(m27,m28, sm,q8-cm, &rm
 	/*...Block 4: t7,15,23,31	*/
 /*
 printf("Block 4 float/int inputs:\n");
-printf(" 7, 8 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t7 ,t8 , m7 ,m8 , q-qreduce_full(m7 ),q-qreduce_full(m8 ));
-printf("15,16 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t15,t16, m15,m16, q-qreduce_full(m15),q-qreduce_full(m16));
-printf("23,24 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t23,t24, m23,m24, q-qreduce_full(m23),q-qreduce_full(m24));
-printf("31,32 float = [%10.5f,%10.5f]; int = [%llu,%llu]; neg = [%llu,%llu]\n",t31,t32, m31,m32, q-qreduce_full(m31),q-qreduce_full(m32));
+printf(" 7, 8 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t7 ,t8 , m7 ,m8 , q-qreduce_full(m7 ),q-qreduce_full(m8 ));
+printf("15,16 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t15,t16, m15,m16, q-qreduce_full(m15),q-qreduce_full(m16));
+printf("23,24 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t23,t24, m23,m24, q-qreduce_full(m23),q-qreduce_full(m24));
+printf("31,32 float = [%10.5f,%10.5f]; int = [%" PRIu64 ",%" PRIu64 "]; neg = [%" PRIu64 ",%" PRIu64 "]\n",t31,t32, m31,m32, q-qreduce_full(m31),q-qreduce_full(m32));
 exit(0);
 */
 		rt =(t15-t16)*ISRT2;it =(t15+t16)*ISRT2;	rm = mul_i2(m15-m16+q4);im = mul_i2(m15+m16+q4);	// 0,b30

@@ -105,7 +105,7 @@ uint64 prodq8(const uint64 x, const uint64 y)
 	MUL_LOHI64(x,y,  lo, hi);
 #endif
 	ASSERT((lo & 7) == 0, "ERROR: product not divisible by 8 in PRODQ8!");
-//if(hi + (lo >> 3) > q2) fprintf(stderr, "PRODQ8 inputs: %llu,%llu, outputs: %llu,%llu, result = %llu\n",x,y,lo,hi,hi + (lo >> 3));
+//if(hi + (lo >> 3) > q2) fprintf(stderr, "PRODQ8 inputs: %" PRIu64 ",%" PRIu64 ", outputs: %" PRIu64 ",%" PRIu64 ", result = %" PRIu64 "\n",x,y,lo,hi,hi + (lo >> 3));
 //	ASSERT(hi + (lo >> 3) <= q2, "ERROR: result out of range in PRODQ8!");
 	return hi + (lo >> 3);		// hi + (lo/8)
 }

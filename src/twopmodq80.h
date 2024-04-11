@@ -2892,7 +2892,7 @@ out128.d0 = (uint64)__fcy; out128.d1 = (uint64)0ull;\
 ADD128(j128,out128,out128);\
 lo26 = out128.d0 & 0x0000000003FFFFFFull;\
 RSHIFT128(out128, 26, out128);\
-fprintf(stderr,"exact<52:77>, <78:129> = %20llu, %20llu\n",out128.d0,out128.d1);\
+fprintf(stderr,"exact<52:77>, <78:129> = %20" PRIu64 ", %20" PRIu64 "\n",out128.d0,out128.d1);\
 }
 */
 	#define MULH78_3WORD_DOUBLE_q4(\
@@ -2935,7 +2935,7 @@ out128.d0 = (uint64)__fcy; out128.d1 = (uint64)0ull;\
 ADD128(j128,out128,out128);\
 lo26 = out128.d0 & 0x0000000003FFFFFFull;\
 RSHIFT128(out128, 26, out128);\
-fprintf(stderr,"exact<52:77>, <78:129> = %20llu, %20llu\n",out128.d0,out128.d1);\
+fprintf(stderr,"exact<52:77>, <78:129> = %20" PRIu64 ", %20" PRIu64 "\n",out128.d0,out128.d1);\
 		__ftmp = __fx52*__fy2+__fx2*__fy52+__fcy;\
 		__gtmp = __gx52*__gy2+__gx2*__gy52+__gcy;\
 		__htmp = __hx52*__hy2+__hx2*__hy52+__hcy;\

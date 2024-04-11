@@ -843,7 +843,7 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	for(j = start_index-2; j >= 0; j--)
 	{
 #if FAC_DEBUG
-if(dbg)printf("A: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
+if(dbg)printf("A: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_96_q8(
@@ -866,7 +866,7 @@ if(dbg)printf("A: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
 		, x6, lo6, hi6
 		, x7, lo7, hi7);
 #if FAC_DEBUG
-if(dbg)printf("B: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
+if(dbg)printf("B: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
 
 		/* For unknown reasons, the 8-operand version of MULL128 was slower than one-at-a-time. */
@@ -880,7 +880,7 @@ if(dbg)printf("B: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
 		, lo6, qinv6
 		, lo7, qinv7);
 #if FAC_DEBUG
-if(dbg)printf("C: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
+if(dbg)printf("C: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
 	#if(USE_128x96 > 0)
 		/* Need to be careful about the order of the 2 inputs here,
@@ -906,13 +906,13 @@ if(dbg)printf("C: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
 		, q7, lo7, lo7);
 	#endif
 #if FAC_DEBUG
-if(dbg)printf("D: l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
+if(dbg)printf("D: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 #if FAC_DEBUG
-if(dbg)printf("On entry to (h<l): hi = %20llu\n",hi0);
-if(dbg)printf("l = %20llu + 2^64* %20llu\n",lo0.d0,lo0.d1);
-if(dbg)printf("x = %20llu + 2^64* %20llu\n",x0.d0,x0.d1);
+if(dbg)printf("On entry to (h<l): hi = %20" PRIu64 "\n",hi0);
+if(dbg)printf("l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
+if(dbg)printf("x = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0,x0.d1);
 #endif
 		if(lo0.d1 != 0 || hi0 < lo0.d0){ SUB128(q0, lo0, x0);	x0.d0 +=  hi0; x0.d1 += (x0.d0 < hi0); } else { x0.d0 =  hi0 - lo0.d0; x0.d1 = (uint64)0; }
 		if(lo1.d1 != 0 || hi1 < lo1.d0){ SUB128(q1, lo1, x1);	x1.d0 +=  hi1; x1.d1 += (x1.d0 < hi1); } else { x1.d0 =  hi1 - lo1.d0; x1.d1 = (uint64)0; }
@@ -923,7 +923,7 @@ if(dbg)printf("x = %20llu + 2^64* %20llu\n",x0.d0,x0.d1);
 		if(lo6.d1 != 0 || hi6 < lo6.d0){ SUB128(q6, lo6, x6);	x6.d0 +=  hi6; x6.d1 += (x6.d0 < hi6); } else { x6.d0 =  hi6 - lo6.d0; x6.d1 = (uint64)0; }
 		if(lo7.d1 != 0 || hi7 < lo7.d0){ SUB128(q7, lo7, x7);	x7.d0 +=  hi7; x7.d1 += (x7.d0 < hi7); } else { x7.d0 =  hi7 - lo7.d0; x7.d1 = (uint64)0; }
 #if FAC_DEBUG
-if(dbg)printf("j = %2d, Res = %20llu + 2^64* %20llu",j,x0.d0,x0.d1);
+if(dbg)printf("j = %2d, Res = %20" PRIu64 " + 2^64* %20" PRIu64,j,x0.d0,x0.d1);
 #endif
 
 		if((pshift >> j) & (uint64)1)
@@ -956,7 +956,7 @@ if(dbg)printf("j = %2d, Res = %20llu + 2^64* %20llu",j,x0.d0,x0.d1);
 			if(CMPULE128(q6, x6)) SUB128(x6, q6, x6);
 			if(CMPULE128(q7, x7)) SUB128(x7, q7, x7);
 #if FAC_DEBUG
-if(dbg)printf(" *2 = %20llu + 2^64* %20llu",x0.d0,x0.d1);
+if(dbg)printf(" *2 = %20" PRIu64 " + 2^64* %20" PRIu64,x0.d0,x0.d1);
 #endif
 		}
 #if FAC_DEBUG
@@ -993,7 +993,7 @@ if(dbg)printf("\n");
 	SUB128(x7, q7, x7);
 
 #if FAC_DEBUG
-if(dbg)printf("x0 = %20llu + 2^64* %20llu\n",x0.d0, x0.d1);
+if(dbg)printf("x0 = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0, x0.d1);
 #endif
 
 	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */

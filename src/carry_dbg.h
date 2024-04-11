@@ -721,7 +721,7 @@ sign  = ix & himask;\
 mant  = ix & mmask;\
 dexp  = (ix-sign)>>52;\
 shift = 1074 - dexp;\
-/*if(j1==0)printf("0xmant,shift,bits = %20llX  %10d  %10u\n",mant,shift,bits);*/\
+/*if(j1==0)printf("0xmant,shift,bits = %20" PRIX64 "  %10d  %10u\n",mant,shift,bits);*/\
 if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,x,shift);\
 if(shift < 52)\
 {\
@@ -730,15 +730,15 @@ ifrac = mant << (63-shift);\
 if(ifrac > ifracmax) ifracmax=ifrac;\
 mant += ((uint64)1)<<shift;\
 mant  = (mant+two52)>>(shift+1);\
-/*if(j1==0)printf("A: 0xmant = %20llX\n",mant);*/\
+/*if(j1==0)printf("A: 0xmant = %20" PRIX64 "\n",mant);*/\
 mant -= (mant & sign)<<1;\
-/*if(j1==0)printf("B: 0xmant = %20llX\n",mant);*/\
+/*if(j1==0)printf("B: 0xmant = %20" PRIX64 "\n",mant);*/\
 word  = mant & (~(ones << bits));\
-/*if(j1==0)printf("C: 0xword = %20llX\n",word);*/\
+/*if(j1==0)printf("C: 0xword = %20" PRIX64 "\n",word);*/\
 topbit= word >> (bits - 1);\
-/*if(j1==0)printf("D: 0xtbit = %20llX\n",topbit);*/\
+/*if(j1==0)printf("D: 0xtbit = %20" PRIX64 "\n",topbit);*/\
 word -= topbit << bits;\
-/*if(j1==0)printf("E: 0xword = %20llX\n",word);*/\
+/*if(j1==0)printf("E: 0xword = %20" PRIX64 "\n",word);*/\
 x     = wt*(double)word;\
 cy    = (double)( (mant >> bits) + topbit );\
 /*if(j1==0)printf("%20.4f  %20.4f\n",x,cy);*/\

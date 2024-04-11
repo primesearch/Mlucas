@@ -672,7 +672,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 				qc = qfcos(qt);	qs = qfsin(qt);
 				qx = QONE;		qy = QZRO;
 				for(j = 0; j < RADIX; j++) {
-					printf("j = %3u: cos = 0x%16llX\n",j,qfdbl_as_uint64(qx));
+					printf("j = %3u: cos = %#16" PRIX64 "\n",j,qfdbl_as_uint64(qx));
 					// Up-multiply the complex exponential:
 					qn = qfmul(qx, qc); qt = qfmul(qy, qs); qmul = qfsub(qn, qt);	// Store qxnew in qmul for now.
 					qn = qfmul(qx, qs); qt = qfmul(qy, qc); qy   = qfadd(qn, qt); qx = qmul;
