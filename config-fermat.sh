@@ -27,8 +27,7 @@
 # Mlucas
 MLUCAS=./Mlucas
 
-# Number of iterations
-# use 100, 1000, or 10000 to match pre-computed values
+# Number of iterations (use 100, 1000, or 10000 to match pre-computed values)
 ITERS=100
 
 # Minimum Fermat number (14 or greater)
@@ -40,13 +39,12 @@ MAX=29
 # Mlucas arguments
 ARGS=(
 	"$@"
-	# Add desired -cpu or -core settings here, or as following arguments, e.g. ../config-fermat.sh -cpu 0:3
-
+	# Add desired -cpu or -core settings here, or as following arguments, e.g. bash ../config-fermat.sh -cpu 0:3
 )
 
-# First, tiny FFT lengths for F14 to F17;
+# First, tiny FFT lengths for F14 to F17 (note 1K and 2K may fail, but 4K should work);
 FFTS=([1]=14 [2]=15 [4]=16 [7]=17 [8]=17)
-# Then, from small up to egregious FFTs for F18 to F33.
+# Then, from small up to egregiously large FFTs for F18 to F33.
 # The largest FFT reached is 512M, if MAX is set to 33.
 # Note that large FFTs require considerable runtime at 10000 iterations.
 for ((n = 0; n < 16; ++n)); do
@@ -60,7 +58,7 @@ for ((n = 0; n < 16; ++n)); do
 		# k = 15, 16 should both be supported up to at least F32.
 		FFTS[k * m]=$f
 		if [[ $k -eq 15 && $n -gt 5 ]]; then
-			# k = 63 is supported for F24 and above (1008K).
+			# k = 63 is mostly supported for F24 (1008K) and above.
 			FFTS[63 * m >> 2]=$f
 		fi
 	done
