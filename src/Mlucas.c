@@ -695,7 +695,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				TEST_TYPE = TEST_TYPE_PRP;
 			} else {	// PRP double-check:
 				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
-				i = (int)strtol(char_addr+1, &cptr, 10); //	ASSERT(HERE, i == 3,"PRP-test base must be 3!");
+				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(HERE, i == 3,"PRP-test base must be 3!");
 				PRP_BASE = i;
 				ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
 				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(HERE, i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
@@ -705,6 +705,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
 				if(KNOWN_FACTORS[0] != 0ull) {
 					ASSERT(HERE, i == 5,"Only PRP-CF tests of type 5 supported!");
+					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(HERE, PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
 				}
 			}
 			goto GET_EXPO;
