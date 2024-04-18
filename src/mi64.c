@@ -6901,8 +6901,11 @@ printf("\n");
 			itmp64 -= (uint64)fquo;
 			rem64 = rem64 + q*(uint64)fquo;
 		} else {
-			fquo = rem64*fqinv; // CXC: Give fquo a tiny push if we are in the 2nd pass, to ensure a 0.9999999999999 value actually gets to 1.0;
-			if(fquo >= 0.99999999999999 && fquo < 1.0) fquo += 0.00000000000001; // see https://github.com/primesearch/Mlucas/issues/18
+			fquo = rem64*fqinv;
+			if(fquo >= 0.99999999999999 && fquo < 1.0) { // CXC: Give fquo a tiny push if we are in the 2nd pass, to ensure a 0.9999999999999 value actually gets to 1.0;
+				fprintf(stderr,"WARNING: floating point round-off error, %llu * %1.16f = %1.16f (should be an integer)\n", rem64, fqinv, fquo);
+				fquo += 0.00000000000001; // see https://github.com/primesearch/Mlucas/issues/18
+			}
 			itmp64 += (uint64)fquo;
 			rem64 = rem64 - q*(uint64)fquo;
 		}
