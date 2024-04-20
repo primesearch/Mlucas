@@ -11,11 +11,11 @@ documentation with respect to Fermat number testing.
 
 The Fermat modular squaring code is architecture-specific, ideally requiring Mlucas to be built with one of 
 the SIMD modes (AVX, AVX2, SSE2, etc). This should be handled automatically by the `makemake.sh` script 
-for most hardware, including x86, however if Fermat modular squaring is not natively supported, there may 
-be workarounds available.
+for most hardware, and with the exception of 64-bit ARM (for which workarounds may be available) the default
+build should be capable of testing Fermat numbers.
 
-For example, Apple Silicon is ASIMD, meaning a native Mlucas build cannot test Fermat numbers. The 
-answer is to build an SSE2 Mlucas on an Intel-based Mac, which should be capable of running under 
+For example, Apple Silicon is ARM which supports ASIMD, meaning a native Mlucas build cannot test Fermat numbers. One 
+possible answer would be to build an SSE2 Mlucas on an Intel-based Mac, which should be capable of running under 
 Rosetta emulation on Apple Silicon, at the penalty of a significant performance hit for larger exponents.
 
 (When compiling on Intel with the intention of building a compatible version for Apple Silicon, the Makefile 
@@ -153,7 +153,7 @@ used the same _B1_ and _B2_ bounds to run only the first stage of the algorithm.
 The following table lists the default FFT lengths selected by Mlucas for the Fermat numbers in the range 
 [14,33] and the known factors, required for some of the test types above.
 
- _m_|       2<sup>_m_</sup>|Default FFT |Optimal FFTs     |known_factor(s)
+ _m_|       2<sup>_m_</sup>|Default FFT |Optimal FFTs     |known_factor(s)
 --|---------:|-----------:|----------------:|--------------------------------------------------------------------
 14|     16384|        1K\*|               4K|`"116928085873074369829035993834596371340386703423373313"`
 15|     32768|        2K\*|               4K|`"1214251009,2327042503868417,168768817029516972383024127016961"`
@@ -173,7 +173,7 @@ The following table lists the default FFT lengths selected by Mlucas for the Fer
 29| 536870912|       30M  |  30M, 31.5M, 32M|`"2405286912458753"`
 30|1073741824|       60M  |    60M, 63M, 64M|`"640126220763137,1095981164658689"`
 31|2147483648|      120M  | 120M, 126M, 128M|`"46931635677864055013377"`
-32|4294967296|      256M  | 240M, 252M, 256M|`"25409026523137"`
+32|4294967296|      256M  | 240M, 252M, 256M|`"25409026523137"`
 33|8589934592|      512M  |       504M, 512M|
 
 \* These default FFTs selected by Mlucas have radices that cannot be used for Fermat modular squaring;
@@ -181,6 +181,6 @@ thus _F_<sub>14</sub> to _F_<sub>22</sub> cannot be tested with Mlucas without o
 ```
 ./Mlucas -fft 224K -shift 0
 ```
-As mentioned under “Mlucas build notes” above, building Mlucas is highly architecture-specific, and some 
+As mentioned above at [Mlucas build notes](#mlucas-build-notes), building Mlucas is highly architecture-specific, and some 
 build types will not support all of the optimal FFT lengths.
 Finally, 4K appears to be the smallest usable FFT for the three smallest testable Fermat numbers.
