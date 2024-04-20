@@ -89,7 +89,7 @@ If this is the case, the FFT may be overridden using the command:
 ```
 ./Mlucas -fft FFT_LENGTH -shift 0
 ```
-The optimal FFT lengths vary from 4K up to 512M, as shown in the table below under “testable Fermat numbers”.
+The optimal FFT lengths vary from 4K up to 512M, as shown in the table below under [testable Fermat numbers](#the-testable-fermat-numbers-fm--22m--1).
 
 Currently, all Fermat numbers up to _F_<sub>30</sub> have received a [Pépin test](https://www.mersenneforum.org/showthread.php?t=18748), and moreover _F_<sub>31</sub> and _F_<sub>32</sub> are known 
 to be composite. However, the character of their cofactors is unknown so a Pépin test would be a 
