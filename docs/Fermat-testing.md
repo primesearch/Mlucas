@@ -38,7 +38,7 @@ values for `-iters` to be set to are 100, 1000, or 10000, since the self-testing
 for all Fermat numbers [14,33] saved, and any error in the test result will be immediately discovered.
 
 Mlucas does not support Fermat testing for all possible FFT lengths. Generally, FFTs for testing Mersenne 
-numbers are available for any length _k_·2<sup>_n_</sup> K, where _k_ = [8,15], _n_ ≥ 0. 
+numbers are available for any length _k_·2<sup>_n_</sup> in kilobytes, where _k_ = [8,15], _n_ ≥ 0. 
 In the case of Fermat numbers however, only the subset _k_ = {4, 7, 15} supports Fermat testing, along with
 _k_ = 63 when _n_ ≥ 4.
 
