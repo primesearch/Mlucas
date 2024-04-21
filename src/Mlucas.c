@@ -5263,10 +5263,10 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 				exp[0] = ui256.d0; exp[1] = ui256.d1; exp[2] = ui256.d2; exp[3] = ui256.d3;
 			} else
 				ASSERT(HERE, 0, "Only known-factors < 2^256 supported!");
-			// Raise 3 to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(3ull, exp, KNOWN_FACTORS+i, j, pow);
+			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
+			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(cstr,1);
-			ASSERT(HERE, mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k), "Full-residue == 3^nsquares (mod q) check fails!");
+			ASSERT(HERE, mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k), "Full-residue == %lu^nsquares (mod q) check fails!", PRP_BASE);
 		}
 	}
 #if 0
