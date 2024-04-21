@@ -2461,6 +2461,11 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	// the list of known factors used, and the basic "is PRP?" result for the corresponding cofactor.
 	/************************************************************************************************************************/
 
+		char Res2048[513];
+		// Must save Res2048 before PRP cofactor test: https://github.com/primesearch/Mlucas/issues/25
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+			for (int i = 31; i >= 0; i--) sprintf(Res2048+496-i*16, "%016llX", arrtmp[i]);
+
 		// v21: PRP-CF: Cofactor-PRP test applies to primality/Fermat (which we follow by 1 additional mod-squaring
 		// to convert the base^((N-1)/2) Pepin/Euler-PRP residue to a base^(N-1) Fermat-PRP one) and PRP/Mersenne residues:
 		if(KNOWN_FACTORS[0])	// This is automatically false for LL-test
@@ -2477,8 +2482,6 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 			// Trio of p-1 fields all 0; cstr holds the formatted output line here. Need to differentiate
 			// between this PRP-CF result and the preceding PRP; set the otherwise-unused s2_partial flag:
-			char Res2048[513];
-			for (int i = 31; i >= 0; i--) sprintf(Res2048+496-i*16, "%016llX", arrtmp[i]);
 			generate_JSON_report(isprime,p,n,Res64,Res2048,timebuffer, 0,0ull,0x0,s2_partial, cstr);
 		}
 		// For Non-cofactor LL/PRP runs, print summary status to logfile:
