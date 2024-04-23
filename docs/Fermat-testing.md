@@ -185,6 +185,5 @@ thus _F_<sub>13</sub> to _F_<sub>22</sub> cannot be tested with Mlucas without o
 As mentioned above at [Mlucas build notes](#mlucas-build-notes), building Mlucas is highly architecture-specific, and some 
 build types will not support all of the optimal FFT lengths.
 
-Finally, 2K appears to be the smallest usable FFT for the smallest testable Fermat number _F_<sub>13</sub>.
-
-The 4K FFT seems to be more reliable on a wider range of systems for the next larger Fermat numbers _F_<sub>14</sub> to _F_<sub>16</sub>.
+Finally, 2K appears to be the smallest usable FFT for the smallest testable Fermat number _F_<sub>13</sub>;
+the 4K FFT seems to be more reliable on a wider range of systems for the next larger Fermat numbers _F_<sub>14</sub> to _F_<sub>16</sub>.
