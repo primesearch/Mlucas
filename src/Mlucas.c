@@ -5267,7 +5267,10 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
 			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(cstr,1);
-			ASSERT(HERE, mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k), "Full-residue == PRP_base^nsquares (mod q) check fails!");
+			if (mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k)) {
+				snprintf_nowarn(cbuf,STR_MAX_LEN,"Full-residue == %lu^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
+				ASSERT(HERE, 0, cbuf);
+			}
 		}
 	}
 #if 0
