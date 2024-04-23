@@ -93,8 +93,7 @@ This README is still in progress. For now, see the original [Mlucas README](http
 
 ## Help
 
-The [help.txt](help.txt) file includes a variety of usage information not covered in the original [README](https://mersenneforum.org/mayer/README.html). A separate documentation 
-page covers [Fermat numbers](docs/Fermat-testing.md).
+The [help.txt](help.txt) file includes a variety of usage information not covered in the original [README](https://mersenneforum.org/mayer/README.html), concentrating largely on the Mlucas command line options. A separate documentation page covers [Fermat numbers](docs/Fermat-testing.md).
 
 ## Contributing
 
