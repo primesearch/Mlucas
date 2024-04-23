@@ -1202,7 +1202,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	#ifdef USE_ARM_V8_SIMD
 		ASSERT(HERE, 0, "ARMv8 SIMD builds do not support Fermat-number testing!");
 	#endif
-		ASSERT(HERE,findex >= 14 && findex < 64, "Fermat number index must be in range [14,64]!\n");
+		ASSERT(HERE,findex >= 13 && findex < 64, "Fermat number index must be in range [13,64]!\n");
 		// This takes care of the number-to-char conversion and leading-whitespace-removal
 		// in one step - use PSTRING for temporary storage here:
 		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, (uint64)findex)]);
@@ -3837,6 +3837,7 @@ struct testFerm FermVec[numFerm+1] =
 /* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 /*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
 	/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+//	{     2,  13u, { {0xC8FC67EA3A1AC788ull, 29592689237ull, 35156594447ull}, {0xBE489C2CF00D582Aull,  3108135315ull, 47125592449ull}, {0x0ull, 0ull, 0ull} } },
 	{     1,  14u, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x78738D068D641C2Cull, 12664273769ull, 29297626750ull} } },
 	{     2,  15u, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull}, {0x589BFE53458FFC14ull, 12200390606ull, 46971422957ull} } },
 	{     4,  16u, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull}, {0xEED00D8AE6886440ull, 19057922301ull, 53800020279ull} } },
@@ -4303,8 +4304,8 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(HERE, !(i64arg>>32), "Fermat-number-index argument must be < 2^32 ... halting.");
 			findex = (uint32)i64arg;
 			/* Make sure the Fermat number index is in range: */
-			if(findex < 14 || findex > 63) {
-				fprintf(stderr, " Fermat number index must be in the range [14,63].\n");
+			if(findex < 13 || findex > 63) {
+				fprintf(stderr, " Fermat number index must be in the range [13,63].\n");
 				return ERR_EXPONENT_ILLEGAL;
 			}
 			userSetExponent = 1;
