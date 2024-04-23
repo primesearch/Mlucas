@@ -26,7 +26,7 @@ Static linking of libraries is usually not recommended, and this may not be a so
 ## Fermat self-testing and populating `fermat.cfg`
 
 Assuming you have a working build, Mlucas allows any Fermat number _F<sub>m</sub>_ = 2<sup>2<sup>_m_</sup></sup> + 1 with exponent _m_ in 
-the range [14,63] to be entered as an argument for self-testing, by using the `-f` flag like so:
+the range [13,63] to be entered as an argument for self-testing, by using the `-f` flag like so:
 
 `./Mlucas -f <exponent> -iters <number> [-fft <fft_length>]`
 
@@ -39,7 +39,7 @@ for all Fermat numbers [14,33] saved, and any error in the test result will be i
 
 Mlucas does not support Fermat testing for all possible FFT lengths. Generally, FFTs for testing Mersenne 
 numbers are available for any length _k_·2<sup>_n_</sup> in kilobytes, where _k_ = [8,15], _n_ ≥ 0. 
-In the case of Fermat numbers however, only the subset _k_ = {4, 7, 15} supports Fermat testing, along with
+In the case of Fermat numbers however, only the subset _k_ = {2, 7, 15} supports Fermat testing, along with
 _k_ = 63 when _n_ ≥ 4.
 
 When self-testing Mlucas for Mersenne numbers, a command such as `./Mlucas -s all` configures 
@@ -58,8 +58,8 @@ MLUCAS=./Mlucas
 # Number of iterations (use 100, 1000, or 10000 to match pre-computed values)
 ITERS=100
 
-# Minimum Fermat number (14 or greater)
-MIN=14
+# Minimum Fermat number (15 or greater)
+MIN=15
 
 # Maximum Fermat number (33 or less)
 MAX=29
@@ -84,12 +84,12 @@ For the Pépin test, the `worktodo` format is simply:
 Fermat,Test=<exponent>
 ```
 
-Fermat numbers in the range [14,22] may select a non-optimal FFT length by default in production mode.
+Fermat numbers in the range [13,22] may select a non-optimal FFT length by default in production mode.
 If this is the case, the FFT may be overridden using the command:
 ```
 ./Mlucas -fft FFT_LENGTH -shift 0
 ```
-The optimal FFT lengths vary from 4K up to 512M, as shown in the table below under [testable Fermat numbers](#the-testable-fermat-numbers-fm--22m--1).
+The optimal FFT lengths vary from 2K up to 512M, as shown in the table below under [testable Fermat numbers](#the-testable-fermat-numbers-fm--22m--1).
 
 Currently, all Fermat numbers up to _F_<sub>30</sub> have received a [Pépin test](https://www.mersenneforum.org/showthread.php?t=18748), and moreover _F_<sub>31</sub> and _F_<sub>32</sub> are known 
 to be composite. However, the character of their cofactors is unknown so a Pépin test would be a 
@@ -151,12 +151,13 @@ used the same _B1_ and _B2_ bounds to run only the first stage of the algorithm.
 ## The testable Fermat numbers _F<sub>m</sub>_ = 2<sup>2<sup>_m_</sup></sup> + 1
 
 The following table lists the default FFT lengths selected by Mlucas for the Fermat numbers in the range 
-[14,33] and the known factors, required for some of the test types above.
+[13,33] and the known factors, required for some of the test types above.
 
  _m_|       2<sup>_m_</sup>|Default FFT |Optimal FFTs     |known_factor(s)
 --|---------:|-----------:|----------------:|--------------------------------------------------------------------
-14|     16384|        1K\*|               4K|`"116928085873074369829035993834596371340386703423373313"`
-15|     32768|        2K\*|               4K|`"1214251009,2327042503868417,168768817029516972383024127016961"`
+13|      8192|        1K\*|               2K|`"2710954639361,2663848877152141313,3603109844542291969,319546020820551643220672513"`
+14|     16384|        1K\*|           2K, 4K|`"116928085873074369829035993834596371340386703423373313"`
+15|     32768|        2K\*|           2K, 4K|`"1214251009,2327042503868417,168768817029516972383024127016961"`
 16|     65536|        3K\*|               4K|`"825753601,188981757975021318420037633"`
 17|    131072|  6K\*, 7K  |           7K, 8K|`"31065037602817,7751061099802522589358967058392886922693580423169"`
 18|    262144|       13K\*|    14K, 15K, 16K|`"13631489,81274690703860512587777"`
@@ -177,10 +178,13 @@ The following table lists the default FFT lengths selected by Mlucas for the Fer
 33|8589934592|      512M  |       504M, 512M|
 
 \* These default FFTs selected by Mlucas have radices that cannot be used for Fermat modular squaring;
-thus _F_<sub>14</sub> to _F_<sub>22</sub> cannot be tested with Mlucas without overriding the default FFT selected, _e.g._:
+thus _F_<sub>13</sub> to _F_<sub>22</sub> cannot be tested with Mlucas without overriding the default FFT selected, _e.g._:
 ```
 ./Mlucas -fft 224K -shift 0
 ```
 As mentioned above at [Mlucas build notes](#mlucas-build-notes), building Mlucas is highly architecture-specific, and some 
 build types will not support all of the optimal FFT lengths.
-Finally, 4K appears to be the smallest usable FFT for the three smallest testable Fermat numbers.
+
+Finally, 2K appears to be the smallest usable FFT for the smallest testable Fermat number _F_<sub>13</sub>, with the command line settings `-fft 2 -radset 8,8,16 -shift 0`.
+
+The 4K FFT seems to be more reliable on a wider range of systems for the next larger Fermat numbers _F_<sub>14</sub> to _F_<sub>16</sub>.
