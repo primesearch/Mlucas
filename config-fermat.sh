@@ -30,8 +30,8 @@ MLUCAS=./Mlucas
 # Number of iterations (use 100, 1000, or 10000 to match pre-computed values)
 ITERS=100
 
-# Minimum Fermat number (14 or greater)
-MIN=14
+# Minimum Fermat number (15 or greater)
+MIN=15
 
 # Maximum Fermat number (33 or less)
 MAX=29
@@ -64,8 +64,10 @@ for ((n = 0; n < 16; ++n)); do
 	done
 done
 # First we test the very fiddly F15 and then loop over F16 up to maximum
-printf '\n\tTesting F15 (2^32768 + 1),\tFFT length: 2K\n\n'
-time $MLUCAS -f 15 -fft 2 -radset 8,8,16 -shift 0 -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
+if [[ $MIN -eq 15 ]]; then
+	printf '\n\tTesting F15 (2^32768 + 1),\tFFT length: 2K\n\n'
+	time $MLUCAS -f 15 -fft 2 -radset 8,8,16 -shift 0 -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
+fi
 for fft in "${!FFTS[@]}"; do
 	f=${FFTS[fft]}
 	if [[ -n $MIN && $f -lt $MIN ]]; then
