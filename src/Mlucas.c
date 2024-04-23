@@ -1202,7 +1202,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	#ifdef USE_ARM_V8_SIMD
 		ASSERT(HERE, 0, "ARMv8 SIMD builds do not support Fermat-number testing!");
 	#endif
-		ASSERT(HERE,findex >= 13 && findex < 64, "Fermat number index must be in range [13,64]!\n");
+		ASSERT(HERE,findex >= 13 && findex < 64, "Fermat number index must be in range [13,63]!\n");
 		// This takes care of the number-to-char conversion and leading-whitespace-removal
 		// in one step - use PSTRING for temporary storage here:
 		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, (uint64)findex)]);
