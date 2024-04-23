@@ -42,8 +42,8 @@ ARGS=(
 	# Add desired -cpu or -core settings here, or as following arguments, e.g. bash ../config-fermat.sh -cpu 0:3
 )
 
-# First, tiny FFT lengths for F14 to F17 (note 1K and 2K may fail, but 4K should work);
-FFTS=([1]=14 [2]=15 [4]=16 [7]=17 [8]=17)
+# First, tiny FFT lengths for F16 and F17 (note 4K is the smallest workable length without fiddly radix settings);
+FFTS=([4]=16 [7]=17 [8]=17)
 # Then, from small up to egregiously large FFTs for F18 to F33.
 # The largest FFT reached is 512M, if MAX is set to 33.
 # Note that large FFTs require considerable runtime at 10000 iterations.
@@ -63,7 +63,9 @@ for ((n = 0; n < 16; ++n)); do
 		fi
 	done
 done
-
+# First we test the very fiddly F15 and then loop over F16 up to maximum
+printf '\n\tTesting F15 (2^32768 + 1),\tFFT length: 2K\n\n'
+time $MLUCAS -f 15 -fft 2 -radset 8,8,16 -shift 0 -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
 for fft in "${!FFTS[@]}"; do
 	f=${FFTS[fft]}
 	if [[ -n $MIN && $f -lt $MIN ]]; then
