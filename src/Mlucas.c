@@ -5271,7 +5271,7 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 			sprintf(cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(cstr,1);
 			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
 				snprintf_nowarn(cbuf,STR_MAX_LEN,"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
-				ASSERT(HERE, mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k), cbuf);
+				ASSERT(HERE, 0, cbuf);
 			}
 		}
 	}
