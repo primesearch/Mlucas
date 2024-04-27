@@ -2433,7 +2433,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			// by base and check that remainder 0. Note that we do want the quotient now, as that is our reside/base:
 			mi64_div(c_uint64_ptr, &itmp64, j+1,1, arrtmp,&rmodb);	ASSERT(HERE, rmodb == 0ull,"After short-div, R != 0 (mod B)");
 			// And recompute the S-H residues:
-			res_SH(arrtmp,i,&Res64,&Res35m1,&Res36m1);
+			res_SH(arrtmp,j,&Res64,&Res35m1,&Res36m1);
 			// Now that residue is standard Fermat-PRP-test one, check if == 1:
 			isprime = (arrtmp[0] == 1ull);
 			if(isprime) { // Check the arrtmp[] array for non-zero elements; see https://github.com/primesearch/Mlucas/issues/15
