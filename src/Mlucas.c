@@ -2474,8 +2474,8 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			gm_time = gmtime(&calendar_time);
 			if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
 				gm_time = localtime(&calendar_time);
-			// Want 'UTC' instead of 'GMT', so include that in lieu of the %Z format specifier
-			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
+			// Want 'UTC' instead of 'GMT', so include that in lieu of the %Z format specifier (but also see https://www.mersenneforum.org/showthread.php?p=653672#post653672 as UTC is actually redundant)
+			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",gm_time);
 			// Trio of p-1 fields all 0; cstr holds the formatted output line here. Need to differentiate
 			// between this PRP-CF result and the preceding PRP; set the otherwise-unused s2_partial flag:
 			char Res2048[513];
