@@ -75,7 +75,7 @@ if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
 fi
 if ! command -v $MAKE >/dev/null; then
 	echo "Error: This script requires Make" >&2
-	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install build-essential -y'" >&2
+	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
 	exit 1
 fi
 if [[ -n $CC ]]; then
@@ -85,7 +85,7 @@ if [[ -n $CC ]]; then
 	fi
 elif ! command -v gcc >/dev/null; then
 	echo "Error: This script requires the GNU C compiler" >&2
-	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install build-essential -y'" >&2
+	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
 	exit 1
 fi
 
@@ -400,7 +400,7 @@ echo -e "Building $TARGET"
 printf "%'d CPU cores detected ... parallel-building using that number of make threads.\n" "$CPU_THREADS"
 if ! time $MAKE "${MAKE_ARGS[@]}" "$TARGET" >build.log 2>&1; then
 	echo -e "\n*** There were build errors - see '${DIR}/build.log' for details. ***\n" >&2
-	grep -A 2 'error:' build.log || tail build.log
+	grep -A 2 '[Ee]rror:' build.log || tail build.log
 	exit 1
 fi
 
@@ -408,6 +408,6 @@ echo -e "\nWarnings:\n"
 grep 'warning:' build.log | awk '{ print $NF }' | sort | uniq -c | sort -nr || echo "None"
 
 echo -e "\nErrors:\n"
-grep -A 2 'error:' build.log || echo "None"
+grep -A 2 '[Ee]rror:' build.log || echo "None"
 
 echo

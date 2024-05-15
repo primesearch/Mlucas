@@ -3,7 +3,7 @@
 # Mlucas
 Ernst Mayer's Mlucas and Mfactor programs for GIMPS
 
-[Ernst Mayer passed away unexpectedly](https://www.mersenneforum.org/showthread.php?t=28890) on September 10, 2023. This repository contains his posthumously released Mlucas v21 code, which is now maintained by the Great Internet Mersenne Prime Search (GIMPS) community. The Python PrimeNet script previously bundled with Mlucas is now maintained in a [separate repository](https://github.com/tdulcet/Distributed-Computing-Scripts#primenet).
+[Ernst Mayer passed away unexpectedly](https://www.mersenneforum.org/showthread.php?t=28890) on September 10, 2023. This repository contains his posthumously released Mlucas v21 code, which is now maintained by the Great Internet Mersenne Prime Search (GIMPS) community. The Python PrimeNet program/script previously bundled with Mlucas is now maintained in a [separate repository](https://github.com/tdulcet/Distributed-Computing-Scripts#primenet).
 
 Mlucas and Mfactor are 100% open source programs. Mlucas is for [primality](https://en.wikipedia.org/wiki/Primality_test) and [P-1](https://en.wikipedia.org/wiki/Pollard%27s_p_%E2%88%92_1_algorithm) testing of [Mersenne](https://en.wikipedia.org/wiki/Mersenne_prime) and [Fermat](https://en.wikipedia.org/wiki/Fermat_number) numbers, including support for the [Lucas-Lehmer](https://en.wikipedia.org/wiki/Lucas%E2%80%93Lehmer_primality_test), [Probable prime](https://en.wikipedia.org/wiki/Probable_prime) (PRP) and [Pépin](https://en.wikipedia.org/wiki/P%C3%A9pin%27s_test) tests. Mfactor is for trial factoring. They support x86 Intel and AMD, ARM and other CPUs.
 
@@ -40,7 +40,7 @@ Feature | | Mlucas | Prime95/MPrime
 
 ### Automatic method
 
-Linux users can use the [Mlucas install script](https://github.com/tdulcet/Distributed-Computing-Scripts#mlucas) to automatically download, build, setup and run Mlucas, including downloading, setting up and running the [PrimeNet Python script](https://github.com/tdulcet/Distributed-Computing-Scripts#primenet) for automated PrimeNet assignments.
+Linux users can use the [Mlucas install script](https://github.com/tdulcet/Distributed-Computing-Scripts#mlucas) to automatically download, build, setup and run Mlucas, including downloading, setting up and running the [PrimeNet Python program](https://github.com/tdulcet/Distributed-Computing-Scripts#primenet) for automated PrimeNet assignments.
 
 ### Manual method
 
@@ -59,13 +59,13 @@ Dependencies:
 
 1. Verify that the dependencies above are installed. On Debian and Ubuntu, run: `sudo apt update` and `sudo apt install build-essential libgmp-dev libhwloc-dev`.
 2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-3. To download the PrimeNet script, run: `wget -nv https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
+3. To download the PrimeNet program, run: `wget -nv https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
 
 ##### macOS
 
 1. Verify that the dependencies above are installed. Run: `brew install gmp hwloc`.
 2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `curl -LO https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-3. To download the PrimeNet script, run: `curl -sSLO https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
+3. To download the PrimeNet program, run: `curl -sSLO https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
 
 ##### Windows
 
@@ -74,14 +74,14 @@ Native Windows builds are experimental. For now, Windows users should use the [W
 1. Download and install [MSYS2](https://www.msys2.org/).
 2. Verify that the dependencies above are installed. With the MINGW64 environment, run: `pacman -S mingw-w64-x86_64-gmp mingw-w64-x86_64-hwloc`.
 3. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-4. To download the PrimeNet script, run: `wget -nv https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
+4. To download the PrimeNet program, run: `wget -nv https://raw.github.com/tdulcet/Distributed-Computing-Scripts/master/primenet.py`.
 
 #### Build
 
 1. Change into the `Mlucas` directory. Run: `cd Mlucas` or `cd Mlucas-main` depending on which method one used to download it.
 2. Run:
 	* To build Mlucas: `bash makemake.sh [use_hwloc]`.
-	* To build Mfactor: `bash makemake.sh mfac [word] [use_hwloc]`, where  `word` is optionally one of `1word`, `2word`, `3word`, `4word` or `nword`.
+	* To build Mfactor: `bash makemake.sh mfac [word]`, where  `word` is optionally one of `1word`, `2word`, `3word`, `4word` or `nword`.
 
 To build with Clang or another compiler instead of GCC, run: `export CC=<compiler>`, for example: `export CC=clang`.
 

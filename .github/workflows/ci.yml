@@ -1,6 +1,8 @@
 name: CI
 on:
   push:
+    branches:
+      - main
   pull_request:
   schedule:
     - cron:  '0 0 1 * *'
@@ -12,7 +14,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -21,8 +23,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install
       run: |
-        sudo apt-get -yqq update
-        sudo apt-get -yqq install libhwloc-dev
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
         $CC --version
@@ -39,8 +41,12 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode || true
-                (cd obj_mfac${mode:+_$mode}; make clean)
+                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                (
+                    cd obj_mfac${mode:+_$mode}
+                    make clean
+                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                )
             done
         done
         cd obj
@@ -69,8 +75,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install
       run: |
-        sudo apt-get -yqq update
-        sudo apt-get -yqq install libhwloc-dev
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
         sed -i 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
@@ -101,8 +107,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install
       run: |
-        sudo apt-get -yqq update
-        sudo apt-get -yqq install libhwloc-dev
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
         sed -i 's/-O3/-Og -fsanitize=thread/' makemake.sh
@@ -138,11 +144,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
     - name: Clang-Tidy
       run: |
         set -x
         set -o pipefail
-        clang-tidy --use-color -checks='bugprone-*,cert-*,clang-analyzer-*,concurrency-*,misc-const-correctness,misc-redundant-expression,misc-unused-*,modernize-*,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-anyofallof' -header-filter='.*' src/*.c -- -Wall -O3 -march=native -DUSE_THREADS |& tee clang-tidy.log
+        clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -Wall -O3 -march=native -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
         echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
@@ -155,13 +165,13 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install
       run: |
-        sudo apt-get -yqq update
-        sudo apt-get -yqq install cppcheck
+        sudo apt-get update -y
+        sudo apt-get install -y cppcheck libhwloc-dev
     - name: Cppcheck
       run: |
         mkdir build
-        cppcheck --enable=all -DUSE_THREADS --force --cppcheck-build-dir=build -j "$(nproc)" --clang .
-        cppcheck --enable=all -DUSE_THREADS --force --cppcheck-build-dir=build --clang . &> cppcheck.log
+        cppcheck --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build -j "$(nproc)" --clang .
+        cppcheck --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build --clang . &> cppcheck.log
         echo -e '## Cppcheck\n```' >> $GITHUB_STEP_SUMMARY
         grep '\(error\|warning\|style\|performance\|portability\|information\):' cppcheck.log | awk '{ print $2, $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
@@ -210,8 +220,12 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode || true
-                (cd obj_mfac${mode:+_$mode}; make clean)
+                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                (
+                    cd obj_mfac${mode:+_$mode}
+                    make clean
+                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                )
             done
         done
         cd obj
@@ -319,8 +333,12 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word use_hwloc $mode || true
-                (cd obj_mfac${mode:+_$mode}; make clean)
+                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                (
+                    cd obj_mfac${mode:+_$mode}
+                    make clean
+                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                )
             done
         done
         cd obj
