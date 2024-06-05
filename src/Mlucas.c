@@ -695,7 +695,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				TEST_TYPE = TEST_TYPE_PRP;
 			} else {	// PRP double-check:
 				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
-				i = (int)strtol(char_addr+1, &cptr, 10);	ASSERT(HERE, i == 3,"PRP-test base must be 3!");
+				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(HERE, i == 3,"PRP-test base must be 3!");
 				PRP_BASE = i;
 				ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
 				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(HERE, i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
@@ -705,6 +705,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
 				if(KNOWN_FACTORS[0] != 0ull) {
 					ASSERT(HERE, i == 5,"Only PRP-CF tests of type 5 supported!");
+					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(HERE, PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
 				}
 			}
 			goto GET_EXPO;
@@ -1201,7 +1202,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	#ifdef USE_ARM_V8_SIMD
 		ASSERT(HERE, 0, "ARMv8 SIMD builds do not support Fermat-number testing!");
 	#endif
-		ASSERT(HERE,findex >= 14 && findex < 64, "Fermat number index must be in range [14,64]!\n");
+		ASSERT(HERE,findex >= 13 && findex < 64, "Fermat number index must be in range [13,63]!\n");
 		// This takes care of the number-to-char conversion and leading-whitespace-removal
 		// in one step - use PSTRING for temporary storage here:
 		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, (uint64)findex)]);
@@ -2432,7 +2433,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			// by base and check that remainder 0. Note that we do want the quotient now, as that is our reside/base:
 			mi64_div(c_uint64_ptr, &itmp64, j+1,1, arrtmp,&rmodb);	ASSERT(HERE, rmodb == 0ull,"After short-div, R != 0 (mod B)");
 			// And recompute the S-H residues:
-			res_SH(arrtmp,i,&Res64,&Res35m1,&Res36m1);
+			res_SH(arrtmp,j,&Res64,&Res35m1,&Res36m1);
 			// Now that residue is standard Fermat-PRP-test one, check if == 1:
 			isprime = (arrtmp[0] == 1ull);
 			if(isprime) { // Check the arrtmp[] array for non-zero elements; see https://github.com/primesearch/Mlucas/issues/15
@@ -2478,8 +2479,8 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			gm_time = gmtime(&calendar_time);
 			if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
 				gm_time = localtime(&calendar_time);
-			// Want 'UTC' instead of 'GMT', so include that in lieu of the %Z format specifier
-			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
+			// Want 'UTC' instead of 'GMT', so include that in lieu of the %Z format specifier (but also see https://www.mersenneforum.org/showthread.php?p=653672#post653672 as UTC is actually redundant)
+			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",gm_time);
 			// Trio of p-1 fields all 0; cstr holds the formatted output line here. Need to differentiate
 			// between this PRP-CF result and the preceding PRP; set the otherwise-unused s2_partial flag:
 			generate_JSON_report(isprime,p,n,Res64,Res2048,timebuffer, 0,0ull,0x0,s2_partial, cstr);
@@ -3313,6 +3314,8 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 /*A*/	ierr = func_mod_square(a, (int*)ci, n, ilo,ihi, 0ull, p, scrnFlag, tdiff, TRUE, 0x0);
 		convert_res_FP_bytewise(a, (uint8*)ci, n, p, Res64, &Res35m1, &Res36m1);	// Overwrite passed-in Pepin-Res64 with Fermat-PRP one
 		snprintf_nowarn(cbuf,STR_MAX_LEN,"MaxErr = %10.9f\n",MME); mlucas_fprint(cbuf,1);
+	} else if (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {	// Mersenne PRP-CF doesn't have the Res35m1 or Res36m1 values passed in,
+		res_SH(ci,n,&itmp64,&Res35m1,&Res36m1);			// so we refresh these; see https://github.com/primesearch/Mlucas/issues/27
 	}
 	if(ierr) {
 		snprintf_nowarn(cbuf,STR_MAX_LEN,"Error of type[%u] = %s in mod-squaring ... aborting\n",ierr,returnMlucasErrCode(ierr));
@@ -3839,6 +3842,7 @@ struct testFerm FermVec[numFerm+1] =
 /* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 /*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
 	/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+//	{     2,  13u, { {0xC8FC67EA3A1AC788ull, 29592689237ull, 35156594447ull}, {0xBE489C2CF00D582Aull,  3108135315ull, 47125592449ull}, {0x0ull, 0ull, 0ull} } },
 	{     1,  14u, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x78738D068D641C2Cull, 12664273769ull, 29297626750ull} } },
 	{     2,  15u, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull}, {0x589BFE53458FFC14ull, 12200390606ull, 46971422957ull} } },
 	{     4,  16u, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull}, {0xEED00D8AE6886440ull, 19057922301ull, 53800020279ull} } },
@@ -4305,8 +4309,8 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(HERE, !(i64arg>>32), "Fermat-number-index argument must be < 2^32 ... halting.");
 			findex = (uint32)i64arg;
 			/* Make sure the Fermat number index is in range: */
-			if(findex < 14 || findex > 63) {
-				fprintf(stderr, " Fermat number index must be in the range [14,63].\n");
+			if(findex < 13 || findex > 63) {
+				fprintf(stderr, " Fermat number index must be in the range [13,63].\n");
 				return ERR_EXPONENT_ILLEGAL;
 			}
 			userSetExponent = 1;
@@ -5265,10 +5269,13 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 				exp[0] = ui256.d0; exp[1] = ui256.d1; exp[2] = ui256.d2; exp[3] = ui256.d3;
 			} else
 				ASSERT(HERE, 0, "Only known-factors < 2^256 supported!");
-			// Raise 3 to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(3ull, exp, KNOWN_FACTORS+i, j, pow);
+			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
+			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(cstr,1);
-			ASSERT(HERE, mi64_getlen(pow,4) == k && mi64_cmp_eq(pow,rem,k), "Full-residue == 3^nsquares (mod q) check fails!");
+			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
+				snprintf_nowarn(cbuf,STR_MAX_LEN,"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
+				ASSERT(HERE, 0, cbuf);
+			}
 		}
 	}
 #if 0

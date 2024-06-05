@@ -19,7 +19,7 @@ Feature | | Mlucas | Prime95/MPrime
 \- | P-1 | ✔️ | ✔️
 \- | P+1 | | ✔️
 \- | ECM | | ✔️
-\- | Pépin | ✔️ | 
+\- | Pépin | ✔️ | ✔️
 **PRP** | Proofs | | ✔️
 \- | Certs | | ✔️
 **Error Checking** | Jacobi | | ✔️
@@ -93,7 +93,7 @@ This README is still in progress. For now, see the original [Mlucas README](http
 
 ## Help
 
-See the [help.txt](help.txt) file for usage information.
+The [help.txt](help.txt) file includes a variety of usage information not covered in the original [README](https://mersenneforum.org/mayer/README.html), concentrating largely on the Mlucas command line options. A separate documentation page covers [Fermat numbers](docs/Fermat-testing.md).
 
 ## Contributing
 
