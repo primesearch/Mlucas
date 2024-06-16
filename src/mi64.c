@@ -838,7 +838,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"vmovd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"vmovd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"vmovdqa	     (%%rax),%%ymm0	\n\t"/* preload x[i0-(0:3)] */\
-	"loop_shl_short:		\n\t"\
+	"loop_shl_short%=:		\n\t"\
 		"vmovdqa	-0x20(%%rax),%%ymm2	\n\t"/* load x[i0-(4:7)] */\
 		/* Starting with ymm0 = x[i0-(0:3)] and ymm2 = x[i0-(4:7)], need ymm1 = x[i0-(1:4)]: */\
 		"vpblendd $0xC0,%%ymm2,%%ymm0,%%ymm1	\n\t"/* ymm1 = x[i0-(4,1,2,3)] [no penalty for applying this dword-instruction to qword data.]
@@ -861,7 +861,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subq	$0x40,%%rax			\n\t"\
 		"subq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shl_short		\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shl_short%=		\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -885,7 +885,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subl	%[__i0],%%ecx		\n\t"/* Skip the bottom (i0) elements */\
 		"vmovd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"vmovd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
-	"loop_shl_short2:		\n\t"\
+	"loop_shl_short2%=:		\n\t"\
 	/* Replacing this sequence (and similarly in SHRL) with a preload-(0:3)/aligned-load-(4:7|8:b)/permute-to-get-(1:4|5:8) was slower (0.7 cycles/limb vs 0.95): */\
 		/* i0-(0:3): */\
 		"vmovdqu	-0x08(%%rax),%%ymm1	\n\t"/* load x[i0-(1:4)] */\
@@ -905,7 +905,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subq	$0x40,%%rax			\n\t"\
 		"subq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shl_short2		\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shl_short2%=		\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -933,7 +933,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"movd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"movdqa	     (%%rax),%%xmm0	\n\t"/* preload x[i1-(0,1)] */\
-	"loop_shl_short:		\n\t"\
+	"loop_shl_short%=:		\n\t"\
 	/* 1st version did 2 MOVDQU-load per double-qword output; current version does just 1 MOVDQU, instead uses
 	shuffles to generate the 1-qword-staggered shift-in-data xmm-register operand, cuts cycles by 15% on Core2. */\
 		/* i1-(0,1): x[i1-(0,1)] in xmm0 */\
@@ -972,7 +972,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subq	$0x40,%%rax			\n\t"\
 		"subq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shl_short	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shl_short%=	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -998,7 +998,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"movd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"movdqa	     (%%rax),%%xmm0	\n\t"/* preload x[i1-(0,1)] */\
-	"loop_shl_short2:		\n\t"\
+	"loop_shl_short2%=:		\n\t"\
 	/* 1st version did 2 MOVDQU-load per double-qword output; current version does just 1 MOVDQU, instead uses
 	shuffles to generate the 1-qword-staggered shift-in-data xmm-register operand, cuts cycles by 15% on Core2. */\
 		/* i1-(0,1): x[i1-(0,1)] in xmm0 */\
@@ -1037,7 +1037,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subq	$0x40,%%rax			\n\t"\
 		"subq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shl_short2	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shl_short2%=	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1062,7 +1062,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subl	%[__i0],%%ebx		\n\t"/* Skip the bottom (i0+1) elements */\
 		"movslq	%[__n],%%rcx		\n\t"/* shift count */\
 		"movq	(%%r10),%%rax		\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i0] */\
-	"loop_shl_short:	\n\t"/* Since this non-SIMD asm-code may be active along with the SIMD, append '2' to the label */\
+	"loop_shl_short%=:	\n\t"/* Since this non-SIMD asm-code may be active along with the SIMD, append '2' to the label */\
 		/* i-0: */\
 		"movq	-0x08(%%r10),%%rsi	\n\t"/* load x[i-1] ... the si in rsi stands for 'shift-in' :) */\
 		"shldq	%%cl,%%rsi,%%rax	\n\t"/* (x[i],x[i-1])<<n */\
@@ -1083,7 +1083,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subq	$0x20,%%r10			\n\t"\
 		"subq	$0x20,%%r11			\n\t"\
 	"subq	$4,%%rbx		\n\t"\
-	"jnz loop_shl_short	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
+	"jnz loop_shl_short%=	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1277,7 +1277,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"vmovd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"vmovd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"vmovdqa		(%%rax),%%ymm0	\n\t"/* preload x[3-0]  */\
-	"loop_shrl_short:		\n\t"\
+	"loop_shrl_short%=:		\n\t"\
 		/* i0-i3: */\
 		"vmovdqa	0x20(%%rax),%%ymm2	\n\t"/* load x[7-4]  */\
 		"vpblendd $3,%%ymm2,%%ymm0,%%ymm1	\n\t"/* ymm1 = 3,2,1,4 [no penalty for applying this dword-instruction to qword data.] */\
@@ -1298,7 +1298,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"addq	$0x40,%%rax			\n\t"\
 		"addq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shrl_short	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shrl_short%=	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1325,7 +1325,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"addl	%[__i1],%%ecx		\n\t"/* ASM loop structured as for(j = i1; j != i0; j -= 8){...} */\
 		"vmovd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"vmovd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
-	"loop_shrl_short:		\n\t"\
+	"loop_shrl_short%=:		\n\t"\
 	/* Replacing this sequence (and similarly in SHL) with the sequence
 		preload-(3:0);
 		aligned-load-(7:4|b:8);
@@ -1349,7 +1349,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"addq	$0x40,%%rax			\n\t"\
 		"addq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shrl_short	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shrl_short%=	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1383,7 +1383,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"movd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"movdqa		(%%rax),%%xmm0	\n\t"/* preload x[1,0] */\
-	"loop_shrl_short:		\n\t"\
+	"loop_shrl_short%=:		\n\t"\
 	/* 1st version did 2 MOVDQU-load per double-qword output; current version does just 1 MOVDQU, instead uses
 	shuffles to generate the 1-qword-staggered shift-in-data xmm-register operand, cuts cycles by 15% on Core2. */\
 		/* i+0,1: x[1,0] in xmm0 */\
@@ -1422,7 +1422,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"addq	$0x40,%%rax			\n\t"\
 		"addq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shrl_short	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shrl_short%=	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1446,7 +1446,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"movd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"movdqa		(%%rax),%%xmm0	\n\t"/* preload x[1,0] */\
-	"loop_shrl_short2:		\n\t"\
+	"loop_shrl_short2%=:		\n\t"\
 	/* 1st version did 2 MOVDQU-load per double-qword output; current version does just 1 MOVDQU, instead uses
 	shuffles to generate the 1-qword-staggered shift-in-data xmm-register operand, cuts cycles by 15% on Core2. */\
 		/* i+0,1: x[1,0] in xmm0 */\
@@ -1485,7 +1485,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"addq	$0x40,%%rax			\n\t"\
 		"addq	$0x40,%%rbx			\n\t"\
 	"subq	$8,%%rcx		\n\t"\
-	"jnz loop_shrl_short2	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shrl_short2%=	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1516,7 +1516,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movd	%[__n] ,%%xmm14		\n\t"/* shift count - since imm-operands only take compile-time consts, this costs a vector register */\
 		"movd	%[__nc],%%xmm15		\n\t"/* complement-shift count, 64-n */\
 		"movq	    (%%r10),%%rax	\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i+0] */\
-	"loop_shrl_short:		\n\t"\
+	"loop_shrl_short%=:		\n\t"\
 		"movdqa	0x20(%%r10),%%xmm0	\n\t"/* preload x[5,4] */\
 		"movq	0x20(%%r10),%%rdx	\n\t"/* See "SSE2 write..." comment below for why need this */\
 		/* i+0: */							/* i+4,5: x[5,4] in xmm0       */\
@@ -1541,7 +1541,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movq	    (%%r10),%%rax	\n\t"/* preload x[i+8] (already in xmm0[0:63], but there is no qword analog of MOVD),
 							at least none supported by my clang/gcc installs, due to 'movq' being assumed a 64-bit 'mov'. */\
 	"subq	$8,%%rbx		\n\t"\
-	"jnz loop_shrl_short	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
+	"jnz loop_shrl_short%=	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1561,7 +1561,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"movslq	%[__i1],%%rbx		\n\t"/* ASM loop structured as for(j = i1; j != 0; j -= 4){...} */\
 		"movslq	%[__n],%%rcx		\n\t"/* shift count */\
 		"movq	(%%r10),%%rax		\n\t"/* SHRD allows mem-ref only in DEST, so preload x[0] */\
-	"loop_shrl_short:	\n\t"/* Since this non-SIMD asm-code may be active along with the SIMD, append '2' to the label */\
+	"loop_shrl_short%=:	\n\t"/* Since this non-SIMD asm-code may be active along with the SIMD, append '2' to the label */\
 		/* i+0: */\
 		"movq	0x08(%%r10),%%rsi	\n\t"/* load x[i+1] ... the si in rsi stands for 'shift-in' :) */\
 		"shrdq	%%cl,%%rsi,%%rax	\n\t"/* (x[i+1],x[i])>>n */\
@@ -1582,7 +1582,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"addq	$0x20,%%r10			\n\t"\
 		"addq	$0x20,%%r11			\n\t"\
 	"subq	$4,%%rbx		\n\t"\
-	"jnz loop_shrl_short	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
+	"jnz loop_shrl_short%=	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\

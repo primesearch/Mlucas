@@ -80,16 +80,16 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 #else
 
 	// void ASSERT(char*func, long line, char*file, int expr, char*assert_string) {
-	void _ASSERT(const char*assertion, const char*file, long line, const char*func, bool expr, const char*assert_string) {
+	__attribute__ ((__noreturn__)) void ABORT(const char*assertion, const char*file, long line, const char*func, const char*assert_string) {
 		/* Define a convenient spot to set a breakpoint: */
-		if(!expr) {
+		// if(!expr) {
 			fprintf(stderr,"ERROR: Function %s, at line %lu of file %s\n", func, line, file);	fprintf(stderr,"Assertion '%s' failed: %s\n", assertion, assert_string);
 			/* Flush all output streams prior to asserting. We replace the original assert(0) call with
 			an exit(EXIT_FAILURE), since some compilers seem to like to optimize away assertions. */
 			fflush(NULL);
 			// exit(EXIT_FAILURE);	// Try to make this line coincide with a line # == 0 (mod 100) to ease breakpointing
 			abort();
-		}
+		// }
 	}
 
 #endif	// __CUDA_ARCH__ ?

@@ -79,7 +79,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
         $CC --version
     - name: Script
       run: |
@@ -111,7 +111,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/-O3/-Og -fsanitize=thread/' makemake.sh
+        sed -i 's/-O3 -flto/-Og -fsanitize=thread/' makemake.sh
         $CC --version
     - name: Script
       run: |
@@ -254,7 +254,7 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i '' 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
         clang --version
     - name: Script
       run: |
@@ -280,7 +280,7 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/-O3/-Og -fsanitize=thread/' makemake.sh
+        sed -i '' 's/-O3 -flto/-Og -fsanitize=thread/' makemake.sh
         clang --version
     - name: Script
       run: |
@@ -318,6 +318,7 @@ jobs:
       if: ${{ matrix.cc == 'clang' }}
       run: |
         pacman -S --noconfirm mingw-w64-x86_64-clang
+        (Get-Content makemake.sh) -replace ' -flto', '' | Set-Content makemake.sh
     - name: Before script
       shell: bash
       run: |
@@ -372,7 +373,7 @@ jobs:
     - name: Before script
       shell: bash
       run: |
-        sed -i 's/-O3/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
         $CC --version
     - name: Script
       shell: bash

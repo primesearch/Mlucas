@@ -230,10 +230,10 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 	void	ASSERT(long line, char*file, int expr, char*assert_string);
 #else
 	// void	ASSERT	(long line, char*file, int expr, char*assert_string);
-	void _ASSERT(const char*assertion, const char*file, long line, const char*func, bool expr, const char*assert_string);
+	__attribute__ ((__noreturn__)) void ABORT(const char*assertion, const char*file, long line, const char*func, const char*assert_string);
 #endif
 
-#define ASSERT(expr, assert_string) _ASSERT(#expr, __FILE__, __LINE__, __func__, (expr), assert_string)
+#define ASSERT(expr, assert_string) (void)((expr) || (ABORT(#expr, __FILE__, __LINE__, __func__, assert_string),0))
 
 void	VAR_WARN(char *typelist, ...);
 
