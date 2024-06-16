@@ -181,7 +181,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 			// *But*: since the init macro does an on-the-fly version of this between j,j+2 portions, external code co2=co3 must come *after* both ctmp-data octets are inited.
 		  #ifdef USE_AVX512
-			ASSERT(HERE, 0, "AVX-512 version of AVX_cmplx_carry_fast_wtsinit_X8 not yet ported!");
+			ASSERT(0, "AVX-512 version of AVX_cmplx_carry_fast_wtsinit_X8 not yet ported!");
 		  #endif
 			AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, itmp, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
 

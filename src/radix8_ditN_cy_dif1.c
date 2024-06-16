@@ -127,12 +127,12 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 		if(CY_THREADS > MAX_THREADS)
 			CY_THREADS = MAX_THREADS;
 
-		ASSERT(HERE, CY_THREADS >= NTHREADS,"radix8_ditN_cy_dif1.c: CY_THREADS < NTHREADS");
-		ASSERT(HERE, isPow2(CY_THREADS)    ,"radix8_ditN_cy_dif1.c: CY_THREADS not a power of 2!");
+		ASSERT(CY_THREADS >= NTHREADS,"radix8_ditN_cy_dif1.c: CY_THREADS < NTHREADS");
+		ASSERT(isPow2(CY_THREADS)    ,"radix8_ditN_cy_dif1.c: CY_THREADS not a power of 2!");
 		if(CY_THREADS > 1)
 		{
-			ASSERT(HERE, n8       %CY_THREADS == 0,"radix8_ditN_cy_dif1.c: n8      %CY_THREADS != 0 ... likely more threads than this leading radix can handle.");
-			ASSERT(HERE, n_div_nwt%CY_THREADS == 0,"radix8_ditN_cy_dif1.c: n_div_nwt%CY_THREADS != 0 ... likely more threads than this leading radix can handle.");
+			ASSERT(n8       %CY_THREADS == 0,"radix8_ditN_cy_dif1.c: n8      %CY_THREADS != 0 ... likely more threads than this leading radix can handle.");
+			ASSERT(n_div_nwt%CY_THREADS == 0,"radix8_ditN_cy_dif1.c: n_div_nwt%CY_THREADS != 0 ... likely more threads than this leading radix can handle.");
 		}
 
 	#ifdef MULTITHREAD
@@ -192,47 +192,47 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 			free((void *)_bjmodnini); _bjmodnini = 0x0;
 		}
 
-		_i       = (int *)malloc(CY_THREADS*sizeof(int)); if(!_i     ) { sprintf(cbuf,"ERROR: unable to allocate array _i       in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn0 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn0){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn0 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn1 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn1){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn1 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn2 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn2){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn2 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn3 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn3){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn3 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn4 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn4){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn4 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn5 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn5){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn5 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn6 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn6){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn6 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_bjmodn7 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn7){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn7 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_jstart  = (int *)malloc(CY_THREADS*sizeof(int)); if(!_jstart ){ sprintf(cbuf,"ERROR: unable to allocate array _jstart  in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_jhi     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_jhi    ){ sprintf(cbuf,"ERROR: unable to allocate array _jhi     in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_col     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_col    ){ sprintf(cbuf,"ERROR: unable to allocate array _col    in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_co2     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_co2    ){ sprintf(cbuf,"ERROR: unable to allocate array _co2    in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_co3     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_co3    ){ sprintf(cbuf,"ERROR: unable to allocate array _co3    in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_i       = (int *)malloc(CY_THREADS*sizeof(int)); if(!_i     ) { sprintf(cbuf,"ERROR: unable to allocate array _i       in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn0 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn0){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn0 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn1 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn1){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn1 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn2 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn2){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn2 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn3 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn3){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn3 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn4 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn4){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn4 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn5 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn5){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn5 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn6 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn6){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn6 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_bjmodn7 = (int *)malloc(CY_THREADS*sizeof(int)); if(!_bjmodn7){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodn7 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_jstart  = (int *)malloc(CY_THREADS*sizeof(int)); if(!_jstart ){ sprintf(cbuf,"ERROR: unable to allocate array _jstart  in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_jhi     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_jhi    ){ sprintf(cbuf,"ERROR: unable to allocate array _jhi     in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_col     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_col    ){ sprintf(cbuf,"ERROR: unable to allocate array _col    in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_co2     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_co2    ){ sprintf(cbuf,"ERROR: unable to allocate array _co2    in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_co3     = (int *)malloc(CY_THREADS*sizeof(int)); if(!_co3    ){ sprintf(cbuf,"ERROR: unable to allocate array _co3    in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
-		_cy_r0  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r0){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r0 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r1  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r1){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r1 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r2  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r2){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r2 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r3  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r3){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r3 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r4  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r4){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r4 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r5  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r5){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r5 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r6  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r6){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r6 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_r7  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r7){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r7 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_cy_r0  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r0){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r0 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r1  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r1){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r1 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r2  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r2){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r2 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r3  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r3){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r3 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r4  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r4){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r4 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r5  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r5){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r5 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r6  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r6){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r6 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_r7  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_r7){ sprintf(cbuf,"ERROR: unable to allocate array _cy_r7 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
-		_cy_i0  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i0){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i0 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i1  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i1){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i1 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i2  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i2){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i2 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i3  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i3){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i3 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i4  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i4){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i4 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i5  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i5){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i5 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i6  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i6){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i6 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		_cy_i7  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i7){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i7 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_cy_i0  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i0){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i0 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i1  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i1){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i1 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i2  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i2){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i2 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i3  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i3){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i3 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i4  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i4){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i4 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i5  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i5){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i5 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i6  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i6){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i6 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		_cy_i7  = (double *)malloc(CY_THREADS*sizeof(double)); if(!_cy_i7){ sprintf(cbuf,"ERROR: unable to allocate array _cy_i7 in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
-		_maxerr = (double *)malloc(CY_THREADS*sizeof(double)); if(!_maxerr){ sprintf(cbuf,"ERROR: unable to allocate array _maxerr in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_maxerr = (double *)malloc(CY_THREADS*sizeof(double)); if(!_maxerr){ sprintf(cbuf,"ERROR: unable to allocate array _maxerr in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
 			/* Create (THREADS + 1) copies of _bjmodnini and use the extra (uppermost) one to store the "master" increment,
 			i.e. the one that n2/8-separated FFT outputs need:
 			*/
-			_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int)); if(!_bjmodnini){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodnini in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int)); if(!_bjmodnini){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodnini in radix8_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			_bjmodnini[0] = 0;
 			_bjmodnini[1] = 0;
 			for(j=0; j < n8/CY_THREADS; j++)
@@ -253,7 +253,7 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 			{
 				bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
 			}
-			ASSERT(HERE, _bjmodnini[CY_THREADS] == bjmodnini,"_bjmodnini[CY_THREADS] != bjmodnini");
+			ASSERT(_bjmodnini[CY_THREADS] == bjmodnini,"_bjmodnini[CY_THREADS] != bjmodnini");
 		}
 	}	/* endif(first_entry) */
 
@@ -635,7 +635,7 @@ for(outer=0; outer <= 1; outer++)
 
 		for(ithread = CY_THREADS - 1; ithread > 0; ithread--)
 		{
-			ASSERT(HERE, CY_THREADS > 1,"radix8_ditN_cy_dif1.c: ");	/* Make sure loop only gets executed if multiple threads */
+			ASSERT(CY_THREADS > 1,"radix8_ditN_cy_dif1.c: ");	/* Make sure loop only gets executed if multiple threads */
 			_cy_r0[ithread] = _cy_r0[ithread-1];
 			_cy_r1[ithread] = _cy_r1[ithread-1];
 			_cy_r2[ithread] = _cy_r2[ithread-1];
@@ -673,7 +673,7 @@ for(outer=0; outer <= 1; outer++)
 			// Must use n8 instead of p1 here since p1 may have pads which are not applied to element-2-slots-before
 			j1 = n8-2;	j1 += ( (j1 >> DAT_BITS) << PAD_BITS );
 			j2 = j1+RE_IM_STRIDE;
-			ASSERT(HERE, t15 <= 1.0 && t16 <= 1.0, "genFFTmul expects carryouts = 0 or 1 at top!");
+			ASSERT(t15 <= 1.0 && t16 <= 1.0, "genFFTmul expects carryouts = 0 or 1 at top!");
 			// Undo the initial dif pass just for the 16 complex terms in question:
 			RADIX_08_DIT(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7]
 						,_t1,_t2,_t3,_t4,_t5,_t6,_t7,_t8,_t9,_t10,_t11,_t12,_t13,_t14,_t15,_t16
@@ -691,11 +691,11 @@ for(outer=0; outer <= 1; outer++)
 			// Verify that any cyout = 1 has the corresponding high word < 0,
 			// then absorb cyout back into the high word and zero the carry:
 			if(t15 == 1.0) {
-				ASSERT(HERE, a[j1+p7] < 0.0, "genFFTmul: Legal Re-cyout = 1 must have the corresponding high word < 0!");
+				ASSERT(a[j1+p7] < 0.0, "genFFTmul: Legal Re-cyout = 1 must have the corresponding high word < 0!");
 				a[j1+p7] += FFT_MUL_BASE;	t15 = 0.0;
 			}
 			if(t16 == 1.0) {
-				ASSERT(HERE, a[j2+p7] < 0.0, "genFFTmul: Legal Im-cyout = 1 must have the corresponding high word < 0!");
+				ASSERT(a[j2+p7] < 0.0, "genFFTmul: Legal Im-cyout = 1 must have the corresponding high word < 0!");
 				a[j2+p7] += FFT_MUL_BASE;	t16 = 0.0;
 			}
 			// Redo the initial dif pass just for the 16 complex terms in question:
@@ -707,7 +707,7 @@ for(outer=0; outer <= 1; outer++)
 
 		for(ithread = CY_THREADS - 1; ithread > 0; ithread--)
 		{
-			ASSERT(HERE, CY_THREADS > 1,"radix8_ditN_cy_dif1.c: ");	/* Make sure loop only gets executed if multiple threads */
+			ASSERT(CY_THREADS > 1,"radix8_ditN_cy_dif1.c: ");	/* Make sure loop only gets executed if multiple threads */
 			_cy_r0[ithread] = _cy_r0[ithread-1];		_cy_i0[ithread] = _cy_i0[ithread-1];
 			_cy_r1[ithread] = _cy_r1[ithread-1];		_cy_i1[ithread] = _cy_i1[ithread-1];
 			_cy_r2[ithread] = _cy_r2[ithread-1];		_cy_i2[ithread] = _cy_i2[ithread-1];

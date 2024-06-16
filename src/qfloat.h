@@ -206,8 +206,8 @@ struct qfloat qfcos_or_sin1(struct qfloat q, int cos_or_sin);
 #define QLSHIFT(__x, __n, __y)\
 {\
 	/* Make sure sign/exp fields have been cleared and shift count >= 0: */\
-	ASSERT(HERE, (__x.hi>>52) == 0,"QLSHIFT: sign/exp fields not zero!");\
-	ASSERT(HERE, (int64)__n >= 0,"QLSHIFT: (int64)__n >= 0");\
+	ASSERT((__x.hi>>52) == 0,"QLSHIFT: sign/exp fields not zero!");\
+	ASSERT((int64)__n >= 0,"QLSHIFT: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
@@ -230,15 +230,15 @@ struct qfloat qfcos_or_sin1(struct qfloat q, int cos_or_sin);
 		__y.lo = (uint64)0;\
 	}\
 	/* Make sure exp field at most 1 after shift: */\
-	ASSERT(HERE, (__x.hi>>52) <= 1,"QLSHIFT: exp field out of range on output!");\
+	ASSERT((__x.hi>>52) <= 1,"QLSHIFT: exp field out of range on output!");\
 }
 
 /* (Logical) Right-shift: */
 #define QRSHIFT(__x, __n, __y)\
 {\
 	/* Make sure sign/exp fields have been cleared and shift count >= 0: */\
-	ASSERT(HERE, (__x.hi>>52) == 0,"QRSHIFT:  sign/exp fields not zero!");\
-	ASSERT(HERE, (int64)(__n) >= 0,"QRSHIFT: (int64)(__n) >= 0 !");\
+	ASSERT((__x.hi>>52) == 0,"QRSHIFT:  sign/exp fields not zero!");\
+	ASSERT((int64)(__n) >= 0,"QRSHIFT: (int64)(__n) >= 0 !");\
 	/* Need to handle zero shift count separately: */\
 	if((__n) == 0)\
 	{\

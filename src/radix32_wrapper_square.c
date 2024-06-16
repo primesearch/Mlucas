@@ -216,7 +216,7 @@ void radix32_wrapper_square(
 		b = (double *)(fwd_fft_only & ~0xCull);
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {
-			ASSERT(HERE, (fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
+			ASSERT((fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
 			fwd_fft_only = 3ull;
 		}
 	}
@@ -235,10 +235,10 @@ void radix32_wrapper_square(
 		nsave = n;
 		if(init_sse2 > max_threads)	// current SIMD local-alloc insufficient
 		{
-			ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+			ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 			max_threads = init_sse2;
 		#ifndef COMPILER_TYPE_GCC
-			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",func, max_threads, NTHREADS);
 
@@ -250,14 +250,14 @@ void radix32_wrapper_square(
 		// Index vectors used in SIMD roots-computation.
 		// The AVX512 compute-sincos-mults code needs 2 elements per complex-double-load, so use 14*RE_IM_STRIDE per array
 		// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sm_arr = ALLOC_INT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
-		ASSERT(HERE, ((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+		ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array: Need 0x92 slots for data, plus need to leave room to pad-align.
 		// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 64 added vec_dbl, thus 0x98 ==> 0xd8:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0xd8*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0xd8*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 		/* Use low 64 vec_dbl slots of sc_arr for temporaries, next 8 for scratch, next 7 for the nontrivial complex 16th roots,
 		next 62 for the doubled sincos twiddles, next 4 for [1.0,2.0,0.25,sqrt2] and at least 3 more to allow for 64-byte alignment of the array.
@@ -362,7 +362,7 @@ void radix32_wrapper_square(
 		!   for the itmp space and that sent to the bit_reverse_int for scratch space
 		!   don't overlap:
 		*/
-		ASSERT(HERE, N2 == n/2, "N2 bad!");
+		ASSERT(N2 == n/2, "N2 bad!");
 		itmp = (int *)&arr_scratch[N2/32];	/* Conservatively assume an int might be as long as 8 bytes here */
 		for(i=0; i < N2/32; i++)
 		{
@@ -452,7 +452,7 @@ void radix32_wrapper_square(
 			free((void *)index_ptmp);	index_ptmp=0x0;
 		}
 		index_ptmp = ALLOC_INT(index_ptmp, N2/32);
-		ASSERT(HERE, index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
+		ASSERT(index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index      = ALIGN_INT(index_ptmp);
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.
@@ -491,7 +491,7 @@ void radix32_wrapper_square(
 		  if(j2_start == n-64)break;
 
 		  blocklen_sum = blocklen_sum + blocklen;
-		  ASSERT(HERE, i != 0,"ERROR 10!");
+		  ASSERT(i != 0,"ERROR 10!");
 		  blocklen = (radix_prim[i-1]-1)*blocklen_sum;
 
 		  j2_start = j2_start+(blocklen<<2);
@@ -511,7 +511,7 @@ void radix32_wrapper_square(
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
   #ifdef USE_SSE2
 	k1_arr = __i0 + thr_id*28*RE_IM_STRIDE;
 	k2_arr = k1_arr +      14*RE_IM_STRIDE;
@@ -559,7 +559,7 @@ void radix32_wrapper_square(
   #endif
 #endif
 	/*...If a new runlength, should not get to this point: */
-	ASSERT(HERE, n == nsave,"n != nsave");
+	ASSERT(n == nsave,"n != nsave");
 
 /*
 !   SOLVING THE CACHE FLOW PROBLEM FOR BIT-REVERSED ARRAY DATA:

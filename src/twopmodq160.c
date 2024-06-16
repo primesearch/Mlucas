@@ -64,7 +64,7 @@ uint64 twopmodq160(uint64 *p_in, uint64 k)
 #if FAC_DEBUG
 if(dbg)printf("twopmodq160:\n");
 #endif
-	ASSERT(HERE, (p.d2 == 0) && (p.d1 >> 63) == 0, "p must be < 2^127!");
+	ASSERT((p.d2 == 0) && (p.d1 >> 63) == 0, "p must be < 2^127!");
 	ADD128(p,p, q);
 	q.d2 = mi64_mul_scalar((uint64 *)&q, k, (uint64 *)&q, 2);
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
@@ -94,7 +94,7 @@ if(dbg)printf("twopmodq160:\n");
 		{
 			j = leadz64(pshift.d2);	/* Remember, pshift is stored in a 192-bit... */
 		#if FAC_DEBUG
-			ASSERT(HERE, j >= 32,"twopmodq160: j >= 32");
+			ASSERT(j >= 32,"twopmodq160: j >= 32");
 		#endif
 			/* Extract leftmost 8 bits of pshift (if > 159, use the leftmost 7) and subtract from 160: */
 			lead8 = (((pshift.d2<<j) + (pshift.d1>>(64-j))) >> 56);	/* lead8 in [128, 255] */
@@ -149,7 +149,7 @@ if(dbg)printf("twopmodq160:\n");
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq160 : (q.d0 & (uint64)1) == 1");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmodq160 : (q.d0 & (uint64)1) == 1");
 #endif
 
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
@@ -172,14 +172,14 @@ if(dbg)printf("twopmodq160:\n");
 	MULL160(q, qinv, x);
 #if FAC_DEBUG
 	MULL192(q, qinv, y);	y.d2 &= 0x00000000ffffffff;
-	ASSERT(HERE, CMPEQ192(x, y), "twopmodq160: CMPEQ192(x, y)");
+	ASSERT(CMPEQ192(x, y), "twopmodq160: CMPEQ192(x, y)");
 	SUB160 (TWO160, y, y);
 	MULL192(y, qinv, y);	y.d2 &= 0x00000000ffffffff;
 #endif
 	SUB160 (TWO160, x, x);
 	MULL160(qinv, x, qinv);
 #if FAC_DEBUG
-	ASSERT(HERE, CMPEQ192(qinv, y), "twopmodq160: CMPEQ192(qinv, y)");
+	ASSERT(CMPEQ192(qinv, y), "twopmodq160: CMPEQ192(qinv, y)");
 #endif
 
 	MULL160(q, qinv, x);
@@ -211,7 +211,7 @@ printf("");
 #endif
 	MULH160(q,lo,lo);
 #if FAC_DEBUG
-	ASSERT(HERE, CMPEQ192(lo,y), "twopmodq160: CMPEQ192(lo,y)");
+	ASSERT(CMPEQ192(lo,y), "twopmodq160: CMPEQ192(lo,y)");
 	if(dbg) printf("q*lo/2^160 = %s\n", &char_buf[convert_uint192_base10_char(char_buf, lo)]);
 #endif
 
@@ -224,7 +224,7 @@ printf("");
 	if(TEST_BIT160(pshift, j))
 	{
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT160(x,q), "twopmodq160 : CMPULT160(x,q)");
+		ASSERT(CMPULT160(x,q), "twopmodq160 : CMPULT160(x,q)");
 	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT160(x, qhalf)){ ADD160(x, x, x); SUB160(x, q, x); }else{ ADD160(x, x, x); }
@@ -248,20 +248,20 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 		SQR_LOHI192(x, y, z);
 		LSHIFT_FAST192(z,32,z);	z.d0 += (y.d2 >> 32);	/* x^2/2^160 */
 		y.d2 &= 0x00000000ffffffff;							/* x^2%2^160 */
-		ASSERT(HERE, CMPEQ192(lo,y), "twopmodq160: SQR_LOHI160: CMPEQ192(lo,y)");
-		ASSERT(HERE, CMPEQ192(hi,z), "twopmodq160: SQR_LOHI160: CMPEQ192(hi,z)");
+		ASSERT(CMPEQ192(lo,y), "twopmodq160: SQR_LOHI160: CMPEQ192(lo,y)");
+		ASSERT(CMPEQ192(hi,z), "twopmodq160: SQR_LOHI160: CMPEQ192(hi,z)");
 		y = lo;
 		MULL192(y, qinv, y);	y.d2 &= 0x00000000ffffffff;
 	#endif
 		MULL160(lo,qinv,lo);
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPEQ192(lo,y), "twopmodq160: MULL160: CMPEQ192(lo,y)");
+		ASSERT(CMPEQ192(lo,y), "twopmodq160: MULL160: CMPEQ192(lo,y)");
 		LSHIFT_FAST192(lo,32,y);	/* y = lo*2^32 */
 		MULH192(q,y,y);
 	#endif
 		MULH160(q,lo,lo);
 	#if FAC_DEBUG
-		ASSERT(HERE, CMPEQ192(lo,y), "twopmodq160: MULH160: CMPEQ192(lo,y)");
+		ASSERT(CMPEQ192(lo,y), "twopmodq160: MULH160: CMPEQ192(lo,y)");
 	#endif
 
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
@@ -281,7 +281,7 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 		if(TEST_BIT160(pshift, j))
 		{
 		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT160(x,q), "twopmodq160 : CMPULT160(x,q)");
+			ASSERT(CMPULT160(x,q), "twopmodq160 : CMPULT160(x,q)");
 		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT160(x, qhalf)){ ADD160(x, x, x); SUB160(x, q, x); }else{ ADD160(x, x, x); }

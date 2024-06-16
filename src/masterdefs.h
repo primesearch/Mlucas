@@ -56,7 +56,7 @@ in util.c), otherwise alias the entire 4-argument DBG_ASSERT invocation to "Boli
 	#define DBG_WARN   WARN
 	#define DBG_INFO   INFO
 #else	/* Bolivian - lump both the FILE and LINE args together as a single __here, that's why it looks like these take 1 less arg than the underlying functions: */
-	#define DBG_ASSERT(__here, __arg2, __arg3)	/* */
+	#define DBG_ASSERT(__arg1, __arg2)	/* */
 	#define DBG_WARN(__here, __arg2, __arg3, __arg4)	/* */
 	#define DBG_INFO(__here, __arg2, __arg3, __arg4)	/* */
 #endif

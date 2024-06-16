@@ -37,8 +37,8 @@ extern "C" {
 		retval	\
 	)\
 	{\
-		DBG_ASSERT(HERE, qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");\
-		DBG_ASSERT(HERE, ((uint32)&a[0] & 0x3f) == 0, "A-array not 64-byte aligned!");\
+		DBG_ASSERT(qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");\
+		DBG_ASSERT(((uint32)&a[0] & 0x3f) == 0, "A-array not 64-byte aligned!");\
 		__asm	mov	eax, array_64x8inputs	/* Assumes inputs a,b,c,d,... are 64-bit separated and &a[0} is 64-byte aligned */\
 		__asm	lea	ebx, q\
 		__asm	lea	ecx, qinv\

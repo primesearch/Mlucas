@@ -247,10 +247,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 		hi2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 		hi3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 	\
-		/*lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20llu %20llu %20llu\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20llu %20llu %20llu\n",x0,b,hi0);*/\
-		/*lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20llu %20llu %20llu\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20llu %20llu %20llu\n",x1,b,hi1);*/\
-		/*lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20llu %20llu %20llu\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20llu %20llu %20llu\n",x2,b,hi2);*/\
-		/*lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20llu %20llu %20llu\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20llu %20llu %20llu\n",x3,b,hi3);*/\
+		/*lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,b,hi0);*/\
+		/*lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,b,hi1);*/\
+		/*lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,b,hi2);*/\
+		/*lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,b,hi3);*/\
 	\
 		/* loj = MULL64(loj,qinvj) : */\
 	\
@@ -281,10 +281,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 		y2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 		y3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 	\
-	/*a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20llu %20llu %20llu\n",x0,a,lo0);*/\
-	/*a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20llu %20llu %20llu\n",x1,a,lo1);*/\
-	/*a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20llu %20llu %20llu\n",x2,a,lo2);*/\
-	/*a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20llu %20llu %20llu\n",x3,a,lo3);*/\
+	/*a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);*/\
+	/*a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);*/\
+	/*a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);*/\
+	/*a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);*/\
 	}
 
 /********************************************************************************/
@@ -1225,14 +1225,14 @@ or the with functions using them (if we declare no _-prepended variables local t
 			qil2 = (uint32) qinv2;\
 			qil3 = (uint32) qinv3;\
 			\
-			DBG_ASSERT(HERE, (ql0  >> 32) == 0,"MOD_INI_Q4: (ql0  >> 32) == 0");\
-			DBG_ASSERT(HERE, (ql1  >> 32) == 0,"MOD_INI_Q4: (ql1  >> 32) == 0");\
-			DBG_ASSERT(HERE, (ql2  >> 32) == 0,"MOD_INI_Q4: (ql2  >> 32) == 0");\
-			DBG_ASSERT(HERE, (ql3  >> 32) == 0,"MOD_INI_Q4: (ql3  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil0 >> 32) == 0,"MOD_INI_Q4: (qil0 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil1 >> 32) == 0,"MOD_INI_Q4: (qil1 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil2 >> 32) == 0,"MOD_INI_Q4: (qil2 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qil3 >> 32) == 0,"MOD_INI_Q4: (qil3 >> 32) == 0");\
+			DBG_ASSERT((ql0  >> 32) == 0,"MOD_INI_Q4: (ql0  >> 32) == 0");\
+			DBG_ASSERT((ql1  >> 32) == 0,"MOD_INI_Q4: (ql1  >> 32) == 0");\
+			DBG_ASSERT((ql2  >> 32) == 0,"MOD_INI_Q4: (ql2  >> 32) == 0");\
+			DBG_ASSERT((ql3  >> 32) == 0,"MOD_INI_Q4: (ql3  >> 32) == 0");\
+			DBG_ASSERT((qil0 >> 32) == 0,"MOD_INI_Q4: (qil0 >> 32) == 0");\
+			DBG_ASSERT((qil1 >> 32) == 0,"MOD_INI_Q4: (qil1 >> 32) == 0");\
+			DBG_ASSERT((qil2 >> 32) == 0,"MOD_INI_Q4: (qil2 >> 32) == 0");\
+			DBG_ASSERT((qil3 >> 32) == 0,"MOD_INI_Q4: (qil3 >> 32) == 0");\
 			\
 			qh0  = (uint32)(q0    >> 32);\
 			qh1  = (uint32)(q1    >> 32);\
@@ -1243,14 +1243,14 @@ or the with functions using them (if we declare no _-prepended variables local t
 			qih2 = (uint32)(qinv2 >> 32);\
 			qih3 = (uint32)(qinv3 >> 32);\
 			\
-			DBG_ASSERT(HERE, (qh0  >> 32) == 0,"MOD_INI_Q4: (qh0  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qh1  >> 32) == 0,"MOD_INI_Q4: (qh1  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qh2  >> 32) == 0,"MOD_INI_Q4: (qh2  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qh3  >> 32) == 0,"MOD_INI_Q4: (qh3  >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih0 >> 32) == 0,"MOD_INI_Q4: (qih0 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih1 >> 32) == 0,"MOD_INI_Q4: (qih1 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih2 >> 32) == 0,"MOD_INI_Q4: (qih2 >> 32) == 0");\
-			DBG_ASSERT(HERE, (qih3 >> 32) == 0,"MOD_INI_Q4: (qih3 >> 32) == 0");\
+			DBG_ASSERT((qh0  >> 32) == 0,"MOD_INI_Q4: (qh0  >> 32) == 0");\
+			DBG_ASSERT((qh1  >> 32) == 0,"MOD_INI_Q4: (qh1  >> 32) == 0");\
+			DBG_ASSERT((qh2  >> 32) == 0,"MOD_INI_Q4: (qh2  >> 32) == 0");\
+			DBG_ASSERT((qh3  >> 32) == 0,"MOD_INI_Q4: (qh3  >> 32) == 0");\
+			DBG_ASSERT((qih0 >> 32) == 0,"MOD_INI_Q4: (qih0 >> 32) == 0");\
+			DBG_ASSERT((qih1 >> 32) == 0,"MOD_INI_Q4: (qih1 >> 32) == 0");\
+			DBG_ASSERT((qih2 >> 32) == 0,"MOD_INI_Q4: (qih2 >> 32) == 0");\
+			DBG_ASSERT((qih3 >> 32) == 0,"MOD_INI_Q4: (qih3 >> 32) == 0");\
 		}
 
 		/* For each input xj, calculates the following sequence:
@@ -1292,10 +1292,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 			hi2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 			hi3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 		/* DEBUG:\
-		lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20llu %20llu %20llu\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20llu %20llu %20llu\n",x0,b,hi0);	\
-		lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20llu %20llu %20llu\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20llu %20llu %20llu\n",x1,b,hi1);	\
-		lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20llu %20llu %20llu\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20llu %20llu %20llu\n",x2,b,hi2);	\
-		lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20llu %20llu %20llu\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20llu %20llu %20llu\n",x3,b,hi3);	\
+		lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,b,hi0);	\
+		lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,b,hi1);	\
+		lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,b,hi2);	\
+		lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,b,hi3);	\
 		*/\
 			/* loj = MULL64(loj,qinvj) : */\
 		/* DEBUG:\
@@ -1326,10 +1326,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 			y2 = (uint64)bl2 | ((uint64)bh2 << 32);\
 			y3 = (uint64)bl3 | ((uint64)bh3 << 32);\
 		/* DEBUG:\
-			a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20llu %20llu %20llu\n",x0,a,lo0);	\
-			a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20llu %20llu %20llu\n",x1,a,lo1);	\
-			a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20llu %20llu %20llu\n",x2,a,lo2);	\
-			a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20llu %20llu %20llu\n",x3,a,lo3);	\
+			a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	\
+			a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	\
+			a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	\
+			a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	\
 		*/\
 		}
 
@@ -1375,7 +1375,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 		char s0[21],s1[21];\
 		uint64 _t,_a,_b;\
 		\
-		ASSERT(HERE, ((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
+		ASSERT(((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
 		MUL_LOHI64((_x), (uint64)(_y), _a, _b);\
 		\
 		_lo = ((uint32)((_x) & 0x00000000ffffffff)) * (_y);	/* a*c */\
@@ -1390,7 +1390,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 			printf("x = %s, y = %s\n", s0[convert_uint64_base10_char(s0,_x )], s1[convert_uint64_base10_char(s1,_y)]);\
 			printf("LO= %s, A = %s\n", s0[convert_uint64_base10_char(s0,_lo)], s1[convert_uint64_base10_char(s1,_a)]);\
 			printf("HI= %s, B = %s\n", s0[convert_uint64_base10_char(s0,_hi)], s1[convert_uint64_base10_char(s0,_b)]);\
-			ASSERT(HERE, 0,"0");\
+			ASSERT(0,"0");\
 		}\
 	}
    #else

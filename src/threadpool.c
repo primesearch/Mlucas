@@ -266,7 +266,7 @@ me at: heber.tomer@gmail.com
 	#endif
 	static void *worker_thr_routine(void *data)
 	{
-		char cbuf[STR_MAX_LEN];
+		char cbuf[STR_MAX_LEN*2];
 	#if INCLUDE_HWLOC
 		char str[80];
 	#endif
@@ -293,7 +293,7 @@ me at: heber.tomer@gmail.com
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
-			ASSERT(HERE, 0, "Aborting.");
+			ASSERT(0, "Aborting.");
 		}
 		CPU_SET(i, &cpu_set);
 		errcode = cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof (cpu_set), &cpu_set);
@@ -338,7 +338,7 @@ me at: heber.tomer@gmail.com
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
-			ASSERT(HERE, 0, "Aborting.");
+			ASSERT(0, "Aborting.");
 		}
 
 	 #if INCLUDE_HWLOC
@@ -349,14 +349,14 @@ me at: heber.tomer@gmail.com
 		if (obj) {
 			hwloc_bitmap_or(cpuset, cpuset, obj->cpuset);
 		} else {
-			snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Error: HWLOC_OBJ_PU[%u] not found.\n",i);
+			snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_PU[%u] not found.\n",i);
 			fprintf(stderr,"%s",cbuf);
 		}
 		// Set affinity to specified logical CPUs:
 		if (hwloc_set_cpubind(hw_topology, cpuset, HWLOC_CPUBIND_THREAD)) {
 			int error = errno;
 			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
-			snprintf_nowarn(cbuf,STR_MAX_LEN,"[hwloc] Warning: Unable to set affinity to cpuset %s: %s; leaving up to OS to manage thread/core binding.\n",str,strerror(error));
+			snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Warning: Unable to set affinity to cpuset %s: %s; leaving up to OS to manage thread/core binding.\n",str,strerror(error));
 			fprintf(stderr,"%s",cbuf);
 	  #if THREAD_POOL_DEBUG
 		} else {
@@ -401,7 +401,7 @@ me at: heber.tomer@gmail.com
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
-			ASSERT(HERE, 0, "Aborting.");
+			ASSERT(0, "Aborting.");
 		}
 		apolicy.affinity_tag = i; // set affinity tag
 	  #if THREAD_POOL_DEBUG

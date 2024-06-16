@@ -121,7 +121,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ke = kd-1; ke += (-(ke < 0))&15;	kd = (kd << 5) + jt;
 												ke = (ke << 5) + jt;
 		//	printf("15-DFT #%2u: [k0-E]/2 = %u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",l,k0/2,k1/2,k2/2,k3/2,k4/2,k5/2,k6/2,k7/2,k8/2,k9/2,ka/2,kb/2,kc/2,kd/2,ke/2);
-		//	printf("0x0%2X%2X%2X%2X%2X%2X%2X,0x%2X%2X%2X%2X%2X%2X%2X%2X\n",ke/2,kd/2,kc/2,kb/2,ka/2,k9/2,k8/2,k7/2,k6/2,k5/2,k4/2,k3/2,k2/2,k1/2,k0/2);
+		//	printf("0x0%2X%2X%2X%2X%2X%2X%2X,%#2X%2X%2X%2X%2X%2X%2X%2X\n",ke/2,kd/2,kc/2,kb/2,ka/2,k9/2,k8/2,k7/2,k6/2,k5/2,k4/2,k3/2,k2/2,k1/2,k0/2);
 			// Input ptrs:		// Output ptrs:
 			va0 = tmp     ;		vc0 = tm2 + k0;
 			va1 = tmp+0x02;		vc1 = tm2 + k1;

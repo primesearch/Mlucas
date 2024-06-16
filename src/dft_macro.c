@@ -3396,18 +3396,18 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		if(thr_id == -1)	// Value of init stores #threads
 		{
 			if(init <= max_threads) {	// Previously inited with sufficient #threads
-				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 				return;
 			}
 			max_threads = init;
 		#ifndef COMPILER_TYPE_GCC
-			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 			if(sc_arr) { free((void *)sc_arr); }
 			// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 		#ifdef MULTITHREAD
 			__r0 = tdat = sc_ptr;	tmp = tdat + 126;
@@ -3491,12 +3491,12 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		#endif
 			return;
 		} else {
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		tdat = __r0 + thr_id*152;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
@@ -3645,18 +3645,18 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		if(thr_id == -1)	// Value of init stores #threads
 		{
 			if(init <= max_threads) {	// Previously inited with sufficient #threads
-				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 				return;
 			}
 			max_threads = init;
 		#ifndef COMPILER_TYPE_GCC
-			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 			if(sc_arr) { free((void *)sc_arr); }
 			// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 		#ifdef MULTITHREAD
 			__r0 = tdat = sc_ptr;	tmp = tdat + 126;
@@ -3740,12 +3740,12 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		#endif
 			return;
 		} else {
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		tdat = __r0 + thr_id*152;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
@@ -3877,17 +3877,17 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		if(thr_id == -1)	// Value of init stores #threads
 		{
 			if(init <= max_threads) {	// Previously inited with sufficient #threads
-				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 				return;
 			}
 			max_threads = init;
 		#ifndef COMPILER_TYPE_GCC
-			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 			if(sc_arr) { free((void *)sc_arr); }
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 		#ifdef MULTITHREAD
 			__r0 = tmp = sc_ptr;
@@ -3925,7 +3925,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 				VEC_DBL_INIT(nisrt2,-dtmp);
 				VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-				VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+				VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
 				VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
 				VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
 				VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
@@ -4013,7 +4013,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 			VEC_DBL_INIT(nisrt2,-dtmp);
 			VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-			VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+			VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
 			VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
 			VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
 			VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
@@ -4032,12 +4032,12 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		//	fprintf(stderr, "Init SSE2_RADIX_64_DIF with max_threads = %d\n",max_threads);
 			return;
 		} else {
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		tmp = __r0 + thr_id*0x32;
 		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
 		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
@@ -4280,17 +4280,17 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		if(thr_id == -1)	// Value of init stores #threads
 		{
 			if(init <= max_threads) {	// Previously inited with sufficient #threads
-				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 				return;
 			}
 			max_threads = init;
 		#ifndef COMPILER_TYPE_GCC
-			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 			if(sc_arr) { free((void *)sc_arr); }
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 		#ifdef MULTITHREAD
 			__r0 = tmp = sc_ptr;
@@ -4328,7 +4328,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 				VEC_DBL_INIT(nisrt2,-dtmp);
 				VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-				VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+				VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
 				VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
 				VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
 				VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
@@ -4416,7 +4416,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 			VEC_DBL_INIT(nisrt2,-dtmp);
 			VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-			VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+			VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
 			VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
 			VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
 			VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
@@ -4435,12 +4435,12 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		//	fprintf(stderr, "Init SSE2_RADIX_64_DIT with max_threads = %d\n",max_threads);
 			return;
 		} else {
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		tmp = __r0 + thr_id*0x32;
 		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
 		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
@@ -4888,7 +4888,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j,nshift, *off_ptr;
 		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
-		ASSERT(HERE, o_idx != 0x0, "Null o_idx pointer in SSE2_RADIX256_DIF!");
+		ASSERT(o_idx != 0x0, "Null o_idx pointer in SSE2_RADIX256_DIF!");
 	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
 	  #ifdef USE_ARM_V8_SIMD
 		uint32 OFF1,OFF2,OFF3,OFF4;

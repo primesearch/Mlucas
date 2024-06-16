@@ -54,7 +54,7 @@
 	  #endif
 		uint64 *fq0[32],*fq1[32], *fqinv0[32],*fqinv1[32], *fx0[32],*fx1[32];
 		for(j = 0; j < 32; j++) {
-			ASSERT(HERE, (k[j] >> 52) == 0ull, "Ks must be < 2^52!");
+			ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
 		}
 	#else
 		const double crnd = 3.0*0x4000000*0x2000000;	// Const used to emulate DNINT(x) and (when multiplied by BASE) 2^50 * DNINT(x*2^bpow2)
@@ -73,12 +73,12 @@
 		double *fq0[32],*fq1[32], *fqinv0[32],*fqinv1[32], *fx0[32],*fx1[32], kdbl[32];
 		// AVX-512 Foundation lacks the needed DQ extensions, so use HLL to convert kvec entries to double:
 		for(j = 0; j < 32; j++) {
-			ASSERT(HERE, (k[j] >> 52) == 0ull, "Ks must be < 2^52!");
+			ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
 			kdbl[j] = (double)k[j];
 		}
-		ASSERT(HERE, base  == (double)(1ull<<bpow2) && base <= TWO48FLOAT && base *binv  == 1.0, "Current version only supports bpow2 <= 48; base*binv must == 1.0!");
-		ASSERT(HERE, base0 == (double)(1ull<< pow0)                       && base0*binv0 == 1.0, "base0,binv0 check fails!");
-		ASSERT(HERE, base1 == (double)(1ull<< pow1)                       && base1*binv1 == 1.0, "base1,binv1 check fails!");
+		ASSERT(base  == (double)(1ull<<bpow2) && base <= TWO48FLOAT && base *binv  == 1.0, "Current version only supports bpow2 <= 48; base*binv must == 1.0!");
+		ASSERT(base0 == (double)(1ull<< pow0)                       && base0*binv0 == 1.0, "base0,binv0 check fails!");
+		ASSERT(base1 == (double)(1ull<< pow1)                       && base1*binv1 == 1.0, "base1,binv1 check fails!");
 	#endif
 		uint32 mul_width = bpow2<<1;
 		if(p != psave) {
@@ -96,7 +96,7 @@
 			}
 			// lead7 in [bpow2, 2*bpow2):
 			zshift = mul_width-1 - lead7;	// zshift in [0,bpow2-1]
-			ASSERT(HERE, zshift < bpow2, "zshift out of expected range!");
+			ASSERT(zshift < bpow2, "zshift out of expected range!");
 			pshift = ~pshift;
 		}
 
@@ -115,10 +115,10 @@
 			#endif
 				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",func,max_threads);
 			#ifndef COMPILER_TYPE_GCC
-				ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
-				ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-				ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+				ASSERT(max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
+				ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 			}
 			if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage (e.g. unthreaded call to the function)
 				free((void *)sc_arr);	sc_arr=0x0;
@@ -126,9 +126,9 @@
 			// Alloc the local-memory block the #bytes multiplier has plenty of extra room built in, e.g. for debug-data-writes:
 		#ifdef USE_AVX512_I
 
-			sc_arr = ALLOC_UINT64(sc_arr, 0x140*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_UINT64(sc_arr, 0x140*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = (uint64 *)ALIGN_VEC_U64(sc_arr);	// Force vec_u64-alignment
-			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD
 			__r0  = sc_ptr;
 		  #else
@@ -157,9 +157,9 @@
 		#else	// Default AVX-512 floating-point-FMA mode
 		/***************************************************/
 
-			sc_arr = ALLOC_DOUBLE(sc_arr, 0x140*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_DOUBLE(sc_arr, 0x140*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
-			ASSERT(HERE, ((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD
 			__r0  = sc_ptr;
 		  #else
@@ -190,7 +190,7 @@
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
 
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		sc_ptr = __r0 + thr_id*0x140;
 
 	  #ifdef USE_AVX512_I
@@ -237,7 +237,7 @@
 	#ifdef MUL_LOHI64_SUBROUTINE
 		#error MUL_LOHI64_SUBROUTINE defined!
 	#endif
-		ASSERT(HERE, (p >> 63) == 0, "twopmodq100_q32: p must be < 2^63!");
+		ASSERT((p >> 63) == 0, "twopmodq100_q32: p must be < 2^63!");
 
 	#ifdef USE_AVX512_I
 
@@ -416,7 +416,7 @@
 
 	#endif
 		// Init the modpow residue:
-	ASSERT(HERE, zshift < 48, "zshift out of expected range!");
+	ASSERT(zshift < 48, "zshift out of expected range!");
 		dtmp = 1ull<<zshift;	VEC_DBL_INIT_8((vec_dbl*)fx0[0], dtmp);	VEC_DBL_INIT_8((vec_dbl*)fx0[8], dtmp);	VEC_DBL_INIT_8((vec_dbl*)fx0[16], dtmp);	VEC_DBL_INIT_8((vec_dbl*)fx0[24], dtmp);
 		dtmp = 0ull;			VEC_DBL_INIT_8((vec_dbl*)fx1[0], dtmp);	VEC_DBL_INIT_8((vec_dbl*)fx1[8], dtmp);	VEC_DBL_INIT_8((vec_dbl*)fx1[16], dtmp);	VEC_DBL_INIT_8((vec_dbl*)fx1[24], dtmp);
 /* Debug:

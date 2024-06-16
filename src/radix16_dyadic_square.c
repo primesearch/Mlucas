@@ -154,7 +154,7 @@ void radix16_dyadic_square(
 		b = (double *)(fwd_fft_only & ~0xCull);
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {
-			ASSERT(HERE, (fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
+			ASSERT((fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
 			fwd_fft_only = 3ull;
 		}
 	}
@@ -172,9 +172,9 @@ void radix16_dyadic_square(
 /**************************************************************************************************************************************/
 	if((rad0save != radix0) || (nsave != n))
 	{
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		nsave = n;
-		ASSERT(HERE, N2 == n/2, "N2 bad!");
+		ASSERT(N2 == n/2, "N2 bad!");
 		rad0save = radix0;
 		ndivrad0 = n/radix0;
 		for(j = 0; j < ndivrad0; j += stride)
@@ -182,7 +182,7 @@ void radix16_dyadic_square(
 			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
 			if( (j1+stridh) != (j+stridh) + ( ((j+stridh) >> DAT_BITS) << PAD_BITS ) ) {
 				printf("j, j1, stride/2 = %d,%d,%d, jpad = %d\n",j,j1, stridh, (j+stridh) + (((j+stridh) >> DAT_BITS) << PAD_BITS) );
-				ASSERT(HERE, 0 , "add1 calculation violates padded index rules!");
+				ASSERT(0 , "add1 calculation violates padded index rules!");
 			}
 		}
 		if(index_ptmp0) {
@@ -195,7 +195,7 @@ void radix16_dyadic_square(
 
 		index_ptmp = ALLOC_INT(N2/16);
 		index = ALIGN_INT(index_ptmp);
-		if(!index){ sprintf(cbuf,"ERROR: unable to allocate array ITMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!index){ sprintf(cbuf,"ERROR: unable to allocate array ITMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		for(i=0; i < N2/16; i++)
 		{
 			index[i]=i;
@@ -205,11 +205,11 @@ void radix16_dyadic_square(
 		index1_mod = (n>>5)/radix0;	/* complex length requires an additional divide by 2 */
 
 		index_ptmp0 = ALLOC_INT(index_ptmp0, index0_mod);
-		if(!index_ptmp0){ sprintf(cbuf,"ERROR: unable to allocate array INDEX_PTMP0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!index_ptmp0){ sprintf(cbuf,"ERROR: unable to allocate array INDEX_PTMP0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		index0 = ALIGN_INT(index_ptmp0);
 
 		index_ptmp1 = ALLOC_INT(index_ptmp1, index1_mod);
-		if(!index_ptmp1){ sprintf(cbuf,"ERROR: unable to allocate array INDEX_PTMP1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!index_ptmp1){ sprintf(cbuf,"ERROR: unable to allocate array INDEX_PTMP1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		index1 = ALIGN_INT(index_ptmp1);
 
 		for(i=0; i < index0_mod; i++){index0[i]=       i;}
@@ -228,7 +228,7 @@ void radix16_dyadic_square(
 			if(i == radix0)
 				break;
 		}
-		if(nradices_prim_radix0 >= nradices_prim) { sprintf(cbuf,"ERROR: nradices_prim_radix0 must be < nradices_prim in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(nradices_prim_radix0 >= nradices_prim) { sprintf(cbuf,"ERROR: nradices_prim_radix0 must be < nradices_prim in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1,(int *)arr_scratch);
 		bit_reverse_int(index1, index1_mod, nradices_prim-4-nradices_prim_radix0, &radix_prim[nradices_prim       -5], -1,(int *)arr_scratch);
@@ -243,10 +243,10 @@ void radix16_dyadic_square(
 		if(init_sse2 <= max_threads)	// current alloc sufficient
 			return;
 
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
 
 	#ifdef USE_SSE2
@@ -256,13 +256,13 @@ void radix16_dyadic_square(
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// Index vectors used in SIMD roots-computation.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sm_arr = ALLOC_INT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
-		ASSERT(HERE, ((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+		ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -328,7 +328,7 @@ void radix16_dyadic_square(
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
   #ifdef USE_SSE2
 	k1_arr =   __i0 + thr_id*10*RE_IM_STRIDE;
 	k2_arr = k1_arr + 5*RE_IM_STRIDE;
@@ -357,9 +357,9 @@ void radix16_dyadic_square(
 #endif
 
 	/*...If a new runlength, should not get to this point: */
-	ASSERT(HERE, n == nsave,"n != nsave");
-	ASSERT(HERE, incr == 32,"incr != 32");
-	ASSERT(HERE, ndivrad0 == n/radix0,"bad value for ndivrad0!");
+	ASSERT(n == nsave,"n != nsave");
+	ASSERT(incr == 32,"incr != 32");
+	ASSERT(ndivrad0 == n/radix0,"bad value for ndivrad0!");
 	/*
 	k = ii*(ndivrad0 >> 5);
 	*/

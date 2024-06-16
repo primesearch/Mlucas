@@ -136,7 +136,7 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	}
 #endif
 	// Find inverse (mod 2^256) of q; q must be odd for Montgomery-style modmul to work:
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmmodq256 : q must be odd for Montgomery-style modmul to work");
+	ASSERT((q.d0 & (uint64)1) == 1, "twopmmodq256 : q must be odd for Montgomery-style modmul to work");
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d1 = qinv.d2 = qinv.d3 = 0ull;
 	/* Compute qinv  = q^-1 (mod R = 2^256) via Newton iteration qinv = qinv*(2 - q*qinv), starting with
@@ -342,7 +342,7 @@ uint256 twopmodq256(uint256 p, uint256 q)
 #endif
 
 	/* Since zstart is a power of two < 2^256, use a streamlined code sequence for the first iteration: */
-	ASSERT(HERE, start_index>=2, "twopmodq256 : start_index < 2!");
+	ASSERT(start_index>=2, "twopmodq256 : start_index < 2!");
 	j = start_index-1;
 
 	/* MULL256(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */

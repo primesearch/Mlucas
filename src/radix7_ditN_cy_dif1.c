@@ -119,7 +119,7 @@ int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 
 	if(first_entry)
 	{
-		ASSERT(HERE, LO_ADD,"radix7_ditN_cy_dif1.c: LO_ADD");
+		ASSERT(LO_ADD,"radix7_ditN_cy_dif1.c: LO_ADD");
 		psave = p;	nsave = n;
 		first_entry=FALSE;
 

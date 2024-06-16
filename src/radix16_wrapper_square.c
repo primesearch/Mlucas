@@ -201,7 +201,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		b = (double *)(fwd_fft_only & ~0xCull);
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {
-			ASSERT(HERE, (fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
+			ASSERT((fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
 			fwd_fft_only = 3ull;
 		}
 	}
@@ -220,10 +220,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		nsave = n;
 		if(init_sse2 > max_threads)	// current SIMD local-alloc insufficient
 		{
-			ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+			ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 			max_threads = init_sse2;
 		#ifndef COMPILER_TYPE_GCC
-			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 
 		#ifdef USE_SSE2
@@ -235,14 +235,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			// Index vectors used in SIMD roots-computation.
 			// The AVX512 compute-sincos-mults code needs 2 elements per complex-double-load, so use 10*RE_IM_STRIDE per array
 			// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
-			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sm_ptr = ALIGN_INT(sm_arr);
-			ASSERT(HERE, ((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+			ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 			// Twiddles-array: Need 0x47 slots for data, plus need to leave room to pad-align.
 			// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 32 added vec_dbl, thus 0x4c ==> 0x6c:
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x6c*max_threads);	ASSERT(HERE, sc_arr != 0,"ERROR: unable to allocate sc_arr!");
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x6c*max_threads);	ASSERT(sc_arr != 0,"ERROR: unable to allocate sc_arr!");
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
-			ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Use low 32 16-byte slots of sc_arr for temporaries, next 4 for const = 1/4 and nontrivial complex 16th roots,
 			last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array: */
 		  #ifdef MULTITHREAD
@@ -392,12 +392,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			free((void *)twidl_ptmp);	twidl_ptmp = 0x0;
 		#endif
 		}
-		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(HERE, index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
+		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
 	#ifdef USE_PRECOMPUTED_TWIDDLES
 	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",func,N2*15/8);
-		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(HERE, twidl_ptmp != 0,"ERROR: unable to allocate twidl_ptmp!");
-		twidl = ALIGN_COMPLEX(twidl_ptmp);	ASSERT(HERE, ((long)twidl & 0x3f) == 0, "twidl-array not 64-byte aligned!");
+		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(twidl_ptmp != 0,"ERROR: unable to allocate twidl_ptmp!");
+		twidl = ALIGN_COMPLEX(twidl_ptmp);	ASSERT(((long)twidl & 0x3f) == 0, "twidl-array not 64-byte aligned!");
 	#endif
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.
@@ -427,7 +427,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			k1 = k1 + (blocklen >> 1);
 			if(j2_start == n-32)break;
 			blocklen_sum = blocklen_sum + blocklen;
-			ASSERT(HERE, i != 0,"ERROR 10!");
+			ASSERT(i != 0,"ERROR 10!");
 			blocklen = (radix_prim[i-1]-1)*blocklen_sum;
 			j2_start = j2_start+(blocklen<<2);
 		}
@@ -1066,7 +1066,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
   #ifdef USE_SSE2
 	k1_arr = __i0 + thr_id*20*RE_IM_STRIDE;
 	k2_arr = k1_arr +      10*RE_IM_STRIDE;
@@ -1098,7 +1098,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #endif
 #endif
 	/*...If a new runlength, should not get to this point: */
-	ASSERT(HERE, n == nsave,"n != nsave");
+	ASSERT(n == nsave,"n != nsave");
 
 /*
 !   SOLVING THE CACHE FLOW PROBLEM FOR BIT-REVERSED ARRAY DATA:
