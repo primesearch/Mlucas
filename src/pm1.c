@@ -409,7 +409,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 // Compute product of Stage 1 prime powers and store in a uint64[] accumulator.
 // Pointer-args nmul and maxmult return #mi64_mul_scalar calls and max value of the scalar multiplier for same:
 uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult) {
-	uint32 p = 2,i,j,len,maxbits = 64-leadz64(b1);
+	uint32 p = 2,i,len,maxbits = 64-leadz64(b1);
 	uint32 loop = 64/maxbits;	// Number of prime-powers we can accumulate inside inner loop while remaining < 2^64
 	uint64 tmp,prod,mult,cy = 0ull;
 	ASSERT(accum != 0x0, "Null accum[] pointer in s1_ppow_prod()");
@@ -425,27 +425,40 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 	fprintf(stderr,"Pre-loop accumulator = %" PRIu64 " + 2^64*%" PRIu64,accum[0],accum[1]);
   }
 #endif
+// Undef to get debug output.
+//#define DEBUG_PM1_S1_PPOW_PROD
 //	fprintf(stderr,"Stage 1 exponent = %" PRIu64 ".",accum[0]);
 	while(p < b1) {
 		mult = 1ull;
 		for(i = 0; i < loop; i++) {
-			prod = p; tmp = prod*p; j = 1;
+			prod = p; tmp = prod*p;
+#ifdef DEBUG_PM1_S1_PPOW_PROD
+			uint32_t j = 1;
+#endif
 			// if() uses prod*p here so as to include only the 1st power of the primes >= sqrt(b1):
 			while(tmp <= b1) {
-				prod = tmp; tmp *= p; j++;
+				prod = tmp; tmp *= p;
+#ifdef DEBUG_PM1_S1_PPOW_PROD
+				j++;
+#endif
 			}
 			mult *= prod;
-		/*	if(j > 1)
+#ifdef DEBUG_PM1_S1_PPOW_PROD
+			if(j > 1)
 				fprintf(stderr,"%u^%u.",p,j);
 			else
-				fprintf(stderr,"%u.",p);	*/
+				fprintf(stderr,"%u.",p);
+#endif
 			p = next_prime(p,1);
 		}
 		*maxmult = MAX(mult,*maxmult);
 		cy = mi64_mul_scalar(accum, mult, accum, len);	++*nmul;
 		accum[len] = cy; len += (cy != 0ull);
 	}
-//	fprintf(stderr,"\n");
+#ifdef DEBUG_PM1_S1_PPOW_PROD
+	fprintf(stderr,"\n");
+#endif
+#undef DEBUG_PM1_S1_PPOW_PROD
 	return len;
 }
 
@@ -527,7 +540,7 @@ PM1_S1P_READ_RETURN:
 		const char func[] = "write_pm1_s1_prod";
 		int retval = 0;
 		uint8 c;
-		uint32 i,j,b1 = 0,nbytes,nlimbs;
+		uint32 i,j,nbytes,nlimbs;
 		uint64 itmp64 = 0ull;
 		ASSERT(arr != 0x0, "Null arr pointer!");
 		ASSERT(strlen(fname) != 0, "Empty filename!");
@@ -998,10 +1011,15 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 #endif	// #ifdef PM1_STANDALONE
 	const char func[] = "pm1_stage2";
 	char stFlag[STR_MAX_LEN];
-	int retval = 0, i,j,jhi,jeven;	// Make i,j signed to allow for downward-running loop indices & loop control
+	int retval = 0, i,j,jeven;	// Make i,j signed to allow for downward-running loop indices & loop control
+#if USE_PP1_MULTS
+	int jhi;
+#endif
 	// num_b is #buffers per unit of extended-pairing-window size M; wsize is #bytes needed per 'word' of the associated bitmap
 	uint32 bigstep_pow2,rsize, nq,np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
+#if USE_PP1_MULTS
 	uint32 word,bit;
+#endif
 	uint64 tmp,q,q0,q1,q2, qlo = 0ull,qhi, reloc_start, pinv64 = 0ull;
 	// map_lo|hi intended as variable ptrs to various parts of map[], lo|hi as const ptrs to words beyond end of
 	// "working map". Alas, since we alloc map[] at runtime, we can't actually declare hi|lo as const-ptrs. File under
@@ -2119,6 +2137,7 @@ MME = 0;
 				++nmodmul;
 			#endif
 			}
+			(void)nq; // currently unused
 		  }	// m_is_odd?
 			/* Loop over the m2 interval-pairs symmetric about the 0-interval (M odd) or midpoint of the
 			current set of M extended-pairing windows (M even) and process any resulting pairings.
@@ -2593,7 +2612,7 @@ ERR_RETURN:
 	void*vec_double_sub_loop(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct pm1_thread_data_t* thread_arg = targ;
-		int thr_id = thread_arg->tid;
+		//int thr_id = thread_arg->tid;
 		double*c = thread_arg->arr0;	// Output array0 = c[], including address-offset into a given thread-processed chunk
 		double*a = thread_arg->arr1;	// Input  array1 = a[], ditto
 		double*b = thread_arg->arr2;	// Input  array2 = b[], ditto
@@ -2601,7 +2620,7 @@ ERR_RETURN:
   #else
 	void vec_double_sub_loop(double a[], double b[], double c[], uint32 n)
 	{
-		int thr_id = 0;	/* In unthreaded mode this must always = 0 */
+		//int thr_id = 0;	/* In unthreaded mode this must always = 0 */
   #endif
 		// Inner asm-macro processes 8 RE_IM_STRIDE-double vec section per pass, #passes = n >> (3+(L2_SZ_VD-3)) = n >> L2_SZ_VD:
 		uint32 i, nloop = n >> L2_SZ_VD;
