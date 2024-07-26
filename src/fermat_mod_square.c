@@ -197,8 +197,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 #if DBG_THREADS
 	int num_chunks[MAX_THREADS];		/* Collect stats about how much work done by each thread */
 #endif
-	static int nradices_prim,nradices_radix0,radix_prim[30];/* RADIX_PRIM stores sequence of complex FFT radices used, in terms of their prime factors.	*/
-	static int *index = 0x0, *index_ptmp = 0x0;		/* Bit-reversal index array and array storing S*I mod N values for DWT weights.	*/
+	static int nradices_prim,radix_prim[30];/* RADIX_PRIM stores sequence of complex FFT radices used, in terms of their prime factors.	*/
+	static int *index = 0x0;		/* Bit-reversal index array and array storing S*I mod N values for DWT weights.	*/
+//	static int *index_ptmp = 0x0;
 
 	int bimodn,i,ii,ierr = 0,iter,j,j1,j2,k,l,m,mm,k1,k2;
 	static uint64 psave=0;
@@ -256,7 +257,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	static struct ferm_thread_data_t *tdat = 0x0;
 
 	// Threadpool-based dispatch:
-	static int main_work_units = 0, pool_work_units = 0;
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -410,84 +411,84 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		*/
 		case 5:
-			nradices_radix0 = 1;
+//			nradices_radix0 = 1;
 			radix_prim[l++] = 5; break;
 		case 6:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] = 3; radix_prim[l++] = 2; break;
 		case 7:
-			nradices_radix0 = 1;
+//			nradices_radix0 = 1;
 			radix_prim[l++] = 7; break;
 		case 8:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 9:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] = 3; radix_prim[l++] = 3; break;
 		case 10:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] = 5; radix_prim[l++] = 2; break;
 		case 11:
-			nradices_radix0 = 1;
+//			nradices_radix0 = 1;
 			radix_prim[l++] = 11; break;
 		case 12:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 13:
-			nradices_radix0 = 1;
+//			nradices_radix0 = 1;
 			radix_prim[l++] = 13; break;
 		case 14:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; break;
 		case 15:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; break;
 		case 16:
-			nradices_radix0 = 4;
+//			nradices_radix0 = 4;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 18:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; break;
 		case 20:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 5; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 22:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] =11; radix_prim[l++] = 2; break;
 		case 24:
-			nradices_radix0 = 4;
+//			nradices_radix0 = 4;
 			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		/*
 		case 25:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] = 5; radix_prim[l++] = 5; break;
 		*/
 		case 26:
-			nradices_radix0 = 2;
+//			nradices_radix0 = 2;
 			radix_prim[l++] =13; radix_prim[l++] = 2; break;
 		case 28:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 30:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; break;
 		case 32:
-			nradices_radix0 = 5;
+//			nradices_radix0 = 5;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 36:
-			nradices_radix0 = 4;
+//			nradices_radix0 = 4;
 			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 56:
-			nradices_radix0 = 4;
+//			nradices_radix0 = 4;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 60:
-			nradices_radix0 = 4;
+//			nradices_radix0 = 4;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 63:
-			nradices_radix0 = 3;
+//			nradices_radix0 = 3;
 			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; break;
 		case 64:
-			nradices_radix0 = 6;
+//			nradices_radix0 = 6;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		/*
 		case 72:
@@ -501,37 +502,37 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		*/
 		case 128:
-			nradices_radix0 = 7;
+//			nradices_radix0 = 7;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 224:
-			nradices_radix0 = 6;
+//			nradices_radix0 = 6;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 240:
-			nradices_radix0 = 6;
+//			nradices_radix0 = 6;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 256:
-			nradices_radix0 = 8;
+//			nradices_radix0 = 8;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 512:
-			nradices_radix0 = 9;
+//			nradices_radix0 = 9;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 960:
-			nradices_radix0 = 8;
+//			nradices_radix0 = 8;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 992:
-			nradices_radix0 = 6;
+//			nradices_radix0 = 6;
 			radix_prim[l++] =31; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 1008:
-			nradices_radix0 = 7;
+//			nradices_radix0 = 7;
 			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 1024:
-			nradices_radix0 = 10;
+//			nradices_radix0 = 10;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 4032:
-			nradices_radix0 = 9;
+//			nradices_radix0 = 9;
 			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 4096:
-			nradices_radix0 = 12;
+//			nradices_radix0 = 12;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default:
 			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
@@ -1145,7 +1146,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 		if(radix0 % NTHREADS != 0) fprintf(stderr,"%s: radix0 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
-		main_work_units = 0;
 		pool_work_units = radix0;
 		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
@@ -1345,8 +1345,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	}
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	int	ns_retval;
-	struct timespec ns_time,ns_err;	// We want a sleep interval of 0.1 mSec here...
+	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
 	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
@@ -1388,7 +1387,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 											// Thus, RES_FLIP would probably be a better name for this global.
 		MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
 		RES_SHIFT += ((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1);	// No mod needed on this add, since result of pvs line even and < p, which is itself even in the Fermat-mod case (p = 2^m)
-		const char flip[2] = {' ','*'};
+//		const char flip[2] = {' ','*'};
 //	printf("Iter %d: shift = [%c]%" PRIu64 "\n",iter,flip[RES_SIGN],RES_SHIFT);
 	#endif
 	}
@@ -1764,7 +1763,7 @@ void fermat_process_chunk(
 
 #endif	// #ifdef MULTITHREAD
 
-	const char func[] = "fermat_process_chunk";
+//	const char func[] = "fermat_process_chunk";
 	int radix0 = RADIX_VEC[0];
 	int i,incr,istart,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
