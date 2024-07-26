@@ -499,11 +499,11 @@ __device__ uint32 mi64_twopmodq_gpu(
   #ifndef YES_ASM
 	#define MONT_MUL64(__x,__y,__q,__qinv,__z)\
 	{\
-		uint64 lo,hi;					\
-		MUL_LOHI64(__x,__y,lo,hi);		\
-		MULL64(__qinv,lo,lo);			\
-		MULH64(__q,lo,lo);			\
-		__z = hi - lo + ((-(int64)(hi < lo)) & __q);	/* did we have a borrow from (hi-lo)? */\
+		uint64 l_lo,l_hi;					\
+		MUL_LOHI64(__x,__y,l_lo,l_hi);		\
+		MULL64(__qinv,l_lo,l_lo);			\
+		MULH64(__q,l_lo,l_lo);				\
+		__z = l_hi - l_lo + ((-(int64)(l_hi < l_lo)) & __q);	/* did we have a borrow from (l_hi-l_lo)? */\
 	}
   #else
 	#define MONT_MUL64(__Xx,__Xy,__Xq,__Xqinv,__Xz)\
