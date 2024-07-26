@@ -375,7 +375,7 @@ uint32	ernstMain
 	/* TODO: some of these need to become 64-bit: */
 	uint32 dum = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
 	uint64 itmp64,cy, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
-	uint32 mode_flag = 0, first_sub, last_sub;
+	uint32 mode_flag = 0, first_sub = 0, last_sub;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
 	form in the factoring module. For all other types of assignments uint64 should suffice: */
@@ -3317,6 +3317,10 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		snprintf(cbuf,STR_MAX_LEN,"MaxErr = %10.9f\n",MME); mlucas_fprint(cbuf,1);
 	} else if (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {	// Mersenne PRP-CF doesn't have the Res35m1 or Res36m1 values passed in,
 		res_SH(ci,n,&itmp64,&Res35m1,&Res36m1);			// so we refresh these; see https://github.com/primesearch/Mlucas/issues/27
+	} else {
+		// Initialize to invalid value to prevent warnings.
+		Res35m1 = UINT64_MAX;
+		Res36m1 = UINT64_MAX;
 	}
 	if(ierr) {
 		snprintf(cbuf,STR_MAX_LEN*2,"Error of type[%u] = %s in mod-squaring ... aborting\n",ierr,returnMlucasErrCode(ierr));
@@ -3917,7 +3921,7 @@ int 	main(int argc, char *argv[])
 	char *cptr = 0x0;
 	int		quick_self_test = 0, fftlen = 0, radset = -1;
 	uint32 numrad = 0, rad_prod = 0, rvec[10], rvec2[10];	/* Temporary storage for FFT radices */
-	double	runtime,wruntime, runtime_best,wruntime_best, tdiff;	// v20: w-prefixed are weighted by associated ROEs
+	double	runtime,/* wruntime, */ runtime_best,wruntime_best, tdiff;	// v20: w-prefixed are weighted by associated ROEs
 	double	roerr_avg = 0, roerr_max = 0;
 	int		radix_set, radix_best, nradix_set_succeed;
 
@@ -5141,7 +5145,7 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 {
 	const char func[] = "read_ppm1_savefiles";
 	uint32 i,j,k,len,nbytes = 0,nerr;
-	uint64 itmp64, nsquares = 0ull, *avec = (uint64*)arr1, *bvec = (uint64*)arr2, exp[4],pow[4],rem[4];
+	uint64 itmp64, nsquares = 0ull, *avec = (uint64*)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 	mi64_clear(pow,4); mi64_clear(rem,4);
@@ -6323,7 +6327,7 @@ Assumes: Modulus type and binary exponent have been set prior to function call;
 Returns: The number of factors read in.
 */
 uint32 extract_known_factors(uint64 p, char*fac_start) {
-	uint32 i, findex, fbits, lenf, nchar, nfac = 0;
+	uint32 i, findex, lenf, nchar, nfac = 0;
 	uint64 *fac = 0x0, twop[4], quo[4],rem[4];	// fac = ptr to each mi64-converted factor input string;
 	uint256 p256,q256,res256;
 	char*cptr = fac_start+1;
@@ -6344,7 +6348,6 @@ uint32 extract_known_factors(uint64 p, char*fac_start) {
 		lenf = 0; fac = convert_base10_char_mi64(cbuf, &lenf);	// This does the mem-alloc for us
 		ASSERT(lenf > 0, "Error converting known-factor string!");
 		ASSERT(lenf < 5, "known-factor out of range, must be < 2^256!");
-		fbits = (lenf<<6) - mi64_leadz(fac, lenf);
 		// Make sure the alleged factor is of the proper form:
 		// For Mersenne M(p), q = 2.k.p + 1, with p prime; For Fermat F_n = 2^2^n+1, q = k.2^(n+2) + 1
 		// and we store the binary exponent 2^n in p, and 2^(n+2) in twop (yes, a misnomer in this case):
@@ -6558,12 +6561,9 @@ void modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb) {
 	// else GCC emits "error: a label can only be part of a statement and a declaration is not a statement":
 	mpz_t gmp_arr1, gmp_arr2, gmp_one;
 	mp_bitcnt_t gmp_exp;
-	size_t gmp_size;
 	uint32 i, retval = 0;
 	size_t inv_limbs;
 	uint64 *export_result_addr;
-	double tdiff = 0.0, clock1, clock2;
-	clock1 = getRealTime();
 	ASSERT(vec1 != 0x0 && vec2 != 0x0, "Null-pointer input to MODINV()!");
 	mpz_init(gmp_arr1); mpz_init(gmp_arr2);
 	mpz_init_set_ui(gmp_one,1ull); gmp_exp = p;
@@ -6590,7 +6590,6 @@ void modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb) {
 	*/
 	// Return inverse in gmp_arr1:
 	retval = mpz_invert(gmp_arr1, gmp_arr1,gmp_arr2);
-	gmp_size = mpz_sizeinbase(gmp_arr1,2);
 	if(!retval) {
 		snprintf(cbuf,STR_MAX_LEN*2,"MODINV: Fatal error: inverse does not exist.\n");
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
