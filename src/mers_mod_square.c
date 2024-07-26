@@ -173,11 +173,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	double adiff, max_adiff = 0.0;	/* Use to store the max abs error between real*8 and real*16 computed values */
 	 int64 i1,i2;
 	uint64 idiff, max_idiff = 0;
-	const double mult[2] = {1.0,-1.0};
-	static double nh_inv,nq_inv;	// Needed for "which complex quadrant?" computation
-	static int nh,nq;			// #rt1 elts in each quadrant
-	int qodd;
-	double *re_im_ptr;
 	static int radix_set_save[10] = {1000,0,0,0,0,0,0,0,0,0};
 	static int radix0, nchunks; 	// Store frequently-used RADIX_VEC[0] and number-of-independently-doable work units
 #if DBG_THREADS
@@ -236,7 +231,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	static struct mers_thread_data_t *tdat = 0x0;
 
 	// Threadpool-based dispatch:
-	static int main_work_units = 0, pool_work_units = 0;
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -1075,6 +1070,11 @@ for(i=0; i < NRT; i++) {
 }
 */
 #if 0
+	const double mult[2] = {1.0,-1.0};
+	static double nh_inv,nq_inv;	// Needed for "which complex quadrant?" computation
+	static int nh,nq;			// #rt1 elts in each quadrant
+	int qodd;
+	double *re_im_ptr;
 	#define SYMM	2	// "foldness" of the symmetry scheme used: 2 = half-plane, 4 = quadrans, 8 = half-quads.
 	#if SYMM == 2
 		nh = n/(NRT<<2);	// #rt1 elts in each quadrant
@@ -1350,7 +1350,6 @@ for(i=0; i < NRT; i++) {
 
 		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
-		main_work_units = 0;
 		pool_work_units = nchunks;
 		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
@@ -1789,8 +1788,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	}
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	int	ns_retval;
-	struct timespec ns_time,ns_err;	// We want a sleep interval of 0.1 mSec here...
+	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
 	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
@@ -2178,7 +2176,7 @@ void mers_process_chunk(
 
 #endif	// #ifdef MULTITHREAD
 
-	const char func[] = "mers_process_chunk";
+//	const char func[] = "mers_process_chunk";
 	int radix0 = RADIX_VEC[0];
 	int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
