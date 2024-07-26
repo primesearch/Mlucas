@@ -3075,7 +3075,7 @@ void RADIX_128_DIF(
 	double *__B, const int *__odx, const int __re_im_stride_out	/* Outputs: Base address plus 128 (index) offsets */
 )
 {
-	int i,j,nshift, *off_ptr;
+	int i,j;
 	struct complex t[128], *tptr;
 	const struct complex *cd_ptr;
 	double *Are = __A,*Aim = __A + __re_im_stride_in, *Bre = __B,*Bim = __B + __re_im_stride_out;
@@ -3120,7 +3120,7 @@ void RADIX_128_DIT(
 	double *__B, const int *__odx, const int __re_im_stride_out	/* Outputs: Base address plus 128 (index) offsets */
 )
 {
-	int i,j,nshift, *off_ptr;
+	int i,j;
 	struct complex t[128], *tptr;
 	const struct complex *cd_ptr;
 	double *Are = __A,*Aim = __A + __re_im_stride_in, *Bre = __B,*Bim = __B + __re_im_stride_out;
@@ -3509,6 +3509,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
 		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
 		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
+	#else
+		tdat = sc_ptr;
 	#endif
 
 		//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 9 radix-7 transforms:
@@ -3758,6 +3760,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
 		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
 		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
+	#else
+		tdat = sc_ptr;
 	#endif
 
 		//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 7 radix-9 transforms:
@@ -3851,9 +3855,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
 	  #endif
 		// Intermediates pointers:
-		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
-			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
+		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7;
 		/* Addresses into array sections */
 		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
@@ -4151,7 +4153,6 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
 		);
 	  #endif
-	// Remaining 7 macro cals need explicitly named BRed iptrs with stride 16, use tmp(in place of iarg r00),r40,r20,r60,r10,r50,r30,r70:
 	  #if COMPACT_OBJ
 
 		bptr = twid_offsets;	// Byte-pointer loops over slots in twid_offsets[] byte-array
@@ -4167,6 +4168,9 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		}
 
 	  #else	// COMPACT_OBJ = False:
+			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
+		vec_dbl *r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
+	// Remaining 7 macro calls need explicitly named BRed iptrs with stride 16, use tmp(in place of iarg r00),r40,r20,r60,r10,r50,r30,r70:
 		#error SSE2_RADIX8_DIF_TWIDDLE_OOP in this section need twiddles collected into w[]-array as above!
 	/* Block 4: */
 		tmp += 8;	// r08
@@ -4613,13 +4617,12 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	{
 		// Intermediates pointers:
 		vec_dbl *tm0,*tm1,
-			*u0,*u1,*u2,*u3,*u4,*u5,*u6,*u7, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
 			*w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIF_TWIDDLE_OOP
 		/* Addresses into array sections */
-		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
+		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j, *off_ptr;
-		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
+		int p0,p1,p2,p3,p4,p5,p6,p7;
 
 	// Gather the needed data and do 8 twiddleless length-16 subtransforms, with p-offsets in br8 order: 04261537:
 	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
@@ -4753,16 +4756,13 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		vec_dbl *tm0,*tm1,*tm2,
 			*u0,*u1,*u2,*u3,*u4,*u5,*u6,*u7, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
 			*w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIT_TWIDDLE_OOP
-		/* Addresses into array sections */
-		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j, *off_ptr;
-		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
 	/* Gather the needed data (128 64-bit complex, i.e. 256 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
 
 	  #ifdef USE_ARM_V8_SIMD
-		uint32 OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7;
+		uint32 OFF1,OFF2,OFF3,OFF4;
 		OFF1 = 0x20;
 		OFF2 = 0x40;
 		OFF3 = 0x60;
@@ -4884,10 +4884,15 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Intermediates pointers:
 		vec_dbl *tm0,*tm1,*tm2;
 		/* Addresses into array sections */
-		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
+		double *addr;
+	  #ifdef USE_AVX2
+		double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
+	  #endif
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j,nshift, *off_ptr;
+	  #ifdef USE_AVX2
 		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
+	  #endif
 		ASSERT(o_idx != 0x0, "Null o_idx pointer in SSE2_RADIX256_DIF!");
 	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
 	  #ifdef USE_ARM_V8_SIMD
@@ -5005,15 +5010,12 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	)
 	{
 		// Intermediates pointers:
-		vec_dbl *tm0,*tm1,*tm2,
-							*r10 = r00+0x20,*r20 = r00+0x40,*r30 = r00+0x60,*r40 = r00+0x80,*r50 = r00+0xa0,*r60 = r00+0xc0,*r70 = r00+0xe0,
-			*r80 =r00+0x100,*r90 = r80+0x20,*ra0 = r80+0x40,*rb0 = r80+0x60,*rc0 = r80+0x80,*rd0 = r80+0xa0,*re0 = r80+0xc0,*rf0 = r80+0xe0;
+		vec_dbl *tm0,*tm1,*tm2;
 		/* Addresses into array sections */
-		double *addr, *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
+		double *addr;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j,nshift;
 		const int *off_ptr;
-		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
 	/* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
 	  #ifdef USE_ARM_V8_SIMD

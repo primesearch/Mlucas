@@ -3764,7 +3764,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
 		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
 		"movq	%[twid_ptrs],%%r14	\n\t"\
-	/* Block 0/1 has just one twiddle-CMUL: 												/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
+	/* Block 0/1 has just one twiddle-CMUL: 												// Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
 	"movq		%[in0],%%rax		\n\t"\
 		"leaq	(%%rax,%%r8  ),%%rbx	\n\t"\
 		"leaq	(%%rax,%%r8,2),%%rcx	\n\t											movq	0x10(%%r14),%%r10				\n\t	movq	0x20(%%r14),%%r12			\n\t"/* c2,c3 */\
@@ -9091,7 +9091,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
 		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
 		"movq	%[twid_ptrs],%%r14	\n\t"\
-	/* Block 0/1 has just one twiddle-CMUL: 												/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
+	/* Block 0/1 has just one twiddle-CMUL: 												// Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
 	"movq		%[in0],%%rax		\n\t"\
 		"leaq	(%%rax,%%r8  ),%%rbx	\n\t"\
 		"leaq	(%%rax,%%r8,2),%%rcx	\n\t											movq	0x10(%%r14),%%r10				\n\t	movq	0x20(%%r14),%%r12			\n\t"/* c2,c3 */\
@@ -11209,7 +11209,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
 		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
 		"movq	%[twid_ptrs],%%r14	\n\t"\
-	/* Block 0/1 has just one twiddle-CMUL: 												/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
+	/* Block 0/1 has just one twiddle-CMUL: 												// Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
 	"movq		%[in0],%%rax		\n\t"\
 		"leaq	(%%rax,%%r8  ),%%rbx	\n\t"\
 		"leaq	(%%rax,%%r8,2),%%rcx	\n\t"\
