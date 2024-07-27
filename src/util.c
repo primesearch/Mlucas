@@ -1382,13 +1382,7 @@ int		file_valid_for_write(FILE*fp)
 /* Print key platform info, (on x86) set FPU mode, do some basic self-tests: */
 void host_init(void)
 {
-#ifdef MULTITHREAD
-	int ncpu, nthr;
-#endif
 	double dbl;
-	/*...time-related stuff	*/
-	clock_t clock1, clock2;
-	double tdiff;
 
 #if INCLUDE_HWLOC
 	/* Allocate and initialize topology object (extern hw_topology is defined in Mlucas.c): */
@@ -1448,11 +1442,7 @@ void host_init(void)
 	// Test the 64-bit 2^[+|-]p (mod q) functions:
 	uint32 imax = 100000;
 	fprintf(stderr,"INFO: Testing 64-bit 2^p (mod q) functions with %u random (p, q odd) pairs...\n",imax);
-	clock1 = clock();
 	ASSERT(test_twopmodq64(imax) == 0, "test_twopmodq64() returns nonzero!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-//	printf("Time for %u 2^[+|-]p (mod q) call pairs =%s\n",imax, get_time_str(tdiff));
 #ifdef TEST_MI64_PRP
 	const uint32 max_test_dim = 1024;
 	uint32 i,ihi = 1000,j,jhi;
@@ -1830,6 +1820,7 @@ exit(0);
 
 	/* Test Multithreading via simple pthreading self-test: */
   #if 0
+	int ncpu, nthr;
 	ncpu = MAX_THREADS;
 	printf("INFO: Testing Multithreading support with %d threads...\n", ncpu);
 	// Toggle boolean 2nd arg here to enable verbose mode:
@@ -1940,7 +1931,6 @@ uint32 get_system_ram(void) {
 	/* get the number of CPUs from the system; For details, 'man sysctl', and/or bookmark this Apple Developer page:
 	https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctlbyname.3.html. */
 	uint64 totalram;	// Under OS X, this needs to be an int (size_t gave garbage results)
-	int mib[4];
 	size_t len = sizeof(totalram);
 	sysctlbyname("hw.memsize", &totalram, &len, NULL, 0);
 	return (totalram >> 20);
@@ -2508,7 +2498,7 @@ For the purpose of completeness, the other FPU control bits are as follows
 
 void check_nbits_in_types(void)
 {
-	uint32 i,j;
+	uint32 i;
 	double ftmp, fran, ferr, finv, fsrt;
 	double tpi = 3.1415926535897932384;
 	double ln2 = LOG2;
@@ -2808,7 +2798,7 @@ ASSERT(((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	//	printf("FGT: prim-root of order 2^%2u = %" PRIu64 " + I*%" PRIu64 "\n",i, root_re,root_im);
 		// Check order-primitivity of roots of order > 1 by powering result up to 2nd order; result must == -1 (mod q):
 		if(i > 0) {
-			for(j = 1; j < i; j++) {
+			for(uint32 j = 1; j < i; j++) {
 				csqr_modq(root_re,root_im, &root_re,&root_im);
 				root_re = qreduce(root_re);	root_im = qreduce(root_im);	// Only partially reduce intermediates...
 			}
@@ -3528,10 +3518,10 @@ DEV uint32 popcount64(uint64 x)
 	return (uint32)i64;
 #else
 	uint8 *byte_arr = (uint8*)&x;
-	uint32 i,retval = 0;
+	uint32 retval = 0;
 	// May 2018: Unrolling the for-loop in favor of an inlined 8-fold sum gave a nice speedup:
   #if 0
-	for(i = 0; i < 8; i++) {
+	for(uint32 i = 0; i < 8; i++) {
 		retval += pop8[byte_arr[i]];
 	}
   #else
@@ -8940,12 +8930,11 @@ exit(0);
 		int ibig,iinc,isum;	/* ibig = #bigwords in loop-divided-by-threads sequence */
 		struct do_loop_test_thread_data tdat[nthreads];
 		pthread_t pth = pthread_self();
-		int        thr_id;         /* thread ID for a newly created thread */
 		pthread_t  p_thread;       /* thread's structure                     */
 		int        a = 1;  /* thread 1 identifying number            */
 		int        b = 2;  /* thread 2 identifying number            */
 		int ncpu = get_num_cores(), nshift, nextra;
-		printf("Mlucas running as system-created pthread %u, threading self-test will use %d user-created pthreads.\n", (int)pth, nthreads);
+		printf("Mlucas running as system-created pthread %lu, threading self-test will use %d user-created pthreads.\n", (long)pth, nthreads);
 		if(verbose) {
 			ASSERT(nthreads > 0,"Mlucas.c: nthreads > 0");
 			if(nthreads > ncpu) {
@@ -8954,7 +8943,7 @@ exit(0);
 		}
 		/* create a pair of threads, each of which will execute a simple timing loop().
 		Uncomment the prints in the thread-called function to 'see' the threads executing: */
-		thr_id = pthread_create(&p_thread, NULL, ex_loop, (void*)&a);
+		pthread_create(&p_thread, NULL, ex_loop, (void*)&a);
 		/* Thread which prints a hello message - Note the stdout prints resulting from this
 		and the surrounding thread-tests may appear in any order, depending on system scheduling of the respective threads: */
 		j = pthread_create(&p_thread, NULL, PrintHello, (void *)&b);
@@ -9006,7 +8995,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %d\n",tid,(int)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %ld\n",tid,(long)status);
 					isum += retval[tid];
 				}
 			}
@@ -9032,7 +9021,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %d\n",tid,(int)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %ld\n",tid,(long)status);
 					isum += retval[tid];
 				}
 			}
@@ -9064,9 +9053,11 @@ exit(0);
 	// A little hello-world testcode for the pthread stuff:
 	void *PrintHello(void *threadid)
 	{
+	  #if 0
 		int tid;
 		tid = *((int*)threadid);
-	//	printf("Hello World! It's me, thread #%ld!\n", tid);
+		printf("Hello World! It's me, thread #%ld!\n", tid);
+	  #endif
 		pthread_exit(NULL);
 	}
 
@@ -9118,7 +9109,6 @@ exit(0);
 	// or more core indices in the range does not map to a valid PU), return -1:
 	int num_sockets_of_core_set(hwloc_topology_t topology, int lidx_lo, int lidx_hi)
 	{
-		hwloc_obj_t obj;
 		if(!topology) return -1;
 		int topodepth = hwloc_topology_get_depth(topology);
 		// Logical PUs 1 level above topodepth:
@@ -9154,7 +9144,7 @@ exit(0);
 	// Returns: #logical cores (hwloc: logical processing units, objects of type HWLOC_OBJ_PU) specified in the substring.
 	uint32 parseAffinityTriplet(char*istr, int hwloc_topo)
 	{
-		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,j,bit,word;
+		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,bit,word;
 		char *char_addr = istr, *endp;
 		ASSERT(char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);
@@ -9208,7 +9198,7 @@ exit(0);
 				if (obj_core->arity < incr) {
 					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(0,cbuf);
 				}
-				for (j = 0; j < incr; j++) {
+				for (int j = 0; j < incr; j++) {
 					obj_pu = obj_core->children[j];
 					// Set bit = (obj_pu->logical_index) in CORE_SET bitmap, used in thread-affinity setting:
 					bit = obj_pu->logical_index;
@@ -9397,7 +9387,11 @@ void set_mlucas_path(void)
 		has_err = TRUE;
 		goto out_pipe;
 	}
-	fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr);
+	if (fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr) == NULL) {
+		fprintf(stderr, "ERROR: couldn't get environment variable MLUCAS_PATH in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_pipe;
+	}
 	if (getc(pipe_ptr) != EOF) {
 		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
 		has_err = TRUE;
@@ -9459,6 +9453,7 @@ int mkdir_p(char *path)
 	char tmp[4 * STR_MAX_LEN + 1] = "";
 	char *tok;
 	FILE *fp;
+	int err;
 
 	strcpy(mlucas_path, path);
 	if (mlucas_path[0] == '\0')
@@ -9475,7 +9470,11 @@ int mkdir_p(char *path)
 		strcpy(cmdstr, "mkdir ");
 		strcat(cmdstr, tmp);
 		strcat(cmdstr, " 2> /dev/null");
-		system(cmdstr);
+		err = system(cmdstr);
+		if (err != 0) {
+			fprintf(stderr, "ERROR: mkdir_p failed <%s>\n", cmdstr);
+			ASSERT(0, "Exiting.");
+		}
 	}
 
 	strcat(tmp, "_Mlucas_util_c_mkdir_p_tmp");
@@ -9486,7 +9485,10 @@ int mkdir_p(char *path)
 		fprintf(stderr, "ERROR: unable to open pipe fp in mkdir_p()\n");
 		ASSERT(0, "Exiting.");
 	}
-	fgets(tmp, STR_MAX_LEN + 1, fp);
+	if (fgets(tmp, STR_MAX_LEN + 1, fp) == NULL) {
+		fprintf(stderr, "ERROR: unable to retrieve file name in mkdir_p()\n");
+		ASSERT(0, "Exiting.");
+	}
 	pclose(fp);
 
 	fp = fopen(tmp, "a");
@@ -9497,7 +9499,11 @@ int mkdir_p(char *path)
 	strcpy(cmdstr, "rm -f ");
 	strcat(cmdstr, tmp);
 	strcat(cmdstr, " 2> /dev/null");
-	system(cmdstr);
+	err = system(cmdstr);
+	if (err != 0) {
+		fprintf(stderr, "ERROR: mkdir_p failed <%s>\n", cmdstr);
+		ASSERT(0, "Exiting.");
+	}
 	return 0;
 }
 
@@ -9573,7 +9579,7 @@ void mlucas_fprint(char*const cstr, uint32 echo_to_stderr)
 // Any failure to obtain a valid value for the option returns a NaN; the caller should check for this using isNaN(result):
 double mlucas_getOptVal(const char*fname, char*optname)
 {
-	const char func[] = "mlucas_getOptVal";
+//	const char func[] = "mlucas_getOptVal";
 	char cstr[STR_MAX_LEN], *cptr,*cadd;
 	ASSERT(fname != 0x0 && strlen(fname) > 0,"Null filename-pointer or empty string supplied to mlucas_getOptVal!");
 	FILE *fptr = mlucas_fopen(fname,"r");
