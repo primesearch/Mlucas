@@ -235,8 +235,6 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 
 #define ASSERT(expr, assert_string) _ASSERT(#expr, __FILE__, __LINE__, __func__, (expr), assert_string)
 
-void	VAR_WARN(char *typelist, ...);
-
 void	byte_bitstr(const uint8  byte, char*ostr);
 void	ui32_bitstr(const uint32 ui32, char*ostr);
 void	ui64_bitstr(const uint64 ui64, char*ostr);

@@ -96,38 +96,6 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 
 /***************/
 
-/* ewm: Not sure what I intended this for... */
-void	VAR_WARN(char *typelist, ...)
-{
-	char *c;
-	 int32 ival;
-	uint32 uval;
-	double dval;
-
-	va_list varargs;
-	va_start(varargs, typelist);
-	/* Define a convenient spot to set a breakpoint: */
-	for(c = typelist; *c; c++)
-	{
-		switch(*c)
-		{
-			case 'i':
-				ival = va_arg(varargs, int32);
-				break;
-			case 'u':
-				uval = va_arg(varargs,uint32);
-				break;
-			case 'd':
-				dval = va_arg(varargs,double);
-				break;
-			default :
-				ASSERT(0,"0");
-				break;
-		}
-	}
-	va_end(varargs);
-}
-
 int mlucas_nanosleep(const struct timespec *req)
 {
 	struct timespec tmp = *req;
