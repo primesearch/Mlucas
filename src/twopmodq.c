@@ -83,7 +83,7 @@ uint96 test_modsqr96(uint96 x, uint96 q)
 {
 	uint32 j;
 	uint96 qinv,t,hi,lo;
-#if 1
+#if 0 // what was this supposed to test?
 	uint64 __l,__m,__a,__b;
 	uint32 __tt = x.d1, __hl32,__hh32;
 	MUL64x32(x.d0,__tt, __a, __b);
@@ -216,7 +216,7 @@ uint128 test_modsqr128_96(uint128 x, uint128 q)
 uint32 test_twopmodq64(uint32 imax)
 {
 	uint32 i;
-	uint64 p,q, pos,neg,inv, prod128[2], rem;
+	uint64 p,q, pos,neg, prod128[2], rem;
 	rng_isaac_init(TRUE);
 	for(i = 0; i < imax; i++) {
 		p = rng_isaac_rand();
@@ -224,7 +224,7 @@ uint32 test_twopmodq64(uint32 imax)
 		pos = twopmmodq64(p,q);
 		neg = twopmodq64 (p,q);
 	#warning modinv64 fails for some 64-bit inputs - needs investigation.
-	//	inv = modinv64(neg,q);
+	//	uint64 inv = modinv64(neg,q);
 		// As a workaround for the modinv64 issue, instead compute 128-bit product pos*neg and check that pos*neg == 1 (mod q):
 	  #ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64(pos,neg,prod128+0 ,prod128+1 );
