@@ -737,8 +737,8 @@ z0 = 6272576; z12 = 898312175313603; z=z0+a*z12	<*** z0 is +1 too large ***
 
 uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 {
-	const char func[] = "twopmodq78_3WORD_DOUBLE";
 #if FAC_DEBUG
+	const char func[] = "twopmodq78_3WORD_DOUBLE";
 	int dbg = 0;//(p==2147483647 && k==20269004);
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
@@ -1083,7 +1083,6 @@ if(~pshift != p+78) {
 	/*** 2-trial-factor version ***/
 	uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint64 k0, uint64 k1, int init_sse2, int thr_id)
 	{
-		const char func[] = "twopmodq78_3WORD_DOUBLE_q2";
 	#if FAC_DEBUG
 		int dbg = 0;//(p==2147483647 && (k0==20269004 || k1==20269004));
 	#endif
@@ -1092,7 +1091,10 @@ if(~pshift != p+78) {
 		uint96 q0, q1, qinv0, qinv1, qhalf0, qhalf1, x0, x1, lo0, lo1;
 		uint192 prod192;
 		static uint64 psave = 0, pshift;
-		static uint32 start_index, zshift, first_entry = TRUE;
+		static uint32 start_index, zshift;
+	#ifdef USE_SSE2
+		static uint32 first_entry = TRUE;
+	#endif
 		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 	#ifdef USE_SSE2
@@ -1101,16 +1103,16 @@ if(~pshift != p+78) {
 		const uint64 ihalf = 0x3FDfffffffffffffull;	/* Bitfield storing 0.5*(1-epsilon) in IEEE64 format */
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		static double *sc_arr = 0x0, *sc_ptr;
-		vec_dbl *tmp;
 		double dtmp;
 	  #ifdef MULTITHREAD
+		vec_dbl *tmp;
 		static double *__r0;	// Base address for discrete per-thread local stores ...
 								// *NOTE*: more convenient to use double* rather than vec_dbl* here
 	  #else
 		static	// Following set of pointers only static-izable in single-thread mode
 	  #endif
-		double *fq0,*fq1,*fq2,*fqhi52, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2
-					, *gq0,*gq1,*gq2,*gqhi52, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2
+		double *fq0,*fq1,*fq2/* ,*fqhi52 */, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2
+					, *gq0,*gq1,*gq2/* ,*gqhi52 */, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2
 					, *half, *two26f, *two26i, *two13i, *sse2_rnd;
 	#else
 
@@ -1126,7 +1128,7 @@ if(~pshift != p+78) {
 
 	#if FAC_DEBUG
 		if(dbg) {
-			printf("%s with p = %" PRIu64 ", k0 = %" PRIu64 ", k1 = %" PRIu64 "\n",func,p,k0,k1);
+			printf("%s with p = %" PRIu64 ", k0 = %" PRIu64 ", k1 = %" PRIu64 "\n",__FUNCTION__,p,k0,k1);
 		}
 	#endif
 
@@ -1181,7 +1183,7 @@ if(~pshift != p+78) {
 			#else
 				max_threads = init_sse2;
 			#endif
-				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",func,max_threads);
+				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",__FUNCTION__,max_threads);
 			#ifndef COMPILER_TYPE_GCC
 				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
@@ -1222,7 +1224,7 @@ if(~pshift != p+78) {
 			fq0    = sc_ptr + 0x00;		gq0    = sc_ptr + 0x01;
 			fq1    = sc_ptr + 0x02;		gq1    = sc_ptr + 0x03;
 			fq2    = sc_ptr + 0x04;		gq2    = sc_ptr + 0x05;
-			fqhi52 = sc_ptr + 0x06;		gqhi52 = sc_ptr + 0x07;
+			//fqhi52 = sc_ptr + 0x06;		gqhi52 = sc_ptr + 0x07;
 			fqinv0 = sc_ptr + 0x08;		gqinv0 = sc_ptr + 0x09;
 			fqinv1 = sc_ptr + 0x0a;		gqinv1 = sc_ptr + 0x0b;
 			fqinv2 = sc_ptr + 0x0c;		gqinv2 = sc_ptr + 0x0d;
@@ -1258,7 +1260,7 @@ if(~pshift != p+78) {
 		fq0    = sc_ptr + 0x00;		gq0    = sc_ptr + 0x01;
 		fq1    = sc_ptr + 0x02;		gq1    = sc_ptr + 0x03;
 		fq2    = sc_ptr + 0x04;		gq2    = sc_ptr + 0x05;
-		fqhi52 = sc_ptr + 0x06;		gqhi52 = sc_ptr + 0x07;
+		//fqhi52 = sc_ptr + 0x06;		gqhi52 = sc_ptr + 0x07;
 		fqinv0 = sc_ptr + 0x08;		gqinv0 = sc_ptr + 0x09;
 		fqinv1 = sc_ptr + 0x0a;		gqinv1 = sc_ptr + 0x0b;
 		fqinv2 = sc_ptr + 0x0c;		gqinv2 = sc_ptr + 0x0d;
@@ -1921,7 +1923,6 @@ if(~pshift != p+78) {
 			, int init_sse2, int thr_id
 	)
 	{
-		const char func[] = "twopmodq78_3WORD_DOUBLE_q4";
 		 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 		uint32 q32_0, qinv32_0, tmp32_0
 			 , q32_1, qinv32_1, tmp32_1
@@ -1934,7 +1935,10 @@ if(~pshift != p+78) {
 			 , q3, qinv3, qhalf3, x3, lo3;
 		uint192 prod192;
 		static uint64 psave = 0, pshift;
-		static uint32 start_index, zshift, first_entry = TRUE;
+		static uint32 start_index, zshift;
+	#ifdef USE_SSE2
+		static uint32 first_entry = TRUE;
+	#endif
 		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 	#ifdef USE_SSE2
@@ -1943,18 +1947,18 @@ if(~pshift != p+78) {
 		const uint64 ihalf = 0x3FDfffffffffffffull;	/* Bitfield storing 0.5*(1-epsilon) in IEEE64 format */
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		static double *sc_arr = 0x0, *sc_ptr;
-		vec_dbl *tmp;
 		double dtmp;
 	  #ifdef MULTITHREAD
+		vec_dbl *tmp;
 		static double *__r0;	// Base address for discrete per-thread local stores ...
 								// *NOTE*: more convenient to use double* rather than vec_dbl* here
 	  #else
 		static	// Following set of pointers only static-izable in single-thread mode
 	  #endif
-		double *fq0,*fq1,*fq2,*fqhi52, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2, *flo0,*flo1,*flo2, *fhi0,*fhi1,*fhi2
-			, *gq0,*gq1,*gq2,*gqhi52, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2, *glo0,*glo1,*glo2, *ghi0,*ghi1,*ghi2
-			, *hq0,*hq1,*hq2,*hqhi52, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2, *hlo0,*hlo1,*hlo2, *hhi0,*hhi1,*hhi2
-			, *iq0,*iq1,*iq2,*iqhi52, *iqinv0,*iqinv1,*iqinv2, *ix0,*ix1,*ix2, *ilo0,*ilo1,*ilo2, *ihi0,*ihi1,*ihi2
+		double *fq0,*fq1,*fq2/* ,*fqhi52 */, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2/* , *flo0,*flo1,*flo2, *fhi0,*fhi1,*fhi2 */
+			, *gq0,*gq1,*gq2/* ,*gqhi52 */, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2/* , *glo0,*glo1,*glo2, *ghi0,*ghi1,*ghi2 */
+			, *hq0,*hq1,*hq2/* ,*hqhi52 */, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2/* , *hlo0,*hlo1,*hlo2, *hhi0,*hhi1,*hhi2 */
+			, *iq0,*iq1,*iq2/* ,*iqhi52 */, *iqinv0,*iqinv1,*iqinv2, *ix0,*ix1,*ix2/* , *ilo0,*ilo1,*ilo2, *ihi0,*ihi1,*ihi2 */
 			, *half, *two26f, *two26i, *two13i, *sse2_rnd;
 
 	#else
@@ -2019,7 +2023,7 @@ if(~pshift != p+78) {
 			#else
 				max_threads = init_sse2;
 			#endif
-				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",func,max_threads);
+				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",__FUNCTION__,max_threads);
 			#ifndef COMPILER_TYPE_GCC
 				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
@@ -2060,19 +2064,19 @@ if(~pshift != p+78) {
 			fq0    = sc_ptr + 0x00;		gq0    = sc_ptr + 0x01;		hq0    = sc_ptr + 0x02;		iq0    = sc_ptr + 0x03;
 			fq1    = sc_ptr + 0x04;		gq1    = sc_ptr + 0x05;		hq1    = sc_ptr + 0x06;		iq1    = sc_ptr + 0x07;
 			fq2    = sc_ptr + 0x08;		gq2    = sc_ptr + 0x09;		hq2    = sc_ptr + 0x0a;		iq2    = sc_ptr + 0x0b;
-			fqhi52 = sc_ptr + 0x0c;		gqhi52 = sc_ptr + 0x0d;		hqhi52 = sc_ptr + 0x0e;		iqhi52 = sc_ptr + 0x0f;
+			//fqhi52 = sc_ptr + 0x0c;		gqhi52 = sc_ptr + 0x0d;		hqhi52 = sc_ptr + 0x0e;		iqhi52 = sc_ptr + 0x0f;
 			fqinv0 = sc_ptr + 0x10;		gqinv0 = sc_ptr + 0x11;		hqinv0 = sc_ptr + 0x12;		iqinv0 = sc_ptr + 0x13;
 			fqinv1 = sc_ptr + 0x14;		gqinv1 = sc_ptr + 0x15;		hqinv1 = sc_ptr + 0x16;		iqinv1 = sc_ptr + 0x17;
 			fqinv2 = sc_ptr + 0x18;		gqinv2 = sc_ptr + 0x19;		hqinv2 = sc_ptr + 0x1a;		iqinv2 = sc_ptr + 0x1b;
 			fx0    = sc_ptr + 0x1c;		gx0    = sc_ptr + 0x1d;		hx0    = sc_ptr + 0x1e;		ix0    = sc_ptr + 0x1f;
 			fx1    = sc_ptr + 0x20;		gx1    = sc_ptr + 0x21;		hx1    = sc_ptr + 0x22;		ix1    = sc_ptr + 0x23;
 			fx2    = sc_ptr + 0x24;		gx2    = sc_ptr + 0x25;		hx2    = sc_ptr + 0x26;		ix2    = sc_ptr + 0x27;
-			flo0   = sc_ptr + 0x28;		glo0   = sc_ptr + 0x29;		hlo0   = sc_ptr + 0x2a;		ilo0   = sc_ptr + 0x2b;
-			flo1   = sc_ptr + 0x2c;		glo1   = sc_ptr + 0x2d;		hlo1   = sc_ptr + 0x2e;		ilo1   = sc_ptr + 0x2f;
-			flo2   = sc_ptr + 0x30;		glo2   = sc_ptr + 0x31;		hlo2   = sc_ptr + 0x32;		ilo2   = sc_ptr + 0x33;
-			fhi0   = sc_ptr + 0x34;		ghi0   = sc_ptr + 0x35;		hhi0   = sc_ptr + 0x36;		ihi0   = sc_ptr + 0x37;
-			fhi1   = sc_ptr + 0x38;		ghi1   = sc_ptr + 0x39;		hhi1   = sc_ptr + 0x3a;		ihi1   = sc_ptr + 0x3b;
-			fhi2   = sc_ptr + 0x3c;		ghi2   = sc_ptr + 0x3d;		hhi2   = sc_ptr + 0x3e;		ihi2   = sc_ptr + 0x3f;
+			//flo0   = sc_ptr + 0x28;		glo0   = sc_ptr + 0x29;		hlo0   = sc_ptr + 0x2a;		ilo0   = sc_ptr + 0x2b;
+			//flo1   = sc_ptr + 0x2c;		glo1   = sc_ptr + 0x2d;		hlo1   = sc_ptr + 0x2e;		ilo1   = sc_ptr + 0x2f;
+			//flo2   = sc_ptr + 0x30;		glo2   = sc_ptr + 0x31;		hlo2   = sc_ptr + 0x32;		ilo2   = sc_ptr + 0x33;
+			//fhi0   = sc_ptr + 0x34;		ghi0   = sc_ptr + 0x35;		hhi0   = sc_ptr + 0x36;		ihi0   = sc_ptr + 0x37;
+			//fhi1   = sc_ptr + 0x38;		ghi1   = sc_ptr + 0x39;		hhi1   = sc_ptr + 0x3a;		ihi1   = sc_ptr + 0x3b;
+			//fhi2   = sc_ptr + 0x3c;		ghi2   = sc_ptr + 0x3d;		hhi2   = sc_ptr + 0x3e;		ihi2   = sc_ptr + 0x3f;
 			two13i = sc_ptr + 0x40;
 			two26f = sc_ptr + 0x42;
 			two26i = sc_ptr + 0x44;
@@ -2101,19 +2105,19 @@ if(~pshift != p+78) {
 		fq0    = sc_ptr + 0x00;		gq0    = sc_ptr + 0x01;		hq0    = sc_ptr + 0x02;		iq0    = sc_ptr + 0x03;
 		fq1    = sc_ptr + 0x04;		gq1    = sc_ptr + 0x05;		hq1    = sc_ptr + 0x06;		iq1    = sc_ptr + 0x07;
 		fq2    = sc_ptr + 0x08;		gq2    = sc_ptr + 0x09;		hq2    = sc_ptr + 0x0a;		iq2    = sc_ptr + 0x0b;
-		fqhi52 = sc_ptr + 0x0c;		gqhi52 = sc_ptr + 0x0d;		hqhi52 = sc_ptr + 0x0e;		iqhi52 = sc_ptr + 0x0f;
+		//fqhi52 = sc_ptr + 0x0c;		gqhi52 = sc_ptr + 0x0d;		hqhi52 = sc_ptr + 0x0e;		iqhi52 = sc_ptr + 0x0f;
 		fqinv0 = sc_ptr + 0x10;		gqinv0 = sc_ptr + 0x11;		hqinv0 = sc_ptr + 0x12;		iqinv0 = sc_ptr + 0x13;
 		fqinv1 = sc_ptr + 0x14;		gqinv1 = sc_ptr + 0x15;		hqinv1 = sc_ptr + 0x16;		iqinv1 = sc_ptr + 0x17;
 		fqinv2 = sc_ptr + 0x18;		gqinv2 = sc_ptr + 0x19;		hqinv2 = sc_ptr + 0x1a;		iqinv2 = sc_ptr + 0x1b;
 		fx0    = sc_ptr + 0x1c;		gx0    = sc_ptr + 0x1d;		hx0    = sc_ptr + 0x1e;		ix0    = sc_ptr + 0x1f;
 		fx1    = sc_ptr + 0x20;		gx1    = sc_ptr + 0x21;		hx1    = sc_ptr + 0x22;		ix1    = sc_ptr + 0x23;
 		fx2    = sc_ptr + 0x24;		gx2    = sc_ptr + 0x25;		hx2    = sc_ptr + 0x26;		ix2    = sc_ptr + 0x27;
-		flo0   = sc_ptr + 0x28;		glo0   = sc_ptr + 0x29;		hlo0   = sc_ptr + 0x2a;		ilo0   = sc_ptr + 0x2b;
-		flo1   = sc_ptr + 0x2c;		glo1   = sc_ptr + 0x2d;		hlo1   = sc_ptr + 0x2e;		ilo1   = sc_ptr + 0x2f;
-		flo2   = sc_ptr + 0x30;		glo2   = sc_ptr + 0x31;		hlo2   = sc_ptr + 0x32;		ilo2   = sc_ptr + 0x33;
-		fhi0   = sc_ptr + 0x34;		ghi0   = sc_ptr + 0x35;		hhi0   = sc_ptr + 0x36;		ihi0   = sc_ptr + 0x37;
-		fhi1   = sc_ptr + 0x38;		ghi1   = sc_ptr + 0x39;		hhi1   = sc_ptr + 0x3a;		ihi1   = sc_ptr + 0x3b;
-		fhi2   = sc_ptr + 0x3c;		ghi2   = sc_ptr + 0x3d;		hhi2   = sc_ptr + 0x3e;		ihi2   = sc_ptr + 0x3f;
+		//flo0   = sc_ptr + 0x28;		glo0   = sc_ptr + 0x29;		hlo0   = sc_ptr + 0x2a;		ilo0   = sc_ptr + 0x2b;
+		//flo1   = sc_ptr + 0x2c;		glo1   = sc_ptr + 0x2d;		hlo1   = sc_ptr + 0x2e;		ilo1   = sc_ptr + 0x2f;
+		//flo2   = sc_ptr + 0x30;		glo2   = sc_ptr + 0x31;		hlo2   = sc_ptr + 0x32;		ilo2   = sc_ptr + 0x33;
+		//fhi0   = sc_ptr + 0x34;		ghi0   = sc_ptr + 0x35;		hhi0   = sc_ptr + 0x36;		ihi0   = sc_ptr + 0x37;
+		//fhi1   = sc_ptr + 0x38;		ghi1   = sc_ptr + 0x39;		hhi1   = sc_ptr + 0x3a;		ihi1   = sc_ptr + 0x3b;
+		//fhi2   = sc_ptr + 0x3c;		ghi2   = sc_ptr + 0x3d;		hhi2   = sc_ptr + 0x3e;		ihi2   = sc_ptr + 0x3f;
 		two13i = sc_ptr + 0x40;
 		two26f = sc_ptr + 0x42;
 		two26i = sc_ptr + 0x44;
@@ -3320,6 +3324,7 @@ if(~pshift != p+78) {
 		uint64 twopmodq78_3WORD_DOUBLE_q8(uint64 p, uint64 k[], int init_sse2, int thr_id)
 		{
 			ASSERT(0,"No TF support on ARMv8!");
+			return 0; // silence warning
 		}
 
 	#elif defined(X64_ASM) && defined(USE_SSE2)
@@ -3362,14 +3367,14 @@ if(~pshift != p+78) {
 		  #else
 			static	// Following set of pointers only static-izable in single-thread mode
 		  #endif
-			double *aq0,*aq1,*aq2,*aqhi52, *aqinv0,*aqinv1,*aqinv2, *ax0,*ax1,*ax2
-				, *bq0,*bq1,*bq2,*bqhi52, *bqinv0,*bqinv1,*bqinv2, *bx0,*bx1,*bx2
-				, *cq0,*cq1,*cq2,*cqhi52, *cqinv0,*cqinv1,*cqinv2, *cx0,*cx1,*cx2
-				, *dq0,*dq1,*dq2,*dqhi52, *dqinv0,*dqinv1,*dqinv2, *dx0,*dx1,*dx2
-				, *eq0,*eq1,*eq2,*eqhi52, *eqinv0,*eqinv1,*eqinv2, *ex0,*ex1,*ex2
-				, *fq0,*fq1,*fq2,*fqhi52, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2
-				, *gq0,*gq1,*gq2,*gqhi52, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2
-				, *hq0,*hq1,*hq2,*hqhi52, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2
+			double *aq0,*aq1,*aq2/* ,*aqhi52 */, *aqinv0,*aqinv1,*aqinv2, *ax0,*ax1,*ax2
+				, *bq0,*bq1,*bq2/* ,*bqhi52 */, *bqinv0,*bqinv1,*bqinv2, *bx0,*bx1,*bx2
+				, *cq0,*cq1,*cq2/* ,*cqhi52 */, *cqinv0,*cqinv1,*cqinv2, *cx0,*cx1,*cx2
+				, *dq0,*dq1,*dq2/* ,*dqhi52 */, *dqinv0,*dqinv1,*dqinv2, *dx0,*dx1,*dx2
+				, *eq0,*eq1,*eq2/* ,*eqhi52 */, *eqinv0,*eqinv1,*eqinv2, *ex0,*ex1,*ex2
+				, *fq0,*fq1,*fq2/* ,*fqhi52 */, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2
+				, *gq0,*gq1,*gq2/* ,*gqhi52 */, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2
+				, *hq0,*hq1,*hq2/* ,*hqhi52 */, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2
 				, *two26f, *two26i, *two13i;
 
 			if(p != psave)
@@ -3453,7 +3458,7 @@ if(~pshift != p+78) {
 				aq0    = sc_ptr + 0x00;	bq0    = sc_ptr + 0x01;	cq0    = sc_ptr + 0x02;	dq0    = sc_ptr + 0x03;	eq0    = sc_ptr + 0x04;	fq0    = sc_ptr + 0x05;	gq0    = sc_ptr + 0x06;	hq0    = sc_ptr + 0x07;
 				aq1    = sc_ptr + 0x08;	bq1    = sc_ptr + 0x09;	cq1    = sc_ptr + 0x0a;	dq1    = sc_ptr + 0x0b;	eq1    = sc_ptr + 0x0c;	fq1    = sc_ptr + 0x0d;	gq1    = sc_ptr + 0x0e;	hq1    = sc_ptr + 0x0f;
 				aq2    = sc_ptr + 0x10;	bq2    = sc_ptr + 0x11;	cq2    = sc_ptr + 0x12;	dq2    = sc_ptr + 0x13;	eq2    = sc_ptr + 0x14;	fq2    = sc_ptr + 0x15;	gq2    = sc_ptr + 0x16;	hq2    = sc_ptr + 0x17;
-				aqhi52 = sc_ptr + 0x18;	bqhi52 = sc_ptr + 0x19;	cqhi52 = sc_ptr + 0x1a;	dqhi52 = sc_ptr + 0x1b;	eqhi52 = sc_ptr + 0x1c;	fqhi52 = sc_ptr + 0x1d;	gqhi52 = sc_ptr + 0x1e;	hqhi52 = sc_ptr + 0x1f;
+				//aqhi52 = sc_ptr + 0x18;	bqhi52 = sc_ptr + 0x19;	cqhi52 = sc_ptr + 0x1a;	dqhi52 = sc_ptr + 0x1b;	eqhi52 = sc_ptr + 0x1c;	fqhi52 = sc_ptr + 0x1d;	gqhi52 = sc_ptr + 0x1e;	hqhi52 = sc_ptr + 0x1f;
 				aqinv0 = sc_ptr + 0x20;	bqinv0 = sc_ptr + 0x21;	cqinv0 = sc_ptr + 0x22;	dqinv0 = sc_ptr + 0x23;	eqinv0 = sc_ptr + 0x24;	fqinv0 = sc_ptr + 0x25;	gqinv0 = sc_ptr + 0x26;	hqinv0 = sc_ptr + 0x27;
 				aqinv1 = sc_ptr + 0x28;	bqinv1 = sc_ptr + 0x29;	cqinv1 = sc_ptr + 0x2a;	dqinv1 = sc_ptr + 0x2b;	eqinv1 = sc_ptr + 0x2c;	fqinv1 = sc_ptr + 0x2d;	gqinv1 = sc_ptr + 0x2e;	hqinv1 = sc_ptr + 0x2f;
 				aqinv2 = sc_ptr + 0x30;	bqinv2 = sc_ptr + 0x31;	cqinv2 = sc_ptr + 0x32;	dqinv2 = sc_ptr + 0x33;	eqinv2 = sc_ptr + 0x34;	fqinv2 = sc_ptr + 0x35;	gqinv2 = sc_ptr + 0x36;	hqinv2 = sc_ptr + 0x37;
@@ -3493,7 +3498,7 @@ if(~pshift != p+78) {
 			aq0    = sc_ptr + 0x00;	bq0    = sc_ptr + 0x01;	cq0    = sc_ptr + 0x02;	dq0    = sc_ptr + 0x03;	eq0    = sc_ptr + 0x04;	fq0    = sc_ptr + 0x05;	gq0    = sc_ptr + 0x06;	hq0    = sc_ptr + 0x07;
 			aq1    = sc_ptr + 0x08;	bq1    = sc_ptr + 0x09;	cq1    = sc_ptr + 0x0a;	dq1    = sc_ptr + 0x0b;	eq1    = sc_ptr + 0x0c;	fq1    = sc_ptr + 0x0d;	gq1    = sc_ptr + 0x0e;	hq1    = sc_ptr + 0x0f;
 			aq2    = sc_ptr + 0x10;	bq2    = sc_ptr + 0x11;	cq2    = sc_ptr + 0x12;	dq2    = sc_ptr + 0x13;	eq2    = sc_ptr + 0x14;	fq2    = sc_ptr + 0x15;	gq2    = sc_ptr + 0x16;	hq2    = sc_ptr + 0x17;
-			aqhi52 = sc_ptr + 0x18;	bqhi52 = sc_ptr + 0x19;	cqhi52 = sc_ptr + 0x1a;	dqhi52 = sc_ptr + 0x1b;	eqhi52 = sc_ptr + 0x1c;	fqhi52 = sc_ptr + 0x1d;	gqhi52 = sc_ptr + 0x1e;	hqhi52 = sc_ptr + 0x1f;
+			//aqhi52 = sc_ptr + 0x18;	bqhi52 = sc_ptr + 0x19;	cqhi52 = sc_ptr + 0x1a;	dqhi52 = sc_ptr + 0x1b;	eqhi52 = sc_ptr + 0x1c;	fqhi52 = sc_ptr + 0x1d;	gqhi52 = sc_ptr + 0x1e;	hqhi52 = sc_ptr + 0x1f;
 			aqinv0 = sc_ptr + 0x20;	bqinv0 = sc_ptr + 0x21;	cqinv0 = sc_ptr + 0x22;	dqinv0 = sc_ptr + 0x23;	eqinv0 = sc_ptr + 0x24;	fqinv0 = sc_ptr + 0x25;	gqinv0 = sc_ptr + 0x26;	hqinv0 = sc_ptr + 0x27;
 			aqinv1 = sc_ptr + 0x28;	bqinv1 = sc_ptr + 0x29;	cqinv1 = sc_ptr + 0x2a;	dqinv1 = sc_ptr + 0x2b;	eqinv1 = sc_ptr + 0x2c;	fqinv1 = sc_ptr + 0x2d;	gqinv1 = sc_ptr + 0x2e;	hqinv1 = sc_ptr + 0x2f;
 			aqinv2 = sc_ptr + 0x30;	bqinv2 = sc_ptr + 0x31;	cqinv2 = sc_ptr + 0x32;	dqinv2 = sc_ptr + 0x33;	eqinv2 = sc_ptr + 0x34;	fqinv2 = sc_ptr + 0x35;	gqinv2 = sc_ptr + 0x36;	hqinv2 = sc_ptr + 0x37;
@@ -3948,10 +3953,10 @@ if(~pshift != p+78) {
 			/* Force 128-bit alignment needed for SSE work via the complex type, but also need double-pointer accesses to indivdual TF data: */
 			static vec_dbl *sc_arr = 0x0;
 			static double *sc_ptr;
-			static double *fq0,*fq1,*fq2,*fqhi52, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2, *flo0,*flo1,*flo2, *fhi0,*fhi1,*fhi2;
-			static double *gq0,*gq1,*gq2,*gqhi52, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2, *glo0,*glo1,*glo2, *ghi0,*ghi1,*ghi2;
-			static double *hq0,*hq1,*hq2,*hqhi52, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2, *hlo0,*hlo1,*hlo2, *hhi0,*hhi1,*hhi2;
-			static double *iq0,*iq1,*iq2,*iqhi52, *iqinv0,*iqinv1,*iqinv2, *ix0,*ix1,*ix2, *ilo0,*ilo1,*ilo2, *ihi0,*ihi1,*ihi2;
+			static double *fq0,*fq1,*fq2/* ,*fqhi52 */, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2, *flo0,*flo1,*flo2, *fhi0,*fhi1,*fhi2;
+			static double *gq0,*gq1,*gq2/* ,*gqhi52 */, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2, *glo0,*glo1,*glo2, *ghi0,*ghi1,*ghi2;
+			static double *hq0,*hq1,*hq2/* ,*hqhi52 */, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2, *hlo0,*hlo1,*hlo2, *hhi0,*hhi1,*hhi2;
+			static double *iq0,*iq1,*iq2/* ,*iqhi52 */, *iqinv0,*iqinv1,*iqinv2, *ix0,*ix1,*ix2, *ilo0,*ilo1,*ilo2, *ihi0,*ihi1,*ihi2;
 			static double *half, *two26f, *two26i, *two13i, *sse2_rnd;
 			static uint64 ihalf = 0x3FDfffffffffffffull;	/* Bitfield storing 0.5*(1-epsilon) in IEEE64 format */
 			/* Integer stuff: */
@@ -4004,7 +4009,7 @@ if(~pshift != p+78) {
 				fq0    = sc_ptr + 0x00;		gq0    = sc_ptr + 0x01;		hq0    = sc_ptr + 0x02;		iq0    = sc_ptr + 0x03;	/* 0x000 */
 				fq1    = sc_ptr + 0x04;		gq1    = sc_ptr + 0x05;		hq1    = sc_ptr + 0x06;		iq1    = sc_ptr + 0x07;	/* 0x020 */
 				fq2    = sc_ptr + 0x08;		gq2    = sc_ptr + 0x09;		hq2    = sc_ptr + 0x0a;		iq2    = sc_ptr + 0x0b;	/* 0x040 */
-				fqhi52 = sc_ptr + 0x0c;		gqhi52 = sc_ptr + 0x0d;		hqhi52 = sc_ptr + 0x0e;		iqhi52 = sc_ptr + 0x0f;	/* 0x060 */
+				//fqhi52 = sc_ptr + 0x0c;		gqhi52 = sc_ptr + 0x0d;		hqhi52 = sc_ptr + 0x0e;		iqhi52 = sc_ptr + 0x0f;	/* 0x060 */
 				fqinv0 = sc_ptr + 0x10;		gqinv0 = sc_ptr + 0x11;		hqinv0 = sc_ptr + 0x12;		iqinv0 = sc_ptr + 0x13;	/* 0x080 */
 				fqinv1 = sc_ptr + 0x14;		gqinv1 = sc_ptr + 0x15;		hqinv1 = sc_ptr + 0x16;		iqinv1 = sc_ptr + 0x17;	/* 0x0a0 */
 				fqinv2 = sc_ptr + 0x18;		gqinv2 = sc_ptr + 0x19;		hqinv2 = sc_ptr + 0x1a;		iqinv2 = sc_ptr + 0x1b;	/* 0x0c0 */
@@ -4846,24 +4851,35 @@ if(~pshift != p+78) {
 			 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
 			uint32 q32[16], qinv32[16], tmp32;
 			uint64 lead7, r = 0, tmp64;
-			uint96 q[16], qinv[16], qhalf[16], x[16], tmp96;
+			uint96 q[16], qinv[16];
+		  #ifndef USE_AVX2
+			uint96 qhalf[16], x[16];
+			uint96 tmp96;
 			uint192 prod192;
+		  #endif
 			static uint64 psave = 0, pshift;
 			static uint32 start_index, zshift, first_entry = TRUE;
+		  #ifndef USE_AVX2
 			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+		  #endif
 
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 			static double *sc_arr = 0x0, *sc_ptr;
-			double *dptr, dtmp;
-			vec_dbl *tmp;
+			double *dptr;
+		  #ifdef USE_AVX2
+			double dtmp;
+		  #endif
 		  #ifdef MULTITHREAD
 			static double *__r0;	// Base address for discrete per-thread local stores ...
 									// *NOTE*: more convenient to use double* rather than vec_dbl* here
 		  #else
 			static	// Following set of pointers only static-izable in single-thread mode
 		  #endif
-			double *fq0[16],*fq1[16],*fq2[16],*fqhi52[16], *fqinv0[16],*fqinv1[16],*fqinv2[16], *fx0[16],*fx1[16],*fx2[16],
+			double *fq0[16],*fq1[16],*fq2[16],/* *fqhi52[16], */ *fqinv0[16],*fqinv1[16],*fqinv2[16], *fx0[16],
 					*two13i, *two26f,*two26i, *two52f,*two52i;
+		  #ifndef USE_AVX2
+			double *fx1[16],*fx2[16];
+		  #endif
 
 		#if FAC_DEBUG
 			if(dbg) printf("%s with p = %" PRIu64 ", k[] = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
@@ -4948,24 +4964,28 @@ if(~pshift != p+78) {
 				fq0   [0] = sc_ptr + 0x00;
 				fq1   [0] = sc_ptr + 0x10;
 				fq2   [0] = sc_ptr + 0x20;
-				fqhi52[0] = sc_ptr + 0x30;
+				//fqhi52[0] = sc_ptr + 0x30;
 				fqinv0[0] = sc_ptr + 0x40;
 				fqinv1[0] = sc_ptr + 0x50;
 				fqinv2[0] = sc_ptr + 0x60;
 				fx0   [0] = sc_ptr + 0x70;
+			  #ifndef USE_AVX2
 				fx1   [0] = sc_ptr + 0x80;
 				fx2   [0] = sc_ptr + 0x90;
+			  #endif
 				for(j = 1, dptr = sc_ptr+1; j < 16; j++, dptr++) {
 					fq0   [j] = dptr + 0x00;
 					fq1   [j] = dptr + 0x10;
 					fq2   [j] = dptr + 0x20;
-					fqhi52[j] = dptr + 0x30;
+					//fqhi52[j] = dptr + 0x30;
 					fqinv0[j] = dptr + 0x40;
 					fqinv1[j] = dptr + 0x50;
 					fqinv2[j] = dptr + 0x60;
 					fx0   [j] = dptr + 0x70;
+			  #ifndef USE_AVX2
 					fx1   [j] = dptr + 0x80;
 					fx2   [j] = dptr + 0x90;
+			  #endif
 				}
 			// +0xa0,b0 - Insert another 2 pairs of padding slots here for high-product-words register spills (we spill 2 of 3 words)
 			// Consts: only get 1 AVX-reg (4 doubles) per:
@@ -4994,24 +5014,28 @@ if(~pshift != p+78) {
 			fq0   [0] = sc_ptr + 0x00;
 			fq1   [0] = sc_ptr + 0x10;
 			fq2   [0] = sc_ptr + 0x20;
-			fqhi52[0] = sc_ptr + 0x30;
+			//fqhi52[0] = sc_ptr + 0x30;
 			fqinv0[0] = sc_ptr + 0x40;
 			fqinv1[0] = sc_ptr + 0x50;
 			fqinv2[0] = sc_ptr + 0x60;
 			fx0   [0] = sc_ptr + 0x70;
+		  #ifndef USE_AVX2
 			fx1   [0] = sc_ptr + 0x80;
 			fx2   [0] = sc_ptr + 0x90;
+		  #endif
 			for(j = 1, dptr = sc_ptr+1; j < 16; j++, dptr++) {
 				fq0   [j] = dptr + 0x00;
 				fq1   [j] = dptr + 0x10;
 				fq2   [j] = dptr + 0x20;
-				fqhi52[j] = dptr + 0x30;
+				//fqhi52[j] = dptr + 0x30;
 				fqinv0[j] = dptr + 0x40;
 				fqinv1[j] = dptr + 0x50;
 				fqinv2[j] = dptr + 0x60;
 				fx0   [j] = dptr + 0x70;
+		  #ifndef USE_AVX2
 				fx1   [j] = dptr + 0x80;
 				fx2   [j] = dptr + 0x90;
+		  #endif
 			}
 		// +0xa0,b0 - Insert another 2 pairs of padding slots here for high-product-words register spills (we spill 2 of 3 words)
 		// Consts: only get 1 AVX-reg (4 doubles) per:
@@ -5036,9 +5060,11 @@ if(~pshift != p+78) {
 				MUL_LOHI64(q[j].d0, k[j], q[j].d0, q[j].d1);	q[j].d0 += 1;	// Since 2*p*k even, no need to check for overflow here
 				q32[j] = (uint32)q[j].d0;
 				CVT_UINT78_3WORD_DOUBLE(q[j] ,*fq0[j],*fq1[j],*fq2[j]);	// Convert q to floating form
+			#ifndef USE_AVX2
 				tmp96.d0 = q[j].d0; tmp96.d1 = q[j].d1;	// Stash-in-scalar-uint96 to work around "expected expression" compiler error
 				RSHIFT_FAST96(tmp96, 1, tmp96);	// qhalf = (q-1)/2, since q odd.
 				qhalf[j].d0 = tmp96.d0; qhalf[j].d1 = tmp96.d1;
+			#endif
 				// Iterative mod-inverse computation:
 				/* 8 bits: */
 				qinv32[j] = minv8[(q32[j] & 0xff)>>1];
@@ -5238,7 +5264,11 @@ if(~pshift != p+78) {
 		#if FAC_DEBUG
 		  if(dbg) {
 			printf("p = %" PRIu64 ", k0 = %" PRIu64 ", start_index0 = %u, initial shift = %u\n",p,k[0],start_index,zshift);
+		  #ifdef USE_AVX2
+			printf("On modpow-loop entry: start_index = %u,\n\tfx0-2 = %20.15f, %20.15f\n",start_index, *fx0[0]);
+		  #else
 			printf("On modpow-loop entry: start_index = %u,\n\tfx0-2 = %20.15f, %20.15f, %20.15f, %20.15f\n",start_index, *fx0[0],*fx1[0],*fx2[0]);
+		  #endif
 		  }
 		#endif
 
@@ -5382,10 +5412,12 @@ if(~pshift != p+78) {
 		{//	p = 17732269; k[0] = k[1] = k[2] = k[3] = 133912345560ull;	// Debug
 			const char func[] = "twopmodq78_3WORD_DOUBLE_q32";
 			 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
-			uint64 lead7, r = 0, tmp64;
+			uint64 lead7, r = 0;
+		#ifdef USE_AVX512_I
+			uin64 tmp64;
+		#endif
 			static uint64 psave = 0, pshift;
 			static uint32 start_index, zshift, first_entry = TRUE;
-			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 			const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		#ifdef USE_AVX512_I
@@ -5413,7 +5445,7 @@ if(~pshift != p+78) {
 		  #else
 			static	// Following set of pointers only static-izable in single-thread mode
 		  #endif
-			double *fq0[32],*fq1[32],*fq2[32],*fqhi52[32], *fqinv0[32],*fqinv1[32],*fqinv2[32], *fx0[32],*fx1[32],*fx2[32],
+			double *fq0[32],/* *fq1[32],*fq2[32],*fqhi52[32], */ *fqinv0[32],/* *fqinv1[32],*fqinv2[32], */ *fx0[32],*fx1[32],*fx2[32],
 					*two13i, *two26f,*two26i, *two52f,*two52i,
 					kdbl[32];
 			// AVX-512 Foundation lacks the needed DQ extensions, so use HLL to convert kvec entries to double:
@@ -5488,23 +5520,23 @@ if(~pshift != p+78) {
 			  #else
 				/* Remember, these are POINTERS-TO-UINT64, so need an increment of 8 to span an AVX-512 register: */
 				fq0   [0] = sc_ptr + 0x000;
-				fq1   [0] = sc_ptr + 0x020;
-				fq2   [0] = sc_ptr + 0x040;
-				fqhi52[0] = sc_ptr + 0x060;
+				//fq1   [0] = sc_ptr + 0x020;
+				//fq2   [0] = sc_ptr + 0x040;
+				//fqhi52[0] = sc_ptr + 0x060;
 				fqinv0[0] = sc_ptr + 0x080;
-				fqinv1[0] = sc_ptr + 0x0A0;
-				fqinv2[0] = sc_ptr + 0x0C0;
+				//fqinv1[0] = sc_ptr + 0x0A0;
+				//fqinv2[0] = sc_ptr + 0x0C0;
 				fx0   [0] = sc_ptr + 0x0E0;
 				fx1   [0] = sc_ptr + 0x100;
 				fx2   [0] = sc_ptr + 0x120;
 				for(j = 1, itmp = sc_ptr+1; j < 32; j++, itmp++) {
 					fq0   [j] = itmp + 0x000;
-					fq1   [j] = itmp + 0x020;
-					fq2   [j] = itmp + 0x040;
-					fqhi52[j] = itmp + 0x060;
+					//fq1   [j] = itmp + 0x020;
+					//fq2   [j] = itmp + 0x040;
+					//fqhi52[j] = itmp + 0x060;
 					fqinv0[j] = itmp + 0x080;
-					fqinv1[j] = itmp + 0x0A0;
-					fqinv2[j] = itmp + 0x0C0;
+					//fqinv1[j] = itmp + 0x0A0;
+					//fqinv2[j] = itmp + 0x0C0;
 					fx0   [j] = itmp + 0x0E0;
 					fx1   [j] = itmp + 0x100;
 					fx2   [j] = itmp + 0x120;
@@ -5523,7 +5555,7 @@ if(~pshift != p+78) {
 			/***************************************************/
 
 				sc_arr = ALLOC_DOUBLE(sc_arr, 0x1c0*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-				sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
+				sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 				ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			  #ifdef MULTITHREAD
 				__r0  = sc_ptr;
@@ -5550,23 +5582,23 @@ if(~pshift != p+78) {
 			  #else
 				/* Remember, these are POINTERS-TO-DOUBLE, so need an increment of 8 to span an AVX-512 register: */
 				fq0   [0] = sc_ptr + 0x000;
-				fq1   [0] = sc_ptr + 0x020;
-				fq2   [0] = sc_ptr + 0x040;
-				fqhi52[0] = sc_ptr + 0x060;
+				//fq1   [0] = sc_ptr + 0x020;
+				//fq2   [0] = sc_ptr + 0x040;
+				//fqhi52[0] = sc_ptr + 0x060;
 				fqinv0[0] = sc_ptr + 0x080;
-				fqinv1[0] = sc_ptr + 0x0A0;
-				fqinv2[0] = sc_ptr + 0x0C0;
+				//fqinv1[0] = sc_ptr + 0x0A0;
+				//fqinv2[0] = sc_ptr + 0x0C0;
 				fx0   [0] = sc_ptr + 0x0E0;
 				fx1   [0] = sc_ptr + 0x100;
 				fx2   [0] = sc_ptr + 0x120;
 				for(j = 1, dptr = sc_ptr+1; j < 32; j++, dptr++) {
 					fq0   [j] = dptr + 0x000;
-					fq1   [j] = dptr + 0x020;
-					fq2   [j] = dptr + 0x040;
-					fqhi52[j] = dptr + 0x060;
+					//fq1   [j] = dptr + 0x020;
+					//fq2   [j] = dptr + 0x040;
+					//fqhi52[j] = dptr + 0x060;
 					fqinv0[j] = dptr + 0x080;
-					fqinv1[j] = dptr + 0x0A0;
-					fqinv2[j] = dptr + 0x0C0;
+					//fqinv1[j] = dptr + 0x0A0;
+					//fqinv2[j] = dptr + 0x0C0;
 					fx0   [j] = dptr + 0x0E0;
 					fx1   [j] = dptr + 0x100;
 					fx2   [j] = dptr + 0x120;
@@ -5600,23 +5632,23 @@ if(~pshift != p+78) {
 
 			/* Remember, these are POINTERS-TO-UINT64, so need an increment of 8 to span an AVX-512 register: */
 			fq0   [0] = sc_ptr + 0x000;
-			fq1   [0] = sc_ptr + 0x020;
-			fq2   [0] = sc_ptr + 0x040;
-			fqhi52[0] = sc_ptr + 0x060;
+			//fq1   [0] = sc_ptr + 0x020;
+			//fq2   [0] = sc_ptr + 0x040;
+			//fqhi52[0] = sc_ptr + 0x060;
 			fqinv0[0] = sc_ptr + 0x080;
-			fqinv1[0] = sc_ptr + 0x0A0;
-			fqinv2[0] = sc_ptr + 0x0C0;
+			//fqinv1[0] = sc_ptr + 0x0A0;
+			//fqinv2[0] = sc_ptr + 0x0C0;
 			fx0   [0] = sc_ptr + 0x0E0;
 			fx1   [0] = sc_ptr + 0x100;
 			fx2   [0] = sc_ptr + 0x120;
 			for(j = 1, itmp = sc_ptr+1; j < 32; j++, itmp++) {
 				fq0   [j] = itmp + 0x000;
-				fq1   [j] = itmp + 0x020;
-				fq2   [j] = itmp + 0x040;
-				fqhi52[j] = itmp + 0x060;
+				//fq1   [j] = itmp + 0x020;
+				//fq2   [j] = itmp + 0x040;
+				//fqhi52[j] = itmp + 0x060;
 				fqinv0[j] = itmp + 0x080;
-				fqinv1[j] = itmp + 0x0A0;
-				fqinv2[j] = itmp + 0x0C0;
+				//fqinv1[j] = itmp + 0x0A0;
+				//fqinv2[j] = itmp + 0x0C0;
 				fx0   [j] = itmp + 0x0E0;
 				fx1   [j] = itmp + 0x100;
 				fx2   [j] = itmp + 0x120;
@@ -5630,23 +5662,23 @@ if(~pshift != p+78) {
 
 			/* Remember, these are POINTERS-TO-DOUBLE, so need an increment of 8 to span an AVX-512 register: */
 			fq0   [0] = sc_ptr + 0x000;
-			fq1   [0] = sc_ptr + 0x020;
-			fq2   [0] = sc_ptr + 0x040;
-			fqhi52[0] = sc_ptr + 0x060;
+			//fq1   [0] = sc_ptr + 0x020;
+			//fq2   [0] = sc_ptr + 0x040;
+			//fqhi52[0] = sc_ptr + 0x060;
 			fqinv0[0] = sc_ptr + 0x080;
-			fqinv1[0] = sc_ptr + 0x0A0;
-			fqinv2[0] = sc_ptr + 0x0C0;
+			//fqinv1[0] = sc_ptr + 0x0A0;
+			//fqinv2[0] = sc_ptr + 0x0C0;
 			fx0   [0] = sc_ptr + 0x0E0;
 			fx1   [0] = sc_ptr + 0x100;
 			fx2   [0] = sc_ptr + 0x120;
 			for(j = 1, dptr = sc_ptr+1; j < 32; j++, dptr++) {
 				fq0   [j] = dptr + 0x000;
-				fq1   [j] = dptr + 0x020;
-				fq2   [j] = dptr + 0x040;
-				fqhi52[j] = dptr + 0x060;
+				//fq1   [j] = dptr + 0x020;
+				//fq2   [j] = dptr + 0x040;
+				//fqhi52[j] = dptr + 0x060;
 				fqinv0[j] = dptr + 0x080;
-				fqinv1[j] = dptr + 0x0A0;
-				fqinv2[j] = dptr + 0x0C0;
+				//fqinv1[j] = dptr + 0x0A0;
+				//fqinv2[j] = dptr + 0x0C0;
 				fx0   [j] = dptr + 0x0E0;
 				fx1   [j] = dptr + 0x100;
 				fx2   [j] = dptr + 0x120;
@@ -5880,7 +5912,7 @@ if(~pshift != p+78) {
 				"kmovw	%%esi,%%k1					\n\t	kmovw	%%esi,%%k2					\n\t	kmovw	%%esi,%%k3					\n\t	kmovw	%%esi,%%k4					\n\t"/* Init opmask k1 (Only need the low byte) */\
 		"vpgatherqq (%%rbx,%%zmm4),%%zmm5%{%%k1%}	\n\tvpgatherqq (%%rbx,%%zmm11),%%zmm12%{%%k2%}\n\tvpgatherqq (%%rbx,%%zmm18),%%zmm19%{%%k3%}\n\tvpgatherqq (%%rbx,%%zmm25),%%zmm26%{%%k4%}\n\t"/* minv8 is a byte-table ... instruction sets mask-reg = 0, so each col uses separate same-valued k-reg */\
 				"vpandq	%%zmm3,%%zmm5,%%zmm3		\n\t	vpandq	%%zmm10,%%zmm12,%%zmm10		\n\t	vpandq	%%zmm17,%%zmm19,%%zmm17		\n\t	vpandq	%%zmm24,%%zmm26,%%zmm24		\n\t"/* Iterative qinv-computation doesn't care about the garbage upper 7 bytes of each qword
-			/* Newton iteration as described in comment above this asm: q0-2 in zmm0-2, qinv0-2 in zmm3-5; currently only have low byte of qinv: */\
+			// Newton iteration as described in comment above this asm: q0-2 in zmm0-2, qinv0-2 in zmm3-5; currently only have low byte of qinv: */\
 				"movq	$2,%%rcx					\n\t"\
 				"vpbroadcastq	%%rcx,%%zmm30		\n\t"/* vector-int64 2 */\
 			/* 1. q-data are 32-bit (of which we need the low 16, but just use q32 and VPMULLD), qinv are 8-bit: */\
@@ -6129,10 +6161,12 @@ if(~pshift != p+78) {
 		{
 			const char func[] = "twopmodq78_3WORD_DOUBLE_q64";
 			 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
-			uint64 lead7, r = 0, tmp64;
+			uint64 lead7, r = 0;
+		#ifdef USE_AVX512_I
+			uint64 tmp64;
+		#endif
 			static uint64 psave = 0, pshift;
 			static uint32 start_index, zshift, first_entry = TRUE;
-			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 			const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		#ifdef USE_AVX512_I
@@ -6146,7 +6180,7 @@ if(~pshift != p+78) {
 		  #else
 			static	// Following set of pointers only static-izable in single-thread mode
 		  #endif
-			uint64 *fq0[64],*fq1[64],*fq2[64],*fqhi52[64], *fqinv0[64],*fqinv1[64],*fqinv2[64], *fx0[64],*fx1[64],*fx2[64],
+			uint64 *fq0[64],/* *fq1[64],*fq2[64],*fqhi52[64] */, *fqinv0[64],/* *fqinv1[64],*fqinv2[64], */ *fx0[64],*fx1[64],*fx2[64],
 					*mask_lo26,*mask_lo52;
 			for(j = 0; j < 64; j++) {
 				ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
@@ -6160,7 +6194,7 @@ if(~pshift != p+78) {
 		  #else
 			static	// Following set of pointers only static-izable in single-thread mode
 		  #endif
-			double *fq0[64],*fq1[64],*fq2[64],*fqhi52[64], *fqinv0[64],*fqinv1[64],*fqinv2[64], *fx0[64],*fx1[64],*fx2[64],
+			double *fq0[64],/* *fq1[64],*fq2[64],*fqhi52[64], */ *fqinv0[64],/* *fqinv1[64],*fqinv2[64], */ *fx0[64],*fx1[64],*fx2[64],
 					*two13i, *two26f,*two26i, *two52f,*two52i,
 					kdbl[64];
 			// AVX-512 Foundation lacks the needed DQ extensions, so use HLL to convert kvec entries to double:
@@ -6235,23 +6269,23 @@ if(~pshift != p+78) {
 			  #else
 				/* Remember, these are POINTERS-TO-UINT64, so need an increment of 8 to span an AVX-512 register: */
 				fq0   [0] = sc_ptr + 0x000;
-				fq1   [0] = sc_ptr + 0x040;
-				fq2   [0] = sc_ptr + 0x080;
-				fqhi52[0] = sc_ptr + 0x0C0;
+				//fq1   [0] = sc_ptr + 0x040;
+				//fq2   [0] = sc_ptr + 0x080;
+				//fqhi52[0] = sc_ptr + 0x0C0;
 				fqinv0[0] = sc_ptr + 0x100;
-				fqinv1[0] = sc_ptr + 0x140;
-				fqinv2[0] = sc_ptr + 0x180;
+				//fqinv1[0] = sc_ptr + 0x140;
+				//fqinv2[0] = sc_ptr + 0x180;
 				fx0   [0] = sc_ptr + 0x1C0;
 				fx1   [0] = sc_ptr + 0x200;
 				fx2   [0] = sc_ptr + 0x240;
 				for(j = 1, itmp = sc_ptr+1; j < 64; j++, itmp++) {
 					fq0   [j] = itmp + 0x000;
-					fq1   [j] = itmp + 0x040;
-					fq2   [j] = itmp + 0x080;
-					fqhi52[j] = itmp + 0x0C0;
+					//fq1   [j] = itmp + 0x040;
+					//fq2   [j] = itmp + 0x080;
+					//fqhi52[j] = itmp + 0x0C0;
 					fqinv0[j] = itmp + 0x100;
-					fqinv1[j] = itmp + 0x140;
-					fqinv2[j] = itmp + 0x180;
+					//fqinv1[j] = itmp + 0x140;
+					//fqinv2[j] = itmp + 0x180;
 					fx0   [j] = itmp + 0x1C0;
 					fx1   [j] = itmp + 0x200;
 					fx2   [j] = itmp + 0x240;
@@ -6270,7 +6304,7 @@ if(~pshift != p+78) {
 			/***************************************************/
 
 				sc_arr = ALLOC_DOUBLE(sc_arr, 0x380*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-				sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
+				sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 				ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			  #ifdef MULTITHREAD
 				__r0  = sc_ptr;
@@ -6297,23 +6331,23 @@ if(~pshift != p+78) {
 			  #else
 				/* Remember, these are POINTERS-TO-DOUBLE, so need an increment of 8 to span an AVX-512 register: */
 				fq0   [0] = sc_ptr + 0x000;
-				fq1   [0] = sc_ptr + 0x040;
-				fq2   [0] = sc_ptr + 0x080;
-				fqhi52[0] = sc_ptr + 0x0C0;
+				//fq1   [0] = sc_ptr + 0x040;
+				//fq2   [0] = sc_ptr + 0x080;
+				//fqhi52[0] = sc_ptr + 0x0C0;
 				fqinv0[0] = sc_ptr + 0x100;
-				fqinv1[0] = sc_ptr + 0x140;
-				fqinv2[0] = sc_ptr + 0x180;
+				//fqinv1[0] = sc_ptr + 0x140;
+				//fqinv2[0] = sc_ptr + 0x180;
 				fx0   [0] = sc_ptr + 0x1C0;
 				fx1   [0] = sc_ptr + 0x200;
 				fx2   [0] = sc_ptr + 0x240;
 				for(j = 1, dptr = sc_ptr+1; j < 64; j++, dptr++) {
 					fq0   [j] = dptr + 0x000;
-					fq1   [j] = dptr + 0x040;
-					fq2   [j] = dptr + 0x080;
-					fqhi52[j] = dptr + 0x0C0;
+					//fq1   [j] = dptr + 0x040;
+					//fq2   [j] = dptr + 0x080;
+					//fqhi52[j] = dptr + 0x0C0;
 					fqinv0[j] = dptr + 0x100;
-					fqinv1[j] = dptr + 0x140;
-					fqinv2[j] = dptr + 0x180;
+					//fqinv1[j] = dptr + 0x140;
+					//fqinv2[j] = dptr + 0x180;
 					fx0   [j] = dptr + 0x1C0;
 					fx1   [j] = dptr + 0x200;
 					fx2   [j] = dptr + 0x240;
@@ -6347,23 +6381,23 @@ if(~pshift != p+78) {
 
 			/* Remember, these are POINTERS-TO-UINT64, so need an increment of 8 to span an AVX-512 register: */
 			fq0   [0] = sc_ptr + 0x000;
-			fq1   [0] = sc_ptr + 0x040;
-			fq2   [0] = sc_ptr + 0x080;
-			fqhi52[0] = sc_ptr + 0x0C0;
+			//fq1   [0] = sc_ptr + 0x040;
+			//fq2   [0] = sc_ptr + 0x080;
+			//fqhi52[0] = sc_ptr + 0x0C0;
 			fqinv0[0] = sc_ptr + 0x100;
-			fqinv1[0] = sc_ptr + 0x140;
-			fqinv2[0] = sc_ptr + 0x180;
+			//fqinv1[0] = sc_ptr + 0x140;
+			//fqinv2[0] = sc_ptr + 0x180;
 			fx0   [0] = sc_ptr + 0x1C0;
 			fx1   [0] = sc_ptr + 0x200;
 			fx2   [0] = sc_ptr + 0x240;
 			for(j = 1, itmp = sc_ptr+1; j < 64; j++, itmp++) {
 				fq0   [j] = itmp + 0x000;
-				fq1   [j] = itmp + 0x040;
-				fq2   [j] = itmp + 0x080;
-				fqhi52[j] = itmp + 0x0C0;
+				//fq1   [j] = itmp + 0x040;
+				//fq2   [j] = itmp + 0x080;
+				//fqhi52[j] = itmp + 0x0C0;
 				fqinv0[j] = itmp + 0x100;
-				fqinv1[j] = itmp + 0x140;
-				fqinv2[j] = itmp + 0x180;
+				//fqinv1[j] = itmp + 0x140;
+				//fqinv2[j] = itmp + 0x180;
 				fx0   [j] = itmp + 0x1C0;
 				fx1   [j] = itmp + 0x200;
 				fx2   [j] = itmp + 0x240;
@@ -6377,23 +6411,23 @@ if(~pshift != p+78) {
 
 			/* Remember, these are POINTERS-TO-DOUBLE, so need an increment of 8 to span an AVX-512 register: */
 			fq0   [0] = sc_ptr + 0x000;
-			fq1   [0] = sc_ptr + 0x040;
-			fq2   [0] = sc_ptr + 0x080;
-			fqhi52[0] = sc_ptr + 0x0C0;
+			//fq1   [0] = sc_ptr + 0x040;
+			//fq2   [0] = sc_ptr + 0x080;
+			//fqhi52[0] = sc_ptr + 0x0C0;
 			fqinv0[0] = sc_ptr + 0x100;
-			fqinv1[0] = sc_ptr + 0x140;
-			fqinv2[0] = sc_ptr + 0x180;
+			//fqinv1[0] = sc_ptr + 0x140;
+			//fqinv2[0] = sc_ptr + 0x180;
 			fx0   [0] = sc_ptr + 0x1C0;
 			fx1   [0] = sc_ptr + 0x200;
 			fx2   [0] = sc_ptr + 0x240;
 			for(j = 1, dptr = sc_ptr+1; j < 64; j++, dptr++) {
 				fq0   [j] = dptr + 0x000;
-				fq1   [j] = dptr + 0x040;
-				fq2   [j] = dptr + 0x080;
-				fqhi52[j] = dptr + 0x0C0;
+				//fq1   [j] = dptr + 0x040;
+				//fq2   [j] = dptr + 0x080;
+				//fqhi52[j] = dptr + 0x0C0;
 				fqinv0[j] = dptr + 0x100;
-				fqinv1[j] = dptr + 0x140;
-				fqinv2[j] = dptr + 0x180;
+				//fqinv1[j] = dptr + 0x140;
+				//fqinv2[j] = dptr + 0x180;
 				fx0   [j] = dptr + 0x1C0;
 				fx1   [j] = dptr + 0x200;
 				fx2   [j] = dptr + 0x240;
@@ -6529,7 +6563,7 @@ if(~pshift != p+78) {
 				"kmovw	%%esi,%%k1					\n\t	kmovw	%%esi,%%k2					\n\t	kmovw	%%esi,%%k3					\n\t	kmovw	%%esi,%%k4					\n\t"/* Init opmask k1 (Only need the low byte) */\
 		"vpgatherqq (%%rbx,%%zmm4),%%zmm5%{%%k1%}	\n\tvpgatherqq (%%rbx,%%zmm11),%%zmm12%{%%k2%}\n\tvpgatherqq (%%rbx,%%zmm18),%%zmm19%{%%k3%}\n\tvpgatherqq (%%rbx,%%zmm25),%%zmm26%{%%k4%}\n\t"/* minv8 is a byte-table ... instruction sets mask-reg = 0, so each col uses separate same-valued k-reg */\
 				"vpandq	%%zmm3,%%zmm5,%%zmm3		\n\t	vpandq	%%zmm10,%%zmm12,%%zmm10		\n\t	vpandq	%%zmm17,%%zmm19,%%zmm17		\n\t	vpandq	%%zmm24,%%zmm26,%%zmm24		\n\t"/* Iterative qinv-computation doesn't care about the garbage upper 7 bytes of each qword
-			/* Newton iteration as described in comment above this asm: q0-2 in zmm0-2, qinv0-2 in zmm3-5; currently only have low byte of qinv: */\
+			// Newton iteration as described in comment above this asm: q0-2 in zmm0-2, qinv0-2 in zmm3-5; currently only have low byte of qinv: */\
 				"movq	$2,%%rcx					\n\t"\
 				"vpbroadcastq	%%rcx,%%zmm30		\n\t"/* vector-int64 2 */\
 			/* 1. q-data are 32-bit (of which we need the low 16, but just use q32 and VPMULLD), qinv are 8-bit: */\
@@ -6664,7 +6698,7 @@ if(~pshift != p+78) {
 				"kmovw	%%esi,%%k1					\n\t	kmovw	%%esi,%%k2					\n\t	kmovw	%%esi,%%k3					\n\t	kmovw	%%esi,%%k4					\n\t"/* Init opmask k1 (Only need the low byte) */\
 		"vpgatherqq (%%rbx,%%zmm4),%%zmm5%{%%k1%}	\n\tvpgatherqq (%%rbx,%%zmm11),%%zmm12%{%%k2%}\n\tvpgatherqq (%%rbx,%%zmm18),%%zmm19%{%%k3%}\n\tvpgatherqq (%%rbx,%%zmm25),%%zmm26%{%%k4%}\n\t"/* minv8 is a byte-table ... instruction sets mask-reg = 0, so each col uses separate same-valued k-reg */\
 				"vpandq	%%zmm3,%%zmm5,%%zmm3		\n\t	vpandq	%%zmm10,%%zmm12,%%zmm10		\n\t	vpandq	%%zmm17,%%zmm19,%%zmm17		\n\t	vpandq	%%zmm24,%%zmm26,%%zmm24		\n\t"/* Iterative qinv-computation doesn't care about the garbage upper 7 bytes of each qword
-			/* Newton iteration as described in comment above this asm: q0-2 in zmm0-2, qinv0-2 in zmm3-5; currently only have low byte of qinv: */\
+			// Newton iteration as described in comment above this asm: q0-2 in zmm0-2, qinv0-2 in zmm3-5; currently only have low byte of qinv: */\
 				"movq	$2,%%rcx					\n\t"\
 				"vpbroadcastq	%%rcx,%%zmm30		\n\t"/* vector-int64 2 */\
 			/* 1. q-data are 32-bit (of which we need the low 16, but just use q32 and VPMULLD), qinv are 8-bit: */\
