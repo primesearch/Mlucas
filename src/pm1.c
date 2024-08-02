@@ -2616,7 +2616,7 @@ ERR_RETURN:
 		__asm__ volatile (\
 		"ldr w0,%[__nloop]	\n\t"\
 			"ldr	x1,%[__aptr]	\n\t	ldr	x2,%[__bptr]	\n\t	ldr	x3,%[__cptr]	\n\t"\
-		"loop0:	\n\t"\
+		"loop%=:	\n\t"\
 			"ldp	q0,q1,[x1]				\n\t	ldp	q8 ,q9 ,[x2      ]		\n\t"\
 			"ldp	q2,q3,[x1,#0x20]		\n\t	ldp	q10,q11,[x2,#0x20]		\n\t"\
 			"ldp	q4,q5,[x1,#0x40]		\n\t	ldp	q12,q13,[x2,#0x40]		\n\t"\
@@ -2632,7 +2632,7 @@ ERR_RETURN:
 			"stp	q6,q7,[x3,#0x60]		\n\t	add	x3,x3,#0x80				\n\t"\
 		"sub	w0,w0,#1	\n\t"/* decrement loop counter */\
 		"cmp	w0,0		\n\t"/* loop end; continue is via jump-back if w0 != 0 */\
-		"bgt	loop0		\n\t"\
+		"bgt	loop%=		\n\t"\
 			:					// outputs: none
 			: [__nloop] "m" (nloop)	/* All inputs from memory addresses here */\
 			 ,[__aptr] "m" (aptr)	\
