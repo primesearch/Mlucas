@@ -49,7 +49,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 	{\
 		double *add0,*add1,*add2;\
 		add0 = (double *)__twid_ptr;	/* add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here */\
-		ASSERT(HERE, add0 != 0x0, "Null add0 pointer!");\
+		ASSERT(add0 != 0x0, "Null add0 pointer!");\
 		add1 = add0 + 16;	/* add1 points to block of memory temporarily used to store the corresponding sine data */\
 		add2 = add0 + 32;	/* add2 points to block of memory temporarily used to store the 11 [0-padded to 12]
 							cosine data which need to be divided by other cosines (i.e. multiplied by inverses) */\
@@ -134,7 +134,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		*add2++ = __cF;	/* cF, will get multiplied by 1/c7 to yield __cF7 */\
 \
 		/* This places us at add0 == c8 and add1 = c12. */\
-		ASSERT(HERE, add0 == (double *)__twid_ptr+16 && add1 == (double *)__twid_ptr+32 && add2 == (double *)__twid_ptr+44, "add0,1,2 checksum failed in AVX2 sincos inits!");\
+		ASSERT(add0 == (double *)__twid_ptr+16 && add1 == (double *)__twid_ptr+32 && add2 == (double *)__twid_ptr+44, "add0,1,2 checksum failed in AVX2 sincos inits!");\
 	/*
 	At this point, the 11 ymm-sized [32-byte] chunks starting at &__twid_ptr contain the following scalar-double data:
 

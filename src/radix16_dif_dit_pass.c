@@ -210,17 +210,17 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	//	fprintf(stderr, "radix16_dif_dit_pass pfetch_dist = %d\n", pfetch_dist);
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// v19 alloc'ed 72* ... v20 needs [1+1+4+8] = 18 more slots in SSE2 mode, [1+1+2+4] = 8 more in AVX/AVX2 mode, [1+1+1+2] = 5 more in AVX-512 mode,
 		// just use 20 more slots in all cases for simplicity's sake. Further add 12 slots for doubled-into-vectors 6-term Chebyshev expansions of cos, sin:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 104*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 104*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -332,7 +332,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		dtmp = (double)12.56637061435917295376/n;	// twopin = 2*pi/[complex FFT length] = 2*pi/(n/2) = 4*pi/n
 		r1 = __r0 + thr_id*104;
 		isrt2 = r1 + 0x20;
@@ -403,7 +403,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
 	*** 2014: Failure of this assertion led me to find dependence on it in my new AVX2/FMA-based DIT macro ***
 	*** [But fix obviates said dependence, so no longer appropriate to enforce it.] ***
-		ASSERT(HERE, p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");
+		ASSERT(p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");
 	*/
 	iroot_prim=(incr >> 5);		/* (incr/2)/radix_now */
 	for(m=0; m < nloops; m++)	/* NLOOPS may range from 1 (if first pass radix = 16) to P*N/32 (last pass radix = 16).	 */
@@ -543,8 +543,8 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 		// Loop to test various fast alternatives to j/(n>>4) for every j < n/2:
 		for(j = 0; j < (n>>1); j++) {
 			// This fails for e.g. j = 393205 and (n>>4) = 393216:
-			//	ASSERT(HERE, __MULH32(j,imult) == j/(n>>4), "umulh32(j,imult) != j/(n>>4)");
-			ASSERT(HERE, (int)((float)j*fndiv16) == j/(n>>4), "(float)j*fndiv16 != j/(n>>4)");
+			//	ASSERT(__MULH32(j,imult) == j/(n>>4), "umulh32(j,imult) != j/(n>>4)");
+			ASSERT((int)((float)j*fndiv16) == j/(n>>4), "(float)j*fndiv16 != j/(n>>4)");
 		}
 	i = 163397;
 		const double pi4_dbl = (double)0.78539816339744830961, twopin_dbl = 16*pi4_dbl/n;
@@ -556,7 +556,7 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 			scos[0] = cos(gamma[j]); scos[1] = sin(gamma[j]);
 			is0[j] = ((unsigned int)io[j] - 2) < 4; is1[j] = (io[j] > 3);
 			jj[j] = IS_ODD((io[j]+1)>>1);
-			ASSERT(HERE, (int)ff[j] == io[j], "ff != io error!");
+			ASSERT((int)ff[j] == io[j], "ff != io error!");
 			twiddle[j].re = sign[is0[j]]*scos[jj[j]]; twiddle[j].im = sign[is1[j]]*scos[jj[j]^1];
 		}
 	#endif
@@ -988,7 +988,7 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 		*add2++ = rt;	// cF, will get multiplied by 1/c7 to yield __cF7
 
 		// This places us at add0 == c8 and add1 = c12.
-		ASSERT(HERE, add0 == (double *)cc0+16 && add1 == (double *)cc0+32 && add2 == (double *)cc0+44, "add0,1,2 checksum failed in AVX2 sincos inits!");
+		ASSERT(add0 == (double *)cc0+16 && add1 == (double *)cc0+32 && add2 == (double *)cc0+44, "add0,1,2 checksum failed in AVX2 sincos inits!");
 		/*
 		At this point, the 11 ymm-sized [32-byte] chunks starting at &cc0 contain the following scalar-double data:
 
@@ -1621,7 +1621,7 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 		addr += p1;
 		prefetch_p_doubles(addr);
 	  #endif
-		/* Debug: check for overflow of + terms: */	ASSERT(HERE, m1+m17 >= m1 && m2+m18 >= m2,"Overflow of [0,8b] term!");
+		/* Debug: check for overflow of + terms: */	ASSERT(m1+m17 >= m1 && m2+m18 >= m2,"Overflow of [0,8b] term!");
 		a[jt    ]= t1+t17;	a[jp    ]= t2+t18;		b[jt    ]=qreduce( m1+m17   );	b[jp    ]=qreduce( m2+m18   );	// + terms in   0,8b
 		a[jt+p1 ]= t1-t17;	a[jp+p1 ]= t2-t18;		b[jt+p1 ]=qreduce( m1-m17+q4);	b[jp+p1 ]=qreduce( m2-m18+q4);	// - terms in -4b,4b
 		// mpy by E^4=i is inlined here:
@@ -2010,7 +2010,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 #endif
 
 #ifndef COMPILER_TYPE_GCC
-	ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+	ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 #endif
 
 #ifdef USE_SSE2
@@ -2023,15 +2023,15 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 	{
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		ASSERT(thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -2083,7 +2083,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 		r1 = __r0 + thr_id*72;
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
@@ -2108,9 +2108,9 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 	// body (both C and ASM). Since such checks may be runlength-dependent, need to be cheap enough to leave on
 	// all the time, as here where we do them just once prior to entering the processing loop. Since DIF and DIT
 	// encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
-	ASSERT(HERE, p4  == p2+p2, "radix16_dit_pass: p4  != p2+p2!");
-	ASSERT(HERE, p8  == p4+p4, "radix16_dit_pass: p8  != p4+p4!");
-	ASSERT(HERE, p12 == p4+p8, "radix16_dit_pass: p12 != p4+p8!");
+	ASSERT(p4  == p2+p2, "radix16_dit_pass: p4  != p2+p2!");
+	ASSERT(p8  == p4+p4, "radix16_dit_pass: p8  != p4+p4!");
+	ASSERT(p12 == p4+p8, "radix16_dit_pass: p12 != p4+p8!");
 
 	iroot_prim=(incr >> 5);		/* (incr/2)/radix_now */
 
@@ -2398,7 +2398,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		*add1++ = it;	// s15 slot will hold __rF = s15/c15
 
 		// This places us at add0 == c8 and add1 = c12.
-		ASSERT(HERE, add0 == (double *)cc0+16 && add1 == (double *)cc0+32, "add0,1 checksum failed in AVX2 DIT sincos inits!");
+		ASSERT(add0 == (double *)cc0+16 && add1 == (double *)cc0+32, "add0,1 checksum failed in AVX2 DIT sincos inits!");
 		/*
 		At this point, the 8 ymm-sized [32-byte] chunks starting at &cc0 contain the following scalar-double data:
 
@@ -2420,9 +2420,9 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		add0[0x00] = c;
 		add0[0x10] = tan;
 		add0[0x20] = 1.0;
-	//	ASSERT(HERE, *(add0-1) == ISRT2, "Scalar ISRT2 bad!");
+	//	ASSERT(*(add0-1) == ISRT2, "Scalar ISRT2 bad!");
 		c_tmp = cc0 + 0x22;	// 1.0 x 4
-	//	ASSERT(HERE, c_tmp->d0 == 1.0 && c_tmp->d0 == c_tmp->d1 && c_tmp->d0 == c_tmp->d2 && c_tmp->d0 == c_tmp->d3, "1.0 x 4 mismatch!");
+	//	ASSERT(c_tmp->d0 == 1.0 && c_tmp->d0 == c_tmp->d1 && c_tmp->d0 == c_tmp->d2 && c_tmp->d0 == c_tmp->d3, "1.0 x 4 mismatch!");
 
 		/* Scalar data starting at add0 = cc0 now laid out as below:
 

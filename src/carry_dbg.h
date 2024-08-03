@@ -470,7 +470,7 @@ printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,0);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(x+x) <= base[i], "X-output out of range!");\
+ASSERT(fabs(x+x) <= base[i], "X-output out of range!");\
 		x *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -496,7 +496,7 @@ printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,0);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(y+y) <= base[i], "Y-output out of range!");\
+ASSERT(fabs(y+y) <= base[i], "Y-output out of range!");\
 		y *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -528,7 +528,7 @@ printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,set);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(x+x) <= base[i], "X-output out of range!");\
+ASSERT(fabs(x+x) <= base[i], "X-output out of range!");\
 		x *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -554,7 +554,7 @@ printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,set);\
 		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
 check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i]);\
-ASSERT(HERE, fabs(y+y) <= base[i], "Y-output out of range!");\
+ASSERT(fabs(y+y) <= base[i], "Y-output out of range!");\
 		y *= wt;\
 		\
 	  bjmodn -= sw;\
@@ -721,7 +721,7 @@ sign  = ix & himask;\
 mant  = ix & mmask;\
 dexp  = (ix-sign)>>52;\
 shift = 1074 - dexp;\
-/*if(j1==0)printf("0xmant,shift,bits = %20llX  %10d  %10u\n",mant,shift,bits);*/\
+/*if(j1==0)printf("0xmant,shift,bits = %20" PRIX64 "  %10d  %10u\n",mant,shift,bits);*/\
 if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,x,shift);\
 if(shift < 52)\
 {\
@@ -730,15 +730,15 @@ ifrac = mant << (63-shift);\
 if(ifrac > ifracmax) ifracmax=ifrac;\
 mant += ((uint64)1)<<shift;\
 mant  = (mant+two52)>>(shift+1);\
-/*if(j1==0)printf("A: 0xmant = %20llX\n",mant);*/\
+/*if(j1==0)printf("A: 0xmant = %20" PRIX64 "\n",mant);*/\
 mant -= (mant & sign)<<1;\
-/*if(j1==0)printf("B: 0xmant = %20llX\n",mant);*/\
+/*if(j1==0)printf("B: 0xmant = %20" PRIX64 "\n",mant);*/\
 word  = mant & (~(ones << bits));\
-/*if(j1==0)printf("C: 0xword = %20llX\n",word);*/\
+/*if(j1==0)printf("C: 0xword = %20" PRIX64 "\n",word);*/\
 topbit= word >> (bits - 1);\
-/*if(j1==0)printf("D: 0xtbit = %20llX\n",topbit);*/\
+/*if(j1==0)printf("D: 0xtbit = %20" PRIX64 "\n",topbit);*/\
 word -= topbit << bits;\
-/*if(j1==0)printf("E: 0xword = %20llX\n",word);*/\
+/*if(j1==0)printf("E: 0xword = %20" PRIX64 "\n",word);*/\
 x     = wt*(double)word;\
 cy    = (double)( (mant >> bits) + topbit );\
 /*if(j1==0)printf("%20.4f  %20.4f\n",x,cy);*/\

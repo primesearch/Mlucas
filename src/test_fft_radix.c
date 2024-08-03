@@ -324,43 +324,43 @@ void test_fft_radix(void)
 	index        = ALLOC_INT(index       , RADIX);
 	dit_scramble = ALLOC_INT(dit_scramble, RADIX);
 	/* double a[rmul*RADIX], b[rmul*RADIX], arrtmp[rmul*RADIX]: */
-	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array A in test_fft_radix.\n");
+	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT((ptmp != 0x0), "FATAL: unable to allocate array A in test_fft_radix.\n");
 	a    = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
 	ac = (struct complex *)a;
-	ASSERT(HERE, ((long)((void *)a) & 63) == 0x0,"test_fft_radix: A[] not aligned on 64-byte boundary!");
-	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array B in test_fft_radix.\n");
+	ASSERT(((long)((void *)a) & 63) == 0x0,"test_fft_radix: A[] not aligned on 64-byte boundary!");
+	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT((ptmp != 0x0), "FATAL: unable to allocate array B in test_fft_radix.\n");
 	b    = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
-	ASSERT(HERE, ((long)((void *)b) & 63) == 0x0,"test_fft_radix: B[] not aligned on 64-byte boundary!");
+	ASSERT(((long)((void *)b) & 63) == 0x0,"test_fft_radix: B[] not aligned on 64-byte boundary!");
 	bc = (struct complex *)b;
-	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array A_ptmp in test_fft_radix.\n");
+	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT((ptmp != 0x0), "FATAL: unable to allocate array A_ptmp in test_fft_radix.\n");
 	arrtmp = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
-	ASSERT(HERE, ((long)((void *)arrtmp) & 63) == 0x0,"test_fft_radix: arrtmp[] not aligned on 64-byte boundary!");
+	ASSERT(((long)((void *)arrtmp) & 63) == 0x0,"test_fft_radix: arrtmp[] not aligned on 64-byte boundary!");
 	/* struct complex mat[radix][RADIX], *matp[RADIX]: */
-	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT(HERE, (ctmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
+	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT((ctmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
 	matp  = ALIGN_POINTER(ctmpp,struct complex*);
-	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT(HERE, (ctmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
+	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT((ctmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
 	mat   = ALIGN_POINTER(ctmpp,struct complex*);
 	for(i = 0; i < RADIX; ++i) {
-		ctmp = ALLOC_COMPLEX(ctmp, RADIX);	ASSERT(HERE, (ctmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
+		ctmp = ALLOC_COMPLEX(ctmp, RADIX);	ASSERT((ctmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
 		mat[i] = ALIGN_COMPLEX(ctmp);
 		ctmp = 0x0;	/* Must re-init pointer so the realloc used by the ALLOC macro allocates new fresh memory for each row */
 	}
   #ifdef USE_FGT61
-	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT(HERE, (iptr != 0x0), "FATAL: unable to allocate array AMOD in test_fft_radix.\n");
+	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT((iptr != 0x0), "FATAL: unable to allocate array AMOD in test_fft_radix.\n");
 	amod = ALIGN_UINT64(iptr);	iptr = 0x0;
 	am = (uint128 *)amod;
-	ASSERT(HERE, ((long)((void *)amod) & 63) == 0x0,"test_fft_radix: AMOD[] not aligned on 64-byte boundary!");
-	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT(HERE, (iptr != 0x0), "FATAL: unable to allocate array BMOD in test_fft_radix.\n");
+	ASSERT(((long)((void *)amod) & 63) == 0x0,"test_fft_radix: AMOD[] not aligned on 64-byte boundary!");
+	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT((iptr != 0x0), "FATAL: unable to allocate array BMOD in test_fft_radix.\n");
 	bmod = ALIGN_UINT64(iptr);	iptr = 0x0;
-	ASSERT(HERE, ((long)((void *)bmod) & 63) == 0x0,"test_fft_radix: BMOD[] not aligned on 64-byte boundary!");
+	ASSERT(((long)((void *)bmod) & 63) == 0x0,"test_fft_radix: BMOD[] not aligned on 64-byte boundary!");
 	bm = (uint128 *)bmod;
-	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT(HERE, (iptr != 0x0), "FATAL: unable to allocate array A_iptr in test_fft_radix.\n");
-	itmpp = ALLOC_POINTER(itmpp,uint128*, RADIX);	ASSERT(HERE, (itmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
+	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT((iptr != 0x0), "FATAL: unable to allocate array A_iptr in test_fft_radix.\n");
+	itmpp = ALLOC_POINTER(itmpp,uint128*, RADIX);	ASSERT((itmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
 	matmodp  = ALIGN_POINTER(itmpp,uint128*);
-	itmpp = ALLOC_POINTER(itmpp,uint128*, RADIX);	ASSERT(HERE, (itmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
+	itmpp = ALLOC_POINTER(itmpp,uint128*, RADIX);	ASSERT((itmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
 	matmod   = ALIGN_POINTER(itmpp,uint128*);
 	for(i = 0; i < RADIX; ++i) {
-		itmp = ALLOC_UINT128(itmp, RADIX);	ASSERT(HERE, (itmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
+		itmp = ALLOC_UINT128(itmp, RADIX);	ASSERT((itmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
 		matmod[i] = ALIGN_UINT128(itmp);
 		itmp = 0x0;	/* Must re-init pointer so the realloc used by the ALLOC macro allocates new fresh memory for each row */
 	}
@@ -371,8 +371,8 @@ void test_fft_radix(void)
 	/* Power-of-2 component of the DFT length: */
 	pow2 = 1 << trailz32(RADIX);
 	podd = RADIX >> trailz32(RADIX);
-	ASSERT(HERE, RADIX == pow2*podd, "Radix decomposition failed!");
-	ASSERT(HERE, (podd < 16 || podd == 31 || podd == 63), "test_fft_radix: Illegal radix; must be odd*2^n with odd = [3,5,7,9,11,13,15,31,63]");
+	ASSERT(RADIX == pow2*podd, "Radix decomposition failed!");
+	ASSERT((podd < 16 || podd == 31 || podd == 63), "test_fft_radix: Illegal radix; must be odd*2^n with odd = [3,5,7,9,11,13,15,31,63]");
 	/* These may not have been init'ed yet, so do it here: */
 	DAT_BITS = DAT_BITS_DEF;
 	PAD_BITS = PAD_BITS_DEF;
@@ -410,14 +410,14 @@ void test_fft_radix(void)
 #ifdef USE_FGT61
 	order = RADIX;	prim_root_q(order, &root_re,&root_im);	// RADIXth primitive root of unity
 	// primitive 16th root of unity, scaled by *8:
-	ASSERT(HERE, root_re == 1693317751237720973ull && root_im == 2283815672160731785ull,"Bad prim-root[16]!");;
+	ASSERT(root_re == 1693317751237720973ull && root_im == 2283815672160731785ull,"Bad prim-root[16]!");;
 #endif
 	for(i = 0; i < RADIX; i++)
 	{
 		theta = i*twopi/RADIX;
 	#ifdef USE_FGT61
 		pow_modq((uint64)i, root_re,root_im, &m0,&m1);	// m0,m1 = Ith power of prim-root
-		if(i == 0) ASSERT(HERE, m0 == 1ull && m1 == 0ull, "Bad 0th power of prim-root!");
+		if(i == 0) ASSERT(m0 == 1ull && m1 == 0ull, "Bad 0th power of prim-root!");
 		rm = 1ull;	im = 0ull;	// leftmost col has [m0,m1]^0 = [1,0]...
 	//	printf("DFT-int matrix row %d:\n",i);
 	#endif
@@ -429,7 +429,7 @@ void test_fft_radix(void)
 		#ifdef USE_FGT61
 			matmod[i][j].d0 = rm;
 			matmod[i][j].d1 = im;
-	//	printf("\t[%2d] = %20llu, %20llu\n",j, rm,im);
+	//	printf("\t[%2d] = %20" PRIu64 ", %20" PRIu64 "\n",j, rm,im);
 			cmul_modq(m0,m1, rm,im, &rm,&im);	// ... [j]col has [m0,m1]^j
 			rm = qreduce_full(rm);	im = qreduce_full(im);
 		#endif
@@ -443,8 +443,8 @@ void test_fft_radix(void)
 #ifdef USE_SSE2
 	/* In SSE2 mode re-Init data array, using [re,re,im,im] data layout: */
 	i = RADIX-1;	i = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	ASSERT(HERE, i == RADIX-1, "for large radix, need to enable array padding in indexing here!!");
-	ASSERT(HERE, rmul == 4, "!");
+	ASSERT(i == RADIX-1, "for large radix, need to enable array padding in indexing here!!");
+	ASSERT(rmul == 4, "!");
 	for(i = 0; i < RADIX ; i++)
 	{
 		a[ 2*i   *RE_IM_STRIDE  ] = ref[2*i  ];
@@ -719,7 +719,7 @@ void test_fft_radix(void)
 			l = (l - podd)%RADIX;	if(l < 0) { l += RADIX; }
 		}
 	} else {	// Odd-prime or odd-prime-power radix
-		ASSERT(HERE, (nradices == 1 && (radix_prim[0]&1))
+		ASSERT((nradices == 1 && (radix_prim[0]&1))
 				|| (nradices > 1 && (radix_prim[0] == radix_prim[1])), "Unexpected radix-decomposition!");
 	}
 
@@ -957,7 +957,7 @@ void test_fft_radix(void)
 	{
 		j = index[i];
 	#ifdef USE_SSE2
-		ASSERT(HERE, a[2*i*RE_IM_STRIDE] == a[2*i*RE_IM_STRIDE+1] && a[(2*i+1)*RE_IM_STRIDE] == a[(2*i+1)*RE_IM_STRIDE+1], "1/2 components of SSE2-pack mismatch!");
+		ASSERT(a[2*i*RE_IM_STRIDE] == a[2*i*RE_IM_STRIDE+1] && a[(2*i+1)*RE_IM_STRIDE] == a[(2*i+1)*RE_IM_STRIDE+1], "1/2 components of SSE2-pack mismatch!");
 	#endif
 		j1 =  2*i   *RE_IM_STRIDE;	// Real part
 		j2 = (2*i+1)*RE_IM_STRIDE;	// Imag part
@@ -971,10 +971,10 @@ void test_fft_radix(void)
 		// We only deploy FGT-based DFTs once the floating version has been tested, so no point doing the sorting
 		// here, just compare using the (presumably correct) output-index permutations derived for the float code:
 	#ifdef USE_FGT61
-		printf("I = %3u: DIF-ref: %20llu  %20llu,  FGT: %20llu  %20llu",i, bmod[2*j],bmod[2*j+1], amod[j1],amod[j2]);
+		printf("I = %3u: DIF-ref: %20" PRIu64 "  %20" PRIu64 ",  FGT: %20" PRIu64 "  %20" PRIu64,i, bmod[2*j],bmod[2*j+1], amod[j1],amod[j2]);
 		if(bmod[2*j] != amod[j1] || bmod[2*j+1] != amod[j2]) {
 			if(bmod[2*j] != qreduce_full(amod[j1]) || bmod[2*j+1] != qreduce_full(amod[j2])) {
-				printf("\tDiff = %20lld  %20lld\n",bmod[2*j]-amod[j1], bmod[2*j+1]-amod[j2]);
+				printf("\tDiff = %20" PRId64 "  %20" PRId64 "\n",bmod[2*j]-amod[j1], bmod[2*j+1]-amod[j2]);
 			} else {
 				printf("\tMatch (mod q)\n");
 			}
@@ -1058,7 +1058,7 @@ void test_fft_radix(void)
 	avgerr *= iradix;
 	printf("test_fft_radix: %d Mismatches detected in DIF DFT; maxerr = %15.10e, avgerr = %15.10e\n", nerr, maxerr, avgerr);
 	printf("\n");
-	ASSERT(HERE, nerr == 0, "test_fft_radix: Mismatches detected in DIF transform!");
+	ASSERT(nerr == 0, "test_fft_radix: Mismatches detected in DIF transform!");
 
 #endif
 
@@ -1082,12 +1082,12 @@ void test_fft_radix(void)
 /*printf("J = [%3d]: add %6d, %6d\n",j,(int)a[2*j  ],(int)a[2*j+1]);*/
 	}
 /*printf("sum[Re,Im] = %15.5f  %15.5f\n",t0,t2);*/
-	ASSERT(HERE, t0==t1 && t2==t3, "!");
+	ASSERT(t0==t1 && t2==t3, "!");
 	for(i = 0; i < rmul*RADIX ; i+=2)
 	{
 		a[i  ] = arrtmp[i  ];
 		a[i+1] = arrtmp[i+1];
-		ASSERT(HERE, a[i  ] == a[i+1], "!");
+		ASSERT(a[i  ] == a[i+1], "!");
 	}
 
   #else
@@ -1113,7 +1113,7 @@ void test_fft_radix(void)
 		// Since we negated Im-part above, must analogize to q - (pre-negation)a[j2] here:
 		amod[j1] =             a[j1];	// Here, the cast-to-uint64 is implied by the assignment ...
 		amod[j2] = q + (uint64)a[j2];	// ...but here need explicit cast to ensure integer addition.
-		printf("DIT-in[%2u]: float = [%10.5f,%10.5f]; int = [ %llu, q - %llu]\n",i, a[j1],a[j2] ,amod[j1],q - amod[j2]);
+		printf("DIT-in[%2u]: float = [%10.5f,%10.5f]; int = [ %" PRIu64 ", q - %" PRIu64 "]\n",i, a[j1],a[j2] ,amod[j1],q - amod[j2]);
 	#endif
 	}
 
@@ -1290,10 +1290,10 @@ void test_fft_radix(void)
 		// here, just compare using the (presumably correct) output-index permutations derived for the float code:
 	#ifdef USE_FGT61
 		// Flip sign on Im-part of ref-outputs:
-		printf("I = %3u: DIT-ref: %20llu  %20llu,  FGT: %20llu  %20llu",i, bmod[2*i],q-bmod[2*i+1], amod[j1],amod[j2]);
+		printf("I = %3u: DIT-ref: %20" PRIu64 "  %20" PRIu64 ",  FGT: %20" PRIu64 "  %20" PRIu64,i, bmod[2*i],q-bmod[2*i+1], amod[j1],amod[j2]);
 		if(bmod[2*i] != amod[j1] || q-bmod[2*i+1] != amod[j2]) {
 			if(bmod[2*i] != qreduce_full(amod[j1]) || q-bmod[2*i+1] != qreduce_full(amod[j2])) {
-				printf("\tDiff = %20lld  %20lld\n",bmod[2*i]-amod[j1], (q-bmod[2*i+1])-amod[j2]);
+				printf("\tDiff = %20" PRId64 "  %20" PRId64 "\n",bmod[2*i]-amod[j1], (q-bmod[2*i+1])-amod[j2]);
 			} else {
 				printf("\tMatch (mod q)\n");
 			}
@@ -1369,7 +1369,7 @@ void test_fft_radix(void)
 	avgerr *= iradix;
 	printf("test_fft_radix: %d Mismatches detected in DIT DFT; maxerr = %15.10e, avgerr = %15.10e\n", nerr, maxerr, avgerr);
 	printf("\n");
-	ASSERT(HERE, nerr == 0, "test_fft_radix: Mismatches detected in DIT transform!");
+	ASSERT(nerr == 0, "test_fft_radix: Mismatches detected in DIT transform!");
 
 #endif
 
@@ -1380,7 +1380,7 @@ void test_fft_radix(void)
 	for(i = 0; i < RADIX ; i++)
 	{
 	#ifdef USE_SSE2
-		ASSERT(HERE, a[2*i*RE_IM_STRIDE] == a[2*i*RE_IM_STRIDE+1] && a[(2*i+1)*RE_IM_STRIDE] == a[(2*i+1)*RE_IM_STRIDE+1], "1/2 components of SSE2-pack mismatch!");
+		ASSERT(a[2*i*RE_IM_STRIDE] == a[2*i*RE_IM_STRIDE+1] && a[(2*i+1)*RE_IM_STRIDE] == a[(2*i+1)*RE_IM_STRIDE+1], "1/2 components of SSE2-pack mismatch!");
 	#endif
 		j1 =  2*i   *RE_IM_STRIDE;
 		j2 = (2*i+1)*RE_IM_STRIDE;
@@ -1396,10 +1396,10 @@ void test_fft_radix(void)
 			printf("%4d  %25.15f  %25.15f, ERR= %15.10e\n",i,a[j1], a[j2], CABS(err_r, err_i));
 		}
 	#ifdef USE_FGT61
-		printf("I = %3u: DIF+DIT ref: [%lld,%lld],  FGT: [%20llu,%20llu]",i, (uint64)arrtmp[2*i],(uint64)arrtmp[2*i+1], amod[j1]/RADIX,amod[j2]/RADIX);
+		printf("I = %3u: DIF+DIT ref: [%" PRId64 ",%" PRId64 "],  FGT: [%20" PRIu64 ",%20" PRIu64 "]",i, (uint64)arrtmp[2*i],(uint64)arrtmp[2*i+1], amod[j1]/RADIX,amod[j2]/RADIX);
 		if((uint64)arrtmp[2*i] != amod[j1]/RADIX || (uint64)arrtmp[2*i+1] != amod[j2]/RADIX) {
 			if((uint64)arrtmp[2*i] != qreduce_full(amod[j1])/RADIX || (uint64)arrtmp[2*i+1] != qreduce_full(amod[j2])/RADIX) {
-				printf("\tMismatch! mod-outputs (mod RADIX) = [%20llu,%20llu]\n",amod[j1]%RADIX, amod[j2]%RADIX);
+				printf("\tMismatch! mod-outputs (mod RADIX) = [%20" PRIu64 ",%20" PRIu64 "]\n",amod[j1]%RADIX, amod[j2]%RADIX);
 			} else {
 				printf("\tMatch (mod q)\n");
 			}
@@ -1411,7 +1411,7 @@ void test_fft_radix(void)
 	avgerr *= iradix;
 	printf("test_fft_radix: %d Mismatches detected in DIF/DIT combo; maxerr = %15.10e, avgerr = %15.10e\n", nerr, maxerr, avgerr);
 	printf("\n");
-	ASSERT(HERE, nerr == 0, "test_fft_radix: Mismatches detected in DIF/DIT combo!");
+	ASSERT(nerr == 0, "test_fft_radix: Mismatches detected in DIF/DIT combo!");
 
 #endif
 	printf("");
@@ -1481,7 +1481,7 @@ void matmul_fgtmod(uint128 **mat, uint128 vec_in[], uint128 vec_out[], int nrow,
 			cmul_modq(mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, &rm,&im);
 			// CMUL_MODQ outputs in 0,4b - must feed to qreduce() prior to accumulating:
 			rm = qreduce(rm);	im = qreduce(im);
-	//	if(!i) printf("\t[%2d] = [%llu,%llu] * [%llu,%llu] = [%llu,%llu]\n",j, mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, rm,im);
+	//	if(!i) printf("\t[%2d] = [%" PRIu64 ",%" PRIu64 "] * [%" PRIu64 ",%" PRIu64 "] = [%" PRIu64 ",%" PRIu64 "]\n",j, mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, rm,im);
 			rm += vec_out[i].d0;
 			im += vec_out[i].d1;
 			// Normalize to ensure accumulated sum in [0,q-1]:

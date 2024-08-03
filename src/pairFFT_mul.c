@@ -122,7 +122,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 	static int init_sse2 = FALSE;
 	int thr_id = -1;	// No multithread support yet.
 
-	ASSERT(HERE, ((uint32)FFT_MUL_BASE >> 16) == 1, "FFT_MUL_BASE != 2^16");
+	ASSERT(((uint32)FFT_MUL_BASE >> 16) == 1, "FFT_MUL_BASE != 2^16");
 
 	/***
 	Having a separate init block for the big index array allows us to init this prior
@@ -131,7 +131,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 	if(INIT_ARRAYS)
 	{
 		/* In init mode, x-input array used for temporary storage: */
-		ASSERT(HERE, x != 0x0, "if INIT_ARRAYS = TRUE, x-input array must be non-null!");
+		ASSERT(x != 0x0, "if INIT_ARRAYS = TRUE, x-input array must be non-null!");
 
 		/* Reset this on an INIT_ARRAYS call to ensure that the
 		radix_set != radix_set_save code below gets executed in that case: */
@@ -145,7 +145,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		n2inv = 1.0/(N2);
 
 		/* Only power-of-2 FFT lengths supported for now: */
-		ASSERT(HERE, (n>>trailz32(n)) == 1,"Only power-of-2 FFT lengths supported!");
+		ASSERT((n>>trailz32(n)) == 1,"Only power-of-2 FFT lengths supported!");
 
 		// Use get_fft_radices' zero-index radix set (guaranteed to be available if the FFT length is supported)
 		// to find how many different radsets available at this length, then loop over them (including the 0-one)
@@ -157,13 +157,13 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			retval = get_fft_radices(n>>10, radix_set, &NRADICES, RADIX_VEC, 10);
 			if(retval == ERR_FFTLENGTH_ILLEGAL) {
 				sprintf(char_str, "ERROR: length %d = %d K not available.\n", n, n>>10);
-				ASSERT(HERE, 0, char_str);
+				ASSERT(0, char_str);
 			} else if(retval == ERR_RADIXSET_UNAVAILABLE) {
 				sprintf(char_str, "ERROR: radix set %10d not available.\n",radix_set);
-				ASSERT(HERE, 0, char_str);
+				ASSERT(0, char_str);
 			} else if(retval != 0) {
 				sprintf(char_str, "ERROR: unknown return value %d from get_fft_radix; N = %d, kblocks = %u, radset = %u.\n", retval, n, kblocks, radix_set);
-				ASSERT(HERE, 0, char_str);
+				ASSERT(0, char_str);
 			}
 			// Make sure n/radix_vec0 >= 1024:
 			if(n/RADIX_VEC[0] < 1024)
@@ -171,7 +171,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			if( (RADIX_VEC[NRADICES-1] == 16) && (RADIX_VEC[0] == 8 || RADIX_VEC[0] == 16 || RADIX_VEC[0] == 32) )
 				break;
 		}
-		ASSERT(HERE, radix_set < nradsets, "Unable to find suitable radix set!");
+		ASSERT(radix_set < nradsets, "Unable to find suitable radix set!");
 		radix_vec0 = RADIX_VEC[0];
 		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)radix_vec0));
 		nchunks = radix_vec0>>1;
@@ -179,24 +179,24 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		/* My array padding scheme requires N/radix_vec0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 		if(n%radix_vec0 != 0) {
-			ASSERT(HERE, 0, "ERROR: RADIX_VEC[0] does not divide N!\n");
+			ASSERT(0, "ERROR: RADIX_VEC[0] does not divide N!\n");
 		}
 
 		/* Make sure n/radix_vec0 is a power of 2: */
 		i = n/radix_vec0;
 		if((i >> trailz32(i)) != 1) {
-			ASSERT(HERE, 0, "ERROR: n/RADIX_VEC[0] not a power of 2!\n");
+			ASSERT(0, "ERROR: n/RADIX_VEC[0] not a power of 2!\n");
 		}
 
 		/*...Set the array padding parameters - only use array padding elements for runlengths > 32K. */
 		if(DAT_BITS < 31) {
 			/*...If array padding turned on, check that the blocklength divides the unpadded runlength...	*/
-			ASSERT(HERE, ((n >> DAT_BITS) << DAT_BITS) == n,"ERROR: blocklength does not divide runlength!");
+			ASSERT(((n >> DAT_BITS) << DAT_BITS) == n,"ERROR: blocklength does not divide runlength!");
 
 			/* Now make sure n/RADIX_VEC[0] is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
 			if(i < (1 << DAT_BITS)) {
 				sprintf(char_str, "ERROR: n/RADIX_VEC[0] must be >= %u!\n", (1 << DAT_BITS));
-				ASSERT(HERE, 0, char_str);
+				ASSERT(0, char_str);
 			}
 		}
 
@@ -217,11 +217,11 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		}
 
 		if(mm*RADIX_VEC[NRADICES-1] != N2) {
-			ASSERT(HERE, 0, "product of radices not equal to complex vector length\n");
+			ASSERT(0, "product of radices not equal to complex vector length\n");
 		}
 
 /*		index = (int *)calloc(k,sizeof(int));	*/
-		index_ptmp = ALLOC_INT(index_ptmp, k);	if(!index_ptmp){ ASSERT(HERE, 0, "unable to allocate array INDEX in pairFFT_mul.\n"); }
+		index_ptmp = ALLOC_INT(index_ptmp, k);	if(!index_ptmp){ ASSERT(0, "unable to allocate array INDEX in pairFFT_mul.\n"); }
 		index      = ALIGN_INT(index_ptmp);
 
 		/*...Forward (DIF) FFT sincos data are in bit-reversed order. We define a separate last-pass twiddles
@@ -242,7 +242,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default :
 			sprintf(char_str, "radix[0] = %d not available.\n",RADIX_VEC[i]);
-			ASSERT(HERE, 0, char_str);
+			ASSERT(0, char_str);
 		}
 
 		for(i=1; i < NRADICES; i++)
@@ -279,7 +279,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 			default :
 				sprintf(char_str, "radix %d not available. Halting...\n",RADIX_VEC[i]);
-				ASSERT(HERE, 0, char_str);
+				ASSERT(0, char_str);
 			}
 		}
 		nradices_prim = l;
@@ -297,7 +297,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 */
 		  default :
 			sprintf(char_str, "ERROR: radix %d not available for _pairFFT dyadic-mul step.\n",RADIX_VEC[NRADICES-1]);
-			ASSERT(HERE, 0, char_str);
+			ASSERT(0, char_str);
 		}
 
 		return;
@@ -307,15 +307,15 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		/* If FORWARD_FFT_ONLY = TRUE, at least the X-ptr should be valid: */
 		n_inputs = 1;
 		if((uint32)FORWARD_FFT_ONLY > 2) {
-			ASSERT(HERE, 0, "FORWARD_FFT_ONLY not a any-nonzero-denotes-TRUE param: legal TRUE-values are 1 and 2!");
+			ASSERT(0, "FORWARD_FFT_ONLY not a any-nonzero-denotes-TRUE param: legal TRUE-values are 1 and 2!");
 		} else if(FORWARD_FFT_ONLY == 1) {
-			ASSERT(HERE, x != 0x0 && z == 0x0, "FORWARD_FFT_ONLY requires X-input nonzero and Z-input null!");
+			ASSERT(x != 0x0 && z == 0x0, "FORWARD_FFT_ONLY requires X-input nonzero and Z-input null!");
 			/* One or two inputs to be processed? */
 			ivec[0] = x;
 			ivec[1] = y;
 			n_inputs += (y != 0x0);
 		} else {	// FORWARD_FFT_ONLY = 0 and 2 behave similarly
-			ASSERT(HERE, x != 0x0 && y != 0x0, "FORWARD_FFT_ONLY = FALSE requires Non-null X,Y-inputs!");
+			ASSERT(x != 0x0 && y != 0x0, "FORWARD_FFT_ONLY = FALSE requires Non-null X,Y-inputs!");
 			/* One input to be processed: */
 			ivec[0] = x;
 			ab_mul = y; cd_mul = z;
@@ -343,14 +343,14 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		for(i = 0; i < NRADICES; i++) {
 			if(RADIX_VEC[i] == 0) {
 				sprintf(cbuf, "RADIX_VEC[i = %d] zero, for i < [NRADICES = %d]!",i,NRADICES);
-				ASSERT(HERE, 0, cbuf);
+				ASSERT(0, cbuf);
 			}
 			radix_set_save[i] = RADIX_VEC[i];
 		}
 		for(i = NRADICES; i < 10; i++) {
 			if(RADIX_VEC[i] != 0) {
 				sprintf(cbuf, "RADIX_VEC[i = %d] nonzero, for i >= [NRADICES = %d]!",i,NRADICES);
-				ASSERT(HERE, 0, cbuf);
+				ASSERT(0, cbuf);
 			}
 			radix_set_save[i] = 0;
 		}
@@ -360,7 +360,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		if(n%radix_vec0 != 0) {
 			sprintf(cbuf  ,"RADIX_VEC[0] does not divide N!\n");
 			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 
 		/* Make sure n/RADIX_VEC[0] is a power of 2: */
@@ -368,7 +368,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		if((i >> trailz32(i)) != 1) {
 			sprintf(cbuf  ,"n/RADIX_VEC[0] not a power of 2!\n");
 			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 
 		if(DAT_BITS < 31) {
@@ -376,14 +376,14 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			if(i < (1 << DAT_BITS)) {
 				sprintf(cbuf  ,"vn/RADIX_VEC[0] must be >= %u!\n", (1 << DAT_BITS));
 				fprintf(stderr,"%s", cbuf);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 
 			/* We also have a lower limit on 2^DAT_BITS set by the pairFFT_mul routine: */
 			if((1 << DAT_BITS) < 2*RADIX_VEC[NRADICES-1]) {
 				sprintf(cbuf  ,"final FFT radix may not exceed = %u!\n", (1 << (DAT_BITS-1)));
 				fprintf(stderr,"%s", cbuf);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 		}
 
@@ -415,14 +415,14 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		NRT_BITS = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5);	NRT = 1 << NRT_BITS;	NRTM1 = NRT - 1;
 		if(n%NRT) {
 			sprintf(cbuf,"ERROR: NRT does not divide N!\n");
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
 		(i.e. will be accessed using the lower lg(NRT) bits of the integer sincos index):
 		*/
 		rt0_ptmp = ALLOC_COMPLEX(rt0_ptmp, NRT);
-		if(!rt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		rt0 = ALIGN_COMPLEX(rt0_ptmp);
 
 		qt     = i64_to_q((int64)N2);
@@ -443,7 +443,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		(and will be accessed using the upper bits, <NRT:31>, of the integer sincos index):
 		*/
 		rt1_ptmp = ALLOC_COMPLEX(rt1_ptmp, n/(2*NRT));
-		if(!rt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		rt1 = ALIGN_COMPLEX(rt1_ptmp);
 
 		qn     = i64_to_q((int64)NRT);
@@ -468,7 +468,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		/* 8/23/2004: Need to allocate an extra element here to account for the padding element that gets inserted when radix_vec0 is odd: */
 
 		block_index = (int *)calloc((radix_vec0+1),sizeof(int));
-		if(!block_index){ sprintf(cbuf,"ERROR: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!block_index){ sprintf(cbuf,"ERROR: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		/*
 		Examples - We only allow powers of 2 here, for the more general case cf. mers_mod_square.c:
 
@@ -522,7 +522,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 				// Do two loop executions:
 				for(j = 0; j < 2; j++)
 				{
-					if(!(l >= 0 && l < radix_vec0)) { sprintf(cbuf,"ERROR 10 in %s.c\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+					if(!(l >= 0 && l < radix_vec0)) { sprintf(cbuf,"ERROR 10 in %s.c\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 					block_index[ii] = l;	//fprintf(stderr,"%3d %3d\n",ii,l);
 					ii++;	// every time we execute this innermost loop (which corresponds to one
 							// block of FFT data being processed), increment the linear array index
@@ -543,14 +543,14 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		}		/* End of Main loop */
 
 		/* arrays storing the index values needed for the parallel-block wrapper/square scheme: */
-		if( !(ws_i            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j1           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2_start     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_k            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_m            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen_sum = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_i            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_j1           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_j2           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_j2_start     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_k            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_m            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_blocklen     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		if( !(ws_blocklen_sum = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		/*...Final DIF pass, wrapper/squaring and initial DIT pass are all done in-place.
 			 This combines data from both the l1 and l2-block, except in the case ii = 0
@@ -583,7 +583,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 					*/
 					default :
 						sprintf(cbuf,"ERROR: Final radix %d not available for %s. Halting...\n",RADIX_VEC[NRADICES-1],func);
-						fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+						fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 				}
 			}
 		}
@@ -614,7 +614,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			radix32_dif_pass1(a,n); break;
 		default :
 			sprintf(cbuf,"ERROR: radix %d not available for dif_pass1. Halting...\n",radix_vec0);
-			ASSERT(HERE, 0,cbuf);
+			ASSERT(0,cbuf);
 		}
 	  }
 		/* Break the remaining portion of the FFT into radix0 blocks, and in each pass of the resulting loop
@@ -648,10 +648,10 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 				case 32 :
 					ierr = radix32_ditN_cy_dif1      (a,n,  0,       0,0x0,0x0,0x0,0x0,0x0,0x0,     0x0,   0,&fracmax,0); break;
 				default :
-					sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+					sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 			}
 			/* Nonzero remaining carries are instantly fatal: */
-			ASSERT(HERE, ierr == 0, "pairFFT_mul: Fatal: carry routine return error!");
+			ASSERT(ierr == 0, "pairFFT_mul: Fatal: carry routine return error!");
 
 		/*...Now do the fractional error check. Any fractional part  > 0.40625 generates a warning...	*/
 		// Dec 2014: Bump threshold up from ( >= 0.4 ) to ( > 0.40625 ):
@@ -678,7 +678,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		radix32_dit_pass1(a,n);	break;
 	  default :
 		sprintf(char_str, "radix %d not available for final IFFT pass!\n",radix_vec0);
-		ASSERT(HERE, 0, char_str);
+		ASSERT(0, char_str);
 	}
 
 	/*...And re-NINT the 'undo pass' data, which may differ from pure-int by some tiny amount: */
@@ -703,7 +703,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 	{
 		fprintf(stderr,"%s: max_fp > 0.01! Value = %20.10f\n",func,max_fp);
 		fprintf(stderr,"Check your build for inadvertent mixing of SSE2 and non-SSE2-enabled files!\n");
-		ASSERT(HERE, max_fp < 0.01,"max_fp < 0.01");
+		ASSERT(max_fp < 0.01,"max_fp < 0.01");
 	}
 
 	// Restore input value of MODULUS_TYPE:
@@ -754,7 +754,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 				radix32_dif_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 			default :
 				sprintf(cbuf,"pairFFT_mul_process_chunk: ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 
 			k    += mm*radix_vec0;
@@ -783,7 +783,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 	*/
 		  default :
 			sprintf(char_str, "pairFFT_mul_process_chunk: ERROR: radix %d not available for dyadic mul step.\n",RADIX_VEC[NRADICES-1]);
-			ASSERT(HERE, 0, char_str);
+			ASSERT(0, char_str);
 		}
 	}
 	/* In forward-FFT-only mode, do none of the IFFT passes: */
@@ -797,7 +797,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 	{
 		/* Get block index of the chunk of contiguous data to be processed: */
 		l = block_index[ii + j];
-		ASSERT(HERE, l >= 0,"pair_FFTmul_process_chunk: l >= 0");
+		ASSERT(l >= 0,"pair_FFTmul_process_chunk: l >= 0");
 
 		/* Quick-n-dirty way of generating the correct starting values of k, mm and incr -
 		simply use the skeleton of the forward (DIF) loop, sans the i = NRADICES-2 pass
@@ -837,7 +837,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 				radix32_dit_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 			default :
 				sprintf(cbuf,"pairFFT_mul_process_chunk: ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]);
-				ASSERT(HERE, 0,cbuf);
+				ASSERT(0,cbuf);
 			}
 		}	/* end i-loop */
 	}	/* end j-loop */

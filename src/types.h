@@ -28,6 +28,9 @@
 
 /* Include any needed level-0 header files: */
 #include "platform.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,10 +41,10 @@ extern "C" {
 /*...useful utility parameters */
 
 #undef TRUE
-#define TRUE	1
+#define TRUE	true
 
 #undef FALSE
-#define FALSE	0
+#define FALSE	false
 
 /* Basic integer types - we assume char/short/int mean 8/16/32 bits, respectively,
 but this assumption gets checked at the start of program execution,
@@ -63,55 +66,22 @@ so we're not flying blind:
 #undef	sint64
 #undef	uint64
 
-#undef	 int64c
-#undef	sint64c
-#undef	uint64c
+typedef          int8_t		 int8;
+typedef          int8_t		sint8;
+typedef uint8_t			uint8;
 
-typedef          char		 int8;
-typedef          char		sint8;
-typedef unsigned char		uint8;
+typedef          int16_t	 int16;
+typedef          int16_t	sint16;
+typedef uint16_t		uint16;
 
-typedef          short		 int16;
-typedef          short		sint16;
-typedef unsigned short		uint16;
+typedef          int32_t	 int32;
+typedef          int32_t	sint32;
+typedef uint32_t		uint32;
 
-typedef          int		 int32;
-typedef          int		sint32;
-typedef unsigned int		uint32;
+typedef          int64_t	 int64;
+typedef          int64_t	sint64;
+typedef uint64_t		uint64;
 
-/* 64-bit int: */
-/* MSVC doesn't like 'long long', and of course MS has their own
-completely non-portable substitute:
-*/
-#if(defined(OS_TYPE_WINDOWS) && defined(COMPILER_TYPE_MSVC))
-	typedef   signed __int64	 int64;
-	typedef   signed __int64	sint64;
-	typedef unsigned __int64	uint64;
-	typedef const  signed __int64	 int64c;
-	typedef const  signed __int64	sint64c;
-	typedef const unsigned __int64	uint64c;
-
-	/* GW: In many cases where the C code is interfacing with the assembly code */
-	/* we must declare variables that are exactly 32-bits wide.  This is the */
-	/* portable way to do this, as the linux x86-64 C compiler defines the */
-	/* long data type as 64 bits.  We also use portable definitions for */
-	/* values that can be either an integer or a pointer. */
-	#if OS_BITS == 64
-		typedef  int64		intptr_t;
-		typedef uint64		uintptr_t;
-	#else
-		typedef  int32		intptr_t;
-		typedef uint32		uintptr_t;
-	#endif
-
-#else
-	typedef          long long	 int64;
-	typedef          long long	sint64;
-	typedef unsigned long long	uint64;
-	typedef const          long long	 int64c;
-	typedef const          long long	sint64c;
-	typedef const unsigned long long	uint64c;
-#endif
 /*
 #ifdef int32_t
 	#warning int32_t already defined!

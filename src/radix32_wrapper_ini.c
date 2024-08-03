@@ -75,7 +75,7 @@ void radix32_wrapper_ini(int n, int radix0, int iblock, int nradices_prim, int r
 				ws_m           [iblock_next] = m           ;
 				ws_blocklen    [iblock_next] = blocklen    ;
 				ws_blocklen_sum[iblock_next] = blocklen_sum;
-			//	printf("%8llu  %20llu  %8llu: init ws_k[%3d] = %10d\n",j1,((uint64)j1*radix0),j2,iblock_next,k);
+			//	printf("%8" PRIu64 "  %20" PRIu64 "  %8" PRIu64 ": init ws_k[%3d] = %10d\n",j1,((uint64)j1*radix0),j2,iblock_next,k);
 				return;
 			}
 	jump_in:	// Entry point for all blocks but the first.
