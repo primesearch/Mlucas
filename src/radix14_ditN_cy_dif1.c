@@ -39,7 +39,7 @@ int radix14_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix7/8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	int n14,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodn10
-		,bjmodn11,bjmodn12,bjmodn13,i,j,j1,j2,jstart,jhi,iroot,root_incr,k1,k2,k,khi,l,outer;
+		,bjmodn11,bjmodn12,bjmodn13,i,j,j1,j2,jstart,jhi,root_incr,k1,k2,k,khi,l,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13, nsave = 0;
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -213,7 +213,6 @@ int radix14_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	*fracmax=0;	/* init max. fractional error	*/
 
-	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
 
 	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
@@ -778,8 +777,6 @@ for(outer=0; outer <= 1; outer++)
 	addr = add0+p13;
 	prefetch_p_doubles(addr);
 	#endif
-			iroot += root_incr;		/* increment sincos index.	*/
-
 		}
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -843,7 +840,6 @@ printf("carries = %10d %10d %10d %10d %10d %10d %10d\n",(int)cy_r0,(int)cy_r1,(i
 		cy_r0 =   -t2 ;	cy_i0 =   +t1 ;
 	}
 
-	iroot = 0;
 	root_incr = 0;
 	scale = prp_mult = 1;
 
