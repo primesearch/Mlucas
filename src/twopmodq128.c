@@ -54,8 +54,9 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 {
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_uint128_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
+	int32 pow;
 #endif
-	 int32 j, pow;	// j needs to be signed because of the LR binary exponentiation
+	 int32 j;	// j needs to be signed because of the LR binary exponentiation
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 lo64;
 	uint128 pshift, qhalf, qinv, x, lo,hi, rsqr;

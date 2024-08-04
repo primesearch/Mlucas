@@ -52,8 +52,9 @@
 // Conventional positive-power version of twopmodq192, returns true mod:
 uint192 twopmmodq192(uint192 p, uint192 q)
 {
-	 int32 j, pow;	// j needs to be signed because of the LR binary exponentiation
+	int32 j;	// j needs to be signed because of the LR binary exponentiation
 #if FAC_DEBUG
+	int32 pow;
 	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 #endif
 	uint32 curr_bit, leadb, start_index, nshift;

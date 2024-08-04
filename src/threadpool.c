@@ -67,6 +67,25 @@ me at: heber.tomer@gmail.com
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
+// MacOS has its own versions of these, in /usr/include/X11/Xthreads.h:
+static void * xmalloc(size_t len) {
+	void *ptr = malloc(len);
+	if (ptr == NULL) {
+		printf("failed to allocate %u bytes\n", (uint32)len);
+		exit(-1);
+	}
+	return ptr;
+}
+
+static void * xcalloc(size_t num, size_t len) {
+	void *ptr = calloc(num, len);
+	if (ptr == NULL) {
+		printf("failed to calloc %u bytes\n", (uint32)(num * len));
+		exit(-1);
+	}
+	return ptr;
+}
+
 	#define THREAD_POOL_DEBUG	0
 
 	#if THREAD_POOL_DEBUG
@@ -255,7 +274,7 @@ me at: heber.tomer@gmail.com
 	 * @param data Contains a pointer to the startup data
 	 * @return NULL.
 	 */
-	#if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__>1)
+	#if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__>1) && defined(CPU_IS_X86)
 
 	/* gcc on win32 needs to force 16-byte stack alignment on
 	   thread entry, as this exceeds what windows may provide; see
@@ -266,8 +285,8 @@ me at: heber.tomer@gmail.com
 	#endif
 	static void *worker_thr_routine(void *data)
 	{
-		char cbuf[STR_MAX_LEN*2];
 	#if INCLUDE_HWLOC
+		char cbuf[STR_MAX_LEN*2];
 		char str[80];
 	#endif
 		struct thread_init *init = (struct thread_init *)data;

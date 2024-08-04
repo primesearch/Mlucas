@@ -316,7 +316,7 @@ __device__
 uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 	int i;
-	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
+	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63);
 	uint64 lo64 = 0ull;
 	ASSERT(len != 0, "mi64_shl: zero-length array!");
 	// Special-casing for 0 shift count:
@@ -490,7 +490,7 @@ __device__
 uint32	mi64_shlc_bits_align(const uint64 x[], uint64 y[], uint32 nbits)
 {
 	uint64 x0,y0,ywindow64;
-	uint32 len = (nbits+63)>>6, i,match = 0, curr_word,curr_bit,main_part,high_part,hi_word_bits = nbits&63;
+	uint32 len = (nbits+63)>>6, i,match = 0, curr_word,curr_bit,main_part,high_part;
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
 	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
 	ASSERT(x && y && len, "mi64_shlc_bits_align: null input pointer or zero-length array!");
@@ -543,7 +543,7 @@ __device__
 uint32	mi64_shlc_bits_limb0(const uint64 x0, const uint64 y[], uint32 nbits)
 {
 	uint64 y0,ywindow64;
-	uint32 len = (nbits+63)>>6, i, curr_word,curr_bit,main_part,high_part,hi_word_bits = nbits&63;
+	uint32 len = (nbits+63)>>6, i, curr_word,curr_bit,main_part,high_part;
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
 	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
 	ASSERT(y && len, "mi64_shlc_bits_limb0: null input pointer or zero-length array!");
@@ -710,10 +710,22 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
   #elif defined(USE_AVX)	// SSE2/AVX - use SSE2 ASM for both cases - do 8 words per ASM-lop pass, must skip x[0:1]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x0F;	uint32 minlen = 9;
   #elif defined(YES_ASM)
-	const uint32 BLOCKLENM1 = 3, BASEADDRMASK = 0x07;	uint32 minlen = 5;
+	const uint32 BLOCKLENM1 = 3/* , BASEADDRMASK = 0x07 */;	uint32 minlen = 5;
   #endif
-	int i, i0 = 0, i1 = 1, use_asm = FALSE, x_misalign = 0, y_misalign = 0;
-	uint32 m64bits = (64-nshift), leftover = 0;
+	int i, i0 = 0, i1 = 1;
+  #ifdef MI64_SHL1_DBG
+	int use_asm = FALSE, x_misalign = 0, y_misalign = 0;
+  #elif defined(YES_ASM)
+	int use_asm = FALSE;
+	#if defined(USE_AVX)
+	int x_misalign = 0;
+	#endif
+	#if !defined(USE_AVX512) && !defined(USE_AVX2) && defined(USE_AVX)
+	int y_misalign = 0;
+	#endif
+	uint32 leftover = 0;
+  #endif
+	uint32 m64bits = (64-nshift);
 	uint64 lo64 = 0ull;
 	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
@@ -772,7 +784,12 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		if( ((uintptr_t)x & 0x7) != 0 || ((uintptr_t)y & 0x7) != 0 )
 			ASSERT(0, "require 8-byte alignment of x,y!");
 		// In SIMD-ASM case, x_misalign = (0,1,2, or 3) how many words x[0] is above next-lower alignment boundary:
-		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;	y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
+	  #if defined(USE_AVX)
+		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;
+	  #endif
+	  #if !defined(USE_AVX512) && !defined(USE_AVX2) && defined(USE_AVX)
+		y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
+	  #endif
 
 		if(len >= minlen) {	// Low-end clean-up loop runs from i = i0 downward thru i = 1 ... x[0] handled separately:
 		  #ifdef USE_AVX2
@@ -1132,7 +1149,7 @@ __device__
 uint64	mi64_shrl_short_ref(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 	int i;
-	uint32 m64bits = (64-nshift), leftover = 0;
+	uint32 m64bits = (64-nshift);
 	uint64 hi64 = 0ull;
 	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
@@ -1166,8 +1183,19 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
   #elif defined(YES_ASM)
 	const uint32 BLOCKLENM1 = 3, BASEADDRMASK = 0x07;	uint32 minlen = 5;
   #endif
-	int i, i0 = 0, i1 = 0, use_asm = FALSE, x_misalign, y_misalign;
-	uint32 m64bits = (64-nshift), leftover = 0;
+	int i, i0 = 0, i1 = 0;
+  #ifdef MI64_SHR1_DBG
+	int use_asm = FALSE, x_misalign, y_misalign;
+	uint32 leftover = 0;
+  #elif defined(YES_ASM)
+	int use_asm = FALSE;
+	int x_misalign;
+	#if !defined(USE_AVX512) && !defined(USE_AVX2) && defined(USE_AVX)
+	int y_misalign;
+	#endif
+	uint32 leftover = 0;
+  #endif
+	uint32 m64bits = (64-nshift);
 	uint64 hi64 = 0ull;
 	ASSERT(len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
@@ -1224,7 +1252,10 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		*/
 		if( ((uintptr_t)x & 0x7) != 0 || ((uintptr_t)y & 0x7) != 0 )
 			ASSERT(0, "require 8-byte alignment of x,y!");
-		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;	y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
+		x_misalign = ((uintptr_t)x & BASEADDRMASK)>>3;
+	  #if !defined(USE_AVX512) && !defined(USE_AVX2) && defined(USE_AVX)
+		y_misalign = ((uintptr_t)y & BASEADDRMASK)>>3;
+	  #endif
 
 		// minlen may have been incr. for alignment purposes, so use_asm not an unconditional TRUE here
 		if(len >= minlen && x_misalign != 0) {	// Low-end clean-up loop runs from i = 0 upward thru i = i0-1
@@ -3035,8 +3066,8 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len, uint64 u[])
 void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 #endif
 {
-	const char func[] = "mi64_sqr_vector";
   #if MI64_SQR_DBG
+	const char func[] = "mi64_sqr_vector";
 	uint32 dbg = STREQ(&s0[convert_mi64_base10_char(s0, x, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 	if(dbg)
 		printf("%s: len = %u\n",func,len);
@@ -3346,8 +3377,11 @@ Could consider some fast way of computing said carry, e.g. computing approximate
 #endif
 void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 {
-	int i0,idx,i,j, lm1 = len-1;	// j must be signed for purposes of loop control
-	uint64 tprod[2], cy;
+	int i0,idx,i,j;	// j must be signed for purposes of loop control
+#if 0
+	int lm1 = len-1;
+#endif
+	uint64 tprod[2];
 	static uint64 *u = 0x0, *v = 0x0;	// Scratch arrays for storing intermediate scalar*vector products
 	static uint32 dimU = 0;
 	ASSERT(len != 0, "zero-length X-array!");
@@ -3955,7 +3989,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
 		const uint32 max_dim = 4096;
 		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], *lo = prod,*hi = 0x0, i64;
-		uint32 nbits, log2_numbits, wlen,wlen2, retval, lenq, alen, q32,qi32;
+		uint32 nbits, log2_numbits, wlen,wlen2, q32,qi32;
 		int i,j, start_index;
 	  #if MI64_PRP_DBG
 		int dbg = STREQ(&cbuf[convert_mi64_base10_char(cbuf, n, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
@@ -4091,7 +4125,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	*/
 	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
 		uint64 npad[2048], prod[2048];
-		uint32 len2 = len+len, wlen, retval, lenq, alen;
+		uint32 len2 = len+len, wlen, lenq;
 		int j, start_index;
 	  #if MI64_PRP_DBG
 		int dbg = STREQ(&cbuf[convert_mi64_base10_char(cbuf, n, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
@@ -4183,8 +4217,8 @@ Test harness code:
 #ifndef __CUDA_ARCH__
 void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 {
-	uint32 i;
 #if defined(USE_AVX512) && !defined(USE_IMCI512)
+	uint32 i;
 	__asm__ volatile (\
 		"movq	%[__a],%%rax				\n\t	vpxorq	%%zmm30,%%zmm30,%%zmm30	\n\t"/* 0.0 */\
 		"movq	%[__b],%%rbx				\n\t	vmovaps		(%%rax),%%zmm0 	\n\t"/* Load uint64 inputs */\
@@ -4214,8 +4248,8 @@ void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 
 void mi64_vcvtpd2uqq(const double a[], uint64 b[])
 {
-	uint32 i;
 #ifdef USE_AVX512
+	uint32 i;
 	__asm__ volatile (\
 		"movq	%[__a],%%rax				\n\t"\
 		:					/* outputs: none */\
@@ -4272,11 +4306,13 @@ Test harness code:
 void mi64_modmul53_batch(const double a[], const double b[], const double m[], double r[])	/* a,b,m,r are ptrs to 32-byte-aligned 256-byte-large memchunk of 32 doubles */
 {
 	// Debug: short-length arrays to gather error-correction statistics:
-	static int32 ierr[100];	static double err[72], *eptr = err;	while((uint64)eptr & 0x3f) { ++eptr; }
-	const double two = 2.0, three = 3.0;	const double *ptwo = &two, *pthree = &three;
+	//static int32 ierr[100];
+	static double err[72], *eptr = err;	while((uint64)eptr & 0x3f) { ++eptr; }
 // ewm: wrap in AVX (not AVX2) prepro flag because my older gcc on the Haswell barfs on the MULXs in this file when built using USE_AVX2, but is OK with the FMA3 portion of AVX2
 #if defined(USE_AVX) && !defined(USE_IMCI512)
   #ifdef USE_AVX512
+	const double two = 2.0;
+	const double *ptwo = &two;
 	const uint32 ndata = 64;	uint32 i;
 	__asm__ volatile (\
 		"movq	%[__a]  ,%%rax			\n\t"\
@@ -4495,6 +4531,8 @@ void mi64_modmul53_batch(const double a[], const double b[], const double m[], d
 		++ierr[(int32)*(eptr+i)+50];
 	}*/
   #else
+	const double two = 2.0, three = 3.0;
+	const double *ptwo = &two, *pthree = &three;
 	const uint32 ndata = 16;	uint32 i;
 	__asm__ volatile (\
 		"movq	%[__a]  ,%%rax			\n\t"\
@@ -4724,10 +4762,11 @@ Test harness code:
 #ifndef __CUDA_ARCH__
 uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 {
-	uint64 r,i64;
+	uint64 r;
 
 #if 0//def YES_ASM
 
+	uint64 i64;
 	static int first_entry = TRUE;
 	if(first_entry) {
 		unsigned short FPUCTRL;
@@ -5604,7 +5643,6 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	// pointers to local storage:
 	static uint64 *xloc = 0x0, *yloc = 0x0;
 	static uint64 *scratch = 0x0;	// "base pointer" for local storage shared by all of the above subarrays
-	uint64 *tmp_ptr;
 	static int lens = 0;	// # of 64-bit ints allocated for current scratch space
   #if MI64_DIV_DBG
 	if(dbg)
@@ -5648,6 +5686,7 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	#if 1
 		scratch = (uint64 *)realloc(scratch, lens*sizeof(uint64));	ASSERT(scratch != 0x0, "alloc fail!");
 	#else
+		uint64 *tmp_ptr;
 		tmp_ptr = (uint64 *)malloc(lens*sizeof(uint64));	ASSERT(tmp_ptr != 0x0, "alloc fail!");
 		free(scratch); scratch = tmp_ptr;
 	#endif
@@ -6044,7 +6083,7 @@ Returns: The (n)th modular power of the twos-complement radix, R^n (mod q).
 #endif
 uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 {
-	const char func[] = "radix_power64";
+//	const char func[] = "radix_power64";
 #if MI64_RAD_POW64_DBG
 	int dbg = 0;	//q == 16357897499336320049ull;
 #endif
@@ -6226,7 +6265,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 #ifndef YES_ASM
 	uint64 tmp;
 #endif
-	uint32 i,nshift;
+	uint32 nshift;
 	uint64 qinv,cy;
 
 	ASSERT(q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
@@ -6249,7 +6288,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 #ifndef YES_ASM
 
 	cy = (uint64)0;
-	for(i = 0; i < len; ++i) {
+	for(uint32 i = 0; i < len; ++i) {
 		tmp  = x[i] - cy;
 		/* Add q if had a borrow - Since we low=half multiply tmp by qinv below and q*qinv == 1 (mod 2^64),
 		   can simply add 1 to tmp*qinv result instead of adding q to the difference here:
@@ -6464,9 +6503,9 @@ int mi64_is_div_by_scalar64_u2(const uint64 x[], uint64 q, uint32 len)
 	int dbg = q == 16357897499336320049ull;//87722769297534671ull;
 #endif
 #ifndef YES_ASM
-	uint64 tmp0,tmp1,bw0,bw1;
+	uint64 tmp0,tmp1;
 #endif
-	uint32 i,len2 = (len>>1),nshift;
+	uint32 len2 = (len>>1),nshift;
 	uint64 qinv,cy0,cy1,rpow;
 
 	ASSERT(q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
@@ -6489,7 +6528,7 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 
 #ifndef YES_ASM
 	cy0 = cy1 = (uint64)0;
-	for(i = 0; i < len2; ++i) {
+	for(uint32 i = 0; i < len2; ++i) {
 		tmp0  = x[i] - cy0;				tmp1 = x[i+len2] - cy1;
 		cy0 = (cy0 > x[i]);				cy1 = (cy1 > x[i+len2]);
 		tmp0 = tmp0*qinv + cy0;			tmp1 = tmp1*qinv + cy1;
@@ -6585,7 +6624,7 @@ int mi64_is_div_by_scalar64_u4(const uint64 x[], uint64 q, uint32 len)
 #if MI64_ISDIV_U4_DBG
 	int dbg = 0;
 #endif
-	uint32 i,len4 = (len>>2),nshift;
+	uint32 len4 = (len>>2),nshift;
 	uint64 qinv,cy0,cy1,cy2,cy3,rpow;
 
 	ASSERT(q > 0, "mi64_is_div_by_scalar64: 0 modulus!");
@@ -6760,8 +6799,8 @@ Returns x % q in function result, and quotient x / q in y-vector, if one is prov
 #endif
 uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 {
-	const char func[] = "mi64_div_by_scalar64";
 #if MI64_DIV_MONT64
+	const char func[] = "mi64_div_by_scalar64";
 	int dbg = q == 0x00000007FFFFFFFFull;
 #endif
 	uint32 i,nshift,lshift = -1,ptr_incr;
@@ -7024,7 +7063,7 @@ uint64 mi64_div_by_scalar64_u2(uint64 x[], uint64 q, uint32 lenu, uint64 y[])	//
 #if MI64_DIV_MONT64_U2
 	int dbg = 0;
 #endif
-	int i,j,npad = (lenu&1),len = lenu + npad,len2 = (len>>1),nshift,lshift = -1;	// Pad to even length
+	int npad = (lenu&1),len = lenu + npad,len2 = (len>>1),nshift,lshift = -1;	// Pad to even length
 	uint64 qinv,cy0,cy1,rpow,rem_save = 0,xsave,itmp64,mask,*iptr0,*iptr1,ptr_incr;
 	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
 	ASSERT(q > 0, "0 modulus!");
@@ -7061,7 +7100,7 @@ See similar behavior for 4-way-split version of the algorithm.
 
 	cy0 = cy1 = (uint64)0;
 	if(!nshift) {	// Odd modulus, with or without quotient computation, uses Algo A
-		for(i = 0; i < len2; ++i) {
+		for(int i = 0; i < len2; ++i) {
 			tmp0  = x[i] - cy0;				tmp1 = x[i+len2] - cy1;
 			cy0 = (cy0 > x[i]);				cy1 = (cy1 > x[i+len2]);
 			tmp0 = tmp0*qinv + cy0;			tmp1 = tmp1*qinv + cy1;
@@ -7079,6 +7118,7 @@ See similar behavior for 4-way-split version of the algorithm.
 			iptr0 = y;	iptr1 = iptr0 + len2;
 			ptr_incr = 1;
 		}
+		int i,j;
 		// Inline right-shift of x-vector with modding - 1 less loop-exec here due to shift-in from next-higher terms:
 		for(i = 0, j = len2; i < len2-1; ++i, ++j, iptr0 += ptr_incr, iptr1 += ptr_incr) {
 			*iptr0 = (x[i] >> nshift) + (x[i+1] << lshift);
@@ -7244,7 +7284,7 @@ See similar behavior for 4-way-split version of the algorithm.
 #ifndef YES_ASM
 
 	bw0 = bw1 = (uint64)0;
-	for(i = 0; i < len2; ++i, ++iptr0, ++iptr1) {
+	for(int i = 0; i < len2; ++i, ++iptr0, ++iptr1) {
 		tmp0  = *iptr0 - bw0 - cy0;		tmp1 = *iptr1 - bw1 - cy1;
 		/*  Since may be working in-place, need an extra temp here due to asymmetry of subtract: */
 		bw0 = (tmp0 > *iptr0);			bw1 = (tmp1 > *iptr1);
@@ -7366,9 +7406,20 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 #if MI64_DIV_MONT64_U4
 	int dbg = 0;
 #endif
-	int i,j,len = (lenu+3) & ~0x3,len2 = (len>>1),len4 = (len>>2),npad = len-lenu,nshift,lshift = -1;	// Pad to multiple-of-4 length
-	uint64 qinv,cy0,cy1,cy2,cy3,rpow,rem_save = 0,itmp64,mask,*iptr0,*iptr1,*iptr2,*iptr3, ptr_incr,ptr_inc2;
-	uint64 *xy_ptr_diff, pads[3];
+	int i,len = (lenu+3) & ~0x3,len4 = (len>>2),npad = len-lenu,nshift,lshift = -1;	// Pad to multiple-of-4 length
+	uint64 qinv,cy0,cy1,cy2,cy3,rpow,rem_save = 0,mask,*iptr0;
+#ifndef YES_ASM
+	int len2 = (len>>1);
+	uint64 *iptr1,*iptr2,*iptr3;
+#else // YES_ASM
+  #ifndef USE_AVX2
+	int len2 = (len>>1);
+	uint64 *iptr1,*iptr2;
+	uint64 ptr_incr,ptr_inc2;
+  #endif
+	uint64 *xy_ptr_diff;
+#endif
+	uint64 pads[3];
 	// Local-alloc-related statics - these should only ever be updated in single-thread mode:
 	static int first_entry = TRUE;
 	static uint32 len_save = 10;	// Initial-alloc values
@@ -7403,11 +7454,15 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		mask = ((uint64)-1 >> lshift);	// Save the bits which would be off-shifted if we actually right-shifted x[]
 		rem_save = x[0] & mask;	// (Which we don`t do since x is read-only; thus we are forced into accounting tricks :)
 		q >>= nshift;
+#ifdef YES_ASM
 		xy_ptr_diff = (uint64*)0;	// In even-modulus case, we use remaindering loop to store a right-justified copy
 				// of the input (x) vector in any output (y) vector, i.e. quotient loop uses y-vector as in-and-output.
+#endif
 	} else {
+#ifdef YES_ASM
 		xy_ptr_diff = (uint64*)((uint64)y - (uint64)x);	// 2-step cast to avoid GCC "initialization makes pointer from integer without a cast" warning
 						// The inner (uint64) casts are needed for the compiler to emit correctly functioning code.
+#endif
 	}
 
 	uint32 q32,qi32;
@@ -7415,14 +7470,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	qi32 = qi32*((uint32)2 - q32*qi32);
 	qi32 = qi32*((uint32)2 - q32*qi32);	qinv = qi32;
 	qinv = qinv*((uint64)2 - q*qinv);
-
-	if(!nshift) {		// If odd modulus, have not yet copied input array to y...
-		iptr0 = (uint64*)x;
-	} else if (y) {		// If even modulus, right-justified copy of input array writen to quotient vec, if available...
-		iptr0 = y;
-	} else {			// ...or into local-alloc scratch vec if no quotient vec [AVX2 mode only;
-		iptr0 = svec;	// otherwise each word of x>>n discarded after it is used in REM accumulation]
-	}
 
 #ifndef YES_ASM
 
@@ -7496,13 +7543,12 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 
 #else
 
-	iptr1 = iptr0 + len4; iptr2 = iptr1 + len4; iptr3 = iptr2 + len4;
-	if(!y) {
-		ptr_incr = 0;
-		ptr_inc2 = 0;	// bytewise distance (iptr2-iptr0) and (iptr3-iptr1)
-	} else {
-		ptr_incr = 8;	// Use bytewise incr in inline-ASM build mode
-		ptr_inc2 = len2<<3;	// bytewise distance (iptr2-iptr0) and (iptr3-iptr1)
+	if(!nshift) {		// If odd modulus, have not yet copied input array to y...
+		iptr0 = (uint64*)x;
+	} else if (y) {		// If even modulus, right-justified copy of input array writen to quotient vec, if available...
+		iptr0 = y;
+	} else {			// ...or into local-alloc scratch vec if no quotient vec [AVX2 mode only;
+		iptr0 = svec;	// otherwise each word of x>>n discarded after it is used in REM accumulation]
 	}
 
   #ifdef USE_AVX2	// AVX2 version: Have a MULX instruction, full 256-bit (YMM-register-width) vector-int support.
@@ -7575,6 +7621,16 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 			// For even-modulus case, use inlined-double-precision (SHRD) dividend-vector shift because SSE2-based
 			// unlikely to be any faster.
 			// Note: MULQ assumes src1 in RAX, src2 in named register, lo"hi output halves into rax:rdx:
+
+	iptr1 = iptr0 + len4; iptr2 = iptr1 + len4; // iptr3 = iptr2 + len4;
+
+	if(!y) {
+		ptr_incr = 0;
+		ptr_inc2 = 0;	// bytewise distance (iptr2-iptr0) and (iptr3-iptr1)
+	} else {
+		ptr_incr = 8;	// Use bytewise incr in inline-ASM build mode
+		ptr_inc2 = len2<<3;	// bytewise distance (iptr2-iptr0) and (iptr3-iptr1)
+	}
 
 	if(!nshift) {	// Odd modulus, with or without quotient computation, uses Algo A
 
@@ -7870,8 +7926,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 
 #else
 
-	iptr2 = iptr0 + len2;
-
 	/*** Bizarrely, the MULX-based version of the quotient loop runs slower than the original on Haswell ***/
   #ifdef USE_AVX2	// Haswell-and-beyond version (Have a MULX instruction)
 					// Note: MULX reg1,reg2,reg3 [AT&T/GCC syntax] assumes src1 in RDX
@@ -7935,6 +7989,8 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 
   #else		// Pre-Haswell version (no MULX instruction)
 			// Note: MULQ assumes src1 in RAX, src2 in named register, lo"hi output halves into rax:rdx:
+
+	iptr2 = iptr0 + len2;
 
 	__asm__ volatile (\
 		"movq	%[__iptr0],%%r10	\n\t"/* Input pointers (point to [x|y]+{0,len2} if q [odd|even] */\
@@ -8307,7 +8363,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	static uint32 lenp_save = 10, lenq_save = 10;	// Initial-alloc values
 	static uint64 *pshift = 0x0, *qhalf = 0x0, *qinv = 0x0, *x = 0x0, *lo = 0x0, *hi = 0x0;
 	 int32 j;	// Current-Bit index j needs to be signed because of the LR binary exponentiation.
-	uint32 retval, idum, pbits;
+	uint32 pbits;
 	uint64 lead_chunk, lo64, cyout;
 	uint32 lenP, lenQ, qbits, log2_numbits, start_index, zshift;
   #if MI64_POW_DBG

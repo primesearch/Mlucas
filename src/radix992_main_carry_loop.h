@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	for(j = jstart; j < jhi; j += stride)
 	{
@@ -40,7 +40,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#else	/* !USE_SSE2 */
 
 	/*...gather the needed data (992 64-bit complex, i.e. 1984 64-bit reals) and do 31 radix-32 transforms...*/
-		for(kk = 0; kk < 32; ++kk) {
+		for(int kk = 0; kk < 32; ++kk) {
 			jj[kk] = ((kk<<5)-kk)<<1;	/* (kk*62) = (kk*31)<<1 */
 		}
 		iptr = o;	// Name offs-array here 'o' rather than 'q' so can use same length-32 array for DIF and DIT index-offsets
@@ -95,14 +95,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				a+j1,iptr,RE_IM_STRIDE,
 				(double *)t,jj,1
 			);
-			for(kk = 0; kk < 32; ++kk)
+			for(int kk = 0; kk < 32; ++kk)
 			{
 				jj[kk] += 2;
 			}
 		}
 		//...and now do 32 radix-31 transforms, with output permutation as described in radix992_dit_pass1:
 		tptr = t;
-		for(kk = 0; kk < 32; ++kk)
+		for(int kk = 0; kk < 32; ++kk)
 		{
 			mask = (-(kk>0));
 			lshift = (kk-1) & mask;
@@ -243,7 +243,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		/*...set0 is slightly different from others; divide work into blocks of RADIX/4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck0(a[j1  ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
@@ -488,7 +488,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tptr += 31;
 		}
 	//...and now do 31 radix-32 transforms:
-		for(kk = 0; kk < 32; ++kk) {
+		for(int kk = 0; kk < 32; ++kk) {
 			jj[kk] = ((kk<<5)-kk)<<1;	// DFT macro takes *real*-double inputs, thus compute doubled offsets k*62
 		}
 		iptr = o;
@@ -543,7 +543,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				(double *)t,jj,   1,
 				a+j1,o,RE_IM_STRIDE
 			);
-			for(kk = 0; kk < 32; ++kk) {
+			for(int kk = 0; kk < 32; ++kk) {
 				jj[kk] += 2;
 			}
 		}

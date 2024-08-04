@@ -160,19 +160,28 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 */
 	const char func[] = "radix992_ditN_cy_dif1";
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
+#ifndef MULTITHREAD
+	int j2,jp,ntmp;
+#endif
 #ifdef USE_SSE2
+	int nbytes;
 	uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 #endif
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
 	// In order to ease the ptr-access for the || routine, lump these 4*ODD_RADIX doubles together with copies of
 	// the 4 in the passed-in bs[2] and bsinv[2] arrays [and used in this 4-double form by the mersenne-mod carry macros]
 	// into a single foo_array[4*(ODD_RADIX+1)], then convert what used to be disparate ODD_RADIX-sized arrays to pointers.
-	static double foo_array[(ODD_RADIX+1)<<2], *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv;
+	static double foo_array[(ODD_RADIX+1)<<2], *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr;
+#ifndef MULTITHREAD
+	static double bs,bsinv;
+#endif
 
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
+#ifdef MULTITHREAD
 	double target_cy = 0;
+#endif
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
@@ -181,7 +190,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifndef MULTITHREAD
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 	static int dif_p20_cperms[62], plo[32],phi[62],jj[32], *iptr;
-	int kk,idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
+	int idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
 	uint64 i64;
 // DIF:
 	// Low parts [p0-f] of output-index perms:
@@ -205,29 +214,43 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
+  #ifndef MULTITHREAD
 	double *addr, *addi;
-	struct complex t[RADIX], *tptr;
 	int *itmp;	// Pointer into the bjmodn array
+  #endif
+	struct complex t[RADIX]
+  #ifndef MULTITHREAD
+	  , *tptr
+  #endif
+	  ;
 	int err;
 	static int first_entry=TRUE;
 
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	static int n_div_nwt;
+  #ifndef MULTITHREAD
 	int col,co2,co3,m,m2;
+  #endif
   #ifdef USE_AVX
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #else
+  #elif !defined(MULTITHREAD)
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
   #endif
+  #ifndef MULTITHREAD
 	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff
+  #endif
 	// indices into weights arrays (mod NWT):
 	static int ii[ODD_RADIX] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
 	/* These are used in conjunction with the langth-ODD_RADIX arrays in the USE_SCALAR_CARRY code flow;
 	In SSE2 mode store doubled versions of these data in the scratch storage accessed via the half_arr pointer: */
-	static int idx_offset, idx_incr, wts_idx_incr = 0, wts_idx_inc2 = 0
-		,icycle[ODD_RADIX],ic;
+	static int wts_idx_incr = 0
+		,icycle[ODD_RADIX];
+  #ifndef MULTITHREAD
+	static int ic;
+  #endif
 #ifdef USE_SSE2
+	static int wts_idx_inc2 = 0;
 	static int jcycle[ODD_RADIX],jc;
   #ifdef USE_AVX
 	static int kcycle[ODD_RADIX];	// NB: kc already declared as part of k0-f set above
@@ -267,7 +290,8 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	static struct cy_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch stuff:
-	static int main_work_units = 0, pool_work_units = 0;
+	//static int main_work_units = 0;
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -278,9 +302,6 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	// Vars needed in scalar mode only:
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
-  #if PFETCH
-	double *addp;
-  #endif
 	int bjmodn[RADIX];
 	double temp,frac,
 		cy_r[RADIX],cy_i[RADIX];
@@ -307,8 +328,10 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	bs_arr    = wtinv_arr + ODD_RADIX;
 	bsinv_arr = bs_arr    + ODD_RADIX;
 
+  #ifndef MULTITHREAD
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+  #endif
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
@@ -1412,9 +1435,11 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		if(RES_SHIFT) {
 			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
 			target_idx = (int)(itmp64 >>  8);	// This still needs to be (mod NDIVR)'ed, but first use unmodded form to compute needed DWT weights
+		#ifdef MULTITHREAD
 			// Compute wt = 2^(target_idx*sw % n)/n and its reciprocal:
 			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
 			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// 0.5*n2inv = 0.5/(n/2) = 1.0/n
+		#endif
 			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
 			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
 			// Now compute the doubles-pointer offset of the target double w.r.to the SIMD s1p00-... data layout:
@@ -1429,10 +1454,14 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
 			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
+		#ifdef MULTITHREAD
 			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
+		#endif
 		} else {
 			target_idx = target_set = 0;
+		#ifdef MULTITHREAD
 			target_cy = -2.0;
+		#endif
 		}
 	}
 
@@ -1670,10 +1699,6 @@ for(outer=0; outer <= 1; outer++)
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
-			col = _col[ithread];
-			co2 = _co2[ithread];
-			co3 = _co3[ithread];
-
 			for(l = 0; l < RADIX; l++) {
 				bjmodn[l] = _bjmodn[l][ithread];
 			}
@@ -1939,10 +1964,11 @@ void radix992_dif_pass1(double a[], int n)
 !
 !...Subroutine to perform an initial radix-992 = 31x32 complex DIF FFT pass on the data in the length-N real vector A.
 */
-	int k,l, j,j1,j2,jp, jj[32], *iptr;
+	int l, j,j1/* ,j2 */, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
 	struct complex t[RADIX], *tptr;
 #if USE_COMPACT_OBJ_CODE
+	int jp;
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 	static int dif_p20_cperms[62], plo[32],phi[31];
 	int idx,pidx, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
@@ -2028,7 +2054,7 @@ void radix992_dif_pass1(double a[], int n)
 			jj[l] = jj[l-1] - 32;
 		}
 		jj[0] = 0;
-		for(k = 0; k < 32; ++k)
+		for(int k = 0; k < 32; ++k)
 		{
 			/* Without the extra auxiliary q-array, the indexing here would be based on the p-array like so:
 			RADIX_31_DIF(
@@ -2059,7 +2085,7 @@ void radix992_dif_pass1(double a[], int n)
 		j1 = j;
 	#endif
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		//j2 = j1+RE_IM_STRIDE;
 
 		/*...gather the needed data (992 64-bit complex, i.e 1984 64-bit reals) and do 32 radix-31 transforms...*/
 	/*
@@ -2263,7 +2289,7 @@ void radix992_dif_pass1(double a[], int n)
 			phi1 + phi[idx+is_even];  // = phi[idx]+p10 for even-idx rows, = phi[idx]     for odd]
 			phi2 + phi[idx+is_odd ];  // = phi[idx]     for even-idx rows, = phi[idx]+p10 for odd]
 		*/
-		for(k = 0; k < 32; ++k) {
+		for(int k = 0; k < 32; ++k) {
 			jj[k] = ((k<<5)-k)<<1;	// DFT macro takes *real*-double inputs, thus compute doubled offsets k*62
 		}
 		iptr = o;
@@ -2326,7 +2352,7 @@ void radix992_dif_pass1(double a[], int n)
 			);
 			iptr += 32;
 		#endif
-			for(k = 0; k < 32; ++k) {
+			for(int k = 0; k < 32; ++k) {
 				jj[k] += 2;
 			}
 		}
@@ -2366,7 +2392,7 @@ void radix992_dit_pass1(double a[], int n)
 !   This routine is designed exclusively to undo the effects of radix992_dif_pass1,
 !   i.e. to reobtain the raw all-integer residue vector at the end of an iteration cycle.
 */
-	int k,l, j,j1,j2,jp, jj[32], *iptr;
+	int l, j,j1/* ,j2 */,jp, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
 	struct complex t[RADIX], *tptr;
 #if USE_COMPACT_OBJ_CODE
@@ -2503,7 +2529,7 @@ void radix992_dit_pass1(double a[], int n)
 		j1 = j;
 	#endif
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		//j2 = j1+RE_IM_STRIDE;
 	/*
 	Gather the needed data (992 64-bit complex) and do 31 radix-32 transforms:
 
@@ -2647,7 +2673,7 @@ void radix992_dit_pass1(double a[], int n)
 		The jj-offsets here are raw real-array offsets, so need to be doubled relative to complex-indexing;
 		The iptr-offset is an index into the length-992 q-array, whose elements implicitly contain the needed doubling.
 		*/
-		for(k = 0; k < 32; ++k) {
+		for(int k = 0; k < 32; ++k) {
 			jj[k] = ((k<<5)-k)<<1;	/* (k*62) = (k*31)<<1 */
 		}
 	#if USE_COMPACT_OBJ_CODE
@@ -2714,7 +2740,7 @@ void radix992_dit_pass1(double a[], int n)
 			);
 			iptr += 32;
 		#endif
-			for(k = 0; k < 32; ++k)
+			for(int k = 0; k < 32; ++k)
 			{
 				jj[k] += 2;
 			}
@@ -2799,7 +2825,7 @@ void radix992_dit_pass1(double a[], int n)
 			lshift = (i-1) & (-(i>0));
 		*/
 		tptr = t;
-		for(k = 0; k < 32; ++k)
+		for(int k = 0; k < 32; ++k)
 		{
 		#if USE_COMPACT_OBJ_CODE
 			mask = (-(k>0));
@@ -2833,14 +2859,14 @@ void radix992_dit_pass1(double a[], int n)
 	cy992_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
-		double *addr,*addi, *add0;
+		double *addr,*addi;
 		struct complex *tptr;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3;
 		int poff[RADIX>>2];
 		// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 		int dif_p20_cperms[62], plo[32],phi[62],jj[32], *iptr;
-		int kk,idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
+		int idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
 		uint64 i64;
 	// DIF:
 		// Low parts [p0-f] of output-index perms:
@@ -2859,7 +2885,7 @@ void radix992_dit_pass1(double a[], int n)
 			0x23014576cdfe89baull,0xcdfe89ba45760132ull,0x4576013289bafedcull,0x89bafedc01327654ull
 		};
 
-		int j,j1,j2,jt,jp,k,l;
+		int j,j1,j2,jt,jp,l;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 		double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff
@@ -2877,12 +2903,8 @@ void radix992_dit_pass1(double a[], int n)
 		int *itmp;	// Pointer into the bjmodn array
 
 	// int data:
-		int iter = thread_arg->iter;
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
-		int target_idx = thread_arg->target_idx;
-		int target_set = thread_arg->target_set;
-		double target_cy  = thread_arg->target_cy;
 		int khi    = thread_arg->khi;
 		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
 		int jstart = thread_arg->jstart;
@@ -2895,7 +2917,7 @@ void radix992_dit_pass1(double a[], int n)
 
 	// double data:
 		double maxerr = thread_arg->maxerr;
-		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double scale = thread_arg->scale;
 		double prp_mult = thread_arg->prp_mult;
 
 	// pointer data:
