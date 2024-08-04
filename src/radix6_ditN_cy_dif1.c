@@ -37,9 +37,9 @@ int radix6_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 !   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
-	int n6,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
+	int n6,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,i,j,j1,j2,jstart,jhi,root_incr,k,khi,l,outer;
 	static uint64 psave = 0;
-	static uint32 bw,sw,bjmodnini,nm1,p1,p2,p3,p4,p5, nsave = 0;
+	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5, nsave = 0;
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	static double s = 0.86602540378443864675, c3m1 = -1.5, radix_inv,n2inv;	/* exp[i*(twopi/6)], cos(twopi/3)-1	*/
 	double rt,it
@@ -104,8 +104,6 @@ int radix6_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	  bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 	  sw    = n - bw;	/* Number of smallwords.	*/
 
-	  nm1   = n-1;
-
 /*   constant index offsets for array load/stores are here.	*/
 
 	  p1 = n6;
@@ -144,7 +142,6 @@ int radix6_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 
 	*fracmax=0;	/* init max. fractional error	*/
 
-	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
 	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
@@ -293,8 +290,6 @@ prefetch_p_doubles(addr);
 addr = add0+p5;
 prefetch_p_doubles(addr);
 #endif
-  iroot += root_incr;		/* increment sincos index.	*/
-
 	  }
 
 	  jstart += nwt;
@@ -324,7 +319,6 @@ prefetch_p_doubles(addr);
 	cy1 = cy0;
 	cy0 = t1;
 
-	iroot = 0;
 	root_incr = 0;
 	scale = prp_mult = 1;
 
