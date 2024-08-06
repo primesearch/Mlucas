@@ -1371,21 +1371,16 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 		/* init carries	*/
 	#ifdef USE_AVX512
-		tmp = cy;
-		for(l = 0; l < RADIX; l += 8, ++tmp) {
-			tmp->d0 = _cy[l  ][ithread];
-			tmp->d1 = _cy[l+1][ithread];
-			tmp->d2 = _cy[l+2][ithread];
-			tmp->d3 = _cy[l+3][ithread];
-			tmp->d4 = _cy[l+4][ithread];
-			tmp->d5 = _cy[l+5][ithread];
-			tmp->d6 = _cy[l+6][ithread];
-			tmp->d7 = _cy[l+7][ithread];
-		}
-	#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 		cy00->d0 = _cy_00[ithread];		cy00->d1 = _cy_01[ithread];		cy00->d2 = _cy_02[ithread];		cy00->d3 = _cy_03[ithread];		cy00->d4 = _cy_04[ithread];		cy00->d5 = _cy_05[ithread];		cy00->d6 = _cy_06[ithread];		cy00->d7 = _cy_07[ithread];
 		cy08->d0 = _cy_08[ithread];		cy08->d1 = _cy_09[ithread];		cy08->d2 = _cy_10[ithread];		cy08->d3 = _cy_11[ithread];		cy08->d4 = _cy_12[ithread];		cy08->d5 = _cy_13[ithread];		cy08->d6 = _cy_14[ithread];		cy08->d7 = _cy_15[ithread];
 		cy16->d0 = _cy_16[ithread];		cy16->d1 = _cy_17[ithread];		cy16->d2 = _cy_18[ithread];		cy16->d3 = _cy_19[ithread];		cy16->d4 = _cy_20[ithread];		cy16->d5 = _cy_21[ithread];		cy16->d6 = _cy_22[ithread];		cy16->d7 = _cy_23[ithread];
+	#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
+		cy00->d0 = _cy_00[ithread];		cy00->d1 = _cy_01[ithread];		cy00->d2 = _cy_02[ithread];		cy00->d3 = _cy_03[ithread];
+		cy04->d0 = _cy_04[ithread];		cy04->d1 = _cy_05[ithread];		cy04->d2 = _cy_06[ithread];		cy04->d3 = _cy_07[ithread];
+		cy08->d0 = _cy_08[ithread];		cy08->d1 = _cy_09[ithread];		cy08->d2 = _cy_10[ithread];		cy08->d3 = _cy_11[ithread];
+		cy12->d0 = _cy_12[ithread];		cy12->d1 = _cy_13[ithread];		cy12->d2 = _cy_14[ithread];		cy12->d3 = _cy_15[ithread];
+		cy16->d0 = _cy_16[ithread];		cy16->d1 = _cy_17[ithread];		cy16->d2 = _cy_18[ithread];		cy16->d3 = _cy_19[ithread];
+		cy20->d0 = _cy_20[ithread];		cy20->d1 = _cy_21[ithread];		cy20->d2 = _cy_22[ithread];		cy20->d3 = _cy_23[ithread];
 	#elif defined(USE_SSE2)
 		cy00->d0 = _cy_00[ithread];		cy00->d1 = _cy_01[ithread];
 		cy02->d0 = _cy_02[ithread];		cy02->d1 = _cy_03[ithread];
