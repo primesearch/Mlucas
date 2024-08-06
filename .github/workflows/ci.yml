@@ -61,6 +61,42 @@ jobs:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
         path: ${{ github.workspace }}
 
+  Singlethread-Linux:
+    name: Mlucas Singlethreaded Linux
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cc: [gcc]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Before script
+      run: |
+        sed -i 's/-DUSE_THREADS//' makemake.sh
+        $CC --version
+    - name: Script
+      run: |
+        set -x
+        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh $mode
+            (cd obj${mode:+_$mode}; make clean)
+            for word in '' 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                (
+                    cd obj_mfac${mode:+_$mode}
+                    make clean
+                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                )
+            done
+        done
+        cd obj
+        time ./Mlucas -s m
+
   ASan-Linux:
     name: AddressSanitizer Linux
 
@@ -242,6 +278,36 @@ jobs:
       with:
         name: ${{ matrix.os }}_mlucas
         path: ${{ github.workspace }}
+
+  Singlethread-macOS:
+    name: Mlucas Singlethreaded macOS
+
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Before script
+      run: |
+        sed -i '' 's/-DUSE_THREADS//' makemake.sh
+        clang --version
+    - name: Script
+      run: |
+        set -x
+        for mode in '' NOSIMD ASIMD; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh $mode
+            (cd obj${mode:+_$mode}; make clean)
+            for word in '' 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                (
+                    cd obj_mfac${mode:+_$mode}
+                    make clean
+                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                )
+            done
+        done
+        cd obj
+        time ./Mlucas -s m
 
   ASan-macOS:
     name: AddressSanitizer macOS
