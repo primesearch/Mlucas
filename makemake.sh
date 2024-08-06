@@ -89,7 +89,7 @@ elif ! command -v gcc >/dev/null; then
 	exit 1
 fi
 
-if [[ ! $OSTYPE =~ ^darwin ]]; then
+if [[ ! $OSTYPE == darwin* ]]; then
 	MAKE_ARGS+=(-O)
 	LD_ARGS+=(-lm -lpthread)
 	if [[ $OSTYPE != msys ]]; then
@@ -238,7 +238,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 
 	DIR+="_$arg"
 
-elif [[ $OSTYPE =~ ^darwin ]]; then
+elif [[ $OSTYPE == darwin* ]]; then
 
 	# MacOS:
 	if (($(sysctl -n hw.optional.avx512f))); then
@@ -263,7 +263,7 @@ elif [[ $OSTYPE =~ ^darwin ]]; then
 		ARGS+=(-march=native)
 	fi
 
-elif [[ $OSTYPE =~ ^linux ]]; then
+elif [[ $OSTYPE == linux* ]]; then
 
 	# Linux:
 	if grep -iq 'avx512' /proc/cpuinfo; then
