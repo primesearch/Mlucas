@@ -53,15 +53,20 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					sn2 =  0.36327126400268044292,	/* [sin(u)-sin(2u)] */
 					radix_inv, n2inv;
 	double rt,it
-		,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
+	  #if 0
+		,t0,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
+	  #endif
+		,t1,t2
 		,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r
 		,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i
 		,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_r8,cy_r9,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14
 		,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7,cy_i8,cy_i9,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14
 		,temp,frac,scale;
 	double maxerr = 0.0;
+#if 0
 #if PFETCH
 	double *add0, *addr;
+#endif
 #endif
 	int err;
 	static int first_entry=TRUE;
