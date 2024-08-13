@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+#endif
 
 /*...The radix-32 DIT pass is here:	*/
 
@@ -599,10 +601,6 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	 #else
 	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
 	 #endif
-		uint32 i0,i1,i2,i3;
-		double wtA,wtB,wtC;
-		const double one_half[3] = {1.0, 0.5, 0.25};
-
 		/************ wt_re,wi_re,wt_im,wi_im inits: **************/
 	   #if 1	// SSE2 inlines-asm-ized version of the scalar-double macro-call sequence in the #else below:
 
@@ -650,6 +648,10 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		SSE2_cmplx_carry_fast_pow2_wtsinit(add1,add2,add3, bjmodn0, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, k0,k1,k2,k3, sse_bw,sse_nm1)
 
 	   #else
+
+		uint32 i0,i1,i2,i3;
+		double wtA,wtB,wtC;
+		const double one_half[3] = {1.0, 0.5, 0.25};
 
 		// First quartet of roots corr. to calling cmplx_carry_norm_pow2_errcheck with loop index j and set = 0-3.
 
@@ -960,9 +962,6 @@ if(!j) {
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
 
-		idx_offset = j;
-		idx_incr = NDIVR;
-
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
 		// Hi-accuracy version needs 2 copies of each base root, one for each invocation of the SSE2_fermat_carry_norm_pow2 carry macri:
@@ -1044,9 +1043,6 @@ if(!j) {
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
-
-		idx_offset = j;
-		idx_incr = NDIVR;
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
@@ -1585,5 +1581,5 @@ if(!j) {
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
+}	/* end for(int k=1; k <= khi; k++) */
 
