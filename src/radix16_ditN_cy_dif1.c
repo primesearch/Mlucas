@@ -202,7 +202,9 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 */
 	const char func[] = "radix16_ditN_cy_dif1";
 	static int NDIVR;
+  #if !defined(MULTITHREAD) && defined(USE_SSE2)
 	const int pfetch_dist = PFETCH_DIST;
+  #endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
   #ifdef USE_AVX512
 	const int jhi_wrap_mers = 15;
@@ -211,19 +213,32 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	const int jhi_wrap_mers =  7;
 	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
   #endif
-	int i,j,j1,j2,jstart,jhi,full_pass,k,khi,l,outer,nbytes;
+	int i,j,j1,j2,full_pass,khi,outer;
+  #ifdef USE_SSE2
+	int nbytes;
+  #endif
+  #ifndef MULTITHREAD
+	int jstart,jhi,l;
 	int col,co2,co3;
-  #ifdef USE_AVX512
+   #ifdef USE_AVX512
 //	double t0,t1,t2,t3;	This routine already has double t1-32 def'd below, so just prepend t0 to those
 	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #elif defined(USE_AVX)
+   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #else
+   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+   #endif
   #endif
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
-	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+  #ifndef MULTITHREAD
+   #if !defined(USE_SSE2) || defined(USE_AVX)
+	double rt,it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+   #endif
+   #ifndef USE_SSE2
+	double wi_re,wi_im;			// Fermat-mod weights stuff, used in both scalar and AVX mode
+   #endif
+  #endif
 	static uint32 bjmodnini, nsave = 0;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
@@ -231,16 +246,29 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
-	static uint32 bw,sw,nm1,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15;
+	static uint32 bw,sw,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15;
+  #if !defined(MULTITHREAD) || defined(USE_SSE2)
+	static uint32 nm1;
+  #endif
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	static int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
+  #endif
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;
 	static double radix_inv,n2inv,scale;	/* Need scale to be static since in the MSVC-only pure-ASM vesrion of the carry step save the address in a static pointer below */
+  #if !defined(MULTITHREAD) && defined(USE_SSE2)
 	double *addr;
-	double dtmp, maxerr = 0.0;
-	double t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
-	double temp,frac
-		,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p8r,a1p9r,a1pAr,a1pBr,a1pCr,a1pDr,a1pEr,a1pFr
-		,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,a1p8i,a1p9i,a1pAi,a1pBi,a1pCi,a1pDi,a1pEi,a1pFi;
+  #endif
+  #if (!defined(MULTITHREAD) && defined(USE_AVX)) || (defined(MULTITHREAD) && defined(USE_SSE2) && !defined(USE_AVX512))
+	double dtmp;
+  #endif
+	double maxerr = 0.0;
+  #if !defined(MULTITHREAD) && defined(USE_AVX512)
+	double t0;
+  #endif
+	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	double temp,frac;
+  #endif
 	int err;
 	static int first_entry=TRUE;
 
@@ -257,28 +285,46 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
+   #ifndef USE_AVX
 	static int idx_offset, idx_incr;
+   #endif
 	double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
   #endif
 
+  #ifndef USE_AVX512
 	const double crnd = 3.0*0x4000000*0x2000000;
+  #endif
+  #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+  #endif
+  #ifndef MULTITHREAD
 	static int *bjmodn0,*bjmodn1,*bjmodn2,*bjmodn3,*bjmodn4,*bjmodn5,*bjmodn6,*bjmodn7,*bjmodn8,*bjmodn9,*bjmodnA,*bjmodnB,*bjmodnC,*bjmodnD,*bjmodnE,*bjmodnF;
-	static double *wt0_ptr, *wt1_ptr, *scale_ptr = &scale;
+  #endif
 	static vec_dbl *cc0, *ss0, *isrt2, *max_err, *sse2_rnd, *half_arr
-		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
-		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F;
-  #ifdef USE_AVX512
+		,*r00
+	#ifndef MULTITHREAD
+		,*r02,*r04,*r06,*r08,*r10,*r18
+	  #ifndef USE_AVX
+		,*r0C,*r14,*r1C
+	  #endif
+	#endif
+		/*,*r01,*r03,*r05,*r07,*r09,*r0A,*r0B,*r0D,*r0E,*r0F
+		,*r11,*r12,*r13,*r15,*r16,*r17,*r19,*r1A,*r1B,*r1D,*r1E,*r1F */;
+  #ifndef MULTITHREAD
+   #ifdef USE_AVX512
 	static vec_dbl *cy_r0,*cy_r8, *cy_i0,*cy_i8;
-  #elif defined(USE_AVX)
+   #elif defined(USE_AVX)
 	static vec_dbl *cy_r0,*cy_r4,*cy_r8,*cy_rC, *cy_i0,*cy_i4,*cy_i8,*cy_iC;
-  #else	// SSE2:
+   #else	// SSE2:
 	static vec_dbl *cy_r0,*cy_r2,*cy_r4,*cy_r6,*cy_r8,*cy_rA,*cy_rC,*cy_rE, *cy_i0,*cy_i2,*cy_i4,*cy_i6,*cy_i8,*cy_iA,*cy_iC,*cy_iE;
+   #endif
   #endif
 
   #ifdef USE_AVX	// AVX and above:
 	static vec_dbl *base_negacyclic_root;
+   #ifndef MULTITHREAD
 	int k1,k2;
+   #endif
   #endif
 
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
@@ -289,7 +335,10 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 
 	static struct cy_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch stuff:
-	static int main_work_units = 0, pool_work_units = 0;
+  #if 0//def OS_TYPE_MACOSX
+	static int main_work_units = 0;
+  #endif
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -302,9 +351,6 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int jt,jp,k1,k2,m,m2,ntmp;
 	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
-  #if PFETCH
-	double *addp;
-  #endif
 	int bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodnA,bjmodnB,bjmodnC,bjmodnD,bjmodnE,bjmodnF;
 	double cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_r8,cy_r9,cy_rA,cy_rB,cy_rC,cy_rD,cy_rE,cy_rF,
 			cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7,cy_i8,cy_i9,cy_iA,cy_iB,cy_iC,cy_iD,cy_iE,cy_iF;
@@ -328,7 +374,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 #endif
 
 /*...stuff for the multithreaded implementation is here:	*/
-	static uint32 nt_save = 0xffffffff, CY_THREADS = 0,pini;
+	static uint32 CY_THREADS = 0,pini;
 	int ithread,j_jhi;
 	uint32 ptr_prod;
 	static int *_bjmodn0 = 0x0,*_bjmodn1 = 0x0,*_bjmodn2 = 0x0,*_bjmodn3 = 0x0,*_bjmodn4 = 0x0,*_bjmodn5 = 0x0,*_bjmodn6 = 0x0,*_bjmodn7 = 0x0,*_bjmodn8 = 0x0,*_bjmodn9 = 0x0,*_bjmodnA = 0x0,*_bjmodnB = 0x0,*_bjmodnC = 0x0,*_bjmodnD = 0x0,*_bjmodnE = 0x0,*_bjmodnF = 0x0;
@@ -342,8 +388,10 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	WARN(HERE, "radix16_ditN_cy_dif1: No k1om / IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
   #endif
 
+  #ifndef MULTITHREAD
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+  #endif
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
@@ -413,7 +461,9 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		l2_n2 = trailz32(N2);
 // ******* For carry step, also need the 16 values of bimodnmod61 for i = j*(n/radix0), j = 0,...,15 ************
 	#endif
+	  #if !defined(MULTITHREAD) || defined(USE_SSE2)
 		nm1   = n-1;
+	  #endif
 
 	  #define CARRY_8_WAY	// Make default due to higher accuracy
 
@@ -491,7 +541,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 
 			#else
 
-				main_work_units = 0;
+				//main_work_units = 0;
 				pool_work_units = CY_THREADS;
 				ASSERT(0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
 
@@ -557,35 +607,46 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	#ifdef USE_PTHREAD
 		__r0 = sc_ptr;
 	#endif
-		r00 = sc_ptr + 0x00;		r01 = sc_ptr + 0x01;
-		r02 = sc_ptr + 0x02;		r03 = sc_ptr + 0x03;
-		r04 = sc_ptr + 0x04;		r05 = sc_ptr + 0x05;
-		r06 = sc_ptr + 0x06;		r07 = sc_ptr + 0x07;
-		r08 = sc_ptr + 0x08;		r09 = sc_ptr + 0x09;
-		r0A = sc_ptr + 0x0a;		r0B = sc_ptr + 0x0b;
-		r0C = sc_ptr + 0x0c;		r0D = sc_ptr + 0x0d;
-		r0E = sc_ptr + 0x0e;		r0F = sc_ptr + 0x0f;
-		r10 = sc_ptr + 0x10;		r11 = sc_ptr + 0x11;
-		r12 = sc_ptr + 0x12;		r13 = sc_ptr + 0x13;
-		r14 = sc_ptr + 0x14;		r15 = sc_ptr + 0x15;
-		r16 = sc_ptr + 0x16;		r17 = sc_ptr + 0x17;
-		r18 = sc_ptr + 0x18;		r19 = sc_ptr + 0x19;
-		r1A = sc_ptr + 0x1a;		r1B = sc_ptr + 0x1b;
-		r1C = sc_ptr + 0x1c;		r1D = sc_ptr + 0x1d;
-		r1E = sc_ptr + 0x1e;		r1F = sc_ptr + 0x1f;
+		r00 = sc_ptr + 0x00;		//r01 = sc_ptr + 0x01;
+	#ifndef MULTITHREAD
+		r02 = sc_ptr + 0x02;		//r03 = sc_ptr + 0x03;
+		r04 = sc_ptr + 0x04;		//r05 = sc_ptr + 0x05;
+		r06 = sc_ptr + 0x06;		//r07 = sc_ptr + 0x07;
+		r08 = sc_ptr + 0x08;		//r09 = sc_ptr + 0x09;
+		//r0A = sc_ptr + 0x0a;		r0B = sc_ptr + 0x0b;
+	  #ifndef USE_AVX
+		r0C = sc_ptr + 0x0c;		//r0D = sc_ptr + 0x0d;
+	  #endif
+		//r0E = sc_ptr + 0x0e;		r0F = sc_ptr + 0x0f;
+		r10 = sc_ptr + 0x10;		//r11 = sc_ptr + 0x11;
+		//r12 = sc_ptr + 0x12;		r13 = sc_ptr + 0x13;
+	  #ifndef USE_AVX
+		r14 = sc_ptr + 0x14;		//r15 = sc_ptr + 0x15;
+	  #endif
+		//r16 = sc_ptr + 0x16;		r17 = sc_ptr + 0x17;
+		r18 = sc_ptr + 0x18;		//r19 = sc_ptr + 0x19;
+		//r1A = sc_ptr + 0x1a;		r1B = sc_ptr + 0x1b;
+	  #ifndef USE_AVX
+		r1C = sc_ptr + 0x1c;		//r1D = sc_ptr + 0x1d;
+	  #endif
+		//r1E = sc_ptr + 0x1e;		r1F = sc_ptr + 0x1f;
+	#endif
 	  isrt2 = sc_ptr + 0x20;
 		cc0 = sc_ptr + 0x21;
 		ss0 = sc_ptr + 0x22;	// +34 vec_dbl slots
 		tmp = ss0 + 0x2;	// +36; Only need incr = 1 but prefer an even offset
 	#ifdef USE_AVX512
+	  #ifndef MULTITHREAD
 		 cy_r0 = tmp + 0x00;
 		 cy_r8 = tmp + 0x01;
 		 cy_i0 = tmp + 0x02;
 		 cy_i8 = tmp + 0x03;
+	  #endif
 		max_err = tmp + 0x04;
 		sse2_rnd= tmp + 0x05;
 		half_arr= tmp + 0x06;	// 36 + 6 = 42 = half_arr_offset16
 	#elif defined(USE_AVX)
+	  #ifndef MULTITHREAD
 		 cy_r0 = tmp + 0x00;
 		 cy_r4 = tmp + 0x01;
 		 cy_r8 = tmp + 0x02;
@@ -594,10 +655,12 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		 cy_i4 = tmp + 0x05;
 		 cy_i8 = tmp + 0x06;
 		 cy_iC = tmp + 0x07;
+	  #endif
 		max_err = tmp + 0x08;
 		sse2_rnd= tmp + 0x09;
 		half_arr= tmp + 0x0a;	// 36 + 10 = 46 = half_arr_offset16; This table needs 20x16 bytes
 	#else
+	  #ifndef MULTITHREAD
 		 cy_r0 = tmp + 0x00;		cy_r2 = tmp + 0x01;
 		 cy_r4 = tmp + 0x02;		cy_r6 = tmp + 0x03;
 		 cy_r8 = tmp + 0x04;		cy_rA = tmp + 0x05;
@@ -606,6 +669,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		 cy_i4 = tmp + 0x0a;		cy_i6 = tmp + 0x0b;
 		 cy_i8 = tmp + 0x0c;		cy_iA = tmp + 0x0d;
 		 cy_iC = tmp + 0x0e;		cy_iE = tmp + 0x0f;
+	  #endif
 		max_err = tmp + 0x10;
 		sse2_rnd= tmp + 0x11;
 		half_arr= tmp + 0x12;	// 36 + 18 = 54 = half_arr_offset16; This table needs 20x16 bytes
@@ -1005,16 +1069,20 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 	nbytes = 4 << L2_SZ_VD;
 
 #ifdef USE_AVX512
+  #ifndef MULTITHREAD
 	n_minus_sil   = (struct uint32x8 *)sse_nm1 + 1;
 	n_minus_silp1 = (struct uint32x8 *)sse_nm1 + 2;
 	sinwt         = (struct uint32x8 *)sse_nm1 + 3;
 	sinwtm1       = (struct uint32x8 *)sse_nm1 + 4;
+  #endif
 	nbytes += 128;
 #elif defined(USE_AVX)
+  #ifndef MULTITHREAD
 	n_minus_sil   = (struct uint32x4 *)sse_nm1 + 1;
 	n_minus_silp1 = (struct uint32x4 *)sse_nm1 + 2;
 	sinwt         = (struct uint32x4 *)sse_nm1 + 3;
 	sinwtm1       = (struct uint32x4 *)sse_nm1 + 4;
+  #endif
 	nbytes += 64;
 #endif
 
@@ -1026,11 +1094,12 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
-	#ifdef USE_AVX
+	#ifndef MULTITHREAD
+	  #ifdef USE_AVX
 		bjmodn0 = (int*)(sinwtm1 + RE_IM_STRIDE);
-	#else
+	  #else
 		bjmodn0 = (int*)(sse_nm1 + RE_IM_STRIDE);
-	#endif
+	  #endif
 		bjmodn1 = bjmodn0 + 1;
 		bjmodn2 = bjmodn1 + 1;
 		bjmodn3 = bjmodn2 + 1;
@@ -1046,6 +1115,7 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		bjmodnD = bjmodnC + 1;
 		bjmodnE = bjmodnD + 1;
 		bjmodnF = bjmodnE + 1;
+	#endif
 
 	#endif	// USE_SSE2
 
@@ -1097,8 +1167,10 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
 		p15 = p15 + ( (p15 >> DAT_BITS) << PAD_BITS );
 
+	#if !defined(MULTITHREAD) && !defined(USE_SSE2)
 		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
 		poff[0x0] =   0; poff[0x1] = p4    ; poff[0x2] = p8; poff[0x3] = p12;
+	#endif
 
 		if(_cy_r0)	/* If it's a new exponent of a range test, need to deallocate these. */
 		{
@@ -3035,12 +3107,23 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	void*
 	cy16_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
+	#ifdef USE_SSE2
 		const int pfetch_dist = PFETCH_DIST;
+	#endif
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+	#if defined(USE_SSE2) && !defined(USE_AVX)
 		int idx_offset,idx_incr;
-		int j,j1,j2,k,l;
+	#endif
+		int j,j1,l;
+	#ifndef USE_SSE2
+		int j2;
+	#endif
+	#ifndef USE_AVX
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+	#endif
+	#ifndef USE_SSE2
 		int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
+	#endif
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;
 		struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
@@ -3049,20 +3132,38 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
-		double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and AVX mode
-		double temp,frac
-			,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p8r,a1p9r,a1pAr,a1pBr,a1pCr,a1pDr,a1pEr,a1pFr
-			,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,a1p8i,a1p9i,a1pAi,a1pBi,a1pCi,a1pDi,a1pEi,a1pFi;
+	#if !defined(USE_SSE2) || defined(USE_AVX)
+		double rt,it, wt_re,wt_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and AVX mode
+	#endif
+	#ifndef USE_SSE2
+		double wi_re,wi_im;			// Fermat-mod/LOACC weights stuff, used in both scalar and AVX mode
+		double temp,frac;
+	#endif
 
 	#ifdef USE_SSE2
 
 		uint32 p1,p2,p3,p4,p8,p12;
 		double *addr, *add0,*add1,*add2,*add3;
+	  #ifndef USE_AVX512
 		const double crnd = 3.0*0x4000000*0x2000000;
+	  #endif
+	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *cc0, *ss0, *isrt2, *max_err, *sse2_rnd, *half_arr, *tmp,*tm2
-			,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
-			,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F;
+	  #endif
+		vec_dbl *cc0, *ss0, *isrt2, *max_err
+		  #if !defined(USE_AVX512)
+			, *sse2_rnd
+		  #endif
+			, *half_arr, *tmp
+		  #if !defined(USE_SSE2) || defined(USE_AVX)
+			,*tm2
+		  #endif
+			,*r00,*r02,*r04,*r06,*r08,*r10,*r18
+		  #ifndef USE_AVX
+			,*r0C,*r14,*r1C
+		  #endif
+			/* ,*r01,*r03,*r05,*r07,*r09,*r0A,*r0B,*r0D,*r0E,*r0F
+			,*r11,*r12,*r13,*r15,*r16,*r17,*r19,*r1A,*r1B,*r1D,*r1E,*r1F */;
 	  #ifdef USE_AVX512
 		vec_dbl *cy_r0,*cy_r8, *cy_i0,*cy_i8;
 	  #elif defined(USE_AVX)
@@ -3081,7 +3182,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	#else
 
 		const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;
-		double *addr, *base, *baseinv;
+		double *base, *baseinv;
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15;
 		// Vars needed in scalar mode only:
 		const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -3111,11 +3212,11 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		struct cy_thread_data_t* thread_arg = targ;
 	// int data:
-		int iter = thread_arg->iter;
-		int ithread = thread_arg->tid;	/* unique thread index (use for debug) */
-
 		int NDIVR = thread_arg->ndivr;
-		int n = NDIVR*RADIX, nm1 = n-1;
+		int n = NDIVR*RADIX;
+	#if !defined(USE_SSE2) && !defined(USE_FGT61)
+		int nm1 = n-1;
+	#endif
 		int target_idx = thread_arg->target_idx;
 		int target_set = thread_arg->target_set;
 		double target_cy  = thread_arg->target_cy;
@@ -3126,12 +3227,18 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		int col = thread_arg->col;
 		int co2 = thread_arg->co2;
 		int co3 = thread_arg->co3;
-		int sw  = thread_arg->sw, bw = n - sw;
+		int sw  = thread_arg->sw;
+	#ifndef USE_SSE2
+		int bw = n - sw;
+	#endif
 		int nwt = thread_arg->nwt;
 
 	// double data:
 		double maxerr = thread_arg->maxerr;
-		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double scale = thread_arg->scale;
+	#ifndef USE_SSE2
+		int full_pass = scale < 0.5;
+	#endif
 		double prp_mult = thread_arg->prp_mult;
 
 	// pointer data:
@@ -3182,27 +3289,33 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		p13 = p13 + ( (p13 >> DAT_BITS) << PAD_BITS );
 		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
 		p15 = p15 + ( (p15 >> DAT_BITS) << PAD_BITS );
-	#endif	// USE_SSE2
 		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
 		poff[0x0] =   0; poff[0x1] = p4    ; poff[0x2] = p8; poff[0x3] = p12;
+	#endif	// USE_SSE2
 
 	#ifdef USE_SSE2
-		r00 = thread_arg->r00;	r01 = r00 + 0x01;
-		r02 = r00 + 0x02;		r03 = r00 + 0x03;
-		r04 = r00 + 0x04;		r05 = r00 + 0x05;
-		r06 = r00 + 0x06;		r07 = r00 + 0x07;
-		r08 = r00 + 0x08;		r09 = r00 + 0x09;
-		r0A = r00 + 0x0a;		r0B = r00 + 0x0b;
-		r0C = r00 + 0x0c;		r0D = r00 + 0x0d;
-		r0E = r00 + 0x0e;		r0F = r00 + 0x0f;
-		r10 = r00 + 0x10;		r11 = r00 + 0x11;
-		r12 = r00 + 0x12;		r13 = r00 + 0x13;
-		r14 = r00 + 0x14;		r15 = r00 + 0x15;
-		r16 = r00 + 0x16;		r17 = r00 + 0x17;
-		r18 = r00 + 0x18;		r19 = r00 + 0x19;
-		r1A = r00 + 0x1a;		r1B = r00 + 0x1b;
-		r1C = r00 + 0x1c;		r1D = r00 + 0x1d;
-		r1E = r00 + 0x1e;		r1F = r00 + 0x1f;
+		r00 = thread_arg->r00;	//r01 = r00 + 0x01;
+		r02 = r00 + 0x02;		//r03 = r00 + 0x03;
+		r04 = r00 + 0x04;		//r05 = r00 + 0x05;
+		r06 = r00 + 0x06;		//r07 = r00 + 0x07;
+		r08 = r00 + 0x08;		//r09 = r00 + 0x09;
+		//r0A = r00 + 0x0a;		r0B = r00 + 0x0b;
+	  #ifndef USE_AVX
+		r0C = r00 + 0x0c;		//r0D = r00 + 0x0d;
+	  #endif
+		//r0E = r00 + 0x0e;		r0F = r00 + 0x0f;
+		r10 = r00 + 0x10;		//r11 = r00 + 0x11;
+		//r12 = r00 + 0x12;		r13 = r00 + 0x13;
+	  #ifndef USE_AVX
+		r14 = r00 + 0x14;		//r15 = r00 + 0x15;
+	  #endif
+		//r16 = r00 + 0x16;		r17 = r00 + 0x17;
+		r18 = r00 + 0x18;		//r19 = r00 + 0x19;
+		//r1A = r00 + 0x1a;		r1B = r00 + 0x1b;
+	  #ifndef USE_AVX
+		r1C = r00 + 0x1c;		//r1D = r00 + 0x1d;
+	  #endif
+		//r1E = r00 + 0x1e;		r1F = r00 + 0x1f;
 	  isrt2 = r00 + 0x20;
 		cc0 = r00 + 0x21;
 		ss0 = r00 + 0x22;
@@ -3213,7 +3326,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		 cy_i0 = tmp + 0x02;
 		 cy_i8 = tmp + 0x03;
 		max_err = tmp + 0x04;
-		sse2_rnd= tmp + 0x05;
+		//sse2_rnd= tmp + 0x05;
 		half_arr= tmp + 0x06;	// 36 + 6 = 42 = half_arr_offset16
 		base_negacyclic_root = half_arr + RADIX;	// Only used for Fermat-mod
 	#elif defined(USE_AVX)
