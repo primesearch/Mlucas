@@ -141,19 +141,37 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix36_ditN_cy_dif1";
+  #if !defined(MULTITHREAD) && defined(USE_SSE2)
 	const int pfetch_dist = PFETCH_DIST;
+  #endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-  #if !defined(USE_SSE2) || (COMPACT_OBJ != 0)
+  #if !defined(MULTITHREAD) && (!defined(USE_SSE2) || (COMPACT_OBJ != 0))
 	static uint32 p0123[4];
   #endif
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+  #endif
   #ifdef USE_AVX512
 	const int jhi_wrap = 15;
   #else
 	const int jhi_wrap =  7;
   #endif
-	int NDIVR,i,incr,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	int NDIVR,i,j,j1,jt,jhi,full_pass,khi,l,outer;
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	int j2,jp;
+  #endif
+  #if !defined(MULTITHREAD) && (!defined(USE_SSE2) || defined(USE_AVX512))
+	int ntmp;
+  #endif
+  #ifndef MULTITHREAD
+	int jstart;
+  #endif
+  #ifdef USE_SSE2
+	int nbytes;
+  #endif
+  #if !defined(MULTITHREAD) && defined(USE_SSE2)
+	int incr;
 	// incr = Carry-chain wts-multipliers recurrence length, which must divide
 	// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = --|--|9 for avx512,avx,sse, respectively:
 	const int incr_long = 9,incr_med = 3, incr_short = 3;
@@ -172,6 +190,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		incr = incr_short;
 	else
 		incr = incr_hiacc;
+  #endif
 
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
@@ -186,43 +205,56 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 					c2  =  0.17364817766693034887,	/* cos(2*u) */
 					s2  =  0.98480775301220805936,	/* sin(2*u) */
-					c3  = -0.50000000000000000000,	/* cos(3*u) */
 					c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
 					s3  =  0.86602540378443864677,	/* sin(3*u) */
 					c4  = -0.93969262078590838404,	/* cos(4*u) */
 					s4  =  0.34202014332566873307;	/* sin(4*u) */
 #endif
+  #ifndef MULTITHREAD
 	double *addr;
+  #endif
 	static double radix_inv, n2inv;
 	double scale, dtmp, maxerr = 0.0;
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX], *tptr;
-	int *itmp,*itm2;	// Pointer into the bjmodn array
+	struct complex t[RADIX];
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	struct complex *tptr;
+  #endif
+  #ifndef MULTITHREAD
+	int *itmp;	// Pointer into the bjmodn array
+  #endif
+  #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
+	int *itm2;	// Pointer into the bjmodn array
+  #endif
 	int err;
 	static int first_entry=TRUE;
 
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	int n_div_nwt;
+  #ifndef MULTITHREAD
 	int col,co2,co3;
-  #ifdef USE_AVX512
+   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
 	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #elif defined(USE_AVX)
+   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #else
+   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
-  #endif
-  #ifdef USE_AVX2
+   #endif
+   #ifdef USE_AVX2
 	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+   #endif
   #endif
 
 #ifdef USE_SSE2
 
+  #if !defined(MULTITHREAD) && defined(USE_AVX512)
 	int i0,i1,i2,i3;
+  #endif
 	static int cslots_in_local_store;
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_n;
@@ -231,20 +263,37 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
-	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8;	/* Addresses into array sections */
+	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
   #endif
 
+  #ifndef MULTITHREAD
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
+  #endif
+  #ifndef USE_AVX512
 	const double crnd = 3.0*0x4000000*0x2000000;
+  #endif
+  #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
+  #endif
+	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
+  #ifndef MULTITHREAD
+	vec_dbl *tm1;	// Non-static utility ptrs
+  #endif
 	static vec_dbl *two,*one, *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr
-		,*r00,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
+		,*r00
+	  #if !defined(MULTITHREAD)
+	   #if !COMPACT_OBJ
+	    ,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
 		,*r10,*r12,*r14,*r16,*r18,*r1a,*r1c,*r1e,*r1g
 		,*r20,*r22,*r24,*r26,*r28,*r2a,*r2c,*r2e,*r2g
 		,*r30,*r32,*r34,*r36,*r38,*r3a,*r3c,*r3e,*r3g
-		,*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17
+	   #endif
+		,*s1p00
+	   #if !COMPACT_OBJ
+		,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17
 		,*s1p18,*s1p19,*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p30,*s1p31,*s1p32,*s1p33,*s1p34,*s1p35
+	   #endif
+	  #endif
 		,*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 
 #endif
@@ -253,7 +302,10 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	static struct cy_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch stuff:
-	static int main_work_units = 0, pool_work_units = 0;
+  #if 0//def OS_TYPE_MACOSX
+	static int main_work_units = 0;
+  #endif
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -297,8 +349,10 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ASSERT(0, "Fermat-mod only available for radices 7,8,9,15 and their multiples!");
 	}
 
+  #ifndef MULTITHREAD
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+  #endif
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
@@ -476,7 +530,9 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		__r0 = sc_ptr;
 	#endif
 		tmp = sc_ptr;			tm2 = tmp + 0x48;
-		r00	= tmp + 0x00;		s1p00 = tm2 + 0x00;
+		r00	= tmp + 0x00;
+	#ifndef MULTITHREAD
+								s1p00 = tm2 + 0x00;
 	  #if !COMPACT_OBJ
 		r02	= tmp + 0x02;		s1p01 = tm2 + 0x02;
 		r04	= tmp + 0x04;		s1p02 = tm2 + 0x04;
@@ -514,6 +570,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		r3e	= tmp + 0x44;		s1p34 = tm2 + 0x44;
 		r3g	= tmp + 0x46;		s1p35 = tm2 + 0x46;
 	  #endif
+	#endif
 		tmp	+= 0x92;	// Extra 2 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
 		two    = tmp - 2;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
 		one    = tmp - 1;
@@ -786,16 +843,20 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		nbytes = 4 << L2_SZ_VD;
 
 	#ifdef USE_AVX512
+	  #ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
 		sinwt         = (struct uint32x8 *)sse_n + 3;
 		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+	  #endif
 		nbytes += 128;
 	#elif defined(USE_AVX)
+	  #ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
+	  #endif
 		nbytes += 64;
 	#endif
 
@@ -808,10 +869,12 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		}
 
 	// For large radices, array-access to bjmodn means only init base-ptr here:
-	#ifdef USE_AVX
+	#ifndef MULTITHREAD
+	  #ifdef USE_AVX
 		bjmodn = (int*)(sinwtm1 + RE_IM_STRIDE);
-	#else
+	  #else
 		bjmodn = (int*)(sse_n   + RE_IM_STRIDE);
+	  #endif
 	#endif
 
 	#endif	// USE_SSE2
@@ -841,7 +904,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p24 = p24 + ( (p24 >> DAT_BITS) << PAD_BITS );
 		p28 = p28 + ( (p28 >> DAT_BITS) << PAD_BITS );
 		p32 = p32 + ( (p32 >> DAT_BITS) << PAD_BITS );
-	#if !defined(USE_SSE2) || (COMPACT_OBJ != 0)
+	#if !defined(MULTITHREAD) && (!defined(USE_SSE2) || (COMPACT_OBJ != 0))
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
 	#endif
 		poff[0] =   0; poff[1] = p04    ; poff[2] = p08; poff[3] = p04+p08;
@@ -1500,7 +1563,6 @@ void radix36_dif_pass1(double a[], int n)
 					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 					c2  =  0.17364817766693034887,	/* cos(2*u) */
 					s2  =  0.98480775301220805936,	/* sin(2*u) */
-					c3  = -0.50000000000000000000,	/* cos(3*u) */
 					c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
 					s3  =  0.86602540378443864677,	/* sin(3*u) */
 					c4  = -0.93969262078590838404,	/* cos(4*u) */
@@ -1630,11 +1692,10 @@ void radix36_dit_pass1(double a[], int n)
 					c2  =  0.17364817766693034887,	/* cos(2*u) */
 					s2  =  0.98480775301220805936,	/* sin(2*u) */
 					c3  = -0.50000000000000000000,	/* cos(3*u) */
-					c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
 					s3  =  0.86602540378443864677,	/* sin(3*u) */
 					c4  = -0.93969262078590838404,	/* cos(4*u) */
 					s4  =  0.34202014332566873307;	/* sin(4*u) */
-	double rt,it,re;
+	double rt,it;
 	struct complex t[RADIX], *tptr;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -1745,11 +1806,21 @@ void radix36_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+	#ifdef USE_SSE2
 		const int pfetch_dist = PFETCH_DIST;
+	#endif
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
 		int poff[RADIX>>2];	// Store mults of p04 offset for loop control
-		int incr,j,j1,j2,jt,jp,k,l,ntmp;
+		int j,j1,l;
+	#ifndef USE_SSE2
+		int j2,jt,jp;
+	#endif
+	#if !defined(USE_SSE2) || defined(USE_AVX512)
+		int ntmp;
+	#endif
+	#ifdef USE_SSE2
+		int incr;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = --|--|9 for avx512,avx,sse, respectively:
 		const int incr_long = 9,incr_med = 3, incr_short = 3;
@@ -1768,8 +1839,11 @@ void radix36_dit_pass1(double a[], int n)
 			incr = incr_short;
 		else
 			incr = incr_hiacc;
+	#endif
 
+	#ifndef USE_AVX
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+	#endif
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;
 		struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
@@ -1782,27 +1856,52 @@ void radix36_dit_pass1(double a[], int n)
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 		vec_dbl *rad9_iptr[9], *rad9_optr[9];
 	#endif
+	#ifndef USE_SSE2
 		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	#endif
 	#if !defined(USE_SSE2) || (COMPACT_OBJ != 0)
 		uint32 p0123[4];
 	#endif
 	#ifdef USE_SSE2
+	  #ifdef USE_AVX512
 		int i0,i1,i2,i3;
+	  #else
 		const double crnd = 3.0*0x4000000*0x2000000;
-		int *itmp,*itm2;	// Pointer into the bjmodn array
+	  #endif
+		int *itmp;	// Pointer into the bjmodn array
+	  #if defined(USE_AVX) && !defined(USE_AVX512)
+		int *itm2;	// Pointer into the bjmodn array
+	  #endif
+	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+	  #endif
 		double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *two,*one, *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr
-			,*r00,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
+		vec_dbl
+		  #ifdef USE_AVX2
+			*two,
+		  #endif
+		  /* *one, */ *cc1, /* *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, */ *max_err, *half_arr
+		  #ifndef USE_AVX512
+			,*sse2_rnd
+		  #endif
+			,*r00
+		  #if !COMPACT_OBJ
+			,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
 			,*r10,*r12,*r14,*r16,*r18,*r1a,*r1c,*r1e,*r1g
 			,*r20,*r22,*r24,*r26,*r28,*r2a,*r2c,*r2e,*r2g
 			,*r30,*r32,*r34,*r36,*r38,*r3a,*r3c,*r3e,*r3g
-			,*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17
+		  #endif
+			,*s1p00
+		  #if !COMPACT_OBJ
+			,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17
 			,*s1p18,*s1p19,*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p30,*s1p31,*s1p32,*s1p33,*s1p34,*s1p35
+		  #endif
 			,*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 		vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
+	  #ifndef USE_AVX512
 		double dtmp;
+	  #endif
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;
 
 	#else
@@ -1811,7 +1910,6 @@ void radix36_dit_pass1(double a[], int n)
 						s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 						c2  =  0.17364817766693034887,	/* cos(2*u) */
 						s2  =  0.98480775301220805936,	/* sin(2*u) */
-						c3  = -0.50000000000000000000,	/* cos(3*u) */
 						c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
 						s3  =  0.86602540378443864677,	/* sin(3*u) */
 						c4  = -0.93969262078590838404,	/* cos(4*u) */
@@ -1828,7 +1926,6 @@ void radix36_dit_pass1(double a[], int n)
 	#endif	// SIMD or scalar?
 
 	// int data:
-		int iter = thread_arg->iter;
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
 		int target_idx = thread_arg->target_idx;
@@ -1846,7 +1943,7 @@ void radix36_dit_pass1(double a[], int n)
 
 	// double data:
 		double maxerr = thread_arg->maxerr;
-		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double scale = thread_arg->scale;
 		double prp_mult = thread_arg->prp_mult;
 
 	// pointer data:
@@ -1931,16 +2028,18 @@ void radix36_dit_pass1(double a[], int n)
 		r3g	= tmp + 0x46;		s1p35 = tm2 + 0x46;
 	  #endif
 		tmp	+= 0x92;	// Extra 2 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
+	   #ifdef USE_AVX2
 		two    = tmp - 2;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
-		one    = tmp - 1;
+	   #endif
+		//one    = tmp - 1;
 		cc1    = tmp + 0;
-		ss1    = tmp + 1;
-		cc2    = tmp + 2;
-		ss2    = tmp + 3;
-		cc3m1  = tmp + 4;
-		ss3    = tmp + 5;
-		cc4    = tmp + 6;
-		ss4    = tmp + 7;
+		//ss1    = tmp + 1;
+		//cc2    = tmp + 2;
+		//ss2    = tmp + 3;
+		//cc3m1  = tmp + 4;
+		//ss3    = tmp + 5;
+		//cc4    = tmp + 6;
+		//ss4    = tmp + 7;
 		tmp += 0x8;
 	  #ifdef USE_AVX512
 		cy = tmp;		tmp += 5;		// RADIX/8 and round up
@@ -1950,7 +2049,9 @@ void radix36_dit_pass1(double a[], int n)
 		cy = tmp;		tmp += 18;
 	  #endif
 		max_err = tmp + 0x00;
+	  #ifndef USE_AVX512
 		sse2_rnd= tmp + 0x01;
+	  #endif
 		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes */
 
 		ASSERT((r00 == thread_arg->r00), "thread-local memcheck failed!");
