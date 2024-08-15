@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 	/*
 	!...gather the needed data (40 64-bit complex, i.e. 80 64-bit reals) and do a radix-40 DIT transform...
 	*/
@@ -251,7 +253,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		i = (!j);
 		addr = &prp_mult;
-		tmp = s1p00r; tm1 = cy; tm2 = cy+1; itmp = bjmodn; itm2 = bjmodn+4;
+		tmp = s1p00r; tm1 = cy;
+	  #ifndef USE_AVX512
+		tm2 = cy+1;
+	  #endif
+		itmp = bjmodn;
+	  #ifndef USE_AVX512
+		itm2 = bjmodn+4;
+	  #endif
 		for(l = 0; l < RADIX>>3; l++) {
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l+l];
@@ -638,4 +647,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	col += RADIX;
 	co3 -= RADIX;
-}	/* end for(k=1; k <= khi; k++) */
+}	/* end for(int k=1; k <= khi; k++) */
