@@ -145,21 +145,36 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix44_ditN_cy_dif1";
+  #if !defined(MULTITHREAD) && defined(USE_SSE2)
 	const int pfetch_dist = PFETCH_DIST;
+  #endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
+#if !defined(MULTITHREAD) && defined(USE_SSE2)
 	const uint32 dft11_offs[11] = {0,0x2<<L2_SZ_VD,0x4<<L2_SZ_VD,0x6<<L2_SZ_VD,0x8<<L2_SZ_VD,0xa<<L2_SZ_VD,0xc<<L2_SZ_VD,0xe<<L2_SZ_VD,0x10<<L2_SZ_VD,0x12<<L2_SZ_VD,0x14<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]), *ui32_ptr;
 	int i0,i1,i2,i3;
 #endif
+  #ifndef MULTITHREAD
 	static uint32 p0123[4];
+  #endif
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+  #endif
   #ifdef USE_AVX512
 	const int jhi_wrap = 15;
   #else
 	const int jhi_wrap =  7;
   #endif
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	int NDIVR,i,j,j1,jt,jhi,full_pass,khi,l,outer;
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	int j2,jp;
+  #endif
+  #ifndef MULTITHREAD
+	int jstart,ntmp;
+  #endif
+  #ifdef USE_SSE2
+	int nbytes;
+  #endif
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
 	double target_cy = 0;
@@ -171,6 +186,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 // FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h) use these sincos constants:
 #if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && (LO_ADD != 0))
 	#warning Using FMA-heavy lo-add 11-DFT
+  #if !defined(MULTITHREAD) || (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD)
 	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
 	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
@@ -182,6 +198,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			ss4 =  0.75574957435425828378,	/* sin(4u)	*/
 			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
 			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+  #endif
 #else	// AVX, SSE2 and non-LO_ADD (cf. masterdefs.h) scalar-double builds all use these:
 	#warning LO_ADD = 0 defined at compile time ... using low-mul Nussbaumer-style 11-DFT
 	// 5 Dec 2014: Change const -> static to enable wrong-way-rounding sensitivity experiments:
@@ -212,16 +229,28 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX], *tptr;
-	int *itmp,*itm2;	// Pointer into the bjmodn array
+	struct complex t[RADIX];
+#ifndef MULTITHREAD
+  #ifndef USE_SSE2
+	struct complex *tptr;
+  #endif
+	int *itmp;	// Pointer into the bjmodn array
+  #if defined(USE_AVX) && !defined(USE_AVX512)
+	int *itm2;	// Pointer into the bjmodn array
+  #endif
+#endif
 	int err;
 	static int first_entry=TRUE;
 
+#if !defined(MULTITHREAD) && defined(USE_SSE2)
 	// incr = Carry-chain wts-multipliers recurrence length, which must divide
 	// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = --|--|11 for avx512,avx,sse, respectively.
 	// But even for SSE2, fixed-incr too restrictive here, so 'divide 11 into pieces' via increment-array whose elts sum to 11.
 	// For AVX and AVX-512 we just need a single-element array whose 0-term = [0|1] for [AVX|AVX-512] in the HIACC case:
-	const int *incr,*inc_arr;
+  #ifndef USE_AVX
+	const int *incr;
+  #endif
+	const int *inc_arr;
   #ifdef USE_AVX512	// Have no specialized HIACC carry macro in AVX-512 and ARMv8 SIMD, so these get an "goes to 11" in LOACC mode via an incr_hiacc[] array:
 	const int incr_long[] = {1}, incr_med[] = {1}, incr_short[] = {1}, incr_hiacc[] = {1};
   #elif defined(USE_AVX)
@@ -240,18 +269,21 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		inc_arr = incr_short;
 	else
 		inc_arr = incr_hiacc;
+#endif
 
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	int n_div_nwt;
+  #ifndef MULTITHREAD
 	int col,co2,co3;
-  #ifdef USE_AVX512
+   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
 	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #elif defined(USE_AVX)
+   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #else
+   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+   #endif
   #endif
 
 #ifdef USE_SSE2
@@ -271,12 +303,24 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double *addr, *add0,*add1,*add2,*add3;	/* Addresses into array sections */
   #endif
 
+  #ifndef MULTITHREAD
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
+  #endif
+  #ifndef USE_AVX512
 	const double crnd = 3.0*0x4000000*0x2000000;
+  #endif
+  #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
+  #endif
+	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
+  #ifndef MULTITHREAD
+	vec_dbl *tm1;	// Non-static utility ptrs
+  #endif
 	static vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
-		*r00,*s1p00,
+		*r00,
+	  #ifndef MULTITHREAD
+		*s1p00,
+	  #endif
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 
 #endif
@@ -285,7 +329,10 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	static struct cy_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch stuff:
-	static int main_work_units = 0, pool_work_units = 0;
+  #if 0//def OS_TYPE_MACOSX
+	static int main_work_units = 0;
+  #endif
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -328,8 +375,10 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ASSERT(0, "Fermat-mod only available for radices 7,8,9,15 and their multiples!");
 	}
 
+  #ifndef MULTITHREAD
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+  #endif
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
@@ -508,7 +557,10 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		__r0 = sc_ptr;
 	#endif
 		r00 = sc_ptr;			tmp = r00 + 0x58;
-		r00 = r00 + 0x00;		s1p00 = tmp + 0x00;
+		r00 = r00 + 0x00;
+	#ifndef MULTITHREAD
+								s1p00 = tmp + 0x00;
+	#endif
 		tmp += 0x58;	// sc_ptr += 0xb0
 		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
 		one     = tmp + 1;
@@ -557,14 +609,15 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  	/* no-op */
 	  #else
 		//======= Test the accuracy of the radix-11 trig consts: =========
-		struct qfloat qtheta,qs,qt,qfifth,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
+		struct qfloat qtheta,qt,cq0,cq1,cq2,cq3,cq4,sq1,sq2,sq3,sq4;
+		//struct qfloat qs,qfifth,sq0;
 		qtheta = qfdiv(Q2PI, i64_to_q((uint64)11));
-		qt =          qtheta ;	cq0 = qfcos(qt);	sq0 = qfsin(qt);
+		qt =          qtheta ;	cq0 = qfcos(qt);	//sq0 = qfsin(qt);
 		qt = qfadd(qt,qtheta);	cq1 = qfcos(qt);	sq1 = qfsin(qt);
 		qt = qfadd(qt,qtheta);	cq2 = qfcos(qt);	sq2 = qfsin(qt);
 		qt = qfadd(qt,qtheta);	cq3 = qfcos(qt);	sq3 = qfsin(qt);
 		qt = qfadd(qt,qtheta);	cq4 = qfcos(qt);	sq4 = qfsin(qt);
-		qfifth = qf_rational_quotient((uint64)1, (uint64)5);
+		//qfifth = qf_rational_quotient((uint64)1, (uint64)5);
 	/*
 		Sensitivity analysis of the various radix-11 DFT params. Here is the baseline, with all consts rounded-to-nearest:
 		./Mlucas -fftlen 352 -iters 10000 -radset 0
@@ -944,16 +997,20 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		nbytes = 4 << L2_SZ_VD;
 
 	#ifdef USE_AVX512
+	  #ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
 		sinwt         = (struct uint32x8 *)sse_n + 3;
 		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+	  #endif
 		nbytes += 128;
 	#elif defined(USE_AVX)
+	  #ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
+	  #endif
 		nbytes += 64;
 	#endif
 
@@ -965,11 +1022,13 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
 
+	#ifndef MULTITHREAD
 	// For large radices, array-access to bjmodn means only init base-ptr here:
-	#ifdef USE_AVX
+	  #ifdef USE_AVX
 		bjmodn = (int*)(sinwtm1 + RE_IM_STRIDE);
-	#else
+	  #else
 		bjmodn = (int*)(sse_n   + RE_IM_STRIDE);
+	  #endif
 	#endif
 
 	#endif	// USE_SSE2
@@ -1004,7 +1063,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p36 = p36 + ( (p36 >> DAT_BITS) << PAD_BITS );
 		p40 = p40 + ( (p40 >> DAT_BITS) << PAD_BITS );
 
+	#ifndef MULTITHREAD
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
+	#endif
 
 		poff[0x0] =   0; poff[0x1] = p04; poff[0x2] = p08; poff[0x3] = p12;
 		poff[0x4] = p16; poff[0x5] = p20; poff[0x6] = p24; poff[0x7] = p28;
@@ -1936,12 +1997,21 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+	#ifdef USE_SSE2
 		const int pfetch_dist = PFETCH_DIST;
+	#endif
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40;
 		int poff[RADIX>>2];
-		int j,j1,j2,jt,jp,k,l,ntmp;
-		const int *incr,*inc_arr;
+		int j,j1,l,ntmp;
+	#ifndef USE_SSE2
+		int j2,jt,jp;
+	#endif
+	#ifdef USE_SSE2
+	  #ifndef USE_AVX
+		const int *incr;
+	  #endif
+		const int *inc_arr;
 	  #ifdef USE_AVX512	// Have no specialized HIACC carry macro in AVX-512 and ARMv8 SIMD, so these get an "goes to 11" in LOACC mode via an incr_hiacc[] array:
 		const int incr_long[] = {1}, incr_med[] = {1}, incr_short[] = {1}, incr_hiacc[] = {1};
 	  #elif defined(USE_AVX)
@@ -1960,8 +2030,11 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 			inc_arr = incr_short;
 		else
 			inc_arr = incr_hiacc;
+	#endif
 
+	#ifndef USE_AVX
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+	#endif
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;
 		struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
@@ -1970,22 +2043,38 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
+	#ifndef USE_SSE2
 		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	#endif
 		uint32 p0123[4];
 
 	#ifdef USE_SSE2
 		const uint32 dft11_offs[11] = {0,0x2<<L2_SZ_VD,0x4<<L2_SZ_VD,0x6<<L2_SZ_VD,0x8<<L2_SZ_VD,0xa<<L2_SZ_VD,0xc<<L2_SZ_VD,0xe<<L2_SZ_VD,0x10<<L2_SZ_VD,0x12<<L2_SZ_VD,0x14<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]), *ui32_ptr;
 		int i0,i1,i2,i3;
+	  #ifndef USE_AVX512
 		const double crnd = 3.0*0x4000000*0x2000000;
-		int *itmp,*itm2;	// Pointer into the bjmodn array
+	  #endif
+		int *itmp;	// Pointer into the bjmodn array
+	  #if defined(USE_AVX) && !defined(USE_AVX512)
+		int *itm2;	// Pointer into the bjmodn array
+	  #endif
+	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+	  #endif
 		double *add0,*add1,*add2,*add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
+		vec_dbl /* *two,*one,*five, */ *ua0,/* *ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, */ *max_err,
+		  #ifndef USE_AVX512
+			*sse2_rnd,
+		  #endif
+			*half_arr,
 			*r00,*s1p00,
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
-		vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
+		vec_dbl *tmp,*tm1;	// Non-static utility ptrs
+	  #ifndef USE_AVX512
+		vec_dbl *tm2;	// Non-static utility ptrs
 		double dtmp;
+	  #endif
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;
 
 	#else
@@ -2038,7 +2127,6 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	#endif
 
 	// int data:
-		int iter = thread_arg->iter;
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
 		int target_idx = thread_arg->target_idx;
@@ -2056,7 +2144,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 
 	// double data:
 		double maxerr = thread_arg->maxerr;
-		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double scale = thread_arg->scale;
 		double prp_mult = thread_arg->prp_mult;
 
 	// pointer data:
@@ -2108,35 +2196,35 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		r00 = thread_arg->r00;	tmp = r00 + 0x58;
 		r00 = r00 + 0x00;		s1p00 = tmp + 0x00;
 		tmp += 0x58;	// sc_ptr += 0xb0
-		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
-		one     = tmp + 1;
+		//two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
+		//one     = tmp + 1;
 	//	two     = tmp + 2; Unnamed ptr, used in AVX2 mode to hold 2.0 (and *five holds 1.0) for the radix-11 DFT code
-		five    = tmp + 3;
+		//five    = tmp + 3;
 		ua0     = tmp + 4;
-		ua1     = tmp + 5;
-		ua2     = tmp + 6;
-		ua3     = tmp + 7;
-		ua4     = tmp + 8;
-		ua5     = tmp + 9;
-		ua6     = tmp + 0xa;
-		ua7     = tmp + 0xb;
-		ua8     = tmp + 0xc;
-		ua9     = tmp + 0xd;
-		ub0     = tmp + 0xe;
-		ub1     = tmp + 0xf;
-		ub2     = tmp + 0x10;
-		ub3     = tmp + 0x11;
-		ub4     = tmp + 0x12;
-		ub5     = tmp + 0x13;
-		ub6     = tmp + 0x14;
-		ub7     = tmp + 0x15;
-		ub8     = tmp + 0x16;
-		ub9     = tmp + 0x17;
+		//ua1     = tmp + 5;
+		//ua2     = tmp + 6;
+		//ua3     = tmp + 7;
+		//ua4     = tmp + 8;
+		//ua5     = tmp + 9;
+		//ua6     = tmp + 0xa;
+		//ua7     = tmp + 0xb;
+		//ua8     = tmp + 0xc;
+		//ua9     = tmp + 0xd;
+		//ub0     = tmp + 0xe;
+		//ub1     = tmp + 0xf;
+		//ub2     = tmp + 0x10;
+		//ub3     = tmp + 0x11;
+		//ub4     = tmp + 0x12;
+		//ub5     = tmp + 0x13;
+		//ub6     = tmp + 0x14;
+		//ub7     = tmp + 0x15;
+		//ub8     = tmp + 0x16;
+		//ub9     = tmp + 0x17;
 		tmp += 0x18;	// sc_ptr += 0xde
 	#ifdef USE_AVX512
 		cy = tmp;		tmp += 6;		// RADIX/8 and round up
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
+		//sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	#elif defined(USE_AVX)
 		cy = tmp;		tmp += 0x0b;	// sc_ptr += 0xe9
