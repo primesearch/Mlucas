@@ -303,7 +303,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	int jt,jp,k1,k2,m,m2,ntmp;
 	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
   #if PFETCH
-	double *addr, *addp;
+	double *addp;
   #endif
 	int bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodnA,bjmodnB,bjmodnC,bjmodnD,bjmodnE,bjmodnF;
 	double cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_r8,cy_r9,cy_rA,cy_rB,cy_rC,cy_rD,cy_rE,cy_rF,
