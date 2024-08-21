@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 /*...The radix-256 DIT pass is here:	*/
 
@@ -145,7 +147,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 
 /*** Only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
 // Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
-	jt = j1 + p08;	jp = j2 + p08;
+	//jt = j1 + p08;	jp = j2 + p08;
 	SSE2_RADIX16_DIT_TWIDDLE_OOP(
 		r08,OFF1,OFF2,OFF3,OFF4, s1p08,OFF1,OFF2,OFF3,OFF4, isrt2, twid8
 	);
@@ -340,7 +342,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	for(ntmp = 1; ntmp < 16; ntmp++) {
 		tptr = t + reverse(ntmp,4);
 		jt = j1 + po_br[ntmp]; jp = j2 + po_br[ntmp];	// po_br[] = p[084c2a6e195d3b7f]
-		addr = DFT256_TWIDDLES[ntmp]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
+		const double *addr = DFT256_TWIDDLES[ntmp], *addi = addr+1;	// Pointer to required row of 2-D twiddles array
 		RADIX_16_DIT_TWIDDLE_OOP(
 			tptr->re,tptr->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0x70)->re,(tptr+0x70)->im,(tptr+0x80)->re,(tptr+0x80)->im,(tptr+0x90)->re,(tptr+0x90)->im,(tptr+0xa0)->re,(tptr+0xa0)->im,(tptr+0xb0)->re,(tptr+0xb0)->im,(tptr+0xc0)->re,(tptr+0xc0)->im,(tptr+0xd0)->re,(tptr+0xd0)->im,(tptr+0xe0)->re,(tptr+0xe0)->im,(tptr+0xf0)->re,(tptr+0xf0)->im,
 			a[jt    ],a[jp    ],a[jt+p10],a[jp+p10],a[jt+p20],a[jp+p20],a[jt+p30],a[jp+p30],a[jt+p40],a[jp+p40],a[jt+p50],a[jp+p50],a[jt+p60],a[jp+p60],a[jt+p70],a[jp+p70],a[jt+p80],a[jp+p80],a[jt+p90],a[jp+p90],a[jt+pa0],a[jp+pa0],a[jt+pb0],a[jp+pb0],a[jt+pc0],a[jp+pc0],a[jt+pd0],a[jp+pd0],a[jt+pe0],a[jp+pe0],a[jt+pf0],a[jp+pf0],
@@ -451,7 +453,10 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+		tmp = s1p00; tm1 = cy_r; itmp = bjmodn;
+	  #ifndef USE_AVX512
+		tm2 = cy_r+1; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+	  #endif
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
@@ -712,9 +717,6 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
 
-		idx_offset = j;
-		idx_incr = NDIVR;
-
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
 		// Hi-accuracy version needs 2 copies of each base root, one for each invocation of the SSE2_fermat_carry_norm_pow2 carry macri:
@@ -802,9 +804,6 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
-
-		idx_offset = j;
-		idx_incr = NDIVR;
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
@@ -1201,7 +1200,7 @@ So internal DFT-4 blocks use data in-order!
 	// Remaining 15 sets of macro calls done in loop:
 	for(ntmp = 1; ntmp < 16; ntmp++) {
 		jt = j1 + poff[ntmp<<2]; jp = j2 + poff[ntmp<<2];	// poff[4*i] = p10,p20,...,pf0
-		addr = DFT256_TWIDDLES[ntmp]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
+		const double *addr = DFT256_TWIDDLES[ntmp], *addi = addr+1;	// Pointer to required row of 2-D twiddles array
 		RADIX_16_DIF_TWIDDLE_OOP(
 			tptr->re,tptr->im,(tptr+0x80)->re,(tptr+0x80)->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0xc0)->re,(tptr+0xc0)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0xa0)->re,(tptr+0xa0)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0xe0)->re,(tptr+0xe0)->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x90)->re,(tptr+0x90)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0xd0)->re,(tptr+0xd0)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0xb0)->re,(tptr+0xb0)->im,(tptr+0x70)->re,(tptr+0x70)->im,(tptr+0xf0)->re,(tptr+0xf0)->im,
 			a[jt],a[jp],a[jt+p01],a[jp+p01],a[jt+p02],a[jp+p02],a[jt+p03],a[jp+p03],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p06],a[jp+p06],a[jt+p07],a[jp+p07],a[jt+p08],a[jp+p08],a[jt+p09],a[jp+p09],a[jt+p0a],a[jp+p0a],a[jt+p0b],a[jp+p0b],a[jt+p0c],a[jp+p0c],a[jt+p0d],a[jp+p0d],a[jt+p0e],a[jp+p0e],a[jt+p0f],a[jp+p0f],
@@ -1226,5 +1225,4 @@ So internal DFT-4 blocks use data in-order!
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
-
+}	/* end for(int k=1; k <= khi; k++) */
