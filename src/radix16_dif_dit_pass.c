@@ -72,39 +72,6 @@
 	#error SIMD Mode requires HIACC flag to be set!
   #endif
 
-/*	Recipe for MSVC --> GCC inline ASM conversion:
-
-Before you begin tranmslation:
-	- Max. number of input variables GCC allows = 30 ... if you're using more than that,
-	trying reducing the count e.g. by using var2 = var1 + memoffset in the ASM.
-	DO THIS USING THE MSVC CODE, i.e. only *after* you've successfully reduced
-	the inline ASM macro arg count should you proceed with syntax translation.
-	That allows you to work through small chunks of inline ASM at a time, doing
-	quick-build-and-debug to check the changes, i.e. greatly eases debug.
-
-	0. Remove all but most-crucial comments to ease conversion, as follows:
-		[blockmode] space all "keeper" comments to extreme left
-		multistatement __asm lines --> one __asm pre line, realign __asm to left-justify, delete __asm\t
-		For non-keeper comments: /* --> @@
-		[regexp] @@ --> \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t@@
-		(delete all @@... stuff)\
-		\t\n --> \n (repeat until no more trailing tabs)
-		[/regexp]
-		Repeat /* --> @@, [regexp] @@ --> \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t@@ steps for keeper comments, to move out of harm's way.
-	1. [...] --> (...)
-	2. ALU ops [e.g. mov, add, shl] --> spaces to tabs, then append "l" [if e*x] or "q" [if r*x] to instruction name
-	3. Numeric literals in above kinds of instructions: Prepend "$" [",0x" --> ",$0x"]
-	4. Address offsets of form (...+0x100) --> 0x100(...), (...-0x100) --> -0x100(...)
-	5. External variable names get wrapped in %[]
-	6. Line up commas in vertically stacked columns, then reverse operand order columnwise [for both 2 and 3-operand instructions].
-	7. Prepend "%%" to all register names
-	8. Only e*x/r*x registers appear in clobber list, not special regs like mmx and xmm.
-
-Additional Notes:
-	- Need to strip off any leading white space from named vars inside [], e.g. for "movl %[  c4],%%ecx \n\t" get "undefined named operand '  c4'" error;
-	- Offsets with explicit + sign, e.g. "+0x10(%%eax)", not allowed
-*/
-
 	#include "radix16_dif_dit_pass_asm.h"
 
 #endif
@@ -127,29 +94,45 @@ void radix16_dif_pass	(double a[], uint64 b[], int n, struct complex rt0[], stru
 void radix16_dif_pass	(double a[],             int n, struct complex rt0[], struct complex rt1[],                               int index[], int nloops, int incr, int init_sse2, int thr_id)
 #endif
 {
-	const char func[] = "radix16_dif_pass";
+#ifdef USE_SSE2
 	const int pfetch_dist = PFETCH_DIST;
 	int pfetch_addr;	// Since had pre-existing L1-targeting pfetch here, add numerical suffix to differentiate cache levels being targeted by the various types of prefetching
 	static int max_threads = 0;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+#ifdef USE_SSE2
 	// lg(stride):
 	const int l2_stride = L2_SZ_VD-2;	// 16 doubles at a time
+#endif
 #ifdef USE_FGT61
 	const uint64 q  = 0x1FFFFFFFFFFFFFFFull, q2=q+q, q3=q2+q, q4=q2+q2, q5=q4+q;	// q = 2^61 - 1, and needed small multiples
 	// primitive 16th root of unity, scaled by *8:
 	const uint64 cm = 1693317751237720973ull<<3, sm = 2283815672160731785ull<<3;
 #endif
-	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
+	const double c = 0.9238795325112867561281831	/* exp[i*(twopi/16)]*/
+#if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
+		,s = 0.3826834323650897717284599			/* exp[i*(twopi/16)]*/
+#endif
+		;
 #if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)	// FMA-based DFT needs the tangent
 	const double tan = 0.41421356237309504879;
 #endif
-	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+	int i,j,j1,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+#ifndef USE_SSE2
+	int j2;
+#endif
 	int p1,p2,p3,p4,p8,p12;
-	double rt,it,dtmp;
+#if !defined(USE_SSE2) || defined(USE_AVX512)
+	double rt,it;
+#endif
+#if defined(MULTITHREAD) && defined(USE_SSE2)
+	double dtmp;
+#endif
 	double re0,im0,re1,im1;
-	uint64 tmp64,rm,im;
+#if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 	// These needed both for scalar mode and for certain SIMD-mode inits:
 	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+#endif
 
 #ifdef USE_SSE2
   #if 0
@@ -171,17 +154,26 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 					0xbe5a9507f3711e2dull};	// d[11]
   #endif
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0, *add1, *add2;	/* Addresses into array sections */
-	const double *cd_ptr0, *cd_ptr1;
-	vec_dbl *c_tmp,*s_tmp;
+	double *add0;	/* Addresses into array sections */
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *cc0,*ss0,*isrt2,*two,*pi4,*c0thru15, *r1;
+  #endif
+  #ifndef MULTITHREAD
+	static
+  #endif
+	  vec_dbl *cc0,*isrt2,*two,*pi4, *r1
+	  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
+		,*ss0
+	  #endif
+	  #if !defined(MULTITHREAD) || (!(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)))
+		,*c0thru15
+	  #endif
+		;
+	// This variable might have to be reenabled if commented out Chebyshev code below is ever enabled.
+	// In this case the variable must be 'static' if !MULTITHREAD.
+  #if defined(MULTITHREAD) && !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 	uint64 *sign_mask;
-  #else
-	static vec_dbl *cc0,*ss0,*isrt2,*two,*pi4,*c0thru15, *r1;
-	static uint64 *sign_mask;
   #endif
 
 #else
@@ -231,7 +223,9 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 			__r0     = sc_ptr;
 			isrt2    = sc_ptr + 0x20;
 			cc0      = sc_ptr + 0x21;
+		  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 			ss0      = sc_ptr + 0x22;
+		  #endif
 			two      = sc_ptr + 0x43;
 			/* v20:
 				Vector	#SIMD slots needed:
@@ -241,9 +235,13 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 				0-15flt		4		2		1	1 << (6-L2_SZ_VD)
 				0-15dbl		8		4		2	1 << (7-L2_SZ_VD)
 			*/
+		  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 			sign_mask = (uint64 *)(sc_ptr + 0x48);	// Start v20-added data after v19-alloc block; leave a few slots below the v20 stuff for spills, etc.
+		  #endif
 			pi4      = sc_ptr + 0x4c;
+		  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 			c0thru15 = sc_ptr + 0x4d;	// First 1 << (6-L2_SZ_VD) slots hold (float)0-15, next 1 << (7-L2_SZ_VD) slots hold (double)0-15
+		  #endif
 			/* Chebyshev-expansion coeffs for cos & sin start at sc_ptr + 0x58 */
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
@@ -283,19 +281,27 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 			  #endif
 				isrt2 += 104;	/* Move on to next thread's local store */
 				cc0   += 104;
+			  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 				ss0   += 104;
+			  #endif
 				two   += 104;
 				pi4       += 104;
+			  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 				c0thru15  += 104;
 				sign_mask += 104;
+			  #endif
 			}
 
 		#elif defined(COMPILER_TYPE_GCC)
 			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
 										cc0 = sc_ptr + 0x21;
+		  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 										ss0 = sc_ptr + 0x22;
+		  #endif
 										two = sc_ptr + 0x43;
+		  #if 0 // for experimental code below
 			sign_mask = (uint64 *)(sc_ptr + 0x48);	// Start v20-added data after v19-alloc block; leave a few slots below the v20 stuff for spills, etc.
+		  #endif
 			pi4      = sc_ptr + 0x4c;
 			c0thru15 = sc_ptr + 0x4d;	// First 1 << (6-L2_SZ_VD) slots hold (float)0-15, next 1 << (7-L2_SZ_VD) slots hold (double)0-15
 			/* These remain fixed: */
@@ -806,7 +812,7 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 		Note that due to my layout of the SSE2_RADIX_04_DIF_3TWIDDLE_X2-macro arglist,
 		we need to swap the order of the first 2 sincos-pairs of each triplet:
 		*/
-		c_tmp = cc0; s_tmp = c_tmp+1;	/* c0,s0 */
+		vec_dbl *c_tmp = cc0, *s_tmp = c_tmp+1;	/* c0,s0 */
 		VEC_DBL_INIT(c_tmp, c8 );	VEC_DBL_INIT(s_tmp, s8 );	c_tmp+=2; s_tmp+=2;
 		VEC_DBL_INIT(c_tmp, c4 );	VEC_DBL_INIT(s_tmp, s4 );	c_tmp+=2; s_tmp+=2;
 		VEC_DBL_INIT(c_tmp, c12);	VEC_DBL_INIT(s_tmp, s12);	c_tmp+=2; s_tmp+=2;
@@ -838,10 +844,10 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 		// vector-iterative inversion we'll need to combine the 2 sets of data and place (in suitable
 		// vector-register-sized broadcast form) into their final SIMD-suitable memory slots.
 
-		add0 = (double *)cc0;	// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
-		add1 = add0 + 16;	// add1 points to block of memory temporarily used to store the corresponding sine data
-		add2 = add0 + 32;	// add2 points to block of memory temporarily used to store the 11 [0-padded to 12]
-							//	cosine data which need to be divided by other cosines (i.e. multiplied by inverses)
+		add0 = (double *)cc0;		// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
+		double *add1 = add0 + 16;	// add1 points to block of memory temporarily used to store the corresponding sine data
+		double *add2 = add0 + 32;	// add2 points to block of memory temporarily used to store the 11 [0-padded to 12]
+									//	cosine data which need to be divided by other cosines (i.e. multiplied by inverses)
 		/* The add2-addressed cosine ratios are arranged in 3 YMM-register/memory-sized slots like so;
 		  once we have filled 4 YYMs with inverses 1/[c3,c1-15] and used those to get the 16 tangents (1st set = 1/c3
 		  and discarded) we will do as described in the right column to set up for the cosine-ratios computation:
@@ -1052,7 +1058,7 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 		*/
 	  #else	// Make DFT_V1 the default here:
 
-		cd_ptr0 = &c; cd_ptr1 = &tan;	// GCC/Clang don't allow cd_address-taking inlined in arglist of macros, so do it here
+		const double *cd_ptr0 = &c, *cd_ptr1 = &tan;	// GCC/Clang don't allow cd_address-taking inlined in arglist of macros, so do it here
 		RADIX16_COMPUTE_FMA_SINCOS_DIF(cc0,two,cd_ptr0,cd_ptr1);
 
 	  #endif
@@ -1411,12 +1417,15 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 	  {
 		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
+
+	#ifdef USE_SSE2
+
 		pfetch_addr = p1*((j >> l2_stride) & 0x3);	// cycle prefetch-offset-address among p0,1,2,3
 			// These get added to the base addresses p0,4,8,12 in the DFT macros, thus every 4 loop
 			// executions we have covered prefetches from [current address] + [pfetch distance] + p0,1,2,...15 .
-
-	#ifdef USE_SSE2
 
 		add0 = &a[j1];
 
@@ -1957,42 +1966,55 @@ void radix16_dit_pass	(double a[], uint64 b[], int n, struct complex rt0[], stru
 void radix16_dit_pass	(double a[],             int n, struct complex rt0[], struct complex rt1[],                               int index[], int nloops, int incr, int init_sse2, int thr_id)
 #endif
 {
-	const char func[] = "radix16_dit_pass";
+#ifdef USE_SSE2
 	const int pfetch_dist = PFETCH_DIST;
 	int pfetch_addr;
 	static int max_threads = 0;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+#ifdef USE_SSE2
 	// lg(stride):
 	const int l2_stride = L2_SZ_VD-2;	// 16 doubles at a time
+#endif
 #ifdef USE_FGT61
 	const uint64 q  = 0x1FFFFFFFFFFFFFFFull, q2=q+q, q3=q2+q, q4=q2+q2, q5=q4+q, q8=q4+q4;	// q = 2^61 - 1, and needed small multiples
 	// primitive 16th root of unity, scaled by *8:
 	const uint64 cm = 1693317751237720973ull<<3, sm = 2283815672160731785ull<<3;
 #endif
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
-#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)	// FMA-based DFT needs the tangent
+#if (!defined(USE_AVX2) && defined(USE_SCALAR_DFT_MACRO)) || (defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE) && defined(DFT_V2))	// FMA-based DFT needs the tangent
 	const double tan = 0.41421356237309504879;
 #endif
-	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+	int i,j,j1,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+#ifndef USE_SSE2
+	int j2;
+#endif
 	int p1,p2,p3,p4,p8,p12;
-	double rt,it,dtmp;
+#if !defined(USE_SSE2) || defined(USE_AVX512)
+	double rt,it;
+#endif
 	double re0,im0,re1,im1;
-	uint64 tmp64,rm,im;
+#if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 	// These needed both for scalar mode and for certain SIMD-mode inits:
 	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+#endif
 
 #ifdef USE_SSE2
 
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0, *add1;	/* Addresses into array sections */
-	vec_dbl *c_tmp,*s_tmp;
+	double *add0;	/* Addresses into array sections */
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
-  #else
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
   #endif
+  #ifndef MULTITHREAD
+	static
+  #endif
+	  vec_dbl *cc0, *isrt2, *two, *r1
+	  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
+		,*ss0
+	  #endif
+		;
 
 #else
 
@@ -2041,7 +2063,9 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 			__r0  = sc_ptr;
 			isrt2 = sc_ptr + 0x20;
 			cc0   = sc_ptr + 0x21;
+		  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 			ss0   = sc_ptr + 0x22;
+		  #endif
 			two   = sc_ptr + 0x43;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
@@ -2056,13 +2080,17 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 			  #endif
 				isrt2 += 72;	/* Move on to next thread's local store */
 				cc0   += 72;
+			  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 				ss0   += 72;
+			  #endif
 				two   += 72;
 			}
 		#elif defined(COMPILER_TYPE_GCC)
 			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
 										cc0 = sc_ptr + 0x21;
+		  #if !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 										ss0 = sc_ptr + 0x22;
+		  #endif
 										two = sc_ptr + 0x43;
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
@@ -2241,7 +2269,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		Note that due to my layout of the SSE2_RADIX_04_DIF_3TWIDDLE_X2-macro arglist,
 		we need to swap the order of the first 2 sincos-pairs of each triplet:
 		*/
-		c_tmp = cc0; s_tmp = c_tmp+1;	/* c0,s0 */
+		vec_dbl *c_tmp = cc0, *s_tmp = c_tmp+1;	/* c0,s0 */
 		VEC_DBL_INIT(c_tmp, c8 );	VEC_DBL_INIT(s_tmp, s8 );	c_tmp+=2; s_tmp+=2;
 		VEC_DBL_INIT(c_tmp, c4 );	VEC_DBL_INIT(s_tmp, s4 );	c_tmp+=2; s_tmp+=2;
 		VEC_DBL_INIT(c_tmp, c12);	VEC_DBL_INIT(s_tmp, s12);	c_tmp+=2; s_tmp+=2;
@@ -2273,8 +2301,8 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		// vector-iterative inversion we'll need to combine the 2 sets of data and place (in quadruplicate)
 		// into their final SIMD-suitable memory slots.
 
-		add0 = (double *)cc0;	// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
-		add1 = add0 + 16;		// add1 points to block of memory temporarily used to store the corresponding sine data
+		add0 = (double *)cc0;			// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
+		double *add1 = add0 + 16;		// add1 points to block of memory temporarily used to store the corresponding sine data
 		*add0++ = c;	// Since tan0 defined as const, we can init these directly, but init with c0,s0 anyway
 		*add1++ = s;	// and use result as a check onthe accuracy of the FMA-based Newton iterative inversion.
 
@@ -2783,12 +2811,15 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 	  {
 		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
+
+	#ifdef USE_SSE2
+
 		pfetch_addr = p1*((j >> l2_stride) & 0x3);	// cycle prefetch-offset-address among p0,1,2,3
 			// These get added to the base addresses p0,4,8,12 in thr DFT macros, thus every 4 loop
 			// executions we have covered prefetches from [current address] + [pfetch distance] + p0,1,2,...15 .
-
-	#ifdef USE_SSE2
 
 		add0 = &a[j1];
 
