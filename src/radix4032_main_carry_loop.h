@@ -23,12 +23,14 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	for(j = jstart; j < jhi; j += stride)	// Stride = 4 reals for SSE2, 8 for AVX
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 	/*...The radix-4032 DIT pass is here:	*/
 
@@ -128,6 +130,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_AVX512
 
 		#warning No avx-512 mers-mod carry support yet!
+		(void)n_minus_sil; (void)n_minus_silp1; (void)sinwt; (void)add0; (void)add1; (void)add2; (void)add3; (void)col; (void)co2; (void)co3; (void)wt0; (void)wt1; (void)sw; (void)si; (void)itmp; // silence warnings
 
 	#elif defined(USE_AVX)
 
@@ -417,9 +420,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
-
-		idx_offset = j;
-		idx_incr = NDIVR;
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
@@ -789,5 +789,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
-
+}	/* end for(int k=1; k <= khi; k++) */
