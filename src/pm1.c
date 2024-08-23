@@ -1025,7 +1025,9 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// "working map". Alas, since we alloc map[] at runtime, we can't actually declare hi|lo as const-ptrs. File under
 	// "stupid C tricks" - lack of a "set once at runtime but compiler/OS treat as const subsequently" declaration option:
 	static uint8 *map = 0x0,*lo = 0x0,*hi = 0x0; uint8 *map_lo,*map_hi, *rmap;
+#if !defined(PM1_STANDALONE) && (defined(PM1_DEBUG) || USE_PP1_MULTS)
 	static uint64 *vec1 = 0ull, *vec2 = 0ull;
+#endif
 	static uint32 nlimb, *b = 0x0;
 	static double *a_ptmp = 0x0, *a = 0x0;	// Storage for stage 2 in form of ptrs to m*[24,40 or 48] residue-length subarrays, depending
 	static double **buf = 0x0;	// on whether bigstep = [210,330,420 or 840]. a[] is simply a tmp-ptr used to init buf[]
@@ -1220,7 +1222,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// 2 extra word-slots at high end of map used for these temps - can't declare as const pointers,0x but treat as such below:
 	lo = map + m*wsize; hi = lo + wsize;
 	rmap = hi + wsize;
-#ifndef PM1_STANDALONE
+#if !defined(PM1_STANDALONE) && (defined(PM1_DEBUG) || USE_PP1_MULTS)
 	// We know that the arrtmp vector passed in by caller is large enough to hold
 	// at least 2 nlimb-sized arrays,0x so simply point vec1 and vec2 at successive nlimb-sections of it:
 	vec1 = arrtmp; vec2 = arrtmp + nlimb;
