@@ -52,7 +52,6 @@ void radix32_wrapper_square(
 	int init_sse2, int thr_id, uint64 fwd_fft_only, double c_arr[]
 )
 {
-	const char func[] = "radix32_wrapper_square";
 /*
 !   NOTE: In the following commentary, N refers to the COMPLEX vector length (N2 in the code),
 !   which is half the real vector length.
@@ -119,11 +118,17 @@ void radix32_wrapper_square(
 	double *addr;
 #endif
 	int rdum,idum,j1pad,j2pad,kp,l,iroot,k1,k2;
-	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum,nbytes;
+	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
+#ifdef USE_SSE2
+	int nbytes;
+#endif
 	const double c     = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 				,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784		/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
 				,c32_3 = 0.83146961230254523708, s32_3 = 0.55557023301960222473;	/* exp(3*i*twopi/32)	*/
-	double rt,it,re = 0.0, im= 0.0,dmult;
+	double rt,it,re = 0.0, im= 0.0;
+#ifdef USE_SSE2
+	double dmult;
+#endif
 	double re0,im0,re1,im1;
 	// sincos for 1st set of scalar-mode inputs
 	double cA01,cA02,cA03,cA04,cA05,cA06,cA07,cA08,cA09,cA0A,cA0B,cA0C,cA0D,cA0E,cA0F,cA10,cA11,cA12,cA13,cA14,cA15,cA16,cA17,cA18,cA19,cA1A,cA1B,cA1C,cA1D,cA1E,cA1F
@@ -168,9 +173,9 @@ void radix32_wrapper_square(
   #ifdef USE_AVX512
 	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7, *cdd4,*cdd5,*cdd6,*cdd7;
   #endif
-	vec_dbl *tmp,*tm1, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
-  #ifdef USE_AVX2
-	vec_dbl *bpt4,*bpt5,*bpt6,*bpt7;
+	vec_dbl *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
+  #ifdef USE_IMCI512
+	vec_dbl *tmp,*tm1;
   #endif
 
   #ifdef MULTITHREAD
@@ -240,7 +245,7 @@ void radix32_wrapper_square(
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",func, max_threads, NTHREADS);
+		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",__FUNCTION__, max_threads, NTHREADS);
 
 		#ifdef USE_SSE2
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
@@ -250,8 +255,8 @@ void radix32_wrapper_square(
 		// Index vectors used in SIMD roots-computation.
 		// The AVX512 compute-sincos-mults code needs 2 elements per complex-double-load, so use 14*RE_IM_STRIDE per array
 		// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-		sm_ptr = ALIGN_INT(sm_arr);
+		sm_arr = ALLOC_UINT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		sm_ptr = ALIGN_UINT(sm_arr);
 		ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array: Need 0x92 slots for data, plus need to leave room to pad-align.
 		// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 64 added vec_dbl, thus 0x98 ==> 0xd8:
@@ -870,14 +875,14 @@ void radix32_wrapper_square(
 	blocklen     = ws_blocklen    ;
 	blocklen_sum = ws_blocklen_sum;
 
-//	fprintf(stderr,"%s: stride = %d\n",func,stride);
-//	fprintf(stderr,"%s: On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",func,j1,j2,nradices_prim,blocklen);
+//	fprintf(stderr,"%s: stride = %d\n",__FUNCTION__,stride);
+//	fprintf(stderr,"%s: On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",__FUNCTION__,j1,j2,nradices_prim,blocklen);
 
 	/* If j1 == 0 we need to init the loop counters; otherwise, just jump
 	   right in and pick up where we left off on the previous pair of blocks:
 	*/
 	if(j1 > 0) {
-	//	fprintf(stderr,"%s: Jumping into loop!\n",func);
+	//	fprintf(stderr,"%s: Jumping into loop!\n",__FUNCTION__);
 		goto jump_in;
 	}
 
@@ -902,7 +907,7 @@ for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim
 		// Apr 2014: Must store intermediate product j1*radix0 in a 64-bit int to prevent overflow!
 		if(j1 && ((uint64)j1*radix0)%n == 0)
 		{
-		//	fprintf(stderr,"(%s: j1 && j1*radix0 == 0 (mod n)) check hit: returning\n",func);
+		//	fprintf(stderr,"(%s: j1 && j1*radix0 == 0 (mod n)) check hit: returning\n",__FUNCTION__);
 			return;
 		}
 
@@ -1176,7 +1181,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 			memset(k2_arr, 0, 14*RE_IM_STRIDE*sizeof(uint32));
 		}
   #if 0
-	printf("%s: Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",func,k,index[k]);
+	printf("%s: Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",__FUNCTION__,k,index[k]);
   #endif
 		// 1st set:
 		iroot = index[k++];
@@ -1677,8 +1682,8 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	  #endif
 
-	jump_new:
 	  #ifdef USE_AVX
+	jump_new:
 		// SSE2/AVX/AVX-512 need SIMD data processing to begin at j1 = 64,128,256, respectively. Here, 160
 		// is the scalar-DFT-mode j1-value which is followed by j1 = 256 after block-index updating:
 		if(j1 <= 320) {
@@ -1761,8 +1766,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	#endif
 
-	if(fwd_fft_only == 3)
+	if(fwd_fft_only == 3) {
 		goto skip_fwd_fft;	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
+	}
 
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
@@ -5183,7 +5189,7 @@ loop:
 !   ourselves in the data array for the start of the next block, need to bump up j1 by as much as would occur in a
 !   second execution of the above loop. The exception is the first loop execution, where j1 needs to be doubled (64 x 2).
 */
-update_blocklen:
+//update_blocklen:
 
 	j1 = j1+(blocklen << 1);
 	if(j2_start == n-64)
