@@ -73,7 +73,7 @@ void radix32_dyadic_square(
 	const int stride = (int)RE_IM_STRIDE << 6, stridh = (stride>>1);	// main-array loop stride = 32*RE_IM_STRIDE
 	static int max_threads = 0;
 	static int nsave = 0;
-	static int rad0save = 0, ndivrad0 = 0, ndivrad0m1 = 0;
+	static int rad0save = 0, ndivrad0 = 0/* , ndivrad0m1 = 0 */;
 /*	static int *index = 0x0;	OBSOLETE: full-N2/16-length Bit-reversal index array. */
 	static int *index0 = 0x0, *index1 = 0x0, *index_ptmp0 = 0x0, *index_ptmp1 = 0x0;
 	// Nov 2017: Making these static to support synthesized final-pass radices is not an option as it breaks multiheading,
@@ -84,12 +84,24 @@ void radix32_dyadic_square(
 	       int index0_idx= 0, index1_idx= 0;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
-	int i,j,j1,j2,l,iroot,k1,k2,nbytes;
+	int i,j,j1,iroot;
+#ifndef USE_SSE2
+	int j2;
+#endif
+#ifndef USE_AVX512
+	int l,k1,k2;
+#endif
+#ifdef USE_SSE2
+	int nbytes;
+#endif
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 			,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784	/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
 			,c32_3 = 0.83146961230254523708, s32_3 = 0.55557023301960222473;/* exp(3*i*twopi/32)	*/
 
-	double re0,im0,re1,im1,rt,it;
+#ifndef USE_SSE2
+	double re0,im0,re1,im1;
+#endif
+	double rt,it;
 
 #ifdef USE_SSE2
 
@@ -107,7 +119,9 @@ void radix32_dyadic_square(
 	double *add4,*add5,*add6,*add7;
   #endif
 	vec_dbl *c_tmp,*s_tmp;
+  #if defined(USE_AVX512) && defined(USE_IMCI512)
 	vec_dbl *tmp,*tm1;
+  #endif
 
   #ifdef MULTITHREAD
 	// Base addresses for discrete per-thread local stores ... 'r' for double-float data, 'i' for int:
@@ -116,18 +130,34 @@ void radix32_dyadic_square(
 	// In || mode, only above base-pointers (shared by all threads) are static:
 	uint32  *k1_arr, *k2_arr;
 	vec_dbl *isrt2,*sqrt2, *one,*two, *cc0,*ss0,*cc1,*ss1,*cc3,*ss3
-		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
-		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
-		,*r00,*r08,*r10,*r18,*r20,*r28,*r30,*r38;
+		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c0A
+		,*c10,*c12,*c1A
+	  #ifndef USE_AVX512
+		,*c08,*c0C,*c0E,*c14,*c16,*c18,*c1C,*c1E
+	  #endif
+		//,*c09,*c0B,*c0D,*c0F,*c11,*c13,*c15,*c17,*c19,*c1B,*c1D,*c1F
+		,*r00,*r08,*r10/* ,*r18 */,*r20,*r30/* ,*r38 */
+	#ifdef USE_AVX
+		,*r28
+	#endif
+		;
   #else
 	static uint32  *k1_arr, *k2_arr;
 	static vec_dbl *isrt2,*sqrt2, *one,*two, *cc0,*ss0,*cc1,*ss1,*cc3,*ss3
-		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
-		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
-		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
-		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
-		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
-		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
+		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c0A
+		,*c10,*c12,*c1A
+	  #ifndef USE_AVX512
+		,*c08,*c0C,*c0E,*c14,*c16,*c18,*c1C,*c1E
+	  #endif
+		//,*c09,*c0B,*c0D,*c0F,*c11,*c13,*c15,*c17,*c19,*c1B,*c1D,*c1F
+		,*r00/*, *r02,*r04,*r06 */,*r08/*, *r0A,*r0C,*r0E */
+		,*r10/*, *r12,*r14,*r16,*r18 *r1A,*r1C,*r1E */
+		,*r20/*, *r22,*r24,*r26,*r2A,*r2C,*r2E */
+		,*r30/*, *r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
+	#ifdef USE_AVX
+		,*r28
+	#endif
+		;
   #endif
 
 #else
@@ -188,7 +218,7 @@ void radix32_dyadic_square(
 		nsave = n;
 		ASSERT(N2 == n/2, "N2 bad!");
 		rad0save = radix0;
-		ndivrad0 = n/radix0;	ndivrad0m1 = ndivrad0-1;	// ndivrad0 always a power of 2, so can do a fast-mod via & (ndivrad0-1)
+		ndivrad0 = n/radix0;	/* ndivrad0m1 = ndivrad0-1; */	// ndivrad0 always a power of 2, so can do a fast-mod via & (ndivrad0-1)
 		for(j = 0; j < ndivrad0; j += stride)
 		{
 			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
@@ -277,8 +307,8 @@ void radix32_dyadic_square(
 		// Index vectors used in SIMD roots-computation.
 		// Nov 2017: Add pair of int-slots per thread here ----vv, to support synthesized final-pass radices >= 256.
 	//	sm_arr = ALLOC_INT(sm_arr, max_threads*(14*RE_IM_STRIDE+2) + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-		sm_arr = ALLOC_INT(sm_arr, max_threads* 14*RE_IM_STRIDE    + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-		sm_ptr = ALIGN_INT(sm_arr);
+		sm_arr = ALLOC_UINT(sm_arr, max_threads* 14*RE_IM_STRIDE    + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		sm_ptr = ALIGN_UINT(sm_arr);
 		ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array:
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x94*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
@@ -329,45 +359,84 @@ void radix32_dyadic_square(
 		k1_arr = sm_ptr;
 		k2_arr = sm_ptr + 7*RE_IM_STRIDE;
 		r00	 = sc_ptr + 0x00;	isrt2 = sc_ptr + 0x48;
-		r02	 = sc_ptr + 0x02;	cc0   = sc_ptr + 0x49;	ss0 = sc_ptr + 0x4a;
-		r04	 = sc_ptr + 0x04;	cc1   = sc_ptr + 0x4b;	ss1 = sc_ptr + 0x4c;
-		r06	 = sc_ptr + 0x06;	cc3   = sc_ptr + 0x4d;	ss3 = sc_ptr + 0x4e;
-		r08	 = sc_ptr + 0x08;	c00   = sc_ptr + 0x4f;
-		r0A	 = sc_ptr + 0x0a;	c10   = sc_ptr + 0x51;
-		r0C	 = sc_ptr + 0x0c;	c08   = sc_ptr + 0x53;
-		r0E	 = sc_ptr + 0x0e;	c18   = sc_ptr + 0x55;
-		r10	 = sc_ptr + 0x10;	c04   = sc_ptr + 0x57;
-		r12	 = sc_ptr + 0x12;	c14   = sc_ptr + 0x59;
-		r14	 = sc_ptr + 0x14;	c0C   = sc_ptr + 0x5b;
-		r16	 = sc_ptr + 0x16;	c1C   = sc_ptr + 0x5d;
-		r18	 = sc_ptr + 0x18;	c02   = sc_ptr + 0x5f;
-		r1A	 = sc_ptr + 0x1a;	c12   = sc_ptr + 0x61;
-		r1C	 = sc_ptr + 0x1c;	c0A   = sc_ptr + 0x63;
-		r1E	 = sc_ptr + 0x1e;	c1A   = sc_ptr + 0x65;
-		r20	 = sc_ptr + 0x20;	c06   = sc_ptr + 0x67;
-		r22	 = sc_ptr + 0x22;	c16   = sc_ptr + 0x69;
-		r24	 = sc_ptr + 0x24;	c0E   = sc_ptr + 0x6b;
-		r26	 = sc_ptr + 0x26;	c1E   = sc_ptr + 0x6d;
-		r28	 = sc_ptr + 0x28;	c01   = sc_ptr + 0x6f;
-		r2A	 = sc_ptr + 0x2a;	c11   = sc_ptr + 0x71;
-		r2C	 = sc_ptr + 0x2c;	c09   = sc_ptr + 0x73;
-		r2E	 = sc_ptr + 0x2e;	c19   = sc_ptr + 0x75;
-		r30	 = sc_ptr + 0x30;	c05   = sc_ptr + 0x77;
-		r32	 = sc_ptr + 0x32;	c15   = sc_ptr + 0x79;
-		r34	 = sc_ptr + 0x34;	c0D   = sc_ptr + 0x7b;
-		r36	 = sc_ptr + 0x36;	c1D   = sc_ptr + 0x7d;
-		r38	 = sc_ptr + 0x38;	c03   = sc_ptr + 0x7f;
-		r3A	 = sc_ptr + 0x3a;	c13   = sc_ptr + 0x81;
-		r3C	 = sc_ptr + 0x3c;	c0B   = sc_ptr + 0x83;
-		r3E	 = sc_ptr + 0x3e;	c1B   = sc_ptr + 0x85;
-								c07   = sc_ptr + 0x87;
-								c17   = sc_ptr + 0x89;
-								c0F   = sc_ptr + 0x8b;
-								c1F   = sc_ptr + 0x8d;
-								two   = sc_ptr + 0x8f;
-							//	forth = sc_ptr + 0x90;
-								sqrt2 = sc_ptr + 0x91;
-								one	  = sc_ptr + 0x92;
+		/* r02	 = sc_ptr + 0x02; */
+		/* r04	 = sc_ptr + 0x04; */
+		/* r06	 = sc_ptr + 0x06; */
+		r08	 = sc_ptr + 0x08;
+		/* r0A	 = sc_ptr + 0x0a; */
+		/* r0C	 = sc_ptr + 0x0c; */
+		/* r0E	 = sc_ptr + 0x0e; */
+		r10	 = sc_ptr + 0x10;
+		/* r12	 = sc_ptr + 0x12; */
+		/* r14	 = sc_ptr + 0x14; */
+		/* r16	 = sc_ptr + 0x16; */
+		/* r18	 = sc_ptr + 0x18; */
+		/* r1A	 = sc_ptr + 0x1a; */
+		/* r1C	 = sc_ptr + 0x1c; */
+		/* r1E	 = sc_ptr + 0x1e; */
+		r20	 = sc_ptr + 0x20;
+		/* r22	 = sc_ptr + 0x22; */
+		/* r24	 = sc_ptr + 0x24; */
+		/* r26	 = sc_ptr + 0x26; */
+	   #ifdef USE_AVX
+		r28	 = sc_ptr + 0x28;
+	   #endif
+		/* r2A	 = sc_ptr + 0x2a; */
+		/* r2C	 = sc_ptr + 0x2c; */
+		/* r2E	 = sc_ptr + 0x2e; */
+		r30	 = sc_ptr + 0x30;
+		/* r32	 = sc_ptr + 0x32; */
+		/* r34	 = sc_ptr + 0x34; */
+		/* r36	 = sc_ptr + 0x36; */
+		/* r38	 = sc_ptr + 0x38; */
+		/* r3A	 = sc_ptr + 0x3a; */
+		/* r3C	 = sc_ptr + 0x3c; */
+		/* r3E	 = sc_ptr + 0x3e; */
+		cc0   = sc_ptr + 0x49;	ss0 = sc_ptr + 0x4a;
+		cc1   = sc_ptr + 0x4b;	ss1 = sc_ptr + 0x4c;
+		cc3   = sc_ptr + 0x4d;	ss3 = sc_ptr + 0x4e;
+		c00   = sc_ptr + 0x4f;
+		c10   = sc_ptr + 0x51;
+	   #ifndef USE_AVX512
+		c08   = sc_ptr + 0x53;
+		c18   = sc_ptr + 0x55;
+	   #endif
+		c04   = sc_ptr + 0x57;
+	   #ifndef USE_AVX512
+		c14   = sc_ptr + 0x59;
+		c0C   = sc_ptr + 0x5b;
+		c1C   = sc_ptr + 0x5d;
+	   #endif
+		c02   = sc_ptr + 0x5f;
+		c12   = sc_ptr + 0x61;
+		c0A   = sc_ptr + 0x63;
+		c1A   = sc_ptr + 0x65;
+		c06   = sc_ptr + 0x67;
+	   #ifndef USE_AVX512
+		c16   = sc_ptr + 0x69;
+		c0E   = sc_ptr + 0x6b;
+		c1E   = sc_ptr + 0x6d;
+	   #endif
+		c01   = sc_ptr + 0x6f;
+		/* c11   = sc_ptr + 0x71; */
+		/* c09   = sc_ptr + 0x73; */
+		/* c19   = sc_ptr + 0x75; */
+		c05   = sc_ptr + 0x77;
+		/* c15   = sc_ptr + 0x79; */
+		/* c0D   = sc_ptr + 0x7b; */
+		/* c1D   = sc_ptr + 0x7d; */
+		c03   = sc_ptr + 0x7f;
+		/* c13   = sc_ptr + 0x81; */
+		/* c0B   = sc_ptr + 0x83; */
+		/* c1B   = sc_ptr + 0x85; */
+		c07   = sc_ptr + 0x87;
+		/* c17   = sc_ptr + 0x89; */
+		/* c0F   = sc_ptr + 0x8b; */
+		/* c1F   = sc_ptr + 0x8d; */
+		two   = sc_ptr + 0x8f;
+	//	forth = sc_ptr + 0x90;
+		sqrt2 = sc_ptr + 0x91;
+		one	  = sc_ptr + 0x92;
 		/* These remain fixed within each per-thread local store: */
 		VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
 		VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );	//VEC_DBL_INIT(forth, 0.25 );
@@ -389,45 +458,84 @@ void radix32_dyadic_square(
 	// also support them in non-SIMD mode, but no speedup observed, so leave in SIMD-only code:
 //	idx0_ptr = k2_arr + 7*RE_IM_STRIDE;	idx1_ptr = idx0_ptr+1;	index0_idx = *idx0_ptr;	index1_idx = *idx1_ptr;
 	r00 = __r0 + thr_id*148;	isrt2 = r00 + 0x48;
-/*	r02  = r00 + 0x02;*/cc0 = isrt2 + 0x01;
-/*	r04  = r00 + 0x04;*/cc1   = cc0 + 0x02;
-/*	r06  = r00 + 0x06;*/cc3   = cc0 + 0x04;
-	r08  = r00 + 0x08;	c00   = cc0 + 0x06;
-/*	r0A  = r00 + 0x0a;*/c10   = cc0 + 0x08;
-/*	r0C  = r00 + 0x0c;*/c08   = cc0 + 0x0a;
-/*	r0E  = r00 + 0x0e;*/c18   = cc0 + 0x0c;
-	r10  = r00 + 0x10;	c04   = cc0 + 0x0e;
-/*	r12  = r00 + 0x12;*/c14   = cc0 + 0x10;
-/*	r14  = r00 + 0x14;*/c0C   = cc0 + 0x12;
-/*	r16  = r00 + 0x16;*/c1C   = cc0 + 0x14;
-	r18  = r00 + 0x18;	c02   = cc0 + 0x16;
-/*	r1A  = r00 + 0x1a;*/c12   = cc0 + 0x18;
-/*	r1C  = r00 + 0x1c;*/c0A   = cc0 + 0x1a;
-/*	r1E  = r00 + 0x1e;*/c1A   = cc0 + 0x1c;
-	r20  = r00 + 0x20;	c06   = cc0 + 0x1e;
-/*	r22  = r00 + 0x22;*/c16   = cc0 + 0x20;
-/*	r24  = r00 + 0x24;*/c0E   = cc0 + 0x22;
-/*	r26  = r00 + 0x26;*/c1E   = cc0 + 0x24;
-	r28  = r00 + 0x28;	c01   = cc0 + 0x26;
-/*	r2A  = r00 + 0x2a;*/c11   = cc0 + 0x28;
-/*	r2C  = r00 + 0x2c;*/c09   = cc0 + 0x2a;
-/*	r2E  = r00 + 0x2e;*/c19   = cc0 + 0x2c;
-	r30  = r00 + 0x30;	c05   = cc0 + 0x2e;
-/*	r32  = r00 + 0x32;*/c15   = cc0 + 0x30;
-/*	r34  = r00 + 0x34;*/c0D   = cc0 + 0x32;
-/*	r36  = r00 + 0x36;*/c1D   = cc0 + 0x34;
-	r38  = r00 + 0x38;	c03   = cc0 + 0x36;
-/*	r3A  = r00 + 0x3a;*/c13   = cc0 + 0x38;
-/*	r3C  = r00 + 0x3c;*/c0B   = cc0 + 0x3a;
-/*	r3E  = r00 + 0x3e;*/c1B   = cc0 + 0x3c;
-						c07   = cc0 + 0x3e;
-						c17   = cc0 + 0x40;
-						c0F   = cc0 + 0x42;
-						c1F   = cc0 + 0x44;
-						two   = cc0 + 0x46;
-					//	forth = cc0 + 0x47;
-						sqrt2 = cc0 + 0x48;
-						one	  = cc0 + 0x49;
+/*	r02  = r00 + 0x02;*/
+/*	r04  = r00 + 0x04;*/
+/*	r06  = r00 + 0x06;*/
+	r08  = r00 + 0x08;
+/*	r0A  = r00 + 0x0a;*/
+/*	r0C  = r00 + 0x0c;*/
+/*	r0E  = r00 + 0x0e;*/
+	r10  = r00 + 0x10;
+/*	r12  = r00 + 0x12;*/
+/*	r14  = r00 + 0x14;*/
+/*	r16  = r00 + 0x16;*/
+/*	r18  = r00 + 0x18;*/
+/*	r1A  = r00 + 0x1a;*/
+/*	r1C  = r00 + 0x1c;*/
+/*	r1E  = r00 + 0x1e;*/
+	r20  = r00 + 0x20;
+/*	r22  = r00 + 0x22;*/
+/*	r24  = r00 + 0x24;*/
+/*	r26  = r00 + 0x26;*/
+   #ifdef USE_AVX
+	r28  = r00 + 0x28;
+   #endif
+/*	r2A  = r00 + 0x2a;*/
+/*	r2C  = r00 + 0x2c;*/
+/*	r2E  = r00 + 0x2e;*/
+	r30  = r00 + 0x30;
+/*	r32  = r00 + 0x32;*/
+/*	r34  = r00 + 0x34;*/
+/*	r36  = r00 + 0x36;*/
+/*	r38  = r00 + 0x38;*/
+/*	r3A  = r00 + 0x3a;*/
+/*	r3C  = r00 + 0x3c;*/
+/*	r3E  = r00 + 0x3e;*/
+	cc0 = isrt2 + 0x01;
+	cc1   = cc0 + 0x02;
+	cc3   = cc0 + 0x04;
+	c00   = cc0 + 0x06;
+	c10   = cc0 + 0x08;
+   #ifndef USE_AVX512
+	c08   = cc0 + 0x0a;
+	c18   = cc0 + 0x0c;
+   #endif
+	c04   = cc0 + 0x0e;
+   #ifndef USE_AVX512
+	c14   = cc0 + 0x10;
+	c0C   = cc0 + 0x12;
+	c1C   = cc0 + 0x14;
+   #endif
+	c02   = cc0 + 0x16;
+	c12   = cc0 + 0x18;
+	c0A   = cc0 + 0x1a;
+	c1A   = cc0 + 0x1c;
+	c06   = cc0 + 0x1e;
+   #ifndef USE_AVX512
+	c16   = cc0 + 0x20;
+	c0E   = cc0 + 0x22;
+	c1E   = cc0 + 0x24;
+   #endif
+	c01   = cc0 + 0x26;
+	/* c11   = cc0 + 0x28; */
+	/* c09   = cc0 + 0x2a; */
+	/* c19   = cc0 + 0x2c; */
+	c05   = cc0 + 0x2e;
+	/* c15   = cc0 + 0x30; */
+	/* c0D   = cc0 + 0x32; */
+	/* c1D   = cc0 + 0x34; */
+	c03   = cc0 + 0x36;
+	/* c13   = cc0 + 0x38; */
+	/* c0B   = cc0 + 0x3a; */
+	/* c1B   = cc0 + 0x3c; */
+	c07   = cc0 + 0x3e;
+	/* c17   = cc0 + 0x40; */
+	/* c0F   = cc0 + 0x42; */
+	/* c1F   = cc0 + 0x44; */
+	two   = cc0 + 0x46;
+	//forth = cc0 + 0x47;
+	sqrt2 = cc0 + 0x48;
+	one	  = cc0 + 0x49;
   #endif
 #endif
 
@@ -448,7 +556,9 @@ void radix32_dyadic_square(
 	for(j = 0; j < ndivrad0; j += stride)
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
+	#ifndef USE_SSE2
 		j2 = j1+RE_IM_STRIDE;
+	#endif
 
 	#ifndef USE_SSE2	// Scalar-double mode:
 
@@ -1055,7 +1165,7 @@ printf("c[%2d] = %18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f
 		add1 = add0 +  64;
 		add2 = add0 + 128;
 		add3 = add0 + 192;
-	#endif
+	  #endif
 
 	if(fwd_fft_only != 3)	// v20: add support for both-inputs-already-fwd-FFTed case - fwd_fft_only == 3 means skip fwd-FFT
 	{
@@ -1068,9 +1178,9 @@ printf("c[%2d] = %18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f
 	  					// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
 		// process 4 main-array blocks of 16 vec_dbl [= 16 x 4 = 64 doubles each] in AVX mode, total = 256 float64
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
-	#else	// SSE2:
+	  #else	// SSE2:
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,          r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
-	#endif
+	  #endif
 	}
 
 	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
@@ -1135,8 +1245,9 @@ printf("c[%2d] = %18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f,%18.15f
 
 #else	// USE_SSE2 = False, scalar-double mode:
 
-	if(fwd_fft_only == 3)
+	if(fwd_fft_only == 3) {
 		goto skip_fwd_fft;	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
+	}
 
 		/*...Block 1:	*/
 		t00=a[j1   ];						t01=a[j2     ];
