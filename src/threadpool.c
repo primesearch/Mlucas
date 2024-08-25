@@ -285,10 +285,6 @@ static void * xcalloc(size_t num, size_t len) {
 	#endif
 	static void *worker_thr_routine(void *data)
 	{
-	#if INCLUDE_HWLOC
-		char cbuf[STR_MAX_LEN*2];
-		char str[80];
-	#endif
 		struct thread_init *init = (struct thread_init *)data;
 		int my_id = init->thread_num;
 		struct threadpool *pool = init->pool;
@@ -363,6 +359,8 @@ static void * xcalloc(size_t num, size_t len) {
 	 #if INCLUDE_HWLOC
 
 	  if(HWLOC_AFFINITY) {	// Global, declared in Mdata.h, defined in Mlucas.c, set in util.c::host_init()
+		char cbuf[STR_MAX_LEN*2];
+		char str[80];
 		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc();
 		hwloc_obj_t obj = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, i);
 		if (obj) {
