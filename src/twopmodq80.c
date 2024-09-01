@@ -1204,7 +1204,7 @@ if(~pshift != p+78) {
 			two26i  = sc_ptr + 0x1c;
 			sse2_rnd= sc_ptr + 0x1e;
 			half    = sc_ptr + 0x20;
-			dtmp = *(double*)&ihalf;
+			dtmp = u64_to_f64(ihalf);
 			for(j = 0; j < max_threads; ++j) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT_2((vec_dbl*)two13i  , TWO13FLINV);
@@ -1246,7 +1246,7 @@ if(~pshift != p+78) {
 			/* We init "half" = 0.5-epsilon here, because emulating FLOOR(x) via DNINT(x-half) requires
 			us to always round up if x is a whole number, and our DNINT emulation can round either way if fractional part = 0.5:
 			*/
-			dtmp = *(double*)&ihalf;
+			dtmp = u64_to_f64(ihalf);
 			*half++ = dtmp;			*half-- = dtmp;
 		#endif
 			if(init_sse2) return 0;
@@ -2044,7 +2044,7 @@ if(~pshift != p+78) {
 			two26i = sc_ptr + 0x44;
 			sse2_rnd=sc_ptr + 0x46;
 			half   = sc_ptr + 0x48;
-			dtmp = *(double*)&ihalf;
+			dtmp = u64_to_f64(ihalf);
 			for(j = 0; j < max_threads; ++j) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT_2((vec_dbl*)two13i  , TWO13FLINV);
@@ -2091,7 +2091,7 @@ if(~pshift != p+78) {
 			/* We init "half" = 0.5-epsilon here, because emulating FLOOR(x) via DNINT(x-half) requires
 			us to always round up if x is a whole number, and our DNINT emulation can round either way if fractional part = 0.5:
 			*/
-			dtmp = *(double*)&ihalf;
+			dtmp = u64_to_f64(ihalf);
 			*half++ = dtmp;			*half-- = dtmp;
 		#endif
 			if(init_sse2) return 0;
@@ -4037,7 +4037,7 @@ if(~pshift != p+78) {
 				/* We init "half" = 0.5-epsilon here, because emulating FLOOR(x) via DNINT(x-half) requires
 				us to always round up if x is a whole number, and our DNINT emulation can round either way if fractional part = 0.5:
 				*/
-				*half++ = *(double*)&ihalf;	*half-- = *(double*)&ihalf;
+				*half++ = u64_to_f64(ihalf);	*half-- = u64_to_f64(ihalf);
 
 				/* Need both float and integer data to share same allocated chunk of memory, so can use a single base/offset scheme to manage both */
 				sm_ptr = (uint64*)(sc_ptr + 0x50);	/* Contiguous offset w.r.to last float data above is 0x4a, but start ints at +0x50 for ease: */
