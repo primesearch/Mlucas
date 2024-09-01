@@ -124,8 +124,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 			/* These remain fixed within each per-thread local store: */
 		  #if 1
 			// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		  #else
 			VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 		  #endif
@@ -151,8 +151,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -180,8 +180,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -584,8 +584,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 			/* These remain fixed within each per-thread local store: */
 		  #if 1
 			// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		  #else
 			VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 		  #endif
@@ -611,8 +611,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -643,8 +643,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
