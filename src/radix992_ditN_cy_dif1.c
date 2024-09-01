@@ -631,245 +631,245 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = base_negacyclic_root + RADIX*2;	// First 2*RADIX slots reserved for RADIX/4 copies of the Re/Im parts of the 4 base multipliers
 		tm2 = tmp + RADIX/2 - 1;
 										tmp->d0 = 1.0;	(tmp+1)->d0 = 0.0;
-		tmp64 = 0x3FEFFFD3151E5533ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(  1*I*Pi/480) = sin(239*I*Pi/480) */
-		tmp64 = 0x3FEFFF4C54F76E1Cull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(  2*I*Pi/480) = sin(238*I*Pi/480) */
-		tmp64 = 0x3FEFFE6BC105954Eull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(  3*I*Pi/480) = sin(237*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEFFD315BBF4275ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(  4*I*Pi/480) = sin(236*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEFFB9D2897136Eull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(  5*I*Pi/480) = sin(235*I*Pi/480) */
-		tmp64 = 0x3FEFF9AF2BFBC297ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(  6*I*Pi/480) = sin(234*I*Pi/480) */
-		tmp64 = 0x3FEFF7676B581A63ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(  7*I*Pi/480) = sin(233*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEFF4C5ED12E61Dull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(  8*I*Pi/480) = sin(232*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEFF1CAB88EDFF7ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(  9*I*Pi/480) = sin(231*I*Pi/480) */
-		tmp64 = 0x3FEFEE75D62A9C46ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 10*I*Pi/480) = sin(230*I*Pi/480) */
-		tmp64 = 0x3FEFEAC74F40720Cull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 11*I*Pi/480) = sin(229*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEFE6BF2E2660AFull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 12*I*Pi/480) = sin(228*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEFE25D7E2DF2F8ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 13*I*Pi/480) = sin(227*I*Pi/480) */
-		tmp64 = 0x3FEFDDA24BA41F4Dull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 14*I*Pi/480) = sin(226*I*Pi/480) */
-		tmp64 = 0x3FEFD88DA3D12526ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 15*I*Pi/480) = sin(225*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEFD31F94F867C6ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 16*I*Pi/480) = sin(224*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEFCD582E584632ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 17*I*Pi/480) = sin(223*I*Pi/480) */
-		tmp64 = 0x3FEFC7378029F05Full;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 18*I*Pi/480) = sin(222*I*Pi/480) */
-		tmp64 = 0x3FEFC0BD9BA139AEull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 19*I*Pi/480) = sin(221*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEFB9EA92EC689Bull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 20*I*Pi/480) = sin(220*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEFB2BE793403B9ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 21*I*Pi/480) = sin(219*I*Pi/480) */
-		tmp64 = 0x3FEFAB39629A9BE3ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 22*I*Pi/480) = sin(218*I*Pi/480) */
-		tmp64 = 0x3FEFA35B643C93B9ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 23*I*Pi/480) = sin(217*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEF9B24942FE45Cull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 24*I*Pi/480) = sin(216*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEF92950983DF6Bull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 25*I*Pi/480) = sin(215*I*Pi/480) */
-		tmp64 = 0x3FEF89ACDC40EE4Bull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 26*I*Pi/480) = sin(214*I*Pi/480) */
-		tmp64 = 0x3FEF806C25684EA8ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 27*I*Pi/480) = sin(213*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEF76D2FEF3CC4Bull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 28*I*Pi/480) = sin(212*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEF6CE183D57825ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 29*I*Pi/480) = sin(211*I*Pi/480) */
-		tmp64 = 0x3FEF6297CFF75CB0ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 30*I*Pi/480) = sin(210*I*Pi/480) */
-		tmp64 = 0x3FEF57F6003B2F91ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 31*I*Pi/480) = sin(209*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEF4CFC327A0080ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 32*I*Pi/480) = sin(208*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEF41AA8583E57Eull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 33*I*Pi/480) = sin(207*I*Pi/480) */
-		tmp64 = 0x3FEF3601191FA459ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 34*I*Pi/480) = sin(206*I*Pi/480) */
-		tmp64 = 0x3FEF2A000E0A5970ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 35*I*Pi/480) = sin(205*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEF1DA785F71BCEull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 36*I*Pi/480) = sin(204*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEF10F7A38E9E90ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 37*I*Pi/480) = sin(203*I*Pi/480) */
-		tmp64 = 0x3FEF03F08A6ECF94ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 38*I*Pi/480) = sin(202*I*Pi/480) */
-		tmp64 = 0x3FEEF6925F2A7380ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 39*I*Pi/480) = sin(201*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEEE8DD4748BF15ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 40*I*Pi/480) = sin(200*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEEDAD16944EDD0ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 41*I*Pi/480) = sin(199*I*Pi/480) */
-		tmp64 = 0x3FEECC6EEC8DD5E9ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 42*I*Pi/480) = sin(198*I*Pi/480) */
-		tmp64 = 0x3FEEBDB5F9857999ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 43*I*Pi/480) = sin(197*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEEAEA6B98095C0ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 44*I*Pi/480) = sin(196*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEE9F4156C62DDAull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 45*I*Pi/480) = sin(195*I*Pi/480) */
-		tmp64 = 0x3FEE8F85FC8F1553ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 46*I*Pi/480) = sin(194*I*Pi/480) */
-		tmp64 = 0x3FEE7F74D705762Bull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 47*I*Pi/480) = sin(193*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEE6F0E134454FFull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 48*I*Pi/480) = sin(192*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEE5E51DF571265ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 49*I*Pi/480) = sin(191*I*Pi/480) */
-		tmp64 = 0x3FEE4D406A38E9ABull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 50*I*Pi/480) = sin(190*I*Pi/480) */
-		tmp64 = 0x3FEE3BD9E3D46CEFull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 51*I*Pi/480) = sin(189*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEE2A1E7D02FE9Full;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 52*I*Pi/480) = sin(188*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEE180E678C4853ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 53*I*Pi/480) = sin(187*I*Pi/480) */
-		tmp64 = 0x3FEE05A9D625AF0Full;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 54*I*Pi/480) = sin(186*I*Pi/480) */
-		tmp64 = 0x3FEDF2F0FC71C4E5ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 55*I*Pi/480) = sin(185*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEDDFE40EFFB805ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 56*I*Pi/480) = sin(184*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEDCC83434ABF29ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 57*I*Pi/480) = sin(183*I*Pi/480) */
-		tmp64 = 0x3FEDB8CECFB98376ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 58*I*Pi/480) = sin(182*I*Pi/480) */
-		tmp64 = 0x3FEDA4C6EB9D87C2ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 59*I*Pi/480) = sin(181*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FED906BCF328D46ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 60*I*Pi/480) = sin(180*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FED7BBDB39DF5C3ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 61*I*Pi/480) = sin(179*I*Pi/480) */
-		tmp64 = 0x3FED66BCD2EE2313ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 62*I*Pi/480) = sin(178*I*Pi/480) */
-		tmp64 = 0x3FED51696819D42Bull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 63*I*Pi/480) = sin(177*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FED3BC3AEFF7F95ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 64*I*Pi/480) = sin(176*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FED25CBE464AB60ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 65*I*Pi/480) = sin(175*I*Pi/480) */
-		tmp64 = 0x3FED0F8245F5427Full;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 66*I*Pi/480) = sin(174*I*Pi/480) */
-		tmp64 = 0x3FECF8E71242E7ABull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 67*I*Pi/480) = sin(173*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FECE1FA88C445BBull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 68*I*Pi/480) = sin(172*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FECCABCE9D45D78ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 69*I*Pi/480) = sin(171*I*Pi/480) */
-		tmp64 = 0x3FECB32E76B1D0F4ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 70*I*Pi/480) = sin(170*I*Pi/480) */
-		tmp64 = 0x3FEC9B4F717E2C63ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 71*I*Pi/480) = sin(169*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEC83201D3D2C6Dull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 72*I*Pi/480) = sin(168*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEC6AA0BDD40210ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 73*I*Pi/480) = sin(167*I*Pi/480) */
-		tmp64 = 0x3FEC51D198089406ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 74*I*Pi/480) = sin(166*I*Pi/480) */
-		tmp64 = 0x3FEC38B2F180BDB1ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 75*I*Pi/480) = sin(165*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEC1F4510C18B95ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 76*I*Pi/480) = sin(164*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEC05883D2E7560ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 77*I*Pi/480) = sin(163*I*Pi/480) */
-		tmp64 = 0x3FEBEB7CBF08957Dull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 78*I*Pi/480) = sin(162*I*Pi/480) */
-		tmp64 = 0x3FEBD122DF6DDE43ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 79*I*Pi/480) = sin(161*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEBB67AE8584CAAull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 80*I*Pi/480) = sin(160*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEB9B85249D18A2ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 81*I*Pi/480) = sin(159*I*Pi/480) */
-		tmp64 = 0x3FEB8041DFEBE2FBull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 82*I*Pi/480) = sin(158*I*Pi/480) */
-		tmp64 = 0x3FEB64B166CDE0EEull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 83*I*Pi/480) = sin(157*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEB48D406A50540ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 84*I*Pi/480) = sin(156*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEB2CAA0DAB2702ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 85*I*Pi/480) = sin(155*I*Pi/480) */
-		tmp64 = 0x3FEB1033CAF125F6ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 86*I*Pi/480) = sin(154*I*Pi/480) */
-		tmp64 = 0x3FEAF3718E5E0C9Cull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 87*I*Pi/480) = sin(153*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEAD663A8AE2FDCull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 88*I*Pi/480) = sin(152*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEAB90A6B724C62ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 89*I*Pi/480) = sin(151*I*Pi/480) */
-		tmp64 = 0x3FEA9B66290EA1A3ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 90*I*Pi/480) = sin(150*I*Pi/480) */
-		tmp64 = 0x3FEA7D7734BA0A8Eull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 91*I*Pi/480) = sin(149*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FEA5F3DE27D13F2ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 92*I*Pi/480) = sin(148*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FEA40BA87311090ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 93*I*Pi/480) = sin(147*I*Pi/480) */
-		tmp64 = 0x3FEA21ED787F2AEFull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 94*I*Pi/480) = sin(146*I*Pi/480) */
-		tmp64 = 0x3FEA02D70CDF74DBull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 95*I*Pi/480) = sin(145*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE9E3779B97F4A8ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos( 96*I*Pi/480) = sin(144*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE9C3CF7CBBB030ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos( 97*I*Pi/480) = sin(143*I*Pi/480) */
-		tmp64 = 0x3FE9A3DF0929B594ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos( 98*I*Pi/480) = sin(142*I*Pi/480) */
-		tmp64 = 0x3FE983A69A8C21B8ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos( 99*I*Pi/480) = sin(141*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE963268B572492ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(100*I*Pi/480) = sin(140*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE9425F36C80335ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(101*I*Pi/480) = sin(139*I*Pi/480) */
-		tmp64 = 0x3FE92150F8E417B1ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(102*I*Pi/480) = sin(138*I*Pi/480) */
-		tmp64 = 0x3FE8FFFC2E77CEBAull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(103*I*Pi/480) = sin(137*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE8DE613515A328ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(104*I*Pi/480) = sin(136*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE8BC806B151741ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(105*I*Pi/480) = sin(135*I*Pi/480) */
-		tmp64 = 0x3FE89A5A2F91ABE4ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(106*I*Pi/480) = sin(134*I*Pi/480) */
-		tmp64 = 0x3FE877EEE269D586ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(107*I*Pi/480) = sin(133*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE8553EE43DEF13ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(108*I*Pi/480) = sin(132*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE8324A966F2AA5ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(109*I*Pi/480) = sin(131*I*Pi/480) */
-		tmp64 = 0x3FE80F125B1E8028ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(110*I*Pi/480) = sin(130*I*Pi/480) */
-		tmp64 = 0x3FE7EB96952B99DCull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(111*I*Pi/480) = sin(129*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE7C7D7A833BEC2ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(112*I*Pi/480) = sin(128*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE7A3D5F890BAF9ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(113*I*Pi/480) = sin(127*I*Pi/480) */
-		tmp64 = 0x3FE77F91EB57C602ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(114*I*Pi/480) = sin(126*I*Pi/480) */
-		tmp64 = 0x3FE75B0BE65866FBull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(115*I*Pi/480) = sin(125*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE73644501B56CDull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(116*I*Pi/480) = sin(124*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE7113B8FE16056ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(117*I*Pi/480) = sin(123*I*Pi/480) */
-		tmp64 = 0x3FE6EBF20DA23E86ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(118*I*Pi/480) = sin(122*I*Pi/480) */
-		tmp64 = 0x3FE6C668320B7884ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(119*I*Pi/480) = sin(121*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(120*I*Pi/480) = sin(120*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE67A951513345Cull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(121*I*Pi/480) = sin(119*I*Pi/480) */
-		tmp64 = 0x3FE6544CA88F62DBull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(122*I*Pi/480) = sin(118*I*Pi/480) */
-		tmp64 = 0x3FE62DC58C6CF0DBull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(123*I*Pi/480) = sin(117*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE607002CD5031Dull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(124*I*Pi/480) = sin(116*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE5DFFCF69F89EDull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(125*I*Pi/480) = sin(115*I*Pi/480) */
-		tmp64 = 0x3FE5B8BC57520F97ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(126*I*Pi/480) = sin(114*I*Pi/480) */
-		tmp64 = 0x3FE5913EBD1E84E7ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(127*I*Pi/480) = sin(113*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE5698496E20BD8ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(128*I*Pi/480) = sin(112*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE5418E5423C050ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(129*I*Pi/480) = sin(111*I*Pi/480) */
-		tmp64 = 0x3FE5195C65137F0Cull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(130*I*Pi/480) = sin(110*I*Pi/480) */
-		tmp64 = 0x3FE4F0EF3A88AAADull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(131*I*Pi/480) = sin(109*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE4C8474600EEEEull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(132*I*Pi/480) = sin(108*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE49F64F99F0207ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(133*I*Pi/480) = sin(107*I*Pi/480) */
-		tmp64 = 0x3FE47648C8296447ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(134*I*Pi/480) = sin(106*I*Pi/480) */
-		tmp64 = 0x3FE44CF325091DD6ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(135*I*Pi/480) = sin(105*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE4236484487ABEull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(136*I*Pi/480) = sin(104*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE3F99D5A91C51Full;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(137*I*Pi/480) = sin(103*I*Pi/480) */
-		tmp64 = 0x3FE3CF9E1D2DFDB2ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(138*I*Pi/480) = sin(102*I*Pi/480) */
-		tmp64 = 0x3FE3A56742039280ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(139*I*Pi/480) = sin(101*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE37AF93F9513EAull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(140*I*Pi/480) = sin(100*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE350548CFFE7F2ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(141*I*Pi/480) = sin( 99*I*Pi/480) */
-		tmp64 = 0x3FE32579A1FAFBDAull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(142*I*Pi/480) = sin( 98*I*Pi/480) */
-		tmp64 = 0x3FE2FA68F6D5740Cull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(143*I*Pi/480) = sin( 97*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE2CF2304755A5Eull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(144*I*Pi/480) = sin( 96*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE2A3A844564AA5ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(145*I*Pi/480) = sin( 95*I*Pi/480) */
-		tmp64 = 0x3FE277F930881DAFull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(146*I*Pi/480) = sin( 94*I*Pi/480) */
-		tmp64 = 0x3FE24C1643AD9295ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(147*I*Pi/480) = sin( 93*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE21FFFF8FAF674ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(148*I*Pi/480) = sin( 92*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE1F3B6CC34CA8Bull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(149*I*Pi/480) = sin( 91*I*Pi/480) */
-		tmp64 = 0x3FE1C73B39AE68C8ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(150*I*Pi/480) = sin( 90*I*Pi/480) */
-		tmp64 = 0x3FE19A8DBE48A6C1ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(151*I*Pi/480) = sin( 89*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE16DAED770771Dull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(152*I*Pi/480) = sin( 88*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE1409F031D897Eull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(153*I*Pi/480) = sin( 87*I*Pi/480) */
-		tmp64 = 0x3FE1135EBFD0E8D7ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(154*I*Pi/480) = sin( 86*I*Pi/480) */
-		tmp64 = 0x3FE0E5EE8C939850ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(155*I*Pi/480) = sin( 85*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE0B84EE8F52E9Dull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(156*I*Pi/480) = sin( 84*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FE08A80550A6FE5ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(157*I*Pi/480) = sin( 83*I*Pi/480) */
-		tmp64 = 0x3FE05C83516BE635ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(158*I*Pi/480) = sin( 82*I*Pi/480) */
-		tmp64 = 0x3FE02E585F347876ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(159*I*Pi/480) = sin( 81*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FE0000000000000ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(160*I*Pi/480) = sin( 80*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FDFA2F56BD3B979ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(161*I*Pi/480) = sin( 79*I*Pi/480) */
-		tmp64 = 0x3FDF459207170FCEull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(162*I*Pi/480) = sin( 78*I*Pi/480) */
-		tmp64 = 0x3FDEE7D6D7F64AD2ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(163*I*Pi/480) = sin( 77*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FDE89C4E59427B1ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(164*I*Pi/480) = sin( 76*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FDE2B5D3806F63Bull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(165*I*Pi/480) = sin( 75*I*Pi/480) */
-		tmp64 = 0x3FDDCCA0D855B380ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(166*I*Pi/480) = sin( 74*I*Pi/480) */
-		tmp64 = 0x3FDD6D90D07521CBull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(167*I*Pi/480) = sin( 73*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FDD0E2E2B44DE01ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(168*I*Pi/480) = sin( 72*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FDCAE79F48C726Cull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(169*I*Pi/480) = sin( 71*I*Pi/480) */
-		tmp64 = 0x3FDC4E7538F866FCull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(170*I*Pi/480) = sin( 70*I*Pi/480) */
-		tmp64 = 0x3FDBEE2106174F02ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(171*I*Pi/480) = sin( 69*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FDB8D7E6A56D476ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(172*I*Pi/480) = sin( 68*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FDB2C8E7500C0C6ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(173*I*Pi/480) = sin( 67*I*Pi/480) */
-		tmp64 = 0x3FDACB523638033Bull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(174*I*Pi/480) = sin( 66*I*Pi/480) */
-		tmp64 = 0x3FDA69CABEF5B501ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(175*I*Pi/480) = sin( 65*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FDA07F921061AD1ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(176*I*Pi/480) = sin( 64*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD9A5DE6F05A44Bull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(177*I*Pi/480) = sin( 63*I*Pi/480) */
-		tmp64 = 0x3FD9437BBC5DE90Aull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(178*I*Pi/480) = sin( 62*I*Pi/480) */
-		tmp64 = 0x3FD8E0D21D42A377ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(179*I*Pi/480) = sin( 61*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(180*I*Pi/480) = sin( 60*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD81AAE6E60E271ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(181*I*Pi/480) = sin( 59*I*Pi/480) */
-		tmp64 = 0x3FD7B7368AD93C61ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(182*I*Pi/480) = sin( 58*I*Pi/480) */
-		tmp64 = 0x3FD7537C13559D33ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(183*I*Pi/480) = sin( 57*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FD6EF801FCED33Cull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(184*I*Pi/480) = sin( 56*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD68B43C8F5832Aull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(185*I*Pi/480) = sin( 55*I*Pi/480) */
-		tmp64 = 0x3FD626C8282F1408ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(186*I*Pi/480) = sin( 54*I*Pi/480) */
-		tmp64 = 0x3FD5C20E57929942ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(187*I*Pi/480) = sin( 53*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FD55D1771E5BAB9ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(188*I*Pi/480) = sin( 52*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD4F7E492999AEEull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(189*I*Pi/480) = sin( 51*I*Pi/480) */
-		tmp64 = 0x3FD49276D5C7BB48ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(190*I*Pi/480) = sin( 50*I*Pi/480) */
-		tmp64 = 0x3FD42CCF582EDE82ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(191*I*Pi/480) = sin( 49*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FD3C6EF372FE950ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(192*I*Pi/480) = sin( 48*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD360D790CAC12Eull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(193*I*Pi/480) = sin( 47*I*Pi/480) */
-		tmp64 = 0x3FD2FA89839B2985ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(194*I*Pi/480) = sin( 46*I*Pi/480) */
-		tmp64 = 0x3FD294062ED59F06ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(195*I*Pi/480) = sin( 45*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FD22D4EB2443163ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(196*I*Pi/480) = sin( 44*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD1C6642E435B69ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(197*I*Pi/480) = sin( 43*I*Pi/480) */
-		tmp64 = 0x3FD15F47C3BED971ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(198*I*Pi/480) = sin( 42*I*Pi/480) */
-		tmp64 = 0x3FD0F7FA942E7E48ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(199*I*Pi/480) = sin( 41*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FD0907DC1930690ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(200*I*Pi/480) = sin( 40*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FD028D26E72EA99ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(201*I*Pi/480) = sin( 39*I*Pi/480) */
-		tmp64 = 0x3FCF81F37BAE5D8Cull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(202*I*Pi/480) = sin( 38*I*Pi/480) */
-		tmp64 = 0x3FCEB1E9A690650Eull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(203*I*Pi/480) = sin( 37*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FCDE189A594FBCCull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(204*I*Pi/480) = sin( 36*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FCD10D5C1B71B7Full;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(205*I*Pi/480) = sin( 35*I*Pi/480) */
-		tmp64 = 0x3FCC3FD044DD3D45ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(206*I*Pi/480) = sin( 34*I*Pi/480) */
-		tmp64 = 0x3FCB6E7B79D2ECC9ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(207*I*Pi/480) = sin( 33*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FCA9CD9AC4258F6ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(208*I*Pi/480) = sin( 32*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FC9CAED28ADE228ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(209*I*Pi/480) = sin( 31*I*Pi/480) */
-		tmp64 = 0x3FC8F8B83C69A60Bull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(210*I*Pi/480) = sin( 30*I*Pi/480) */
-		tmp64 = 0x3FC8263D35950926ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(211*I*Pi/480) = sin( 29*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FC7537E63143E2Eull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(212*I*Pi/480) = sin( 28*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FC6807E1489CB33ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(213*I*Pi/480) = sin( 27*I*Pi/480) */
-		tmp64 = 0x3FC5AD3E9A500CADull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(214*I*Pi/480) = sin( 26*I*Pi/480) */
-		tmp64 = 0x3FC4D9C24572B693ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(215*I*Pi/480) = sin( 25*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FC4060B67A85375ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(216*I*Pi/480) = sin( 24*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FC3321C534BC1BBull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(217*I*Pi/480) = sin( 23*I*Pi/480) */
-		tmp64 = 0x3FC25DF75B55AF15ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(218*I*Pi/480) = sin( 22*I*Pi/480) */
-		tmp64 = 0x3FC1899ED3561233ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(219*I*Pi/480) = sin( 21*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FC0B5150F6DA2D1ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(220*I*Pi/480) = sin( 20*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FBFC0B8C88EA05Aull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(221*I*Pi/480) = sin( 19*I*Pi/480) */
-		tmp64 = 0x3FBE16EE4E236BF8ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(222*I*Pi/480) = sin( 18*I*Pi/480) */
-		tmp64 = 0x3FBC6CCF5AF11FD1ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(223*I*Pi/480) = sin( 17*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FBAC2609B3C576Cull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(224*I*Pi/480) = sin( 16*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(225*I*Pi/480) = sin( 15*I*Pi/480) */
-		tmp64 = 0x3FB76CA66BB0BC83ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(226*I*Pi/480) = sin( 14*I*Pi/480) */
-		tmp64 = 0x3FB5C164588EB8DAull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(227*I*Pi/480) = sin( 13*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FB415E532398E49ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(228*I*Pi/480) = sin( 12*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FB26A2DA8D2974Aull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(229*I*Pi/480) = sin( 11*I*Pi/480) */
-		tmp64 = 0x3FB0BE426D197A8Bull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(230*I*Pi/480) = sin( 10*I*Pi/480) */
-		tmp64 = 0x3FAE245060BE0012ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(231*I*Pi/480) = sin(  9*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3FAACBC748EFC90Eull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(232*I*Pi/480) = sin(  8*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3FA772F2F75F573Cull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(233*I*Pi/480) = sin(  7*I*Pi/480) */
-		tmp64 = 0x3FA419DCD176E0F7ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(234*I*Pi/480) = sin(  6*I*Pi/480) */
-		tmp64 = 0x3FA0C08E3D596AEEull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(235*I*Pi/480) = sin(  5*I*Pi/480) */	tmp += 2;
-		tmp64 = 0x3F9ACE214390CA91ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(236*I*Pi/480) = sin(  4*I*Pi/480) */	tm2 -= 2;
-		tmp64 = 0x3F941ADACC128E22ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(237*I*Pi/480) = sin(  3*I*Pi/480) */
-		tmp64 = 0x3F8ACEB7C72CA0A8ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(238*I*Pi/480) = sin(  2*I*Pi/480) */
-		tmp64 = 0x3F7ACEDD6862D0D7ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(239*I*Pi/480) = sin(  1*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEFFFD3151E5533ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(  1*I*Pi/480) = sin(239*I*Pi/480) */
+		tmp64 = 0x3FEFFF4C54F76E1Cull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(  2*I*Pi/480) = sin(238*I*Pi/480) */
+		tmp64 = 0x3FEFFE6BC105954Eull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(  3*I*Pi/480) = sin(237*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEFFD315BBF4275ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(  4*I*Pi/480) = sin(236*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEFFB9D2897136Eull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(  5*I*Pi/480) = sin(235*I*Pi/480) */
+		tmp64 = 0x3FEFF9AF2BFBC297ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(  6*I*Pi/480) = sin(234*I*Pi/480) */
+		tmp64 = 0x3FEFF7676B581A63ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(  7*I*Pi/480) = sin(233*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEFF4C5ED12E61Dull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(  8*I*Pi/480) = sin(232*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEFF1CAB88EDFF7ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(  9*I*Pi/480) = sin(231*I*Pi/480) */
+		tmp64 = 0x3FEFEE75D62A9C46ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 10*I*Pi/480) = sin(230*I*Pi/480) */
+		tmp64 = 0x3FEFEAC74F40720Cull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 11*I*Pi/480) = sin(229*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEFE6BF2E2660AFull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 12*I*Pi/480) = sin(228*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEFE25D7E2DF2F8ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 13*I*Pi/480) = sin(227*I*Pi/480) */
+		tmp64 = 0x3FEFDDA24BA41F4Dull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 14*I*Pi/480) = sin(226*I*Pi/480) */
+		tmp64 = 0x3FEFD88DA3D12526ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 15*I*Pi/480) = sin(225*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEFD31F94F867C6ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 16*I*Pi/480) = sin(224*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEFCD582E584632ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 17*I*Pi/480) = sin(223*I*Pi/480) */
+		tmp64 = 0x3FEFC7378029F05Full;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 18*I*Pi/480) = sin(222*I*Pi/480) */
+		tmp64 = 0x3FEFC0BD9BA139AEull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 19*I*Pi/480) = sin(221*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEFB9EA92EC689Bull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 20*I*Pi/480) = sin(220*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEFB2BE793403B9ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 21*I*Pi/480) = sin(219*I*Pi/480) */
+		tmp64 = 0x3FEFAB39629A9BE3ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 22*I*Pi/480) = sin(218*I*Pi/480) */
+		tmp64 = 0x3FEFA35B643C93B9ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 23*I*Pi/480) = sin(217*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEF9B24942FE45Cull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 24*I*Pi/480) = sin(216*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEF92950983DF6Bull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 25*I*Pi/480) = sin(215*I*Pi/480) */
+		tmp64 = 0x3FEF89ACDC40EE4Bull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 26*I*Pi/480) = sin(214*I*Pi/480) */
+		tmp64 = 0x3FEF806C25684EA8ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 27*I*Pi/480) = sin(213*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEF76D2FEF3CC4Bull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 28*I*Pi/480) = sin(212*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEF6CE183D57825ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 29*I*Pi/480) = sin(211*I*Pi/480) */
+		tmp64 = 0x3FEF6297CFF75CB0ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 30*I*Pi/480) = sin(210*I*Pi/480) */
+		tmp64 = 0x3FEF57F6003B2F91ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 31*I*Pi/480) = sin(209*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEF4CFC327A0080ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 32*I*Pi/480) = sin(208*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEF41AA8583E57Eull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 33*I*Pi/480) = sin(207*I*Pi/480) */
+		tmp64 = 0x3FEF3601191FA459ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 34*I*Pi/480) = sin(206*I*Pi/480) */
+		tmp64 = 0x3FEF2A000E0A5970ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 35*I*Pi/480) = sin(205*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEF1DA785F71BCEull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 36*I*Pi/480) = sin(204*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEF10F7A38E9E90ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 37*I*Pi/480) = sin(203*I*Pi/480) */
+		tmp64 = 0x3FEF03F08A6ECF94ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 38*I*Pi/480) = sin(202*I*Pi/480) */
+		tmp64 = 0x3FEEF6925F2A7380ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 39*I*Pi/480) = sin(201*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEEE8DD4748BF15ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 40*I*Pi/480) = sin(200*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEEDAD16944EDD0ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 41*I*Pi/480) = sin(199*I*Pi/480) */
+		tmp64 = 0x3FEECC6EEC8DD5E9ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 42*I*Pi/480) = sin(198*I*Pi/480) */
+		tmp64 = 0x3FEEBDB5F9857999ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 43*I*Pi/480) = sin(197*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEEAEA6B98095C0ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 44*I*Pi/480) = sin(196*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEE9F4156C62DDAull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 45*I*Pi/480) = sin(195*I*Pi/480) */
+		tmp64 = 0x3FEE8F85FC8F1553ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 46*I*Pi/480) = sin(194*I*Pi/480) */
+		tmp64 = 0x3FEE7F74D705762Bull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 47*I*Pi/480) = sin(193*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEE6F0E134454FFull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 48*I*Pi/480) = sin(192*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEE5E51DF571265ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 49*I*Pi/480) = sin(191*I*Pi/480) */
+		tmp64 = 0x3FEE4D406A38E9ABull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 50*I*Pi/480) = sin(190*I*Pi/480) */
+		tmp64 = 0x3FEE3BD9E3D46CEFull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 51*I*Pi/480) = sin(189*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEE2A1E7D02FE9Full;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 52*I*Pi/480) = sin(188*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEE180E678C4853ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 53*I*Pi/480) = sin(187*I*Pi/480) */
+		tmp64 = 0x3FEE05A9D625AF0Full;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 54*I*Pi/480) = sin(186*I*Pi/480) */
+		tmp64 = 0x3FEDF2F0FC71C4E5ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 55*I*Pi/480) = sin(185*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEDDFE40EFFB805ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 56*I*Pi/480) = sin(184*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEDCC83434ABF29ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 57*I*Pi/480) = sin(183*I*Pi/480) */
+		tmp64 = 0x3FEDB8CECFB98376ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 58*I*Pi/480) = sin(182*I*Pi/480) */
+		tmp64 = 0x3FEDA4C6EB9D87C2ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 59*I*Pi/480) = sin(181*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FED906BCF328D46ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 60*I*Pi/480) = sin(180*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FED7BBDB39DF5C3ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 61*I*Pi/480) = sin(179*I*Pi/480) */
+		tmp64 = 0x3FED66BCD2EE2313ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 62*I*Pi/480) = sin(178*I*Pi/480) */
+		tmp64 = 0x3FED51696819D42Bull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 63*I*Pi/480) = sin(177*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FED3BC3AEFF7F95ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 64*I*Pi/480) = sin(176*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FED25CBE464AB60ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 65*I*Pi/480) = sin(175*I*Pi/480) */
+		tmp64 = 0x3FED0F8245F5427Full;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 66*I*Pi/480) = sin(174*I*Pi/480) */
+		tmp64 = 0x3FECF8E71242E7ABull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 67*I*Pi/480) = sin(173*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FECE1FA88C445BBull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 68*I*Pi/480) = sin(172*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FECCABCE9D45D78ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 69*I*Pi/480) = sin(171*I*Pi/480) */
+		tmp64 = 0x3FECB32E76B1D0F4ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 70*I*Pi/480) = sin(170*I*Pi/480) */
+		tmp64 = 0x3FEC9B4F717E2C63ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 71*I*Pi/480) = sin(169*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEC83201D3D2C6Dull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 72*I*Pi/480) = sin(168*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEC6AA0BDD40210ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 73*I*Pi/480) = sin(167*I*Pi/480) */
+		tmp64 = 0x3FEC51D198089406ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 74*I*Pi/480) = sin(166*I*Pi/480) */
+		tmp64 = 0x3FEC38B2F180BDB1ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 75*I*Pi/480) = sin(165*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEC1F4510C18B95ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 76*I*Pi/480) = sin(164*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEC05883D2E7560ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 77*I*Pi/480) = sin(163*I*Pi/480) */
+		tmp64 = 0x3FEBEB7CBF08957Dull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 78*I*Pi/480) = sin(162*I*Pi/480) */
+		tmp64 = 0x3FEBD122DF6DDE43ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 79*I*Pi/480) = sin(161*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEBB67AE8584CAAull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 80*I*Pi/480) = sin(160*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEB9B85249D18A2ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 81*I*Pi/480) = sin(159*I*Pi/480) */
+		tmp64 = 0x3FEB8041DFEBE2FBull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 82*I*Pi/480) = sin(158*I*Pi/480) */
+		tmp64 = 0x3FEB64B166CDE0EEull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 83*I*Pi/480) = sin(157*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEB48D406A50540ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 84*I*Pi/480) = sin(156*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEB2CAA0DAB2702ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 85*I*Pi/480) = sin(155*I*Pi/480) */
+		tmp64 = 0x3FEB1033CAF125F6ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 86*I*Pi/480) = sin(154*I*Pi/480) */
+		tmp64 = 0x3FEAF3718E5E0C9Cull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 87*I*Pi/480) = sin(153*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEAD663A8AE2FDCull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 88*I*Pi/480) = sin(152*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEAB90A6B724C62ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 89*I*Pi/480) = sin(151*I*Pi/480) */
+		tmp64 = 0x3FEA9B66290EA1A3ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 90*I*Pi/480) = sin(150*I*Pi/480) */
+		tmp64 = 0x3FEA7D7734BA0A8Eull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 91*I*Pi/480) = sin(149*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FEA5F3DE27D13F2ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 92*I*Pi/480) = sin(148*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FEA40BA87311090ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 93*I*Pi/480) = sin(147*I*Pi/480) */
+		tmp64 = 0x3FEA21ED787F2AEFull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 94*I*Pi/480) = sin(146*I*Pi/480) */
+		tmp64 = 0x3FEA02D70CDF74DBull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 95*I*Pi/480) = sin(145*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE9E3779B97F4A8ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos( 96*I*Pi/480) = sin(144*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE9C3CF7CBBB030ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos( 97*I*Pi/480) = sin(143*I*Pi/480) */
+		tmp64 = 0x3FE9A3DF0929B594ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos( 98*I*Pi/480) = sin(142*I*Pi/480) */
+		tmp64 = 0x3FE983A69A8C21B8ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos( 99*I*Pi/480) = sin(141*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE963268B572492ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(100*I*Pi/480) = sin(140*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE9425F36C80335ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(101*I*Pi/480) = sin(139*I*Pi/480) */
+		tmp64 = 0x3FE92150F8E417B1ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(102*I*Pi/480) = sin(138*I*Pi/480) */
+		tmp64 = 0x3FE8FFFC2E77CEBAull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(103*I*Pi/480) = sin(137*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE8DE613515A328ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(104*I*Pi/480) = sin(136*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE8BC806B151741ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(105*I*Pi/480) = sin(135*I*Pi/480) */
+		tmp64 = 0x3FE89A5A2F91ABE4ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(106*I*Pi/480) = sin(134*I*Pi/480) */
+		tmp64 = 0x3FE877EEE269D586ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(107*I*Pi/480) = sin(133*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE8553EE43DEF13ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(108*I*Pi/480) = sin(132*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE8324A966F2AA5ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(109*I*Pi/480) = sin(131*I*Pi/480) */
+		tmp64 = 0x3FE80F125B1E8028ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(110*I*Pi/480) = sin(130*I*Pi/480) */
+		tmp64 = 0x3FE7EB96952B99DCull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(111*I*Pi/480) = sin(129*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE7C7D7A833BEC2ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(112*I*Pi/480) = sin(128*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE7A3D5F890BAF9ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(113*I*Pi/480) = sin(127*I*Pi/480) */
+		tmp64 = 0x3FE77F91EB57C602ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(114*I*Pi/480) = sin(126*I*Pi/480) */
+		tmp64 = 0x3FE75B0BE65866FBull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(115*I*Pi/480) = sin(125*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE73644501B56CDull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(116*I*Pi/480) = sin(124*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE7113B8FE16056ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(117*I*Pi/480) = sin(123*I*Pi/480) */
+		tmp64 = 0x3FE6EBF20DA23E86ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(118*I*Pi/480) = sin(122*I*Pi/480) */
+		tmp64 = 0x3FE6C668320B7884ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(119*I*Pi/480) = sin(121*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(120*I*Pi/480) = sin(120*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE67A951513345Cull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(121*I*Pi/480) = sin(119*I*Pi/480) */
+		tmp64 = 0x3FE6544CA88F62DBull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(122*I*Pi/480) = sin(118*I*Pi/480) */
+		tmp64 = 0x3FE62DC58C6CF0DBull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(123*I*Pi/480) = sin(117*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE607002CD5031Dull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(124*I*Pi/480) = sin(116*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE5DFFCF69F89EDull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(125*I*Pi/480) = sin(115*I*Pi/480) */
+		tmp64 = 0x3FE5B8BC57520F97ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(126*I*Pi/480) = sin(114*I*Pi/480) */
+		tmp64 = 0x3FE5913EBD1E84E7ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(127*I*Pi/480) = sin(113*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE5698496E20BD8ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(128*I*Pi/480) = sin(112*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE5418E5423C050ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(129*I*Pi/480) = sin(111*I*Pi/480) */
+		tmp64 = 0x3FE5195C65137F0Cull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(130*I*Pi/480) = sin(110*I*Pi/480) */
+		tmp64 = 0x3FE4F0EF3A88AAADull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(131*I*Pi/480) = sin(109*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE4C8474600EEEEull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(132*I*Pi/480) = sin(108*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE49F64F99F0207ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(133*I*Pi/480) = sin(107*I*Pi/480) */
+		tmp64 = 0x3FE47648C8296447ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(134*I*Pi/480) = sin(106*I*Pi/480) */
+		tmp64 = 0x3FE44CF325091DD6ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(135*I*Pi/480) = sin(105*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE4236484487ABEull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(136*I*Pi/480) = sin(104*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE3F99D5A91C51Full;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(137*I*Pi/480) = sin(103*I*Pi/480) */
+		tmp64 = 0x3FE3CF9E1D2DFDB2ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(138*I*Pi/480) = sin(102*I*Pi/480) */
+		tmp64 = 0x3FE3A56742039280ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(139*I*Pi/480) = sin(101*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE37AF93F9513EAull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(140*I*Pi/480) = sin(100*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE350548CFFE7F2ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(141*I*Pi/480) = sin( 99*I*Pi/480) */
+		tmp64 = 0x3FE32579A1FAFBDAull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(142*I*Pi/480) = sin( 98*I*Pi/480) */
+		tmp64 = 0x3FE2FA68F6D5740Cull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(143*I*Pi/480) = sin( 97*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE2CF2304755A5Eull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(144*I*Pi/480) = sin( 96*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE2A3A844564AA5ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(145*I*Pi/480) = sin( 95*I*Pi/480) */
+		tmp64 = 0x3FE277F930881DAFull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(146*I*Pi/480) = sin( 94*I*Pi/480) */
+		tmp64 = 0x3FE24C1643AD9295ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(147*I*Pi/480) = sin( 93*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE21FFFF8FAF674ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(148*I*Pi/480) = sin( 92*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE1F3B6CC34CA8Bull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(149*I*Pi/480) = sin( 91*I*Pi/480) */
+		tmp64 = 0x3FE1C73B39AE68C8ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(150*I*Pi/480) = sin( 90*I*Pi/480) */
+		tmp64 = 0x3FE19A8DBE48A6C1ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(151*I*Pi/480) = sin( 89*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE16DAED770771Dull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(152*I*Pi/480) = sin( 88*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE1409F031D897Eull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(153*I*Pi/480) = sin( 87*I*Pi/480) */
+		tmp64 = 0x3FE1135EBFD0E8D7ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(154*I*Pi/480) = sin( 86*I*Pi/480) */
+		tmp64 = 0x3FE0E5EE8C939850ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(155*I*Pi/480) = sin( 85*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE0B84EE8F52E9Dull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(156*I*Pi/480) = sin( 84*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FE08A80550A6FE5ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(157*I*Pi/480) = sin( 83*I*Pi/480) */
+		tmp64 = 0x3FE05C83516BE635ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(158*I*Pi/480) = sin( 82*I*Pi/480) */
+		tmp64 = 0x3FE02E585F347876ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(159*I*Pi/480) = sin( 81*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FE0000000000000ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(160*I*Pi/480) = sin( 80*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FDFA2F56BD3B979ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(161*I*Pi/480) = sin( 79*I*Pi/480) */
+		tmp64 = 0x3FDF459207170FCEull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(162*I*Pi/480) = sin( 78*I*Pi/480) */
+		tmp64 = 0x3FDEE7D6D7F64AD2ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(163*I*Pi/480) = sin( 77*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FDE89C4E59427B1ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(164*I*Pi/480) = sin( 76*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FDE2B5D3806F63Bull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(165*I*Pi/480) = sin( 75*I*Pi/480) */
+		tmp64 = 0x3FDDCCA0D855B380ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(166*I*Pi/480) = sin( 74*I*Pi/480) */
+		tmp64 = 0x3FDD6D90D07521CBull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(167*I*Pi/480) = sin( 73*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FDD0E2E2B44DE01ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(168*I*Pi/480) = sin( 72*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FDCAE79F48C726Cull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(169*I*Pi/480) = sin( 71*I*Pi/480) */
+		tmp64 = 0x3FDC4E7538F866FCull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(170*I*Pi/480) = sin( 70*I*Pi/480) */
+		tmp64 = 0x3FDBEE2106174F02ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(171*I*Pi/480) = sin( 69*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FDB8D7E6A56D476ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(172*I*Pi/480) = sin( 68*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FDB2C8E7500C0C6ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(173*I*Pi/480) = sin( 67*I*Pi/480) */
+		tmp64 = 0x3FDACB523638033Bull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(174*I*Pi/480) = sin( 66*I*Pi/480) */
+		tmp64 = 0x3FDA69CABEF5B501ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(175*I*Pi/480) = sin( 65*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FDA07F921061AD1ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(176*I*Pi/480) = sin( 64*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD9A5DE6F05A44Bull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(177*I*Pi/480) = sin( 63*I*Pi/480) */
+		tmp64 = 0x3FD9437BBC5DE90Aull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(178*I*Pi/480) = sin( 62*I*Pi/480) */
+		tmp64 = 0x3FD8E0D21D42A377ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(179*I*Pi/480) = sin( 61*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(180*I*Pi/480) = sin( 60*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD81AAE6E60E271ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(181*I*Pi/480) = sin( 59*I*Pi/480) */
+		tmp64 = 0x3FD7B7368AD93C61ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(182*I*Pi/480) = sin( 58*I*Pi/480) */
+		tmp64 = 0x3FD7537C13559D33ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(183*I*Pi/480) = sin( 57*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FD6EF801FCED33Cull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(184*I*Pi/480) = sin( 56*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD68B43C8F5832Aull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(185*I*Pi/480) = sin( 55*I*Pi/480) */
+		tmp64 = 0x3FD626C8282F1408ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(186*I*Pi/480) = sin( 54*I*Pi/480) */
+		tmp64 = 0x3FD5C20E57929942ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(187*I*Pi/480) = sin( 53*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FD55D1771E5BAB9ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(188*I*Pi/480) = sin( 52*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD4F7E492999AEEull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(189*I*Pi/480) = sin( 51*I*Pi/480) */
+		tmp64 = 0x3FD49276D5C7BB48ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(190*I*Pi/480) = sin( 50*I*Pi/480) */
+		tmp64 = 0x3FD42CCF582EDE82ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(191*I*Pi/480) = sin( 49*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FD3C6EF372FE950ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(192*I*Pi/480) = sin( 48*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD360D790CAC12Eull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(193*I*Pi/480) = sin( 47*I*Pi/480) */
+		tmp64 = 0x3FD2FA89839B2985ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(194*I*Pi/480) = sin( 46*I*Pi/480) */
+		tmp64 = 0x3FD294062ED59F06ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(195*I*Pi/480) = sin( 45*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FD22D4EB2443163ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(196*I*Pi/480) = sin( 44*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD1C6642E435B69ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(197*I*Pi/480) = sin( 43*I*Pi/480) */
+		tmp64 = 0x3FD15F47C3BED971ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(198*I*Pi/480) = sin( 42*I*Pi/480) */
+		tmp64 = 0x3FD0F7FA942E7E48ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(199*I*Pi/480) = sin( 41*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FD0907DC1930690ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(200*I*Pi/480) = sin( 40*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FD028D26E72EA99ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(201*I*Pi/480) = sin( 39*I*Pi/480) */
+		tmp64 = 0x3FCF81F37BAE5D8Cull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(202*I*Pi/480) = sin( 38*I*Pi/480) */
+		tmp64 = 0x3FCEB1E9A690650Eull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(203*I*Pi/480) = sin( 37*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FCDE189A594FBCCull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(204*I*Pi/480) = sin( 36*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FCD10D5C1B71B7Full;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(205*I*Pi/480) = sin( 35*I*Pi/480) */
+		tmp64 = 0x3FCC3FD044DD3D45ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(206*I*Pi/480) = sin( 34*I*Pi/480) */
+		tmp64 = 0x3FCB6E7B79D2ECC9ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(207*I*Pi/480) = sin( 33*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FCA9CD9AC4258F6ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(208*I*Pi/480) = sin( 32*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FC9CAED28ADE228ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(209*I*Pi/480) = sin( 31*I*Pi/480) */
+		tmp64 = 0x3FC8F8B83C69A60Bull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(210*I*Pi/480) = sin( 30*I*Pi/480) */
+		tmp64 = 0x3FC8263D35950926ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(211*I*Pi/480) = sin( 29*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FC7537E63143E2Eull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(212*I*Pi/480) = sin( 28*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FC6807E1489CB33ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(213*I*Pi/480) = sin( 27*I*Pi/480) */
+		tmp64 = 0x3FC5AD3E9A500CADull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(214*I*Pi/480) = sin( 26*I*Pi/480) */
+		tmp64 = 0x3FC4D9C24572B693ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(215*I*Pi/480) = sin( 25*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FC4060B67A85375ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(216*I*Pi/480) = sin( 24*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FC3321C534BC1BBull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(217*I*Pi/480) = sin( 23*I*Pi/480) */
+		tmp64 = 0x3FC25DF75B55AF15ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(218*I*Pi/480) = sin( 22*I*Pi/480) */
+		tmp64 = 0x3FC1899ED3561233ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(219*I*Pi/480) = sin( 21*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FC0B5150F6DA2D1ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(220*I*Pi/480) = sin( 20*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FBFC0B8C88EA05Aull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(221*I*Pi/480) = sin( 19*I*Pi/480) */
+		tmp64 = 0x3FBE16EE4E236BF8ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(222*I*Pi/480) = sin( 18*I*Pi/480) */
+		tmp64 = 0x3FBC6CCF5AF11FD1ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(223*I*Pi/480) = sin( 17*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FBAC2609B3C576Cull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(224*I*Pi/480) = sin( 16*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(225*I*Pi/480) = sin( 15*I*Pi/480) */
+		tmp64 = 0x3FB76CA66BB0BC83ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(226*I*Pi/480) = sin( 14*I*Pi/480) */
+		tmp64 = 0x3FB5C164588EB8DAull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(227*I*Pi/480) = sin( 13*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FB415E532398E49ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(228*I*Pi/480) = sin( 12*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FB26A2DA8D2974Aull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(229*I*Pi/480) = sin( 11*I*Pi/480) */
+		tmp64 = 0x3FB0BE426D197A8Bull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(230*I*Pi/480) = sin( 10*I*Pi/480) */
+		tmp64 = 0x3FAE245060BE0012ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(231*I*Pi/480) = sin(  9*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3FAACBC748EFC90Eull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(232*I*Pi/480) = sin(  8*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3FA772F2F75F573Cull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(233*I*Pi/480) = sin(  7*I*Pi/480) */
+		tmp64 = 0x3FA419DCD176E0F7ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(234*I*Pi/480) = sin(  6*I*Pi/480) */
+		tmp64 = 0x3FA0C08E3D596AEEull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(235*I*Pi/480) = sin(  5*I*Pi/480) */	tmp += 2;
+		tmp64 = 0x3F9ACE214390CA91ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(236*I*Pi/480) = sin(  4*I*Pi/480) */	tm2 -= 2;
+		tmp64 = 0x3F941ADACC128E22ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(237*I*Pi/480) = sin(  3*I*Pi/480) */
+		tmp64 = 0x3F8ACEB7C72CA0A8ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(238*I*Pi/480) = sin(  2*I*Pi/480) */
+		tmp64 = 0x3F7ACEDD6862D0D7ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(239*I*Pi/480) = sin(  1*I*Pi/480) */	tmp += 2;
 
 		tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
 		nbytes = RADIX*SZ_VD/2;	// RADIX/4 AVX-register-sized complex data
@@ -880,18 +880,18 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		// Init exp(j*I*Pi/2/RADIX), for j = 0-3:
 		tmp = base_negacyclic_root + 8;	// First 8 slots reserved for Re/Im parts of the 4 base multipliers
 		tmp->d0 = 1.0;
-		tmp64 = 0x3FEFFFD3151E5533ull;	tmp->d1 = *(double *)&tmp64;	// cos(01*I*Pi/480)
-		tmp64 = 0x3FEFFF4C54F76E1Cull;	tmp->d2 = *(double *)&tmp64;	// cos(02*I*Pi/480)
-		tmp64 = 0x3FEFFE6BC105954Eull;	tmp->d3 = *(double *)&tmp64;	// cos(03*I*Pi/480)
+		tmp64 = 0x3FEFFFD3151E5533ull;	tmp->d1 = u64_to_f64(tmp64);	// cos(01*I*Pi/480)
+		tmp64 = 0x3FEFFF4C54F76E1Cull;	tmp->d2 = u64_to_f64(tmp64);	// cos(02*I*Pi/480)
+		tmp64 = 0x3FEFFE6BC105954Eull;	tmp->d3 = u64_to_f64(tmp64);	// cos(03*I*Pi/480)
 
 		(++tmp)->d0 = 0.0;
-		tmp64 = 0x3F941ADACC128E22ull;	tmp->d3 = *(double *)&tmp64;	// sin(03*I*Pi/480)
-		tmp64 = 0x3F8ACEB7C72CA0A8ull;	tmp->d2 = *(double *)&tmp64;	// sin(02*I*Pi/480)
-		tmp64 = 0x3F7ACEDD6862D0D7ull;	tmp->d1 = *(double *)&tmp64;	// sin(01*I*Pi/480)
+		tmp64 = 0x3F941ADACC128E22ull;	tmp->d3 = u64_to_f64(tmp64);	// sin(03*I*Pi/480)
+		tmp64 = 0x3F8ACEB7C72CA0A8ull;	tmp->d2 = u64_to_f64(tmp64);	// sin(02*I*Pi/480)
+		tmp64 = 0x3F7ACEDD6862D0D7ull;	tmp->d1 = u64_to_f64(tmp64);	// sin(01*I*Pi/480)
 		++tmp;
-		tmp64 = 0x3FEFFD315BBF4275ull;	VEC_DBL_INIT(tmp, *(double *)&tmp64);	// cos(04*I*Pi/480)
+		tmp64 = 0x3FEFFD315BBF4275ull;	VEC_DBL_INIT(tmp, u64_to_f64(tmp64));	// cos(04*I*Pi/480)
 		++tmp;
-		tmp64 = 0x3F9ACE214390CA91ull;	VEC_DBL_INIT(tmp, *(double *)&tmp64);	// sin(04*I*Pi/480)
+		tmp64 = 0x3F9ACE214390CA91ull;	VEC_DBL_INIT(tmp, u64_to_f64(tmp64));	// sin(04*I*Pi/480)
 		tmp = base_negacyclic_root + 8;	// reset to point to start of above block
 		nbytes = 4*SZ_VD;	// 2 AVX-register-sized complex data
 
