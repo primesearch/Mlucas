@@ -3922,8 +3922,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 				tmp = sqrt2+1;	// Unnamed copy of isrt2
 				// Alternate "rounded the other way" copies of sqrt2,isrt2:
-				dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-				dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+				dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+				dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 			//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 				VEC_DBL_INIT(nisrt2,-dtmp);
 				VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
@@ -4010,8 +4010,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 			tmp = sqrt2+1;	// Unnamed copy of isrt2
 			// Alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 			VEC_DBL_INIT(nisrt2,-dtmp);
 			VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
@@ -4327,8 +4327,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 				tmp = sqrt2+1;	// Unnamed copy of isrt2
 				// Alternate "rounded the other way" copies of sqrt2,isrt2:
-				dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-				dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+				dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+				dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 			//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 				VEC_DBL_INIT(nisrt2,-dtmp);
 				VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
@@ -4415,8 +4415,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	tmp = sqrt2+1;
 			tmp = sqrt2+1;	// Unnamed copy of isrt2
 			// Alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
 			VEC_DBL_INIT(nisrt2,-dtmp);
 			VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
