@@ -362,7 +362,7 @@ double qfdbl(struct qfloat q)
 	b) If number was denormalized, MSB of significand now gets treated as exponent
 		field of 1, which again is what we wanted to do anyway.
 	*/
-	return *(double *)&hi;
+	return u64_to_f64(hi);
 }
 
 // Same as above, but deliberately round the LSB the wrong way, e.g. for sensitivity analysis of a const doubles:
@@ -371,16 +371,16 @@ double qfdbl_wrong_way_rnd(struct qfloat q)
 	uint64 hi,lo;
 	lo = (q.lo >> 63) ^ 0x1;
 	hi = q.hi + lo;
-	return *(double *)&hi;
+	return u64_to_f64(hi);
 }
 
 // For generic doubles (i.e. we do not know what the less-significant bits were which were rounded in),
 // simply provide a function which toggles the LSB:
 double dbl_flip_lsb(double d)
 {
-	uint64 c = *(uint64 *)&d;
+	uint64 c = f64_to_u64(d);
 	BIT_FLIP(c,0);
-	return *(double *)&c;
+	return u64_to_f64(c);
 }
 
 /* qfloat --> long double conversion utility.
@@ -437,7 +437,7 @@ struct qfloat dbl_to_q(double d)
 {
 	struct qfloat q;
 
-	q.hi = *(uint64 *)&d;	/* Copy bit pattern of double into a uint64. */
+	q.hi = f64_to_u64(d);	/* Copy bit pattern of double into a uint64. */
 	q.lo = (uint64)0;
 	return q;
 }
@@ -2055,7 +2055,7 @@ struct qfloat qflog(struct qfloat x)
 	y = ldbl_to_q(ld);
   #else
 	lnx = log(qfdbl(x));
-	y.hi = *(uint64 *)&lnx; y.lo = 0ull;
+	y.hi = f64_to_u64(lnx); y.lo = 0ull;
   #endif
 
 	// Iter #1:
@@ -2157,7 +2157,7 @@ struct qfloat qfexp(struct qfloat x)
 	#error *** need to add x87 high-prec exp() init ***
 	double expx = exp(qfdbl(x));
 	struct qfloat y, logy;
-	y.hi = *(uint64 *)&expx; y.lo = 0ull;
+	y.hi = f64_to_u64(expx); y.lo = 0ull;
 	// Iter #1:
 	logy = qflog(y);
 	y = qfsub(y, qfmul( qfsub(logy,x) , y ) );	/*** If could get ~4 more bits in initial guess, could do just 1 iter ***/
@@ -2295,7 +2295,7 @@ struct qfloat qfatan(struct qfloat x)
 	y = ldbl_to_q(ld);
 #else
 	double darct = atan(qfdbl(x));
-	y.hi = *(uint64 *)&darct; y.lo = 0ull;
+	y.hi = f64_to_u64(darct); y.lo = 0ull;
 #endif
 
 	// Iter #1:
@@ -3071,52 +3071,52 @@ int qtest(void)
 #endif
 	c = 0.0;	d = qfdbl(QZRO);
 #if QFDEBUG
-		printf("dble(0.0) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(0.0) = %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 12 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 12 in qfloat.c");
 
 	c = 1.0;	d = qfdbl(QONE);
 #if QFDEBUG
-		printf("dble(1.0) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(1.0) = %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 14 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 14 in qfloat.c");
 
 	c = 2.0;	d = qfdbl(QTWO);
 #if QFDEBUG
-		printf("dble(2.0) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(2.0) = %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 16 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 16 in qfloat.c");
 
 	c =-2.0;	d = qfdbl(qfneg(QTWO));
 #if QFDEBUG
-		printf("dble(-2.0)= %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(-2.0)= %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 18 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(hidiff == (int64)0)) ASSERT(0,"ERROR 18 in qfloat.c");
 
 	c = 2*pi;	d = qfdbl(Q2PI);
 #if QFDEBUG
-		printf("dble(2pi) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(2pi) = %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 20 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 20 in qfloat.c");
 
 	c =log(2.0);d = qfdbl(QLN2);
 #if QFDEBUG
-		printf("dble(ln2) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(ln2) = %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 22 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 22 in qfloat.c");
 
 	c = exp(1.0);
 	d = qfdbl(QEXP);
 #if QFDEBUG
-		printf("dble(exp) = %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(exp) = %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 24 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 24 in qfloat.c");
 
 	c = -c;		d = qfdbl(qfneg(QEXP));
 #if QFDEBUG
-		printf("dble(-exp)= %16" PRIX64 "  %16" PRIX64 "\n",*(int64 *)&c, *(int64 *)&d);
+		printf("dble(-exp)= %16" PRIX64 "  %16" PRIX64 "\n",f64_to_i64(c), f64_to_i64(d));
 #endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 26 in qfloat.c");
+	hidiff = f64_to_i64(c) - f64_to_i64(d);	if(!(ABS(hidiff) < (int64)2)) ASSERT(0,"ERROR 26 in qfloat.c");
 
 	/*********** TEST THE MULTIPLY ALGORITHM ************/
 #if TIMING_TEST
