@@ -3103,7 +3103,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 				r1 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				r2 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				mul50x50_debug(r1,r2, &lo,&hi);
-				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",*(uint64*)&r1,*(uint64*)&r2);
+				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",f64_to_u64(r1),f64_to_u64(r2));
 				printf("mul50x50_: lo = %16" PRIu64 "\n",*(uint64*)alo);
 				printf("mul50x50_: hi = %16" PRIu64 "\n",*(uint64*)ahi);
 			  #endif
@@ -3243,8 +3243,8 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 				dlo = -dlo;
 		}
 		// Extract exp & mantissa fields of the double outputs and restore hidden bits:
-		i64 = *(uint64*)&dhi; e1 = (i64>>52)&0x7ff; m1 = (i64&mmask) + two52;
-		i64 = *(uint64*)&dlo; e0 = (i64>>52)&0x7ff; m0 = (i64&mmask) +(two52 & (-(dlo != 0.)));
+		i64 = f64_to_u64(dhi); e1 = (i64>>52)&0x7ff; m1 = (i64&mmask) + two52;
+		i64 = f64_to_u64(dlo); e0 = (i64>>52)&0x7ff; m0 = (i64&mmask) +(two52 & (-(dlo != 0.)));
 		int nsh1 = e1 - 0x433;	// Shift count of hi-double result = exp - 0x3ff - 52
 		int nsh0 = e0 - 0x433;	// Shift count of lo-double result
 		exact.d0 = m1; exact.d1 = 0;	LSHIFT128(exact,nsh1, exact);
@@ -3262,7 +3262,7 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 			printf("In cmp_fma_lohi_vs_exact: FMA-double and pure-int DMUL results differ!\n");
 			printf("dx = %f; dy = %f; hi,lo = %f,%f\n",dx,dy, dhi * (1 - 2*(s1 != 0)), dlo * (1 - 2*(s0 != 0)));
 			printf("ix = %" PRId64 "; iy = %" PRId64 "; ihi,lo = %" PRId64 ",%" PRIu64 "\n",ix,iy, ihi,ilo);
-			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",*(uint64*)&dhi,*(uint64*)&dlo);
+			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",f64_to_u64(dhi),f64_to_u64(dlo));
 			printf("nsh1,0 = %d,%d: ehi = %" PRIu64 "; elo = %" PRIu64 " [mlo = %c%" PRIu64 "]\n",nsh1,nsh0,exact.d1,exact.d0, char_sgn[s1 ^ s0],m0);
 		}
 		return retval;
@@ -5669,7 +5669,7 @@ double	finvest(double x, uint32 numbits)
 	}
 
 	/* Unpack double into a uint64: */
-	itmp = *(uint64 *)&x;
+	itmp = f64_to_u64(x);
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
@@ -5693,7 +5693,7 @@ double	finvest(double x, uint32 numbits)
 	mant = (uint64)byte_lookup_finvest[byteval] << 44;
 
 	itmp = (itmp & MASK_SIGN) + (exp << 52) + mant;
-	ftmp = *(double *)&itmp;
+	ftmp = u64_to_f64(itmp);
 
 	/* Do as many Newton iterations as required - number of correct
 	bits approximately doubles each iteration. The iteration we use
@@ -5738,7 +5738,7 @@ double	fisqrtest(double x, uint32 numbits)
 	}
 
 	/* Unpack double into a uint64: */
-	itmp = *(uint64 *)&x;
+	itmp = f64_to_u64(x);
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
@@ -5796,7 +5796,7 @@ double	fisqrtest(double x, uint32 numbits)
 	mant = (uint64)byte_lookup_fisqrtest[byteval] << 44;
 
 	itmp = (itmp & MASK_SIGN) + (exp << 52) + mant;
-	ftmp = *(double *)&itmp;
+	ftmp = u64_to_f64(itmp);
 
 	/* Do as many Newton iterations as required - number of correct
 	bits approximately doubles each iteration. The iteration we use
