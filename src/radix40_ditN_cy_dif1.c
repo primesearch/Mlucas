@@ -598,8 +598,8 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 		// Alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		VEC_DBL_INIT(xcc1 , cc1  );
 		VEC_DBL_INIT(xcc2 , cc2  );
 		VEC_DBL_INIT(xss1 , s2   );
