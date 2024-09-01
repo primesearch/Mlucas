@@ -383,6 +383,7 @@ double dbl_flip_lsb(double d)
 	return u64_to_f64(c);
 }
 
+#ifdef X87_ASM
 /* qfloat --> long double conversion utility.
 Example: x = QLN2:
 	hi = 0x3fe62e42fefa39ef,
@@ -430,6 +431,7 @@ struct qfloat ldbl_to_q(long double x)
 	q.lo = (x87_mant<<53);
 	return q;
 }
+#endif
 
 
 /* Convert IEEE64 double to qfloat. */
