@@ -40,8 +40,8 @@ util.c::check_nbits_in_types()>
 #define ALLOC_INT(_p,_n)	(int           *)realloc(_p,(_n)*sizeof(int           )+256)
 #define ALIGN_INT(_p)		(int           *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_UINT(_p,_n)	(uint          *)realloc(_p,(_n)*sizeof(uint          )+256)
-#define ALIGN_UINT(_p)		(uint          *)(((intptr_t)(_p) | 63)+1)
+#define ALLOC_UINT(_p,_n)	(uint32        *)realloc(_p,(_n)*sizeof(uint32        )+256)
+#define ALIGN_UINT(_p)		(uint32        *)(((intptr_t)(_p) | 63)+1)
 
 #define ALLOC_INT64(_p,_n)	(int64         *)realloc(_p,(_n)*sizeof(int64         )+256)
 #define ALIGN_INT64(_p)		(int64         *)(((intptr_t)(_p) | 63)+1)
