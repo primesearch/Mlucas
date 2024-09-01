@@ -691,8 +691,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -711,8 +711,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -754,8 +754,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -774,8 +774,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -850,8 +850,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -867,8 +867,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -889,8 +889,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -908,8 +908,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -951,8 +951,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -968,8 +968,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -991,8 +991,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -1010,8 +1010,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
