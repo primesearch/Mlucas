@@ -910,39 +910,39 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp = base_negacyclic_root + RADIX*2;	// First 56 = 2*RADIX slots reserved for RADIX/4 copies of the Re/Im parts of the 4 base multipliers
 		tm2 = tmp + RADIX/2 - 1;
 										tmp->d0 = 1.0;	(tmp+1)->d0 = 0.0;
-		tmp64 = 0x3FEFF31CCABE6E4Cull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(01*I*Pi/56) = sin(27*I*Pi/56) */
-		tmp64 = 0x3FEFCC7D8C64135Full;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(02*I*Pi/56) = sin(26*I*Pi/56) */
-		tmp64 = 0x3FEF8C4160D38565ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(03*I*Pi/56) = sin(25*I*Pi/56) */
+		tmp64 = 0x3FEFF31CCABE6E4Cull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(01*I*Pi/56) = sin(27*I*Pi/56) */
+		tmp64 = 0x3FEFCC7D8C64135Full;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(02*I*Pi/56) = sin(26*I*Pi/56) */
+		tmp64 = 0x3FEF8C4160D38565ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(03*I*Pi/56) = sin(25*I*Pi/56) */
 		tmp += 2;
-		tmp64 = 0x3FEF329C0558E969ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(04*I*Pi/56) = sin(24*I*Pi/56) */	tm2 -= 2;
-		tmp64 = 0x3FEEBFD5AEFD405Aull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(05*I*Pi/56) = sin(23*I*Pi/56) */
-		tmp64 = 0x3FEE344AD05D3F86ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(06*I*Pi/56) = sin(22*I*Pi/56) */
-		tmp64 = 0x3FED906BCF328D46ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(07*I*Pi/56) = sin(21*I*Pi/56) */
+		tmp64 = 0x3FEF329C0558E969ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(04*I*Pi/56) = sin(24*I*Pi/56) */	tm2 -= 2;
+		tmp64 = 0x3FEEBFD5AEFD405Aull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(05*I*Pi/56) = sin(23*I*Pi/56) */
+		tmp64 = 0x3FEE344AD05D3F86ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(06*I*Pi/56) = sin(22*I*Pi/56) */
+		tmp64 = 0x3FED906BCF328D46ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(07*I*Pi/56) = sin(21*I*Pi/56) */
 		tmp += 2;
-		tmp64 = 0x3FECD4BCA9CB5C71ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(08*I*Pi/56) = sin(20*I*Pi/56) */	tm2 -= 2;
-		tmp64 = 0x3FEC01D48CB95263ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(09*I*Pi/56) = sin(19*I*Pi/56) */
-		tmp64 = 0x3FEB185D590D5A44ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(10*I*Pi/56) = sin(18*I*Pi/56) */
-		tmp64 = 0x3FEA19131B8279C4ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(11*I*Pi/56) = sin(17*I*Pi/56) */
+		tmp64 = 0x3FECD4BCA9CB5C71ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(08*I*Pi/56) = sin(20*I*Pi/56) */	tm2 -= 2;
+		tmp64 = 0x3FEC01D48CB95263ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(09*I*Pi/56) = sin(19*I*Pi/56) */
+		tmp64 = 0x3FEB185D590D5A44ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(10*I*Pi/56) = sin(18*I*Pi/56) */
+		tmp64 = 0x3FEA19131B8279C4ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(11*I*Pi/56) = sin(17*I*Pi/56) */
 		tmp += 2;
-		tmp64 = 0x3FE904C37505DE4Bull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(12*I*Pi/56) = sin(16*I*Pi/56) */	tm2 -= 2;
-		tmp64 = 0x3FE7DC4CF5162385ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(13*I*Pi/56) = sin(15*I*Pi/56) */
-		tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(14*I*Pi/56) = sin(14*I*Pi/56) */
-		tmp64 = 0x3FE552B60F035F34ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(15*I*Pi/56) = sin(13*I*Pi/56) */
+		tmp64 = 0x3FE904C37505DE4Bull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(12*I*Pi/56) = sin(16*I*Pi/56) */	tm2 -= 2;
+		tmp64 = 0x3FE7DC4CF5162385ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(13*I*Pi/56) = sin(15*I*Pi/56) */
+		tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(14*I*Pi/56) = sin(14*I*Pi/56) */
+		tmp64 = 0x3FE552B60F035F34ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(15*I*Pi/56) = sin(13*I*Pi/56) */
 		tmp += 2;
-		tmp64 = 0x3FE3F3A0E28BEDD1ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(16*I*Pi/56) = sin(12*I*Pi/56) */	tm2 -= 2;
-		tmp64 = 0x3FE28479AA873CFEull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(17*I*Pi/56) = sin(11*I*Pi/56) */
-		tmp64 = 0x3FE106682221CD8Aull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(18*I*Pi/56) = sin(10*I*Pi/56) */
-		tmp64 = 0x3FDEF5401024C4F4ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(19*I*Pi/56) = sin(09*I*Pi/56) */
+		tmp64 = 0x3FE3F3A0E28BEDD1ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(16*I*Pi/56) = sin(12*I*Pi/56) */	tm2 -= 2;
+		tmp64 = 0x3FE28479AA873CFEull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(17*I*Pi/56) = sin(11*I*Pi/56) */
+		tmp64 = 0x3FE106682221CD8Aull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(18*I*Pi/56) = sin(10*I*Pi/56) */
+		tmp64 = 0x3FDEF5401024C4F4ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(19*I*Pi/56) = sin(09*I*Pi/56) */
 		tmp += 2;
-		tmp64 = 0x3FDBC4C04D71ABC1ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(20*I*Pi/56) = sin(08*I*Pi/56) */	tm2 -= 2;
-		tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(21*I*Pi/56) = sin(07*I*Pi/56) */
-		tmp64 = 0x3FD5234ACA69A9FEull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(22*I*Pi/56) = sin(06*I*Pi/56) */
-		tmp64 = 0x3FD1B7AC4AFC3C02ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(23*I*Pi/56) = sin(05*I*Pi/56) */
+		tmp64 = 0x3FDBC4C04D71ABC1ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(20*I*Pi/56) = sin(08*I*Pi/56) */	tm2 -= 2;
+		tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(21*I*Pi/56) = sin(07*I*Pi/56) */
+		tmp64 = 0x3FD5234ACA69A9FEull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(22*I*Pi/56) = sin(06*I*Pi/56) */
+		tmp64 = 0x3FD1B7AC4AFC3C02ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(23*I*Pi/56) = sin(05*I*Pi/56) */
 		tmp += 2;
-		tmp64 = 0x3FCC7B90E3024582ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(24*I*Pi/56) = sin(04*I*Pi/56) */	tm2 -= 2;
-		tmp64 = 0x3FC570D80B7C3350ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(25*I*Pi/56) = sin(03*I*Pi/56) */
-		tmp64 = 0x3FBCA9B4332D6F61ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(26*I*Pi/56) = sin(02*I*Pi/56) */
-		tmp64 = 0x3FACB544024FC940ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(27*I*Pi/56) = sin(01*I*Pi/56) */
+		tmp64 = 0x3FCC7B90E3024582ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(24*I*Pi/56) = sin(04*I*Pi/56) */	tm2 -= 2;
+		tmp64 = 0x3FC570D80B7C3350ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(25*I*Pi/56) = sin(03*I*Pi/56) */
+		tmp64 = 0x3FBCA9B4332D6F61ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(26*I*Pi/56) = sin(02*I*Pi/56) */
+		tmp64 = 0x3FACB544024FC940ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(27*I*Pi/56) = sin(01*I*Pi/56) */
 		tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
 		nbytes = RADIX*SZ_VD/2;	// 7 AVX-register-sized complex data
 
@@ -971,17 +971,17 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		// Init exp(j*I*Pi/2)/28, for j = 0-3:
 		tmp = base_negacyclic_root + 8;	// First 8 slots reserved for Re/Im parts of the 4 base multipliers
 		tmp->d0 = 1.0;
-		tmp64 = 0x3FEFF31CCABE6E4Cull;	tmp->d1 = *(double *)&tmp64;	// cos(01*I*Pi/56)
-		tmp64 = 0x3FEFCC7D8C64135Full;	tmp->d2 = *(double *)&tmp64;	// cos(02*I*Pi/56)
-		tmp64 = 0x3FEF8C4160D38565ull;	tmp->d3 = *(double *)&tmp64;	// cos(03*I*Pi/56)
+		tmp64 = 0x3FEFF31CCABE6E4Cull;	tmp->d1 = u64_to_f64(tmp64);	// cos(01*I*Pi/56)
+		tmp64 = 0x3FEFCC7D8C64135Full;	tmp->d2 = u64_to_f64(tmp64);	// cos(02*I*Pi/56)
+		tmp64 = 0x3FEF8C4160D38565ull;	tmp->d3 = u64_to_f64(tmp64);	// cos(03*I*Pi/56)
 		(++tmp)->d0 = 0.0;
-		tmp64 = 0x3FC570D80B7C3350ull;	tmp->d3 = *(double *)&tmp64;	// sin(03*I*Pi/120)
-		tmp64 = 0x3FBCA9B4332D6F61ull;	tmp->d2 = *(double *)&tmp64;	// sin(02*I*Pi/120)
-		tmp64 = 0x3FACB544024FC940ull;	tmp->d1 = *(double *)&tmp64;	// sin(01*I*Pi/120)
+		tmp64 = 0x3FC570D80B7C3350ull;	tmp->d3 = u64_to_f64(tmp64);	// sin(03*I*Pi/120)
+		tmp64 = 0x3FBCA9B4332D6F61ull;	tmp->d2 = u64_to_f64(tmp64);	// sin(02*I*Pi/120)
+		tmp64 = 0x3FACB544024FC940ull;	tmp->d1 = u64_to_f64(tmp64);	// sin(01*I*Pi/120)
 		++tmp;
-		tmp64 = 0x3FEF329C0558E969ull;	VEC_DBL_INIT(tmp, *(double *)&tmp64);	// cos(04*I*Pi/56)
+		tmp64 = 0x3FEF329C0558E969ull;	VEC_DBL_INIT(tmp, u64_to_f64(tmp64));	// cos(04*I*Pi/56)
 		++tmp;
-		tmp64 = 0x3FCC7B90E3024582ull;	VEC_DBL_INIT(tmp, *(double *)&tmp64);	// sin(04*I*Pi/56)
+		tmp64 = 0x3FCC7B90E3024582ull;	VEC_DBL_INIT(tmp, u64_to_f64(tmp64));	// sin(04*I*Pi/56)
 		tmp = base_negacyclic_root + 8;	// reset to point to start of above block
 		nbytes = 4*SZ_VD;	// 2 AVX-register-sized complex data
 
