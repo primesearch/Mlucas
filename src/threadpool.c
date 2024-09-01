@@ -342,9 +342,10 @@ static void * xcalloc(size_t num, size_t len) {
 	  */
 	  #else
 
-		cpu_set_t cpu_set;
-		int i,errcode;
+		int i;
+	  #if THREAD_POOL_DEBUG || !INCLUDE_HWLOC
 		pid_t thread_id = syscall (__NR_gettid);
+	  #endif
 	  #if THREAD_POOL_DEBUG
 		printf("executing worker thread id %u, syscall_id = %u\n", my_id, thread_id);
 	  #endif
@@ -385,10 +386,12 @@ static void * xcalloc(size_t num, size_t len) {
 
 	 #else	// INCLUDE_HWLOC = False:
 
+		cpu_set_t cpu_set;
+
 		// get cpu mask using sequential thread ID modulo #available cores in runtime-specified affinity set:
 		CPU_ZERO (&cpu_set);
 		CPU_SET(i, &cpu_set);
-		errcode = sched_setaffinity(thread_id, sizeof(cpu_set), &cpu_set);
+		int errcode = sched_setaffinity(thread_id, sizeof(cpu_set), &cpu_set);
 	  #if THREAD_POOL_DEBUG
 		printf("syscall_id = %u, tid = %d, setaffinity[%d] = %d, ISSET[%d] = %d\n", thread_id,my_id,i,errcode,i,CPU_ISSET(i, &cpu_set));
 	  #endif
