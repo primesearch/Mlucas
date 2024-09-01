@@ -2004,7 +2004,7 @@ double	mi64_cvt_double(const uint64 x[], uint32 len)
 	itmp64 += lead64_rnd;
 	ASSERT(itmp64 > lead64_rnd , "mi64_cvt_double: Exponent overflows IEEE64 field");
 	/* GCC bug: needed to add the explicit sign-check below, otherwise GCC 'optimizes' away the (*(double *)&itmp64): */
-	retval = *(double *)&itmp64;
+	retval = u64_to_f64(itmp64);
 	if(retval < 0.0) {
 		sprintf(cbuf, "rng_isaac_rand_double_norm_pos: lead64 = %16" PRIx64 ", itmp64 = %16" PRIx64 ", retval = %lf not in [0,1]!\n", lead64, itmp64, retval);
 		ASSERT(0, cbuf);
