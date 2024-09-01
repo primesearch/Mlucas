@@ -789,22 +789,22 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			tm2 = tmp + RADIX/4 - 1;
 			// First elt-pair needs special handling - have the 1.0 in avx_negadwt_consts[0] but the sine term buggers things
 			tmp->d0 = 1.0;	(tmp+1)->d0 = 0.0;
-			tmp64 = radix1024_avx_negadwt_consts[1];	tmp->d1 = tm2->d7 = *(double *)&tmp64;
-			tmp64 = radix1024_avx_negadwt_consts[2];	tmp->d2 = tm2->d6 = *(double *)&tmp64;
-			tmp64 = radix1024_avx_negadwt_consts[3];	tmp->d3 = tm2->d5 = *(double *)&tmp64;
-			tmp64 = radix1024_avx_negadwt_consts[4];	tmp->d4 = tm2->d4 = *(double *)&tmp64;
-			tmp64 = radix1024_avx_negadwt_consts[5];	tmp->d5 = tm2->d3 = *(double *)&tmp64;
-			tmp64 = radix1024_avx_negadwt_consts[6];	tmp->d6 = tm2->d2 = *(double *)&tmp64;
-			tmp64 = radix1024_avx_negadwt_consts[7];	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;
+			tmp64 = radix1024_avx_negadwt_consts[1];	tmp->d1 = tm2->d7 = u64_to_f64(tmp64);
+			tmp64 = radix1024_avx_negadwt_consts[2];	tmp->d2 = tm2->d6 = u64_to_f64(tmp64);
+			tmp64 = radix1024_avx_negadwt_consts[3];	tmp->d3 = tm2->d5 = u64_to_f64(tmp64);
+			tmp64 = radix1024_avx_negadwt_consts[4];	tmp->d4 = tm2->d4 = u64_to_f64(tmp64);
+			tmp64 = radix1024_avx_negadwt_consts[5];	tmp->d5 = tm2->d3 = u64_to_f64(tmp64);
+			tmp64 = radix1024_avx_negadwt_consts[6];	tmp->d6 = tm2->d2 = u64_to_f64(tmp64);
+			tmp64 = radix1024_avx_negadwt_consts[7];	tmp->d7 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;
 			for(j = 8; j < RADIX; j += 8) {
-				tmp64 = radix1024_avx_negadwt_consts[j+0];	tmp->d0 = tm2->d0 = *(double *)&tmp64;	tm2 -= 2;
-				tmp64 = radix1024_avx_negadwt_consts[j+1];	tmp->d1 = tm2->d7 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+2];	tmp->d2 = tm2->d6 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+3];	tmp->d3 = tm2->d5 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+4];	tmp->d4 = tm2->d4 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+5];	tmp->d5 = tm2->d3 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+6];	tmp->d6 = tm2->d2 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+7];	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;
+				tmp64 = radix1024_avx_negadwt_consts[j+0];	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	tm2 -= 2;
+				tmp64 = radix1024_avx_negadwt_consts[j+1];	tmp->d1 = tm2->d7 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+2];	tmp->d2 = tm2->d6 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+3];	tmp->d3 = tm2->d5 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+4];	tmp->d4 = tm2->d4 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+5];	tmp->d5 = tm2->d3 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+6];	tmp->d6 = tm2->d2 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+7];	tmp->d7 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;
 			}
 			tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
 
@@ -814,14 +814,14 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			tm2 = tmp + RADIX/2 - 1;
 			// First elt-pair needs special handling - have the 1.0 in avx_negadwt_consts[0] but the sine term buggers things
 			tmp->d0 = 1.0;	(tmp+1)->d0 = 0.0;
-			tmp64 = radix1024_avx_negadwt_consts[1];	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(  1*I*Pi/(2*RADIX)) = sin((RADIX-  1)*I*Pi/(2*RADIX)) */
-			tmp64 = radix1024_avx_negadwt_consts[2];	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(  2*I*Pi/(2*RADIX)) = sin((RADIX-  2)*I*Pi/(2*RADIX)) */
-			tmp64 = radix1024_avx_negadwt_consts[3];	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(  3*I*Pi/(2*RADIX)) = sin((RADIX-  3)*I*Pi/(2*RADIX)) */	tmp += 2;
+			tmp64 = radix1024_avx_negadwt_consts[1];	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(  1*I*Pi/(2*RADIX)) = sin((RADIX-  1)*I*Pi/(2*RADIX)) */
+			tmp64 = radix1024_avx_negadwt_consts[2];	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(  2*I*Pi/(2*RADIX)) = sin((RADIX-  2)*I*Pi/(2*RADIX)) */
+			tmp64 = radix1024_avx_negadwt_consts[3];	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(  3*I*Pi/(2*RADIX)) = sin((RADIX-  3)*I*Pi/(2*RADIX)) */	tmp += 2;
 			for(j = 4; j < RADIX; j += 4) {
-				tmp64 = radix1024_avx_negadwt_consts[j+0];	tmp->d0 = tm2->d0 = *(double *)&tmp64;	tm2 -= 2;
-				tmp64 = radix1024_avx_negadwt_consts[j+1];	tmp->d1 = tm2->d3 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+2];	tmp->d2 = tm2->d2 = *(double *)&tmp64;
-				tmp64 = radix1024_avx_negadwt_consts[j+3];	tmp->d3 = tm2->d1 = *(double *)&tmp64;	tmp += 2;
+				tmp64 = radix1024_avx_negadwt_consts[j+0];	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	tm2 -= 2;
+				tmp64 = radix1024_avx_negadwt_consts[j+1];	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+2];	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);
+				tmp64 = radix1024_avx_negadwt_consts[j+3];	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;
 			}
 
 			tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
