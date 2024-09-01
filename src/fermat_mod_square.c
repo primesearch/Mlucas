@@ -647,8 +647,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -667,8 +667,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 					max_adiff = adiff;
 				if(adiff > err_threshold)
 				{
-					i1 = *(uint64 *)&t1;
-					i2 = *(uint64 *)&t2;
+					i1 = f64_to_u64(t1);
+					i2 = f64_to_u64(t2);
 					idiff = ABS(i1-i2);
 					if(idiff > max_idiff)
 						max_idiff = idiff;
@@ -680,15 +680,15 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				wt1[i] = qfdbl(qfinv(qwt));
 				t1 = wt1[i];
 				t2 = 1.0/wt0[i];
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				adiff = ABS(t1-t2);
 				if(adiff > max_adiff)
 					max_adiff = adiff;
 				if(adiff > err_threshold)
 				{
-					i1 = *(uint64 *)&t1;
-					i2 = *(uint64 *)&t2;
+					i1 = f64_to_u64(t1);
+					i2 = f64_to_u64(t2);
 					idiff = ABS(i1-i2);
 					if(idiff > max_idiff)
 						max_idiff = idiff;
@@ -731,8 +731,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -748,8 +748,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -770,8 +770,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -789,8 +789,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -832,8 +832,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -849,8 +849,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -871,8 +871,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -890,8 +890,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -933,8 +933,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -949,8 +949,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -971,8 +971,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -989,8 +989,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -1029,8 +1029,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -1045,8 +1045,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			max_adiff = adiff;
 		if(adiff > err_threshold)
 		{
-			i1 = *(uint64 *)&t1;
-			i2 = *(uint64 *)&t2;
+			i1 = f64_to_u64(t1);
+			i2 = f64_to_u64(t2);
 			idiff = ABS(i1-i2);
 			if(idiff > max_idiff)
 				max_idiff = idiff;
@@ -1067,8 +1067,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
@@ -1085,8 +1085,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				max_adiff = adiff;
 			if(adiff > err_threshold)
 			{
-				i1 = *(uint64 *)&t1;
-				i2 = *(uint64 *)&t2;
+				i1 = f64_to_u64(t1);
+				i2 = f64_to_u64(t2);
 				idiff = ABS(i1-i2);
 				if(idiff > max_idiff)
 					max_idiff = idiff;
