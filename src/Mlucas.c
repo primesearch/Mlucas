@@ -6380,9 +6380,7 @@ uint32 extract_known_factors(uint64 p, char *fac_start) {
 				// Incremented nfac already, so just-added entry in slot (nfac-1):
 				if(mi64_cmp_eq(KNOWN_FACTORS + 4*i, KNOWN_FACTORS + 4*(nfac-1), 4)) {
 					mi64_clear(KNOWN_FACTORS + 4*(--nfac), 4);
-					// Using cbuf as both string-arg and target string is problematic, so use 2nd string-global cstr as target:
-					snprintf(cstr,sizeof(cstr), "WARNING: p = %" PRIu64 ", known-factor list entry %s is a duplicate ... removing.\n",p,cbuf);
-					fprintf(stderr,"%s",cstr);
+					fprintf(stderr, "WARNING: p = %" PRIu64 ", known-factor list entry %s is a duplicate ... removing.\n",p,cbuf);
 				}
 			}
 		}
