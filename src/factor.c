@@ -196,7 +196,7 @@ int restart;
 	uint64 PMIN;	/* minimum #bits allowed for FFT-based mul */
 	uint64 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
 					  and will be determined at runtime, via call to given_N_get_maxP(). */
-	char cbuf[STR_MAX_LEN*2],cstr[STR_MAX_LEN];
+	char cbuf[STR_MAX_LEN*2], g_cstr[STR_MAX_LEN];
 	char in_line[STR_MAX_LEN];
 	/* Declare a blank STATFILE string to ease program logic: */
 	char STATFILE[] = "";
@@ -2706,9 +2706,9 @@ MFACTOR_HELP:
 		fp = mlucas_fopen(RESTARTFILE, "r");
 		if(fp) {
 			// If file exists, it should have the proper first 2 lines:
-			itmp = fscanf(fp,"%s\n",cstr);
-			if(itmp <= 0 || !STREQ(cstr,pstring)) {
-				sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",cstr,pstring);
+			itmp = fscanf(fp,"%s\n",g_cstr);
+			if(itmp <= 0 || !STREQ(g_cstr,pstring)) {
+				sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",g_cstr,pstring);
 				ASSERT(0,char_buf0);
 			}
 			itmp = fscanf(fp,"%u\n",&i  );
@@ -2717,17 +2717,17 @@ MFACTOR_HELP:
 				ASSERT(0,char_buf0);
 			}
 			// See if restart file has a pass/max-k-reached entry matching the current pass:
-			while(fgets(cstr,STR_MAX_LEN,fp)) {
-				if((char_addr = strstr(cstr,"Pass ")) != 0) {
+			while(fgets(g_cstr,STR_MAX_LEN,fp)) {
+				if((char_addr = strstr(g_cstr,"Pass ")) != 0) {
 					itmp = sscanf(char_addr,"%u",i);
 					if(itmp <= 0) {
-						fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(0,"0");
+						fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",g_cstr); ASSERT(0,"0");
 					}
 					if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
 						ASSERT(!found_pass, "Multiple current-pass entry found in savefile!");
 						found_pass = TRUE;
 						// Read the max-k-reached value
-						ASSERT(((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
+						ASSERT(((char_addr = strstr(g_cstr,"Pass ")) != 0),"Expected : following pass number not found!");
 						itmp = sscanf(char_addr,"%" PRIu64,k);
 						ASSERT(itmp >= 0,"Unable to read max-k-reached value!");
 						// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
@@ -3759,18 +3759,18 @@ MFACTOR_HELP:
 										if(mi64_pprimeF(q, 3ull, lenQ)) {
 											factor_k[(*nfactor)++] = k_to_try[l];
 											if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
+												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
 											else
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
+												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],k_to_try[l]);
 										#ifdef FAC_DEBUG
 											if(TRYQM1 > 1)
 												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 										#endif
 										} else {	// Composite factor; this should only occur in "single-word" (q < 2^96) mode:
 											if(known_factor_div_check_done) {	// Already divided out all pvsly-found factors
-												sprintf(cbuf,"\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
+												sprintf(cbuf,"\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)]);
 											} else {
-												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
+												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)]);
 												for(j = 0; j < *nfactor; j++) {
 													q2[lenP] = mi64_mul_scalar( p, 2*factor_k[j], q2, lenP);
 													ASSERT(lenP == 1 && q2[lenP] == 0ull, "Unexpected carryout in known-factor computation!");
@@ -3956,7 +3956,7 @@ MFACTOR_HELP:
 			if(!fp) {
 				fprintf(stderr,"INFO: factoring savefile %s not found - will create.\n",RESTARTFILE);
 			} else {	// If file exists, it should have the proper first 2 lines:
-				itmp = fscanf(fp,"%s\n",cstr); if(itmp <= 0 || !STREQ(cstr,pstring)) ASSERT(0,"Line 1 entry found in factoring savefile does not match exponent of run.");
+				itmp = fscanf(fp,"%s\n",g_cstr); if(itmp <= 0 || !STREQ(g_cstr,pstring)) ASSERT(0,"Line 1 entry found in factoring savefile does not match exponent of run.");
 				itmp = fscanf(fp,"%u\n",&i  ); if(itmp <= 0 || i != TF_PASSES      ) ASSERT(0,"Line 2 entry found in factoring savefile does not match TF_PASSES value of build.");
 			}
 			if(!fq) {
@@ -3982,11 +3982,11 @@ MFACTOR_HELP:
 
 			// Now copy any remaining entries in existing file, modifying only the one corr. to the current pass, if it exists:
 			if(fp) {
-				while(fgets(cstr,STR_MAX_LEN,fp)) {
-					if((char_addr = strstr(cstr,"Pass ")) != 0) {
+				while(fgets(g_cstr,STR_MAX_LEN,fp)) {
+					if((char_addr = strstr(g_cstr,"Pass ")) != 0) {
 						itmp = sscanf(char_addr,"%u",i);
 						if(itmp <= 0) {
-							fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(0,"0");
+							fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",g_cstr); ASSERT(0,"0");
 						}
 						if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
 							ASSERT(!found_pass, "Multiple current-pass entry found in savefile!");
@@ -3995,17 +3995,17 @@ MFACTOR_HELP:
 							k = (uint64)incr + (sweep+1)*(sieve_len<<6);
 							fprintf(fq,"Pass %u: %" PRIu64 "\n",pass,k);
 						} else			// Otherwise just copy as-is
-							fputs(cstr,fq);
+							fputs(g_cstr,fq);
 					} else {	// Just copy as-is
-						fputs(cstr,fq);
+						fputs(g_cstr,fq);
 					}
 				}
 			}
 			if(fp) { fclose(fp); fp = 0x0; }
 			fclose(fq); fq = 0x0;
 			if(rename(TMPFILE,RESTARTFILE)) {
-				sprintf(cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
-				ASSERT(0,cstr);
+				sprintf(g_cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
+				ASSERT(0,g_cstr);
 			}
 		}	// Successfully updated restart file.
 	  #endif /* #if !FAC_DEBUG */
