@@ -60,9 +60,9 @@ uint192 twopmmodq192(uint192 p, uint192 q)
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 lo64;
 	uint192 pshift, qhalf, qinv, x, lo,hi, rsqr;
-	// char_buf is local, cstr is globall available:
+	// char_buf is local, g_cstr is globally available:
 #if FAC_DEBUG
-	if(dbg) printf("twopmmodq192: computing 2^%s (mod %s)\n",&char_buf[convert_uint192_base10_char(char_buf,p)],&cstr[convert_uint192_base10_char(cstr,q)]);
+	if(dbg) printf("twopmmodq192: computing 2^%s (mod %s)\n",&char_buf[convert_uint192_base10_char(char_buf,p)],&g_cstr[convert_uint192_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST192(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 	// If p <= 192, directly compute 2^p (mod q):
