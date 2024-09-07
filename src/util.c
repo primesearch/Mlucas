@@ -9558,15 +9558,15 @@ FILE *mlucas_fopen(const char *path, const char *mode)
 		1	logfile, stderr
 	 >= 2	stderr
 */
-void mlucas_fprint(char*const cstr, uint32 echo_to_stderr)
+void mlucas_fprint(char *const p_cstr, uint32 echo_to_stderr)
 {
-	ASSERT(cstr != 0x0 && strlen(cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
+	ASSERT(p_cstr != 0x0 && strlen(p_cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
 	if(echo_to_stderr)
-		fprintf(stderr,"%s",cstr);
+		fprintf(stderr,"%s",p_cstr);
 	if(echo_to_stderr < 2) {
 		FILE *fptr = mlucas_fopen(STATFILE,"a");
 		if(fptr) {
-			fprintf(fptr,"%s",cstr);
+			fprintf(fptr,"%s",p_cstr);
 			fclose(fptr); fptr = 0x0;
 		}
 	}
