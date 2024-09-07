@@ -83,7 +83,7 @@ void	generate_JSON_report(
 	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial, char *p_cstr
 );
 void	print_help(void);
-int		cfgNeedsUpdating(const char *in_line);
+int		cfgNeedsUpdating(const char *p_in_line);
 const char *returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);

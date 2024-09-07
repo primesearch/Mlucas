@@ -105,15 +105,15 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	found = 0;		/* Was an entry for the specified FFT length found in the .cfg file? */
 	fp = mlucas_fopen(CONFIGFILE,"r");
 	if(fp) {
-		while(fgets(in_line, STR_MAX_LEN, fp)) {
-		//	fprintf(stderr,"Current line: %s",in_line);
+		while(fgets(g_in_line, STR_MAX_LEN, fp)) {
+		//	fprintf(stderr,"Current line: %s",g_in_line);
 			/* Each FFT-length entry assumed to begin with an int followed by whitespace;
 			any line not of that form is ignored, thus allowing pretty much any common comment-format: */
-			if(sscanf(in_line, "%d", &i) == 1) {
+			if(sscanf(g_in_line, "%d", &i) == 1) {
 				/* Consider any entry with an FFT length >= target, which further contains
 				a per-iteration timing datum in the form 'msec/iter = [float arg]' in non-exponential form:
 				*/
-				if((i >= kblocks) && (char_addr = strstr(in_line, "msec/iter =")) != 0) {
+				if((i >= kblocks) && (char_addr = strstr(g_in_line, "msec/iter =")) != 0) {
 					/* Stores whether we found an entry for the requested FFT length
 					(whether that proves to have the best timing for lengths >= kblocks or not): */
 					if(i == kblocks) {
@@ -126,15 +126,15 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 					if(sscanf(char_addr + 11, "%lf", &tcurr) == 1) {	// 11 chars in "msec/iter ="
 						ASSERT(tcurr >= 0, "tcurr < 0!");
 						if((tbest == 0.0) || ((tcurr > 0.0) && (tcurr < tbest))) {
-							if((char_addr = strstr(in_line, "radices =")) == 0x0) {
-								snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, in_line);
+							if((char_addr = strstr(g_in_line, "radices =")) == 0x0) {
+								snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, g_in_line);
 								ASSERT(0, cbuf);
 							}
 							char_addr += 9;	// 9 chars in "radices ="
 							kprod = 1;	/* accumulate product of radices */
 							for(j = 0; j < 10; j++) {	/* Read in the radices */
 								if(sscanf(char_addr, "%d", &k) != 1) {
-									snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, in_line);
+									snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, g_in_line);
 									ASSERT(0, cbuf);
 								} else {
 									// Advance to next WS char following the current numeric token - since sscanf skips leading WS,
@@ -184,7 +184,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 							*/
 							kprod *= 2;
 							if((kprod & 1023) != 0) {
-								snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, in_line);
+								snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, g_in_line);
 								ASSERT(0, cbuf);
 							}
 							kprod >>= 10;
@@ -192,7 +192,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 							if(i == kblocks) {
 								/* Product of radices must equal complex vector length (n/2): */
 								if(kprod != kblocks) {
-									snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, in_line);
+									snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, g_in_line);
 									ASSERT(0, cbuf);
 								}
 								retval = i;			/* Preferred FFT length */
