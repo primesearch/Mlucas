@@ -112,7 +112,7 @@ char PSTRING[STR_MAX_LEN];	// Modulus being used in string form, e.g. "M11091692
 
 const int hex_chars[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
 char cbuf[STR_MAX_LEN*2], g_cstr[STR_MAX_LEN];
-char in_line[STR_MAX_LEN];
+char g_in_line[STR_MAX_LEN];
 char *char_addr;
 
 FILE *fp = 0x0, *fq = 0x0;	// Our convention is to always set these = 0x0 on fclose, so nullity correlates with "no open file attached"
@@ -562,13 +562,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		fprintf(stderr," %s file found...reading next assignment...\n",WORKFILE);
 
 	  read_next_assignment:	// Read first line of worktodo.ini file into 1K character array:
-		if(!fgets(in_line, sizeof(in_line), fp)) {
+		if(!fgets(g_in_line, sizeof(g_in_line), fp)) {
 			fprintf(stderr,"Hit EOF while attempting to read next line of worktodo ... quitting.\n");
 			exit(0);
 		}
-		fprintf(stderr," %s entry: %s\n",WORKFILE,in_line);
+		fprintf(stderr," %s entry: %s\n",WORKFILE,g_in_line);
 		/* Skip any whitespace at beginning of the line: */
-		char_addr = in_line;
+		char_addr = g_in_line;
 		while(isspace(*char_addr)) {
 			++char_addr;
 		}
@@ -642,14 +642,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		not the mod-inverse w.r.to N, it's one w.r.to a^2, which is tiny compared to N.
 			Calling that with args x = 4, n = 9 gives our k = -3*modinv(4,9) = -3*-2 = 6, same as the above trial-and-error approach.
 		*/
-		if((char_addr = strstr(in_line, "PRP")) != 0)	// This also handles the PRPDC= format
+		if((char_addr = strstr(g_in_line, "PRP")) != 0)	// This also handles the PRPDC= format
 		{
 			TEST_TYPE = TEST_TYPE_PRP;
 			char_addr += 3;
-			// Check [k,b,n,c] portion of in_line:
+			// Check [k,b,n,c] portion of g_in_line:
 			cptr = check_kbnc(char_addr, &p);
-			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			// Next 2 entries in in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
+			ASSERT(cptr != 0x0, "[k,b,n,c] portion of g_in_line fails to parse correctly!");
+			// Next 2 entries in g_in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
 			TF_BITS = 0xffffffff; tests_saved = 0.0;
 			if((char_addr = strstr(cptr, ",")) != 0x0) {
 				cptr++;
@@ -673,7 +673,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				kblocks = get_default_fft_length(p);
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
-				cptr = strstr(in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
+				cptr = strstr(g_in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
 				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
 					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
@@ -681,7 +681,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 					sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
 				// Copy up to the final (tests_saved) char of the assignment into g_cstr and append tests_saved = 0;
 				// A properly formatted tests_saved field is 1 char wide and begins at the current value of char_addr:
-				i = char_addr - in_line; strncpy(g_cstr,in_line, i); g_cstr[i] = '0'; g_cstr[i+1] = '\0';
+				i = char_addr - g_in_line; strncpy(g_cstr,g_in_line, i); g_cstr[i] = '0'; g_cstr[i+1] = '\0';
 				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy:
 				strcat(g_cstr,endp);
 				if(g_cstr[strlen(g_cstr)-1] != '\n') {
@@ -710,7 +710,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			}
 			goto GET_EXPO;
 		}
-		else if((char_addr = strstr(in_line, "Fermat")) != 0)
+		else if((char_addr = strstr(g_in_line, "Fermat")) != 0)
 		{
 			char_addr += 6;
 			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
@@ -724,7 +724,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 							// offsets used to prevent the shift count from modding to 0 as a result of repeated doublings (mod 2^m)
 		}
 		/* "Mersenne" is the default and hence not required, but allow it: */
-		else if((char_addr = strstr(in_line, "Mersenne")) != 0)
+		else if((char_addr = strstr(g_in_line, "Mersenne")) != 0)
 		{
 			char_addr += 8;
 			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
@@ -735,18 +735,18 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 
 		// Pépin tests are assigned via "Fermat,Test=<Fermat number index>", so catch this clause by starting new if/else()
-		if((char_addr = strstr(in_line, "Test")) != 0)
+		if((char_addr = strstr(g_in_line, "Test")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_PRIMALITY;
 			char_addr +=  4;
 		}
-		else if((char_addr = strstr(in_line, "DoubleCheck")) != 0)
+		else if((char_addr = strstr(g_in_line, "DoubleCheck")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_PRIMALITY;
 			char_addr += 11;
 		}
 	#if INCLUDE_TF
-		else if((char_addr = strstr(in_line, "Factor")) != 0)
+		else if((char_addr = strstr(g_in_line, "Factor")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_TF;
 			char_addr +=  6;
@@ -765,13 +765,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		AFAIK, the server issues Pfactor= lines not Pminus1= lines."
 		*/
 		// Use case-insensitive analog of strstr, stristr():
-		else if((char_addr = stristr(in_line, "pminus1")) != 0)
+		else if((char_addr = stristr(g_in_line, "pminus1")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_PM1;
 			char_addr += 7;
-			// Check [k,b,n,c] portion of in_line:
+			// Check [k,b,n,c] portion of g_in_line:
 			cptr = check_kbnc(char_addr, &p);
-			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
+			ASSERT(cptr != 0x0, "[k,b,n,c] portion of g_in_line fails to parse correctly!");
 			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			B1 = (uint32)strtoul (char_addr+1, &cptr, 10);
 			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
@@ -797,14 +797,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				}
 			}
 		}
-		else if((char_addr = stristr(in_line, "pfactor")) != 0)	// Caseless substring-match as with pminus 1
+		else if((char_addr = stristr(g_in_line, "pfactor")) != 0)	// Caseless substring-match as with pminus 1
 		{
 			TEST_TYPE = TEST_TYPE_PM1;
 			PRP_BASE = 3;
 			char_addr += 7;
-			// Check [k,b,n,c] portion of in_line:
+			// Check [k,b,n,c] portion of g_in_line:
 			cptr = check_kbnc(char_addr, &p);
-			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
+			ASSERT(cptr != 0x0, "[k,b,n,c] portion of g_in_line fails to parse correctly!");
 			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);
 			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
@@ -823,7 +823,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	#endif
 		else
 		{
-			snprintf(cbuf,sizeof(cbuf),"WARN: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n",in_line);
+			snprintf(cbuf,sizeof(cbuf),"WARN: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n",g_in_line);
 			fprintf(stderr,"%s",cbuf);
 			goto read_next_assignment;
 		}
@@ -881,7 +881,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(TEST_TYPE == TEST_TYPE_TF) {
 			/* Currently TF only supported for Mersennes: */
 			if(MODULUS_TYPE != MODULUS_TYPE_MERSENNE) {
-				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",in_line);
+				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",g_in_line);
 				fprintf(stderr,"%s",cbuf);
 				goto GET_NEXT_ASSIGNMENT;
 			}
@@ -912,12 +912,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(char_addr++) {
 				bit_depth_todo = strtoul(char_addr, &endp, 10);
 				if(bit_depth_todo > MAX_FACT_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,in_line);
+					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,g_in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo <= TF_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,in_line);
+					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,g_in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
@@ -931,7 +931,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 		else if(nbits_in_p > MAX_PRIMALITY_TEST_BITS)
 		{
-			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",in_line);
+			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",g_in_line);
 			fprintf(stderr,"%s",cbuf);
 			goto GET_NEXT_ASSIGNMENT;
 		}
@@ -951,7 +951,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				TF_BITS = strtoul(char_addr, &endp, 10);
 			#if INCLUDE_TF
 				if(TF_BITS > MAX_FACT_BITS) {
-					snprintf(cbuf,sizeof(cbuf),"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
+					snprintf(cbuf,sizeof(cbuf),"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, g_in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
@@ -986,16 +986,16 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 						kblocks = get_default_fft_length(p);
 						ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 						// Format the p-1 assignment into cbuf:
-						char_addr = strstr(in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
+						char_addr = strstr(g_in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
 						char_addr++;	while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
 						if(is_hex_string(char_addr, 32)) {
 							strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 						} else
 							sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
 
-						// Copy all but the final (pm1_done) char of the assignment into g_cstr and append pm1_done = 1. If in_line ends with newline, first --j:
-						j = strlen(in_line) - 1;	j -= (in_line[j] == '\n');
-						strncpy(g_cstr,in_line,j);	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
+						// Copy all but the final (pm1_done) char of the assignment into g_cstr and append pm1_done = 1. If g_in_line ends with newline, first --j:
+						j = strlen(g_in_line) - 1;	j -= (g_in_line[j] == '\n');
+						strncpy(g_cstr,g_in_line,j);	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
 						split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 						goto GET_NEXT_ASSIGNMENT;
 					}
@@ -1094,7 +1094,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	// If production run (not self-test), echo assignment to per-exponent logfile:
 	if(!INTERACT) {
-		snprintf(cbuf,sizeof(cbuf)," %s entry: %s\n",WORKFILE,in_line);
+		snprintf(cbuf,sizeof(cbuf)," %s entry: %s\n",WORKFILE,g_in_line);
 		mlucas_fprint(cbuf,0);
 	}
 
@@ -2806,68 +2806,68 @@ GET_NEXT_ASSIGNMENT:
 	GET_NEXT:
 		/* Delete or suitably modify current-assignment line (line 1) of worktodo file: */
 		i = 0;	// This counter tells how many *additional* assignments exist in worktodo
-		if(!fgets(in_line, sizeof(in_line), fp)) {
+		if(!fgets(g_in_line, sizeof(g_in_line), fp)) {
 			sprintf(cbuf, "ERROR: %s file not found at end of current-assignment processing\n", WORKFILE);
 			ASSERT(0,cbuf);
 		}
 		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic;
-		char_addr = in_line;	j = 0;
-		while(isspace(in_line[j])) { ++j; }
+		char_addr = g_in_line;	j = 0;
+		while(isspace(g_in_line[j])) { ++j; }
 		char_addr += j;
-		if(!isalpha(in_line[j]))
+		if(!isalpha(g_in_line[j]))
 			goto GET_NEXT;
 
 		// Look for m in first eligible assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
-		if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
+		if(!strstr(g_in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP)) ) {
 			snprintf(cbuf,sizeof(cbuf), "ERROR: Current exponent %s not found in line 1 of %s file - quitting.\n", ESTRING, WORKFILE);
 			ASSERT(0,cbuf);
 		} else {
 			/* If we just finished the TF or p-1 preprocessing step of an LL or PRP test,
 			update the current-assignment line to reflect that and write it out: */
-			if(strstr(in_line, "PRP") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck")) {
+			if(strstr(g_in_line, "PRP") || strstr(g_in_line, "Test") || strstr(g_in_line, "DoubleCheck")) {
 			#if INCLUDE_TF
 				if(TEST_TYPE == TEST_TYPE_TF) {
-					/* Factor depth assumed to follow the first comma in in_line: */
+					/* Factor depth assumed to follow the first comma in g_in_line: */
 					char_addr = strstr(char_addr, ",");
 					ASSERT(char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "%u", TF_BITS);
-					fputs(in_line, fq);
+					fputs(g_in_line, fq);
 				}
 			#endif
 				// This imples TEST_TYPE == TEST_TYPE_PM1; note that this flag gets cleared on cycling back to RANGE_BEG:
 				if(split_curr_assignment) {
-					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in in_line: */
+					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in g_in_line: */
 					fputs(cbuf, fq);	// The Pminus1 assignment
 					fputs(g_cstr, fq);	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
 					i = 2;	// And reset remaining-assignments counter
 				}
-			} else if(stristr(in_line, "pminus1")) {
+			} else if(stristr(g_in_line, "pminus1")) {
 				// If current p-1 assignment found a factor and resulted from splitting of a PRP/LL assignment -
 				// note that split_curr_assignment == TRUE only at time of the initial splitting - delete them both:
 				ASSERT(TEST_TYPE == TEST_TYPE_PM1,"GET_NEXT_ASSIGNMENT: current assignment is Pminus1=, but TEST_TYPE != PM1.");
 				if(strlen(gcd_str) != 0) {	// Found a factor?
-					char_addr = strstr(in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
+					char_addr = strstr(g_in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
 					char_addr++;
 					if(is_hex_string(char_addr, 32)) {
 						strncpy(aid,char_addr,32);
 					} else if(STREQN_NOCASE(char_addr,"n/a",3)) {
 						strncpy(aid,char_addr, 3);
 					} else {
-						snprintf(cbuf,sizeof(cbuf),"INFO: Assignment \"%s\" lacks a valid assignment ID ... proceeding anyway.\n",in_line);
+						snprintf(cbuf,sizeof(cbuf),"INFO: Assignment \"%s\" lacks a valid assignment ID ... proceeding anyway.\n",g_in_line);
 						mlucas_fprint(cbuf,1);
-						aid[0] = '\0';	// This guarantees that the strstr(in_line,aid) part of on the next-assignment search below succeeds.
+						aid[0] = '\0';	// This guarantees that the strstr(g_in_line,aid) part of on the next-assignment search below succeeds.
 					}
 					// If next assignment exists, is an LL/PRP, and has same exponent and AID, delete it (by doing nothing), otherwise
 					// copy it to the fq-file. We use both the AID and binary exponent here, since the former could be some made-up
 					// value (e.g. all-0s) and the latter has a nonzero chance of appearing in the AID of an unrelated next-assignment:
-					in_line[0] = '\0';	// Careful here - if next fgets(in_line) fails, are left with old in_line, must zero it first.
-					if(fgets(in_line, sizeof(in_line), fp)) {
-						if( (strstr(in_line, "PRP") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck"))
-						 && strstr(in_line,ESTRING) && strstr(in_line,aid) )
+					g_in_line[0] = '\0';	// Careful here - if next fgets(g_in_line) fails, are left with old g_in_line, must zero it first.
+					if(fgets(g_in_line, sizeof(g_in_line), fp)) {
+						if( (strstr(g_in_line, "PRP") || strstr(g_in_line, "Test") || strstr(g_in_line, "DoubleCheck"))
+						 && strstr(g_in_line,ESTRING) && strstr(g_in_line,aid) )
 						{
 							/* Lose the assignment (by way of no-op) */
 						} else {
-							fputs(in_line, fq); i = 1;	// Copy PRP/LL assignment and reset remaining-assignments counter
+							fputs(g_in_line, fq); i = 1;	// Copy PRP/LL assignment and reset remaining-assignments counter
 						}
 					}
 				}
@@ -2875,9 +2875,9 @@ GET_NEXT_ASSIGNMENT:
 			/* Otherwise lose the current line (by way of no-op) */
 		}
 		/* Copy the remaining ones; */
-		while(fgets(in_line, sizeof(in_line), fp))
+		while(fgets(g_in_line, sizeof(g_in_line), fp))
 		{
-			fputs(in_line, fq);	++i;
+			fputs(g_in_line, fq);	++i;
 		}
 		fclose(fp); fp = 0x0;
 		fclose(fq); fq = 0x0;
@@ -2901,8 +2901,8 @@ GET_NEXT_ASSIGNMENT:
 				sprintf(cbuf,"Unable to open WINI.TMP file for reading.\n");
 				ASSERT(0,cbuf);
 			}
-			while(fgets(in_line, sizeof(in_line), fq)) {
-				fputs(in_line, fp);
+			while(fgets(g_in_line, sizeof(g_in_line), fq)) {
+				fputs(g_in_line, fp);
 			}
 			fclose(fp); fp = 0x0;
 			fclose(fq); fq = 0x0;
@@ -4592,8 +4592,8 @@ TIMING_TEST_LOOP:
 		/* Program version string assumed to be stored in line 1 of .cfg file -
 		if it's not, the .cfg file is by definition outdated:
 		*/
-		if(fgets(in_line, sizeof(in_line), fp))
-			new_cfg = cfgNeedsUpdating(in_line);
+		if(fgets(g_in_line, sizeof(g_in_line), fp))
+			new_cfg = cfgNeedsUpdating(g_in_line);
 		else
 			new_cfg = TRUE;
 
@@ -4887,7 +4887,7 @@ which is presumed to contain the program version that was used to generate said 
 returns nonzero (which should be taken as a proxy for TRUE) if the .cfg file needs to be updated
 via a new round of timing tests, FALSE otherwise.
 */
-int	cfgNeedsUpdating(const char *in_line)
+int	cfgNeedsUpdating(const char *p_in_line)
 {
 	/* For the foreseeable future, version numbers will be of form x.yz, with x a 2-digit integer,
 	y an int having 3 digits or less, and z an optional alphabetic suffix. We choose these such that
@@ -4897,7 +4897,7 @@ int	cfgNeedsUpdating(const char *in_line)
 
 	This reduces the "retime?" decision to a simple comparison of the leading 4 characters of the version string.
 	*/
-	return STRNEQN(in_line, VERSION, 4);
+	return STRNEQN(p_in_line, VERSION, 4);
 }
 
 /******************/
@@ -6169,18 +6169,18 @@ void generate_JSON_report(
 	ASSERT((fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
 	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
 	char_addr = 0x0;
-	while(fgets(in_line, sizeof(in_line), fp) != 0x0) {
-		char_addr = in_line; while(isspace(*char_addr)) { ++char_addr; }
+	while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
+		char_addr = g_in_line; while(isspace(*char_addr)) { ++char_addr; }
 		if(isalpha(*char_addr)) break;
 	}
 	fclose(fp); fp = 0x0;
 	ASSERT(strlen(char_addr) != 0 && isalpha(*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
-	if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
+	if(!strstr(g_in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP)) ) {
 		snprintf(cbuf,sizeof(cbuf), "ERROR: Current exponent %s not found in %s file!\n",ESTRING,WORKFILE);
 		ASSERT(0,cbuf);
 	}
 	// Is there a Primenet-server 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
-	char_addr = strstr(in_line, "=");
+	char_addr = strstr(g_in_line, "=");
 	if(char_addr) {
 		char_addr++;
 		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
@@ -6642,13 +6642,13 @@ uint32 filegrep(const char *fname, const char *find_str, char *p_cstr, uint32 fi
 		return 0;
 	FILE *fptr = mlucas_fopen(fname,"r");
 	if(fptr){
-		while(fgets(in_line, sizeof(in_line), fptr)) {
+		while(fgets(g_in_line, sizeof(g_in_line), fptr)) {
 			++curr_line;
 			if(find_before_line_number && curr_line >= find_before_line_number)
 				break;
-			if(strstr(in_line,find_str) != 0x0) {
+			if(strstr(g_in_line,find_str) != 0x0) {
 				found_line = curr_line;
-				strcpy(p_cstr,in_line);
+				strcpy(p_cstr,g_in_line);
 				if(!find_before_line_number)	// if find_before_line_number == 0, return first occurrence:
 					break;
 			}
