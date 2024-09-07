@@ -995,7 +995,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 						// Copy all but the final (pm1_done) char of the assignment into g_cstr and append pm1_done = 1. If g_in_line ends with newline, first --j:
 						j = strlen(g_in_line) - 1;	j -= (g_in_line[j] == '\n');
-						strncpy(g_cstr,g_in_line,j);	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
+						// Note we over copy with strcpy, but since the end of string is explictly set, that's no issue.
+						strcpy(g_cstr, g_in_line);	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
 						split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 						goto GET_NEXT_ASSIGNMENT;
 					}
