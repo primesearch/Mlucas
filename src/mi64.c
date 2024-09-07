@@ -3997,7 +3997,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	  #endif
 	  #if MI64_PRP_DBG
 	  if(dbg) {
-		printf("mi64_scalar_modpow_lr: %" PRIu64 "^%s (mod q = %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,q,len,0)]);
+		printf("mi64_scalar_modpow_lr: %" PRIu64 "^%s (mod q = %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&g_cstr[convert_mi64_base10_char(g_cstr,q,len,0)]);
 		printf("Using Montgomery-multiply remaindering.\n");
 	  }
 	  #endif
@@ -4133,7 +4133,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	  #endif
 	  #if MI64_PRP_DBG
 	  if(dbg) {
-		printf("mi64_scalar_modpow_lr: %" PRIu64 "^%s (mod %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&cstr[convert_mi64_base10_char(cstr,b,len,0)]);
+		printf("mi64_scalar_modpow_lr: %" PRIu64 "^%s (mod %s)\n",a,&cbuf[convert_mi64_base10_char(cbuf,b,len,0)],&g_cstr[convert_mi64_base10_char(g_cstr,b,len,0)]);
 	  }
 	  #endif
 		if(!a) {	// a = 0; set result c[] = 0 and return
