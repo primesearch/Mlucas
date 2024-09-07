@@ -42,16 +42,41 @@ int test_fac()
 
 	uint32	ntest63,ntest64,ntest65,ntest96,ntest128,ntest128x2,ntest160,ntest192,ntest256;
 	uint64	p64,q64,res64;
-	uint96	q96,res96;
-	uint128 p128,two_p128,pinv128,q128,x128,res128;
-	uint192 p192,two_p192,q192,x192,y192,res192;
-	uint256 p256,two_p256,q256,x256,res256;
+#if defined(USE_FLOAT) || TRYQ >= 32
+	uint96	q96;
+#endif
+	uint96	res96;
+	uint128 p128,pinv128,q128,x128,res128;
+#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
+	uint128 two_p128;
+#endif
+	uint192 p192,q192,x192,y192,res192;
+#if defined(P3WORD) || defined(P4WORD)
+	uint192 two_p192;
+#endif
+	uint256 p256,q256,res256;
+#if defined(P3WORD) || defined(P4WORD)
+	uint256 two_p256;
+#endif
+#if TEST_256 || defined(P3WORD) || defined(P4WORD)
+	uint256 x256;
+#endif
 	const uint64 two64mod60 = 16;
-	uint64 two64modp, k, karr[64];	// max. of 64 k's per batch-modpow for now
+#if defined(P3WORD) || defined(P4WORD)
+	uint64 two64modp;
+#endif
+	uint64 k;
+#if ((TRYQ == 8 && defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)) \
+	 || (TRYQ == 16 && defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)) \
+	 || TRYQ >= 32)
+	uint64 karr[64];	// max. of 64 k's per batch-modpow for now
+#endif
 	uint32 i,j,l;
+#ifdef USE_FLOAT
 	double dbl,rnd;
+#endif
 	uint32 pm60,km60;
-	uint64 hi64,lo64;
+	uint64 hi64;
 #if defined(FAC_DEBUG) && (defined(P2WORD) || defined(P3WORD) || defined(P4WORD))
 	uint32 i2,i3,i4,ii,jj;
 #endif
@@ -765,7 +790,12 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		/* Make sure the MSB = 0: */
 		ASSERT(( int64)p64 > 0, "test_fac : ( int64)p64 > 0");
 		ASSERT(q64%(2*p64) ==1, "test_fac : q64%(2*p64) ==1");
-		k = (q64-1)/(2*p64);	for(j = 0; j < 64; j++) { karr[j] = k; }
+		k = (q64-1)/(2*p64);
+#if ((TRYQ == 8 && defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)) \
+	 || (TRYQ == 16 && defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)) \
+	 || TRYQ >= 32)
+		for(j = 0; j < 64; j++) { karr[j] = k; }
+#endif
 		pm60 = p64%60;
 		km60 = k  %60;
 		/* Since we know q%60 != 0, use the zero column to store the total count of q's for each p%60 value */
@@ -953,7 +983,12 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 
 		ASSERT(q64%(2*p64)==1, "test_fac : q64%(2*p64)==1");
 
-		k = (q64-1)/(2*p64);	for(j = 0; j < 64; j++) { karr[j] = k; }
+		k = (q64-1)/(2*p64);
+#if ((TRYQ == 8 && defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)) \
+	 || (TRYQ == 16 && defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)) \
+	 || TRYQ >= 32)
+		for(j = 0; j < 64; j++) { karr[j] = k; }
+#endif
 		pm60 = p64%60;
 		km60 = k  %60;
 		/* Since we know q%60 != 0, use the zero column to store the total count of q's for each p%60 value */
@@ -1136,7 +1171,12 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		/* Modify this so it'll work with 65-bit q's: */
 		ASSERT(((q64-1)/2 + 0x8000000000000000ull)%p64==0, "test_fac : ((q64-1)/2 + 0x8000000000000000ull)%p64==0");
 
-		k = ((q64-1)/2 + 0x8000000000000000ull)/p64;	for(j = 0; j < 64; j++) { karr[j] = k; }
+		k = ((q64-1)/2 + 0x8000000000000000ull)/p64;
+#if ((TRYQ == 8 && defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)) \
+	 || (TRYQ == 16 && defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)) \
+	 || TRYQ >= 32)
+		for(j = 0; j < 64; j++) { karr[j] = k; }
+#endif
 		pm60 = p64%60;
 		km60 = k  %60;
 
@@ -1361,9 +1401,16 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 	/* Here use full 96-bit q in both floating and 96-bit modmul, so compute for both: */
+	#if defined(USE_FLOAT) || TRYQ >= 32
 		q96.d1 = (uint64)fac96[i].d1; q96.d0 = fac96[i].d0;
+	#endif
 		/* For twopmodq*() versions taking p and k-args, need to ensure high 64 bits of k (stored in x128.d1) zero: */
-		k = x128.d0;	for(j = 0; j < 64; j++) { karr[j] = k; }
+		k = x128.d0;
+	#if ((TRYQ == 8 && defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64)) \
+		 || (TRYQ == 16 && defined(USE_FLOAT) && defined(USE_AVX)&& defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)) \
+		 || TRYQ >= 32)
+		for(j = 0; j < 64; j++) { karr[j] = k; }
+	#endif
 
 	#ifdef USE_FLOAT
 	  if((q96.d1 >> 14) == 0)
