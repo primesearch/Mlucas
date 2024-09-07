@@ -76,28 +76,28 @@ uint32	ernstMain
 );
 
 uint64	parse_cmd_args_get_shift_value(void);
-int		is_hex_string(char*s, int len);
-char*	check_kbnc(char*in_str, uint64*p);
+int		is_hex_string(const char *s, int len);
+char	*check_kbnc(char *in_str, uint64 *p);
 void	generate_JSON_report(
-	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char* Res2048, const char*timebuffer,
-	const uint32 B1, const uint64 B2, const char*factor, const uint32 s2_partial, char*cstr
+	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char *Res2048, const char *timebuffer,
+	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial, char *cstr
 );
 void	print_help(void);
-int		cfgNeedsUpdating(char*in_line);
-const char*returnMlucasErrCode(uint32 ierr);
+int		cfgNeedsUpdating(const char *in_line);
+const char *returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
-uint32	Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
+uint32	Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
 	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
-	int n, int scrnFlag, double *tdiff, char*const gcd_str);
+	int n, int scrnFlag, double *tdiff, char *const gcd_str);
 int		test_types_compatible(uint32 t1, uint32 t2);
-int		 read_ppm1_residue(const uint32 nbytes, FILE*fp,       uint8 arr_tmp[],       uint64*Res64,       uint64*Res35m1,       uint64*Res36m1);
-void	write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
-int		 read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uint64*ilo, uint8 arr1[], uint64*Res64, uint64*Res35m1, uint64*Res36m1, uint8 arr2[], uint64*i1, uint64*i2, uint64*i3);
-void	write_ppm1_savefiles(const char*fname, uint64 p,          int n, FILE*fp, uint64 ihi, uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1, uint8 arr2[], uint64 i1, uint64 i2, uint64 i3);
+int		 read_ppm1_residue(const uint32 nbytes, FILE *fp,       uint8 arr_tmp[],       uint64 *Res64,       uint64 *Res35m1,       uint64 *Res36m1);
+void	write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
+int		 read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, uint64 *ilo, uint8 arr1[], uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1, uint8 arr2[], uint64 *i1, uint64 *i2, uint64 *i3);
+void	write_ppm1_savefiles(const char *fname, uint64 p,          int n, FILE *fp, uint64 ihi, uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1, uint8 arr2[], uint64 i1, uint64 i2, uint64 i3);
 int		convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const uint64 p);
-void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
-void	res_SH(uint64 a[], uint32 len, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
+void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1);
+void	res_SH(uint64 a[], uint32 len, uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1);
 uint32	get_default_factoring_depth(uint64 p);
 // Sets function pointers for DIF|DIT pass1 based on value of radix0:
 void dif1_dit1_func_name(
@@ -105,11 +105,11 @@ void dif1_dit1_func_name(
 	void (**func_dif_pass1)(double [], int),
 	void (**func_dit_pass1)(double [], int)
 );
-uint32	extract_known_factors(uint64 p, char*fac_start);
-uint32	gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*const gcd_str);
-void	modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb);
-int		restart_file_valid(const char*fname, const uint64 p, uint8*arr1, uint8*arr2);
-uint32	filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_before_line_number);
+uint32	extract_known_factors(uint64 p, char *fac_start);
+uint32	gcd(uint32 stage, uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb, char *const gcd_str);
+void	modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb);
+int		restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *arr2);
+uint32	filegrep(const char *fname, const char *find_str, char *cstr, uint32 find_before_line_number);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
 
 /* pm1.c: */
@@ -117,15 +117,15 @@ uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 uint32	pm1_check_bounds();
 uint32	compute_pm1_s1_product(const uint64 p);
 uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
-int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64);
-int		write_pm1_s1_prod(const char*fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
-void	pm1_bigstep_size(uint32 *nbuf, uint32*bigstep, uint32*m, const uint32 psmall);
+int		 read_pm1_s1_prod(const char *fname, uint64 p, uint32 *nbits, uint64 arr[], uint64 *sum64);
+int		write_pm1_s1_prod(const char *fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
+void	pm1_bigstep_size(uint32 *nbuf, uint32 *bigstep, uint32 *m, const uint32 psmall);
 int		modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 			int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
 			uint64 p, int n, int scrnFlag, double *tdiff);
-int		pm1_stage2(uint64 p, uint32 bigstep, uint32 m, double pow[], double*mult[], uint64 arr_scratch[],
+int		pm1_stage2(uint64 p, uint32 bigstep, uint32 m, double pow[], double *mult[], uint64 arr_scratch[],
 			int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
-			int n, int scrnFlag, double *tdiff, char*const gcd_str);
+			int n, int scrnFlag, double *tdiff, char *const gcd_str);
 
 /* br.c: */
 void	print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q);
@@ -369,60 +369,60 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 
 #ifdef MULTITHREAD
 	/* Multithreaded version must be in form of 1-arg functor */
-	void *mers_process_chunk  (void*targ);
-	void *fermat_process_chunk(void*targ);
+	void *mers_process_chunk  (void *targ);
+	void *fermat_process_chunk(void *targ);
 	// These are shared by both mers and fermat-mod, although the code contains switches to invoke the corr. carry macros:
-	void *cy12_process_chunk(void*targ);
-	void *cy16_process_chunk(void*targ);
-	void *cy20_process_chunk(void*targ);
-	void *cy24_process_chunk(void*targ);
-	void *cy28_process_chunk(void*targ);
-	void *cy32_process_chunk(void*targ);
-	void *cy36_process_chunk(void*targ);
-	void *cy40_process_chunk(void*targ);
-	void *cy44_process_chunk(void*targ);
-	void *cy48_process_chunk(void*targ);
-	void *cy52_process_chunk(void*targ);
-	void *cy56_process_chunk(void*targ);
-	void *cy60_process_chunk(void*targ);
-	void *cy63_process_chunk(void*targ);
-	void *cy64_process_chunk(void*targ);
-	void *cy72_process_chunk(void*targ);
-	void *cy80_process_chunk(void*targ);
-	void *cy88_process_chunk(void*targ);
-	void *cy96_process_chunk(void*targ);
-	void *cy104_process_chunk(void*targ);
-	void *cy112_process_chunk(void*targ);
-	void *cy120_process_chunk(void*targ);
-	void *cy128_process_chunk(void*targ);
-	void *cy144_process_chunk(void*targ);
-	void *cy160_process_chunk(void*targ);
-	void *cy176_process_chunk(void*targ);
-	void *cy192_process_chunk(void*targ);
-	void *cy208_process_chunk(void*targ);
-	void *cy224_process_chunk(void*targ);
-	void *cy240_process_chunk(void*targ);
-	void *cy256_process_chunk(void*targ);
-	void *cy288_process_chunk(void*targ);
-	void *cy320_process_chunk(void*targ);
-	void *cy352_process_chunk(void*targ);
-	void *cy384_process_chunk(void*targ);
-	void *cy416_process_chunk(void*targ);
-	void *cy448_process_chunk(void*targ);
-	void *cy480_process_chunk(void*targ);
-	void *cy512_process_chunk(void*targ);
-	void *cy576_process_chunk(void*targ);
-	void *cy640_process_chunk(void*targ);
-	void *cy704_process_chunk(void*targ);
-	void *cy768_process_chunk(void*targ);
-	void *cy832_process_chunk(void*targ);
-	void *cy896_process_chunk(void*targ);
-	void *cy960_process_chunk(void*targ);
-	void *cy992_process_chunk(void*targ);
-	void *cy1008_process_chunk(void*targ);
-	void *cy1024_process_chunk(void*targ);
-	void *cy4032_process_chunk(void*targ);
-	void *cy4096_process_chunk(void*targ);
+	void *cy12_process_chunk(void *targ);
+	void *cy16_process_chunk(void *targ);
+	void *cy20_process_chunk(void *targ);
+	void *cy24_process_chunk(void *targ);
+	void *cy28_process_chunk(void *targ);
+	void *cy32_process_chunk(void *targ);
+	void *cy36_process_chunk(void *targ);
+	void *cy40_process_chunk(void *targ);
+	void *cy44_process_chunk(void *targ);
+	void *cy48_process_chunk(void *targ);
+	void *cy52_process_chunk(void *targ);
+	void *cy56_process_chunk(void *targ);
+	void *cy60_process_chunk(void *targ);
+	void *cy63_process_chunk(void *targ);
+	void *cy64_process_chunk(void *targ);
+	void *cy72_process_chunk(void *targ);
+	void *cy80_process_chunk(void *targ);
+	void *cy88_process_chunk(void *targ);
+	void *cy96_process_chunk(void *targ);
+	void *cy104_process_chunk(void *targ);
+	void *cy112_process_chunk(void *targ);
+	void *cy120_process_chunk(void *targ);
+	void *cy128_process_chunk(void *targ);
+	void *cy144_process_chunk(void *targ);
+	void *cy160_process_chunk(void *targ);
+	void *cy176_process_chunk(void *targ);
+	void *cy192_process_chunk(void *targ);
+	void *cy208_process_chunk(void *targ);
+	void *cy224_process_chunk(void *targ);
+	void *cy240_process_chunk(void *targ);
+	void *cy256_process_chunk(void *targ);
+	void *cy288_process_chunk(void *targ);
+	void *cy320_process_chunk(void *targ);
+	void *cy352_process_chunk(void *targ);
+	void *cy384_process_chunk(void *targ);
+	void *cy416_process_chunk(void *targ);
+	void *cy448_process_chunk(void *targ);
+	void *cy480_process_chunk(void *targ);
+	void *cy512_process_chunk(void *targ);
+	void *cy576_process_chunk(void *targ);
+	void *cy640_process_chunk(void *targ);
+	void *cy704_process_chunk(void *targ);
+	void *cy768_process_chunk(void *targ);
+	void *cy832_process_chunk(void *targ);
+	void *cy896_process_chunk(void *targ);
+	void *cy960_process_chunk(void *targ);
+	void *cy992_process_chunk(void *targ);
+	void *cy1008_process_chunk(void *targ);
+	void *cy1024_process_chunk(void *targ);
+	void *cy4032_process_chunk(void *targ);
+	void *cy4096_process_chunk(void *targ);
 #else
   #ifdef USE_FGT61
 	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft_only);

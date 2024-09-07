@@ -64,7 +64,7 @@ int MLUCAS_KEEP_RUNNING = 1;
 char **global_argv;
 
 FILE *dbg_file = 0x0;
-double*ADDR0 = 0x0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
+double *ADDR0 = 0x0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
 
 // Define FFT-related globals (declared in Mdata.h):
 uint32 N2,NRT,NRT_BITS,NRTM1;
@@ -407,7 +407,7 @@ uint32	ernstMain
 /*...allocatable data arrays and associated params: */
 	static uint64 nbytes = 0, nalloc = 0, arrtmp_alloc = 0, s1p_alloc = 0;
 	static double *a_ptmp = 0x0, *a = 0x0, *b = 0x0, *c = 0x0, *d = 0x0, *e = 0x0;
-	// uint64 scratch array and 4 pointers used to store cast-to-(uint64*) version of above b,c,d,e-pointers
+	// uint64 scratch array and 4 pointers used to store cast-to-(uint64 *) version of above b,c,d,e-pointers
 	static uint64 *arrtmp = 0x0, *b_uint64_ptr = 0x0, *c_uint64_ptr = 0x0, *d_uint64_ptr = 0x0, *e_uint64_ptr = 0x0;
 	double final_res_offset;
 
@@ -1357,7 +1357,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		USE_SHORT_CY_CHAIN = 2;
 	else if(exp_ratio > 0.97 && USE_SHORT_CY_CHAIN < 1)
 		USE_SHORT_CY_CHAIN = 1;
-	const char*arr_sml[] = {"long","medium","short","hiacc"};
+	const char *arr_sml[] = {"long","medium","short","hiacc"};
 	fprintf(stderr,"Initial DWT-multipliers chain length = [%s] in carry step.\n",arr_sml[USE_SHORT_CY_CHAIN]);
 	// v20: If exp_ratio > 0.98, set ITERS_BETWEEN_CHECKPOINTS = 10000 irrespective of #threads or user-forced greater value;
 	if(USE_SHORT_CY_CHAIN)
@@ -1424,7 +1424,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		// v19: Add three more full-residue arrays to support 2-input FFT-modmul needed for Gerbicz check (and later, p-1 support):
 		if(use_lowmem < 2) {
 			b = a + nalloc;	c = b + nalloc;	d = c + nalloc, e = d + nalloc;
-			b_uint64_ptr = (uint64*)b; c_uint64_ptr = (uint64*)c; d_uint64_ptr = (uint64*)d; e_uint64_ptr = (uint64*)e;
+			b_uint64_ptr = (uint64 *)b; c_uint64_ptr = (uint64 *)c; d_uint64_ptr = (uint64 *)d; e_uint64_ptr = (uint64 *)e;
 		}
 
 		// For this residue (and scratch) byte-array, conservatively figure at least 4 bits per float-double residue word.
@@ -1486,8 +1486,8 @@ READ_RESTART_FILE:
 				ASSERT(use_lowmem < 2, "PRP-test mode not available in Low-memory[2] run mode!");
 			}
 			i = read_ppm1_savefiles(cstr, p, &j, fp, &itmp64,
-												(uint8*)arrtmp      , &Res64,&Res35m1,&Res36m1,	// Primality-test residue
-												(uint8*)e_uint64_ptr, &i1   ,&i2     ,&i3     );// v19: G-check residue
+												(uint8 *)arrtmp      , &Res64,&Res35m1,&Res36m1,	// Primality-test residue
+												(uint8 *)e_uint64_ptr, &i1   ,&i2     ,&i3     );// v19: G-check residue
 			fclose(fp); fp = 0x0;
 			ilo = itmp64;	// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so made nsquares field in savefiles r/w a uint64
 			if(!i) {
@@ -1552,7 +1552,7 @@ READ_RESTART_FILE:
 			/* Allocate floating-point residue array and convert savefile bytewise residue to floating-point form, after
 			first applying required circular shift read into the global RES_SHIFT during the above bytewise-savefile read.
 			*/
-			if(!convert_res_bytewise_FP((uint8*)arrtmp, a, n, p)) {
+			if(!convert_res_bytewise_FP((uint8 *)arrtmp, a, n, p)) {
 				snprintf(cbuf,sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",cstr);
 				mlucas_fprint(cbuf,0);
 				if(cstr[0] != 'q' && !(ierr == ERR_GERBICZ_CHECK)) {	// Secondary savefile only exists for regular checkpoint files
@@ -1564,7 +1564,7 @@ READ_RESTART_FILE:
 			}
 			// v19: G-check residue - we only create savefile for PRP-phase of any PRP-CF run, i.e. always expect a G-check residue:
 		  if(DO_GCHECK) {
-			if(!convert_res_bytewise_FP((uint8*)e_uint64_ptr, b, n, p)) {
+			if(!convert_res_bytewise_FP((uint8 *)e_uint64_ptr, b, n, p)) {
 				snprintf(cbuf,sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on Gerbicz-check residue read from savefile %s!\n",cstr);
 				mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 			} else {
@@ -2020,11 +2020,11 @@ READ_RESTART_FILE:
 		// Fermat-mod residue formally needs an extra bit, though said bit should == 1
 		// only in the highly unlikely case of a prime-Fermat Pepin-test result:
 		j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	arrtmp[j-1] = 0ull;
-		convert_res_FP_bytewise(	a, (uint8*)      arrtmp, n, p, &Res64, &Res35m1, &Res36m1);	// LL/PRP-test/[p-1 stage 1] residue
+		convert_res_FP_bytewise(	a, (uint8 *)      arrtmp, n, p, &Res64, &Res35m1, &Res36m1);	// LL/PRP-test/[p-1 stage 1] residue
 		// G-check residue...must not touch i1,i2,i3 again until ensuing write_ppm1_savefiles call!
 		if(DO_GCHECK) {
 			e_uint64_ptr[j-1] = 0ull;
-			convert_res_FP_bytewise(b, (uint8*)e_uint64_ptr, n, p, &i1,&i2,&i3);
+			convert_res_FP_bytewise(b, (uint8 *)e_uint64_ptr, n, p, &i1,&i2,&i3);
 		}
 
 		// In interactive-timing-test (e.g. self-tests) mode, do immediate-exit-sans-savefile-write on signal:
@@ -2048,7 +2048,7 @@ READ_RESTART_FILE:
 			/*...get a quick timestamp...	*/
 			calendar_time = time(NULL); local_time = localtime(&calendar_time);
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",local_time);
-			const char*iter_or_stage[] = {"Iter#","S1 bit"};	// Tag indicates Primality/PRP-test or p-1 S1 iteration
+			const char *iter_or_stage[] = {"Iter#","S1 bit"};	// Tag indicates Primality/PRP-test or p-1 S1 iteration
 			/*...print [date in hh:mm:ss | p | iter-count-or-stage progress | %-complete | time | per-iter time | Res64 | max ROE | residue-shift] */
 			snprintf(cbuf,sizeof(cbuf), "[%s] %s %s = %u [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016" PRIX64 ". AvgMaxErr = %10.9f. MaxErr = %10.9f. Residue shift count = %" PRIu64 ".\n"
 				, timebuffer, PSTRING, iter_or_stage[TEST_TYPE == TEST_TYPE_PM1], ihi, (float)ihi / (float)maxiter * 100,get_time_str(tdiff)
@@ -2101,7 +2101,7 @@ READ_RESTART_FILE:
 			j = (p+63)>>6;	/*** Jun 2021: cf. convert_res_FP_bytewise() for why we don't include the extra Fermat-modulus bit here ***/
 			c_uint64_ptr[j-1] = 0ull;
 			// [1] Convert b[],d[] to bytewise form, former assumed already in e[] doubles-array, latter into currently-unused c[] doubles-array:
-			convert_res_FP_bytewise(d, (uint8*)c_uint64_ptr, n, p, 0x0,0x0,0x0);
+			convert_res_FP_bytewise(d, (uint8 *)c_uint64_ptr, n, p, 0x0,0x0,0x0);
 			// Only need to compute this for initial interval - after that the needed adjustment-shift remains constant
 			if(ihi == ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
 				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
@@ -2227,7 +2227,7 @@ READ_RESTART_FILE:
 		if (ihi == maxiter && TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT) PRP_BASE = 3;
 		fp = mlucas_fopen(RESTARTFILE, "wb");
 		if(fp) {		// In the non-PRP-test case, write_ppm1_savefiles() treats the latter 4 args as null:
-			write_ppm1_savefiles(RESTARTFILE,p,n,fp, itmp64, (uint8*)arrtmp,Res64,Res35m1,Res36m1, (uint8*)e_uint64_ptr,i1,i2,i3);
+			write_ppm1_savefiles(RESTARTFILE,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
 			fclose(fp); fp = 0x0;
 			/* If we're on the primary restart file, set up for secondary: */
 			if(RESTARTFILE[0] != 'q') {
@@ -2253,7 +2253,7 @@ READ_RESTART_FILE:
 				strcat(cstr, ".G");
 				fp = mlucas_fopen(cstr, "wb");
 				if(fp) {
-					write_ppm1_savefiles(cstr,p,n,fp, itmp64, (uint8*)arrtmp,Res64,Res35m1,Res36m1, (uint8*)e_uint64_ptr,i1,i2,i3);
+					write_ppm1_savefiles(cstr,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
 					fclose(fp); fp = 0x0;
 				} else {
 					snprintf(cbuf,sizeof(cbuf), "ERROR: unable to open Gerbicz-check savefile %s for write of checkpoint data.\n",cstr);
@@ -2550,7 +2550,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		if( ilo < ihi || !filegrep(STATFILE,"GCD",cbuf,0))
 		{	// j = #limbs; clear high limb before filling arrtmp[0:j-1] with bytewise residue just to be sure:
 			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6; arrtmp[j-1] = 0ull;
-			convert_res_FP_bytewise(a,(uint8*)arrtmp,n,p,0x0,0x0,0x0);
+			convert_res_FP_bytewise(a,(uint8 *)arrtmp,n,p,0x0,0x0,0x0);
 			arrtmp[0] -= 1;	// S1 GCD needs residue-1
 			i = gcd(1,p,arrtmp,0x0,j,gcd_str);	// 1st arg = stage just completed
 			// If factor found, gcd() will have done needed status-file-writes:
@@ -2660,9 +2660,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// PM1_S2_NBUF to the largest S2 buffer count <= (input PM1_S2_NBUF value) which is also compatible with psmall:
 				pm1_bigstep_size(&PM1_S2_NBUF, &pm1_bigstep, &pm1_stage2_mem_multiple, psmall);
 				fprintf(stderr,"Using %u Stage 2 memory buffers, D = %u, M = %u, psmall = %u.\n",PM1_S2_NBUF,pm1_bigstep,pm1_stage2_mem_multiple,psmall);
-				double*mult[4] = {b,c,d,e};	// Pointers to scratch storage in form of 4 residue-length subarrays
+				double *mult[4] = {b,c,d,e};	// Pointers to scratch storage in form of 4 residue-length subarrays
 				ierr = pm1_stage2(p, pm1_bigstep, pm1_stage2_mem_multiple,
-					a,mult,arrtmp,	// Pointers stage 1 residue in a[], double** scratch storage 4-vector mult[], arrtmp
+					a,mult,arrtmp,	// Pointers stage 1 residue in a[], double ** scratch storage 4-vector mult[], arrtmp
 					func_mod_square, n, scrnFlag, &tdiff, gcd_str);
 				if(ierr && (ierr % ERR_ROUNDOFF) == 0) {	// Workaround for pthreaded-run issue where a single ROE sometimes shows up as an integer multiple of ERR_ROUNDOFF
 					n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
@@ -2739,7 +2739,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		strcpy(cstr, RESTARTFILE); cstr[0] = 'q';		// cstr = q[expo]
 	}
 	for(ierr = 0; ; RESTARTFILE[0] = 'q') {	// Start with the p-savefile, inrement to q-savefile on looping
-		if(restart_file_valid(RESTARTFILE, p, (uint8*)arrtmp, (uint8*)e_uint64_ptr)) {
+		if(restart_file_valid(RESTARTFILE, p, (uint8 *)arrtmp, (uint8 *)e_uint64_ptr)) {
 			// If end of a regular (non-s2-continuation) p-1 run and primary good, rename it from [p|f][expo] ==> [p|f][expo].s1;
 			// if primary missing/corrupt, rename secondary q[expo] ==> [p|f][expo].s1:
 			if(TEST_TYPE == TEST_TYPE_PM1 && !s2_continuation) {
@@ -3292,9 +3292,9 @@ Example: N = M(109) = 2^109-1 = 745988807.870035986098720987332873; let F = 7459
 	B = 3^(F-1) == 610082383855388688949555345767473 (mod N), and we verify that (A - B) == 0 (mod C), thus C is a PRP.
 Similarly, if we let A' = 3^N == 3.A (mod N) and B' = 3^F == 3.B (mod N), that also satisfies (A' - B') == 0 (mod C).
 */
-uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
+uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
 	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
-	int n, int scrnFlag, double *tdiff, char*const gcd_str)
+	int n, int scrnFlag, double *tdiff, char *const gcd_str)
 {
 	uint64 *ai = (uint64 *)a, *bi = (uint64 *)b;	// Handy 'precast' pointers
 	uint32 i,j,k, isprime, ierr = 0, ihi, fbits,lenf;
@@ -3313,7 +3313,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		ilo = 0;	ihi = ilo+1;	// Have checked that savefile residue is for a complete PRP test, so reset iteration counter
 		BASE_MULTIPLIER_BITS[0] = 0ull;
 /*A*/	ierr = func_mod_square(a, (int*)ci, n, ilo,ihi, 0ull, p, scrnFlag, tdiff, TRUE, 0x0);
-		convert_res_FP_bytewise(a, (uint8*)ci, n, p, Res64, &Res35m1, &Res36m1);	// Overwrite passed-in Pepin-Res64 with Fermat-PRP one
+		convert_res_FP_bytewise(a, (uint8 *)ci, n, p, Res64, &Res35m1, &Res36m1);	// Overwrite passed-in Pepin-Res64 with Fermat-PRP one
 		snprintf(cbuf,sizeof(cbuf),"MaxErr = %10.9f\n",MME); mlucas_fprint(cbuf,1);
 	} else if (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {	// Mersenne PRP-CF doesn't have the Res35m1 or Res36m1 values passed in,
 		res_SH(ci,n,&itmp64,&Res35m1,&Res36m1);			// so we refresh these; see https://github.com/primesearch/Mlucas/issues/27
@@ -3364,7 +3364,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 	}
 	sprintf(cbuf,"Processed %u bits in binary modpow; MaxErr = %10.9f\n",ihi,MME);
-	convert_res_FP_bytewise(b, (uint8*)ci, n, p, &itmp64, &Res35m1, &Res36m1);	// Res64 reserved for Fermat-PRP result; use itmp64 here
+	convert_res_FP_bytewise(b, (uint8 *)ci, n, p, &itmp64, &Res35m1, &Res36m1);	// Res64 reserved for Fermat-PRP result; use itmp64 here
 	sprintf(cstr, "%u^(F-1) residue (B)        = %#016" PRIX64 ",%11" PRIu64 ",%11" PRIu64 "\n",PRP_BASE,itmp64,Res35m1,Res36m1);
 	strcat(cbuf,cstr);	mlucas_fprint(cbuf,1);
 	ASSERT(j = (p+63)>>6,"uint64 vector length got clobbered!");
@@ -4157,7 +4157,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				// in which case j holds #radices and rvec2[] holds the corresponding radices on return.
 				// Note that get_fft_radices takes real-FFT length in terms of Kdoubles:
 				i = 0;
-				while(!get_fft_radices(fftlen, i++, (uint32*)&j, rvec2, 10)) {	// 0-return means radset index is in range
+				while(!get_fft_radices(fftlen, i++, (uint32 *)&j, rvec2, 10)) {	// 0-return means radset index is in range
 					if(j != numrad) continue;
 					// #radices matches, see if actual complex radices do
 					for(j = 0; j < numrad; j++) {
@@ -4364,7 +4364,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		}
 
 		/* Make sure it's a valid radix set index for this FFT length: */
-		if((i = get_fft_radices(iarg, radset, (uint32*)&idum, 0x0, 0)) != 0) {
+		if((i = get_fft_radices(iarg, radset, (uint32 *)&idum, 0x0, 0)) != 0) {
 			if     (i == ERR_FFTLENGTH_ILLEGAL)
 				sprintf(cbuf  , "ERROR: FFT length %d K illegal!\n", iarg);
 			else if(i == ERR_RADIXSET_UNAVAILABLE)
@@ -4887,7 +4887,7 @@ which is presumed to contain the program version that was used to generate said 
 returns nonzero (which should be taken as a proxy for TRUE) if the .cfg file needs to be updated
 via a new round of timing tests, FALSE otherwise.
 */
-int	cfgNeedsUpdating(char*in_line)
+int	cfgNeedsUpdating(const char *in_line)
 {
 	/* For the foreseeable future, version numbers will be of form x.yz, with x a 2-digit integer,
 	y an int having 3 digits or less, and z an optional alphabetic suffix. We choose these such that
@@ -4902,7 +4902,7 @@ int	cfgNeedsUpdating(char*in_line)
 
 /******************/
 
-const char*returnMlucasErrCode(uint32 ierr)
+const char *returnMlucasErrCode(uint32 ierr)
 {
 	ASSERT(ierr < ERR_MAX, "Error code out of range!");
 	return err_code[ierr-1];
@@ -5043,7 +5043,7 @@ int test_types_compatible(uint32 t1, uint32 t2)
 fp = mlucas_fopen(RESTARTFILE,"rb");
 ***/
 // Reads an [nbytes]-long LL|Pepin|PRP|p-1 residue and validates the associated mod(2^64,2^35-1,2^36-1) checksums:
-int read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1)
+int read_ppm1_residue(const uint32 nbytes, FILE *fp, uint8 arr_tmp[], uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1)
 {
 	const char func[] = "read_ppm1_residue";
 	uint32 i,j;
@@ -5078,11 +5078,11 @@ int read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res6
 	*/
 	j = 8 - (nbytes&7);	// nbytes%8 = #significant bytes in high limb; j = #bytes needing zeroing at the high end of the limb
 	for(i = nbytes; i < nbytes+j; i++) arr_tmp[i] = 0;
-	itmp64 = ((uint64*)arr_tmp)[0];
+	itmp64 = ((uint64 *)arr_tmp)[0];
 	if(*Res64 != itmp64) {
 		sprintf(cbuf, "%s: On restart: Res64 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n"  ,func,itmp64,*Res64); return 0;
 	}
-	// For big-endian CPUs, casting byte-array to uint64* gives byte-reversed limbs, so use a direct bitwise mod:
+	// For big-endian CPUs, casting byte-array to uint64 * gives byte-reversed limbs, so use a direct bitwise mod:
   #ifdef USE_BIG_ENDIAN
 	/*
 	My original approach here was wrong - here was the reasoning, illustrated using the (mod 2^35-1) of the S-H mod pair:
@@ -5124,11 +5124,11 @@ int read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res6
 	if(*Res36m1 != rmod36)	{ sprintf(cbuf, "%s: On restart: Res36m1 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n",func,rmod36,*Res36m1); return 0; }
   #else
 	i = (nbytes+7)>>3;	// # of 64-bit limbs
-	itmp64 = mi64_div_by_scalar64((uint64*)arr_tmp,two35m1,i,0x0);
+	itmp64 = mi64_div_by_scalar64((uint64 *)arr_tmp,two35m1,i,0x0);
 	if(*Res35m1 != itmp64) {
 		sprintf(cbuf, "%s: On restart: Res35m1 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n",func,itmp64,*Res35m1); return 0;
 	}
-	itmp64 = mi64_div_by_scalar64((uint64*)arr_tmp,two36m1,i,0x0);
+	itmp64 = mi64_div_by_scalar64((uint64 *)arr_tmp,two36m1,i,0x0);
 	if(*Res36m1 != itmp64) {
 		sprintf(cbuf, "%s: On restart: Res36m1 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n",func,itmp64,*Res36m1); return 0;
 	}
@@ -5139,13 +5139,13 @@ int read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res6
 // Returns 1 on successful read, 0 otherwise:
 // v19: For PRP-tests, also write a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]
 // v20: Distributed deep p-1 S2 may use B2 >= 2^32, so make ilo a uint64-ptr; add filename arg since S2 appends '.s2' to RESTARTFILE:
-int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uint64*ilo,
-	uint8 arr1[], uint64*Res64, uint64*Res35m1, uint64*Res36m1,
-	uint8 arr2[], uint64*i1   , uint64*i2     , uint64*i3     )
+int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, uint64 *ilo,
+	uint8 arr1[], uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1,
+	uint8 arr2[], uint64 *i1   , uint64 *i2     , uint64 *i3     )
 {
 	const char func[] = "read_ppm1_savefiles";
 	uint32 i,j,k,len,nbytes = 0,nerr;
-	uint64 itmp64, nsquares = 0ull, *avec = (uint64*)arr1, exp[4],pow[4],rem[4];
+	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 	mi64_clear(pow,4); mi64_clear(rem,4);
@@ -5364,7 +5364,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 [2] any circular shift stored in the global RES_SHIFT has been removed in the preceding call to convert_res_FP_bytewise.
 v19: For PRP-tests, also write a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]
 */
-void write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1)
+void write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1)
 {
 	const char func[] = "write_ppm1_residue";
 	uint32 i;
@@ -5388,7 +5388,7 @@ void write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], con
 }
 
 // v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so make ihi a uint64; add filename arg since S2 appends '.s2' to RESTARTFILE:
-void write_ppm1_savefiles(const char*fname, uint64 p, int n, FILE*fp, uint64 ihi,
+void write_ppm1_savefiles(const char *fname, uint64 p, int n, FILE *fp, uint64 ihi,
 	uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1,
 	uint8 arr2[], uint64 i1   , uint64 i2     , uint64 i3     )
 {
@@ -5490,7 +5490,7 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	nbytes = (p + 7)/8;
 	// Apply the circular shift:
 	uint32 is_ferm = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
-	mi64_shlc((uint64*)ui64_arr_in, (uint64*)ui64_arr_in, p, RES_SHIFT, (p+63+is_ferm)>>6, is_ferm);
+	mi64_shlc((uint64 *)ui64_arr_in, (uint64 *)ui64_arr_in, p, RES_SHIFT, (p+63+is_ferm)>>6, is_ferm);
 
 	/* Vector length a power of 2? */
 	pow2_fft = (n >> trailz32(n)) == 1;
@@ -5707,7 +5707,7 @@ In the Fermat-mod case digits assumed arranged in (j,j+n/2), i.e. right-angle tr
 modulus) from/to balanced-digit fixed-base floating-point form and uint64
 form, use the mi64_cvt_double_uint64() and mi64_cvt_uint64_double() functions in mi64.c .
 */
-void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1)
+void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1)
 {
 	const char func[] = "convert_res_FP_bytewise";
 	int bimodn,curr_bits,curr_char,cy,findex,ii,j,j1,k,pass,rbits,msw_lt0,bw,sw,bits[2],pow2_fft;
@@ -5715,7 +5715,7 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 	double atmp;
 	int64 itmp;
 	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
-	uint64*u64_ptr = (uint64*)ui64_arr_out;
+	uint64 *u64_ptr = (uint64 *)ui64_arr_out;
 
 	ASSERT(MODULUS_TYPE,"MODULUS_TYPE not set!");
 	ASSERT(MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
@@ -5970,15 +5970,15 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 		}
 	}
 	/* Checksums: */
-	if(Res64  ) *Res64 = ((uint64*)ui64_arr_out)[0];
-	if(Res35m1) *Res35m1 = mi64_div_by_scalar64((uint64*)ui64_arr_out,two35m1,j,0x0);
-	if(Res36m1) *Res36m1 = mi64_div_by_scalar64((uint64*)ui64_arr_out,two36m1,j,0x0);
+	if(Res64  ) *Res64 = ((uint64 *)ui64_arr_out)[0];
+	if(Res35m1) *Res35m1 = mi64_div_by_scalar64((uint64 *)ui64_arr_out,two35m1,j,0x0);
+	if(Res36m1) *Res36m1 = mi64_div_by_scalar64((uint64 *)ui64_arr_out,two36m1,j,0x0);
 //	fprintf(stderr,"Res35m1,Res36m1: %" PRIu64 ",%" PRIu64 "\n",*Res35m1,*Res36m1);
 }
 
 /*********************/
 // Takes len-limb residue vector a[] and returns Selfridge-Hurwitz residues via the 3 arglist pointers:
-void res_SH(uint64 a[], uint32 len, uint64*Res64, uint64*Res35m1, uint64*Res36m1)
+void res_SH(uint64 a[], uint32 len, uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1)
 {
 	const uint64 two35m1 = (uint64)0x7FFFFFFFFull, two36m1 = (uint64)0xFFFFFFFFFull;	/* 2^35-1,36-1 */
 	*Res64  = a[0];
@@ -6031,7 +6031,7 @@ uint32 get_default_factoring_depth(uint64 p)
 
 /*********************/
 
-int	is_hex_string(char*s, int len)
+int	is_hex_string(const char *s, int len)
 {
 	int i;
 	ASSERT(s != 0x0, "Null ptr to is_hex_string()");
@@ -6065,9 +6065,9 @@ Side effect:
 	For legal assignment lines of the specified form, sets the value of the global MODULUS_TYPE,
 	to MODULUS_TYPE_MERSENNE for c = -1 and MODULUS_TYPE_FERMAT for c = +1;
 */
-char*check_kbnc(char*in_str, uint64*p) {
+char *check_kbnc(char *in_str, uint64 *p) {
 	const char func[] = "check_kbnc";
-	char*char_addr = in_str, *cptr = 0x0;
+	char *char_addr = in_str, *cptr = 0x0;
 	int i = 0;
 	while(1) {
 		if((char_addr = strstr(char_addr, "=")) == 0x0) {
@@ -6156,15 +6156,15 @@ No factor found:
 Need to differentiate between PRP-CF results and the preceding PRP; set the otherwise-unused s2_partial flag to indicate PRP-CF.
 */
 void generate_JSON_report(
-	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char* Res2048, const char*timebuffer,
-	const uint32 B1, const uint64 B2, const char*factor, const uint32 s2_partial,	// Quartet of p-1 fields
-	char*cstr)	// cstr, takes the formatted output line; the preceding const-ones are inputs for that:
+	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char * Res2048, const char *timebuffer,
+	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial,	// Quartet of p-1 fields
+	char *cstr)	// cstr, takes the formatted output line; the preceding const-ones are inputs for that:
 {
 	int i,j,k;
 	char ttype[11] = "\0", aid[33] = "\0";	// [test-type needs 11th | aid needs 33rd] char for \0
 	const char prp_status[2] = {'C','P'};
-	const char*pm1_status[2] = {"NF","F"};
-	const char*false_or_true[2] = {"false","true"};
+	const char *pm1_status[2] = {"NF","F"};
+	const char *false_or_true[2] = {"false","true"};
 	// Attempt to read 32-hex-char Primenet assignment ID for current assignment (first line of WORKFILE):
 	ASSERT((fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
 	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
@@ -6326,11 +6326,11 @@ the factors are stored in the global KNOWN_FACTORS[], with a limit of 10 known f
 Assumes: Modulus type and binary exponent have been set prior to function call;
 Returns: The number of factors read in.
 */
-uint32 extract_known_factors(uint64 p, char*fac_start) {
+uint32 extract_known_factors(uint64 p, char *fac_start) {
 	uint32 i, findex, lenf, nchar, nfac = 0;
 	uint64 *fac = 0x0, twop[4], quo[4],rem[4];	// fac = ptr to each mi64-converted factor input string;
 	uint256 p256,q256,res256;
-	char*cptr = fac_start+1;
+	char *cptr = fac_start+1;
 	ASSERT(fac_start[0] == '\"',"Known-factors line of worktodo must consist of a comma-separated list of such enclosed in double-quotes!");
 	/* If it's a Fermat number, need to check size of 2^ESTRING: */
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
@@ -6453,7 +6453,7 @@ If p == 0 (this requires vec2 != 0x0):
 	A nonzero return value indicates a nontrivial GCD.
 The decimal value of the GCD is returned in gcd_str, presumed to be dimensioned >= 1024 chars:
 */
-uint32 gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*const gcd_str) {
+uint32 gcd(uint32 stage, uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb, char *const gcd_str) {
 #if !INCLUDE_GMP
 	#warning INCLUDE_GMP defined == 0 at compile time ... No GCDs will be done on p-1 outputs.
 	snprintf(cbuf,sizeof(cbuf),"INCLUDE_GMP defined == 0 at compile time ... No GCD will be done.\n");
@@ -6551,7 +6551,7 @@ GMP mod-inverse; arglist as for mpz_gcd but also returns int:
 	|op2| = 1, i.e., in the somewhat degenerate zero ring). If an inverse doesn’t exist the return
 	value is zero and rop is undefined. The behaviour of this function is undefined when op2 = 0.
 */
-void modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb) {
+void modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb) {
 #if !INCLUDE_GMP
 	#warning INCLUDE_GMP defined == 0 at compile time ... No MODINV support.
 	// If user turns off p-1 support, keep the decl of modinv() to allow pm1.c to build
@@ -6613,12 +6613,12 @@ void modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb) {
 // Assumes the globals TEST_TYPE and MODULUS_TYPE have been properly set in main.
 // Requires pointers arr1 (and arr2 if a PRP-test residue) to scratch arrays with sufficient allocation
 // to hold the bytewise residue(s) stored in the file to be passed in.
-int restart_file_valid(const char*fname, const uint64 p, uint8*arr1, uint8*arr2)
+int restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *arr2)
 {
 	int retval = 0;
 	uint32 j;
 	uint64 Res64,Res35m1,Res36m1, i1,i2,i3, itmp64;
-	FILE*fptr = mlucas_fopen(fname,"r");
+	FILE *fptr = mlucas_fopen(fname,"r");
 	if(fptr) {
 		retval = read_ppm1_savefiles(fname, p, &j, fptr, &itmp64,
 										arr1, &Res64,&Res35m1,&Res36m1,	// Primality-test residue
@@ -6635,14 +6635,14 @@ int restart_file_valid(const char*fname, const uint64 p, uint8*arr1, uint8*arr2)
 // Depending on whether the associated integer arg find_before_line_number = 0 or not, the mandatory cstr arg will contain a copy of
 // either the first or last-line-before-line-number matching find_str, respectively. If no matches, 0 is returned and cstr = '\0'.
 // To find the line number and content of the last occurrence of find_str, period, set find_before_line_number = -1:
-uint32 filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_before_line_number)
+uint32 filegrep(const char *fname, const char *find_str, char *cstr, uint32 find_before_line_number)
 {
 	uint32 curr_line = 0, found_line = 0;
 	ASSERT(cstr != 0x0, "filegrep(): cstr pointer argument must be non-null!");
 	cstr[0] = '\0';
 	if(strlen(find_str) == 0)	// Nothing to find
 		return 0;
-	FILE*fptr = mlucas_fopen(fname,"r");
+	FILE *fptr = mlucas_fopen(fname,"r");
 	if(fptr){
 		while(fgets(in_line, sizeof(in_line), fptr)) {
 			++curr_line;
