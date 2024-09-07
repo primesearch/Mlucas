@@ -2416,6 +2416,9 @@ candidate factors that survive sieving.	*/
 			p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
 			i,	// #sieving primes (counting from 3)
 			MAX_SIEVING_PRIME,
+		  #if defined(USE_AVX512) && !defined(USE_GPU)
+			psmall,
+		  #endif
 			pdiff,
 			startval,	// This gets updated within
 			k_to_try,	// Unused by GPU code; include to yield a (mostly) uniform API
@@ -2589,6 +2592,9 @@ MFACTOR_HELP:
 		const uint32 p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
 		const uint32 nprime,	// #sieving primes (counting from 3)
 		const uint32 MAX_SIEVING_PRIME,
+	  #ifdef USE_AVX512
+		const uint32 *psmall,
+	  #endif
 		const uint8 *pdiff,
 			  uint32*startval,
 			  uint64*k_to_try,
