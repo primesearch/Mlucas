@@ -6158,7 +6158,7 @@ Need to differentiate between PRP-CF results and the preceding PRP; set the othe
 void generate_JSON_report(
 	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char * Res2048, const char *timebuffer,
 	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial,	// Quartet of p-1 fields
-	char *cstr)	// cstr, takes the formatted output line; the preceding const-ones are inputs for that:
+	char *p_cstr)	// p_cstr, takes the formatted output line; the preceding const-ones are inputs for that:
 {
 	int i,j,k;
 	char ttype[11] = "\0", aid[33] = "\0";	// [test-type needs 11th | aid needs 33rd] char for \0
@@ -6192,20 +6192,20 @@ void generate_JSON_report(
 	if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 		snprintf(ttype,10,"LL");
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP && KNOWN_FACTORS[0]) {	// PRP-CF result
 		// Print list of known factors used for CF test. Unlike the Primenet assignment formtting on the input side,
 		// where all known factors are wrapped in a single bookending "" pair, the JSON needs ["factor1","factor2",..."].
-		// We print that into cbuf, then include in full JSON result in cstr below:
-		strcpy( cbuf, "[");	// Use cbuf as accumulator for loop below
+		// We print that into cbuf, then include in full JSON result in p_cstr below:
+		strcpy(cbuf, "[");	// Use cbuf as accumulator for loop below
 		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
 			k = mi64_getlen(KNOWN_FACTORS+i,4);	// k = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
 			// j = index of leading nonzero digit of decimal-string-printed factor:
 			strcat( cbuf, "\"" );
-			j = convert_mi64_base10_char(cstr, KNOWN_FACTORS+i, k, 0); strcat( cbuf, cstr+j );
+			j = convert_mi64_base10_char(p_cstr, KNOWN_FACTORS+i, k, 0); strcat(cbuf, p_cstr+j);
 			strcat( cbuf, "\"" );
 			if(i < 36 && KNOWN_FACTORS[i+4])	// KNOWN_FACTORS alloc'ed for at most 10 factors of at most 4 limbs each
 				strcat( cbuf, "," );
@@ -6213,37 +6213,37 @@ void generate_JSON_report(
 		strcat( cbuf, "]");
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {	// Only support type-1 PRP tests, so hardcode that subfield:
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PM1) {	// For p-1 assume there was an AID in the assignment, even if an all-0s one:
 		snprintf(ttype,10,"P-1");
 		if(!strlen(factor)) {	// No factor was found:
 		  if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer,aid);
 		  } else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer);
 		  }
 		} else {	// The factor in the eponymous arglist field was found:
 		  if(B2 <= B1) {	// No stage 2 was run
 		   if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer,aid);
 		   } else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer);
 		   }
 		  } else {	// Include B2 and flag indicating whether the s2 interval was completely covered or not. Factor must be in "" due to possibility of > 64-bit, which overflows a JSON int:
 		   if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"partial-stage-2\":%s, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,B2,false_or_true[s2_partial],factor,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"partial-stage-2\":%s, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,B2,false_or_true[s2_partial],factor,VERSION,timebuffer,aid);
 		   } else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"partial-stage-2\":%s, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,B2,false_or_true[s2_partial],factor,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"partial-stage-2\":%s, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,B2,false_or_true[s2_partial],factor,VERSION,timebuffer);
 		   }
 		  }
 	}
@@ -6630,14 +6630,14 @@ int restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *ar
 
 /*********************/
 // Returns line number of substring find_string found in file named fname. Assumes file exists in run directory - if not, hard-ASSERT.
-// Depending on whether the associated integer arg find_before_line_number = 0 or not, the mandatory cstr arg will contain a copy of
-// either the first or last-line-before-line-number matching find_str, respectively. If no matches, 0 is returned and cstr = '\0'.
+// Depending on whether the associated integer arg find_before_line_number = 0 or not, the mandatory p_cstr arg will contain a copy of
+// either the first or last-line-before-line-number matching find_str, respectively. If no matches, 0 is returned and p_cstr = '\0'.
 // To find the line number and content of the last occurrence of find_str, period, set find_before_line_number = -1:
-uint32 filegrep(const char *fname, const char *find_str, char *cstr, uint32 find_before_line_number)
+uint32 filegrep(const char *fname, const char *find_str, char *p_cstr, uint32 find_before_line_number)
 {
 	uint32 curr_line = 0, found_line = 0;
-	ASSERT(cstr != 0x0, "filegrep(): cstr pointer argument must be non-null!");
-	cstr[0] = '\0';
+	ASSERT(p_cstr != 0x0, "filegrep(): p_cstr pointer argument must be non-null!");
+	p_cstr[0] = '\0';
 	if(strlen(find_str) == 0)	// Nothing to find
 		return 0;
 	FILE *fptr = mlucas_fopen(fname,"r");
@@ -6648,7 +6648,7 @@ uint32 filegrep(const char *fname, const char *find_str, char *cstr, uint32 find
 				break;
 			if(strstr(in_line,find_str) != 0x0) {
 				found_line = curr_line;
-				strcpy(cstr,in_line);
+				strcpy(p_cstr,in_line);
 				if(!find_before_line_number)	// if find_before_line_number == 0, return first occurrence:
 					break;
 			}
@@ -6658,7 +6658,7 @@ uint32 filegrep(const char *fname, const char *find_str, char *cstr, uint32 find
 		sprintf(cbuf,"filegrep error: file %s not found.\n",fname);
 		ASSERT(0, cbuf);
 	}
-	if(strlen(cstr) != 0)
+	if(strlen(p_cstr) != 0)
 		return found_line;
 	else return 0;
 }

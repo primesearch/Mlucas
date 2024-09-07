@@ -80,7 +80,7 @@ int		is_hex_string(const char *s, int len);
 char	*check_kbnc(char *in_str, uint64 *p);
 void	generate_JSON_report(
 	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char *Res2048, const char *timebuffer,
-	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial, char *cstr
+	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial, char *p_cstr
 );
 void	print_help(void);
 int		cfgNeedsUpdating(const char *in_line);
@@ -109,7 +109,7 @@ uint32	extract_known_factors(uint64 p, char *fac_start);
 uint32	gcd(uint32 stage, uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb, char *const gcd_str);
 void	modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb);
 int		restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *arr2);
-uint32	filegrep(const char *fname, const char *find_str, char *cstr, uint32 find_before_line_number);
+uint32	filegrep(const char *fname, const char *find_str, char *p_cstr, uint32 find_before_line_number);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
 
 /* pm1.c: */
