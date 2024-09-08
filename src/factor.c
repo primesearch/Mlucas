@@ -189,14 +189,14 @@ int restart;
 	uint32 SYSTEM_RAM = 0, MAX_RAM_USE = 90;	// Total usable main memory size, and max. amount of that to use per instance, in MB.
 												// Default value of the latter is 90 (as in, use up to 90% of available RAM).
 
-	char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
-	char PSTRING[STR_MAX_LEN];	/* [exponent | index] of [Mersenne | Fermat ] Number being tested in string form, typically
+	char ESTRING[STR_MAX_LEN];		/* Exponent in string form */
+	char PSTRING[STR_MAX_LEN+1];	/* [exponent | index] of [Mersenne | Fermat ] Number being tested in string form, typically
 								 estring concatenated with other descriptors, e.g. strcat("M",estring) for Mersenne case
 								*/
 	uint64 PMIN;	/* minimum #bits allowed for FFT-based mul */
 	uint64 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
 					  and will be determined at runtime, via call to given_N_get_maxP(). */
-	char cbuf[STR_MAX_LEN*2], g_cstr[STR_MAX_LEN];
+	char cbuf[STR_MAX_LEN*2+200], g_cstr[STR_MAX_LEN];
 	char g_in_line[STR_MAX_LEN];
 	/* Declare a blank STATFILE string to ease program logic: */
 	char STATFILE[] = "";
