@@ -86,9 +86,9 @@ uint32 NERR_GCHECK = 0;	// v20: Add counter for Gerbicz-check errors encountered
 int ITERS_BETWEEN_GCHECK_UPDATES = 1000;	// iterations between Gerbicz-checkproduct updates
 int ITERS_BETWEEN_GCHECKS     = 1000000;	// #iterations between Gerbicz-checksum residue-integrity checks
 
-char ESTRING[STR_MAX_LEN];	// Mersenne exponent or Fermat-number index in string form - for M(p) this == p, for F(m) this == m
-char BIN_EXP[STR_MAX_LEN];	// Binary exponent in string form - for M(p) this == p, for F(m) this == 2^m
-char PSTRING[STR_MAX_LEN];	// Modulus being used in string form, e.g. "M110916929" and "F33".
+char ESTRING[STR_MAX_LEN];		// Mersenne exponent or Fermat-number index in string form - for M(p) this == p, for F(m) this == m
+char BIN_EXP[STR_MAX_LEN];		// Binary exponent in string form - for M(p) this == p, for F(m) this == 2^m
+char PSTRING[STR_MAX_LEN+1];	// Modulus being used in string form, e.g. "M110916929" and "F33".
 
 // The index following 'mask' here = log2(#doubles in SIMD register) = log2(#bits in SIMD register) - 6.
 // The corrsponding mask masks off one my bit than this, since we are dealing with complex FFT data which
@@ -111,7 +111,7 @@ char PSTRING[STR_MAX_LEN];	// Modulus being used in string form, e.g. "M11091692
 #endif
 
 const int hex_chars[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
-char cbuf[STR_MAX_LEN*2], g_cstr[STR_MAX_LEN];
+char cbuf[STR_MAX_LEN*2+200], g_cstr[STR_MAX_LEN];
 char g_in_line[STR_MAX_LEN];
 char *char_addr;
 
