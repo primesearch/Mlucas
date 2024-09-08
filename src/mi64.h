@@ -324,7 +324,7 @@ DEV int		mi64_is_div_by_scalar64	(const uint64 x[], uint64 a, uint32 len);
 DEV int		mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint32 len);
 DEV int		mi64_is_div_by_scalar64_u2	(const uint64 x[], uint64 a, uint32 len);	// 2-way interleaved-|| loop
 DEV int		mi64_is_div_by_scalar64_u4	(const uint64 x[], uint64 a, uint32 len);	// 4-way interleaved-|| loop
-DEV uint32	mi64_div_y32			(uint64 x[], uint32 y, uint64 q[], uint32 len);
+DEV uint32	mi64_div_y32			(const uint64 x[], uint32 y, uint64 q[], uint32 len);
 
 /* Basic I/O routines: */
 /* This is an arbitrary-string-length core routine which can be called directly, requires caller to supply allocated-length of input string: */
