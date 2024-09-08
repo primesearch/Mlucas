@@ -829,7 +829,7 @@ Others are optional and in some cases mutually exclusive:
 		goto MFACTOR_HELP;
 	while(argv[nargs])
 	{
-		strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+		strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 
 		if(stFlag[0] != '-')
 		{
@@ -845,17 +845,17 @@ Others are optional and in some cases mutually exclusive:
 		/* Type of number to be trial-factored: */
 		else if(STREQ(stFlag, "-m"))	/* Mersenne */
 		{
-			strncpy(pstring, argv[nargs++], STR_MAX_LEN);
+			strncpy(pstring, argv[nargs++], sizeof(pstring) - 1);
 			MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
 		}
 		else if(STREQ(stFlag, "-mm"))	/* Double-Mersenne */
 		{
-			strncpy(pstring, argv[nargs++], STR_MAX_LEN);
+			strncpy(pstring, argv[nargs++], sizeof(pstring) - 1);
 			MODULUS_TYPE = MODULUS_TYPE_MERSMERS;
 		}
 		else if(STREQ(stFlag, "-f"))	/* Fermat */
 		{
-			strncpy(pstring, argv[nargs++], STR_MAX_LEN);
+			strncpy(pstring, argv[nargs++], sizeof(pstring) - 1);
 			MODULUS_TYPE = MODULUS_TYPE_FERMAT;
 		}
 
@@ -867,7 +867,7 @@ Others are optional and in some cases mutually exclusive:
 				fprintf(stderr,"*** ERROR: If -kmin/kmax or -kplus used to set bounds for factoring, -bmin [and -bmax] disallowed.\n");
 				goto MFACTOR_HELP;
 			}
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			bmin = convert_base10_char_double(stFlag);
 		  #ifdef FAC_DEBUG
 			printf("bmin = %lf\n", bmin);
@@ -880,7 +880,7 @@ Others are optional and in some cases mutually exclusive:
 				fprintf(stderr,"*** ERROR: If -kmin/kmax or -kplus used to set bounds for factoring, -bmax [and -bmin] disallowed.\n");
 				goto MFACTOR_HELP;
 			}
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			bmax = convert_base10_char_double(stFlag);
 		  #ifdef FAC_DEBUG
 			printf("bmax = %lf\n", bmax);
@@ -895,7 +895,7 @@ Others are optional and in some cases mutually exclusive:
 				fprintf(stderr,"*** ERROR: If -bmin/bmax or -kplus used to set bounds for factoring, -kmin/kmax disallowed.\n");
 				goto MFACTOR_HELP;
 			}
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			kmin = convert_base10_char_uint64(stFlag);
 		}
 		else if(STREQ(stFlag, "-kmax"))
@@ -905,7 +905,7 @@ Others are optional and in some cases mutually exclusive:
 				fprintf(stderr,"*** ERROR: If -bmin/bmax or -kplus used to set bounds for factoring, -kmin/kmax disallowed.\n");
 				goto MFACTOR_HELP;
 			}
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			kmax = convert_base10_char_uint64(stFlag);
 		}
 
@@ -916,20 +916,20 @@ Others are optional and in some cases mutually exclusive:
 				fprintf(stderr,"*** ERROR: If -bmin/bmax or -kmin/kmax used to set bounds for factoring, -kplus disallowed.\n");
 				goto MFACTOR_HELP;
 			}
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			kplus = convert_base10_char_uint64(stFlag);
 		}
 
 		/* Pass bounds: */
 		else if(STREQ(stFlag, "-passmin"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			passmin = (uint32)convert_base10_char_uint64(stFlag);
 			ASSERT(passmin < TF_PASSES,"factor.c: passmin < TF_PASSES");
 		}
 		else if(STREQ(stFlag, "-passmax"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 			passmax = (uint32)convert_base10_char_uint64(stFlag);
 			ASSERT(passmax < TF_PASSES,"factor.c: passmax < TF_PASSES");
 			ASSERT(passmax >= passmin       ,"factor.c: passmax >= passmin");
@@ -938,7 +938,7 @@ Others are optional and in some cases mutually exclusive:
 		// Number of threads to use?
 		else if(STREQ(stFlag, "-nthread"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			strncpy(stFlag, argv[nargs++], sizeof(stFlag) - 1);
 		#ifndef MULTITHREAD
 			fprintf(stderr,"Multithreading not enabled; ignoring -nthread argument.\n");
 			NTHREADS = 1;
