@@ -8072,7 +8072,7 @@ In other words, these kinds of compiler warnings are expected:
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-uint32 mi64_div_y32(uint64 x[], uint32 y, uint64 q[], uint32 len)
+uint32 mi64_div_y32(const uint64 x[], uint32 y, uint64 q[], uint32 len)
 {
 	int i;
 	uint64 cy, rem, xlomody, tsum;
@@ -8109,7 +8109,7 @@ uint32 mi64_div_y32(uint64 x[], uint32 y, uint64 q[], uint32 len)
 		rem = tsum%y;
 	}
 	if(rem == 0 && x != q) {	// If overwrote input with quotient in above loop, skip this
-		ASSERT(mi64_is_div_by_scalar32((uint32 *)x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
+		ASSERT(mi64_is_div_by_scalar32((const uint32 *)x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
 		return 0;
 	}
 	return (uint32)rem;
