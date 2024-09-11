@@ -8875,7 +8875,6 @@ exit(0);
 	int get_num_cores(void)
 	{
 		long nprocs = -1;
-		long nprocs_max = -1;
 
 	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
 
@@ -8890,7 +8889,7 @@ exit(0);
 			fprintf(stderr, "Could not determine number of CPUs online:\n%s\n", strerror (errno));
 			exit (EXIT_FAILURE);
 		}
-		nprocs_max = sysconf(_SC_NPROCESSORS_CONF);
+		long nprocs_max = sysconf(_SC_NPROCESSORS_CONF);
 		if (nprocs_max < 1) {
 			fprintf(stderr, "Could not determine number of CPUs configured:\n%s\n", strerror (errno));
 			exit (EXIT_FAILURE);
@@ -8995,7 +8994,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %ld\n",tid,(long)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
 					isum += retval[tid];
 				}
 			}
@@ -9021,7 +9020,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %ld\n",tid,(long)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
 					isum += retval[tid];
 				}
 			}
@@ -9048,6 +9047,8 @@ exit(0);
 		}
 		/* terminate the thread */
 		pthread_exit(NULL);
+		// This is unreachable but Windows complains the function doesn't return any value.
+		return NULL;
 	}
 
 	// A little hello-world testcode for the pthread stuff:
@@ -9059,6 +9060,8 @@ exit(0);
 		printf("Hello World! It's me, thread #%ld!\n", tid);
 	  #endif
 		pthread_exit(NULL);
+		// This is unreachable but Windows complains the function doesn't return any value.
+		return NULL;
 	}
 
 	void*
@@ -9100,6 +9103,8 @@ exit(0);
 		}
 		*(thread_arg->retval) = k;
 		pthread_exit(NULL);
+		// This is unreachable but Windows complains the function doesn't return any value.
+		return NULL;
 	}
 
 	/********* Thread-affinity utilities: *********/
