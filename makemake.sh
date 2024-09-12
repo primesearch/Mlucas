@@ -405,6 +405,8 @@ if ! time $MAKE "${MAKE_ARGS[@]}" "$TARGET" >build.log 2>&1; then
 fi
 
 echo -e "\nWarnings:\n"
+grep 'warning:' build.log | grep '#warning' | sed 's/^.*warning://p' | sort -u
+echo -e "\nWarning counts:\n"
 grep 'warning:' build.log | awk '{ print $NF }' | sort | uniq -c | sort -nr || echo "None"
 
 echo -e "\nErrors:\n"

@@ -45,13 +45,14 @@ jobs:
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
+                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
@@ -76,6 +77,7 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/-DUSE_THREADS//' makemake.sh
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       run: |
@@ -90,12 +92,19 @@ jobs:
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
+                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
         time ./Mlucas -s m
+        bash -- ../config-fermat.sh
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ubuntu_${{ matrix.cc }}_singlethreaded_mlucas
+        path: ${{ github.workspace }}
 
   ASan-Linux:
     name: AddressSanitizer Linux
@@ -171,7 +180,7 @@ jobs:
         gcc -c -fdiagnostics-color -g -O3 -march=native -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
         rm -- *.o
         echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   Clang-Tidy:
@@ -190,7 +199,7 @@ jobs:
         set -o pipefail
         clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -Wall -O3 -march=native -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
         echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   Cppcheck:
@@ -260,13 +269,14 @@ jobs:
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
+                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?m//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
+        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         if (( $(sysctl -n hw.optional.AdvSIMD) )); then
@@ -288,6 +298,7 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/-DUSE_THREADS//' makemake.sh
+        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
     - name: Script
       run: |
@@ -302,12 +313,22 @@ jobs:
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
+                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
         time ./Mlucas -s m
+        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+            cd ../obj_NOSIMD
+        fi
+        bash -- ../config-fermat.sh
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: macos_singlethreaded_mlucas
+        path: ${{ github.workspace }}
 
   ASan-macOS:
     name: AddressSanitizer macOS
@@ -403,6 +424,7 @@ jobs:
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
+                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
