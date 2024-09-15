@@ -280,10 +280,19 @@ int radix224_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #ifndef USE_SSE2
 	double re,im;
   #endif
-	static int t_offsets[32], dif_offsets[RADIX], dit_offsets[RADIX];
+  #ifndef USE_SSE2
+	static int t_offsets[32];
+  #endif
+	static int dif_offsets[RADIX], dit_offsets[RADIX];
 	// Need storage for 2 circular-shifts perms of a basic 7-vector, with shift count in [0,6] that means 2*13 elts:
-	static int dif_p20_cperms[26], dif_p20_lo_offset[32], dif_phi[ODD_RADIX];
-	static int dit_p20_cperms[26], dit_p20_lo_offset[32], dit_phi[ODD_RADIX];
+	static int dif_p20_cperms[26], dif_p20_lo_offset[32];
+  #ifdef USE_SSE2
+	static int dif_phi[ODD_RADIX];
+  #endif
+	static int dit_p20_cperms[26], dit_p20_lo_offset[32];
+  #ifdef USE_SSE2
+	static int dit_phi[ODD_RADIX];
+  #endif
 #endif
 	static double radix_inv, n2inv;
 #ifdef USE_SSE2
@@ -1238,6 +1247,7 @@ int radix224_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		poff[0x34+0] = pd0; poff[0x34+1] = pd0+p4; poff[0x34+2] = pd0+p8; poff[0x34+3] = pd0+pc;
 
 	#ifndef MULTITHREAD
+	  #ifndef USE_SSE2
 		// Set array offsets for radix-32 DFT in/outputs:
 		// t_offsets w.r.to: t-array, same for all 7 DFTs:
 		t_offsets[0x00] = 0x00<<1;	t_offsets[0x10] = 0x10<<1;
@@ -1256,9 +1266,11 @@ int radix224_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		t_offsets[0x0d] = 0x0d<<1;	t_offsets[0x1d] = 0x1d<<1;
 		t_offsets[0x0e] = 0x0e<<1;	t_offsets[0x1e] = 0x1e<<1;
 		t_offsets[0x0f] = 0x0f<<1;	t_offsets[0x1f] = 0x1f<<1;
+	  #endif
 
 	/*** DIF indexing stuff: ***/
 
+	  #ifdef USE_SSE2
 		dif_phi[0] =   0;		dit_phi[0] =   0;
 		dif_phi[1] = pc0;		dit_phi[1] = p60;
 		dif_phi[2] = pa0;		dit_phi[2] = pc0;
@@ -1266,6 +1278,7 @@ int radix224_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		dif_phi[4] = p60;		dit_phi[4] = pa0;
 		dif_phi[5] = p40;		dit_phi[5] = p20;
 		dif_phi[6] = p20;		dit_phi[6] = p80;
+	  #endif
 
 		// Init storage for 2 circular-shifts perms of a basic 7-vector, with shift count in [0,6] that means 2*13
 
