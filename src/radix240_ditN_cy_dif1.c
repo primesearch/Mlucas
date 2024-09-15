@@ -296,12 +296,12 @@ int radix240_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf,
 			p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0,pd0,pe0, nsave = 0;
 	static int poff[RADIX>>2]
-	  #ifndef MULTITHREAD
+	  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 		,p_out_hi[ODD_RADIX]
 	  #endif
 		;
 #ifndef MULTITHREAD
-	static int plo[16], p_in_hi[ODD_RADIX], po_br[16];
+	static int plo[16], p_in_hi[ODD_RADIX]/* , po_br[16] */;
 	int k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke;
   #if !defined(USE_SSE2) || defined(USE_AVX512)
 	int kf;
@@ -1223,7 +1223,7 @@ int radix240_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		NDIVR <<= 4;			pf += ( (pf >> DAT_BITS) << PAD_BITS );
 	#ifndef MULTITHREAD
 		// Needed for the length-16 loops which manage the DFT16 and carry-macro calls in the compact-object-code build:
-		po_br[0x0] = 0; po_br[0x1] = p8; po_br[0x2] = p4; po_br[0x3] = pc; po_br[0x4] = p2; po_br[0x5] = pa; po_br[0x6] = p6; po_br[0x7] = pe; po_br[0x8] = p1; po_br[0x9] = p9; po_br[0xa] = p5; po_br[0xb] = pd; po_br[0xc] = p3; po_br[0xd] = pb; po_br[0xe] = p7; po_br[0xf] = pf;
+		//po_br[0x0] = 0; po_br[0x1] = p8; po_br[0x2] = p4; po_br[0x3] = pc; po_br[0x4] = p2; po_br[0x5] = pa; po_br[0x6] = p6; po_br[0x7] = pe; po_br[0x8] = p1; po_br[0x9] = p9; po_br[0xa] = p5; po_br[0xb] = pd; po_br[0xc] = p3; po_br[0xd] = pb; po_br[0xe] = p7; po_br[0xf] = pf;
 		plo[0x0] =  0; plo[0x1] = p1; plo[0x2] = p2; plo[0x3] = p3; plo[0x4] = p4; plo[0x5] = p5; plo[0x6] = p6; plo[0x7] = p7; plo[0x8] = p8; plo[0x9] = p9; plo[0xa] = pa; plo[0xb] = pb; plo[0xc] = pc; plo[0xd] = pd; plo[0xe] = pe; plo[0xf] = pf;
 	#endif
 		p10 = NDIVR;
@@ -1262,7 +1262,9 @@ int radix240_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	#ifndef MULTITHREAD
 		p_in_hi [0x0] =   0; p_in_hi [0x1] = p20; p_in_hi [0x2] = p10; p_in_hi [0x3] = pe0; p_in_hi [0x4] = pd0; p_in_hi [0x5] = pc0; p_in_hi [0x6] = pb0; p_in_hi [0x7] = pa0; p_in_hi [0x8] = p90; p_in_hi [0x9] = p80; p_in_hi [0xa] = p70; p_in_hi [0xb] = p60; p_in_hi [0xc] = p50; p_in_hi [0xd] = p40; p_in_hi [0xe] = p30;
+	  #ifndef USE_SSE2
 		p_out_hi[0x0] =   0; p_out_hi[0x1] = p10; p_out_hi[0x2] = p20; p_out_hi[0x3] = p30; p_out_hi[0x4] = p40; p_out_hi[0x5] = p50; p_out_hi[0x6] = p60; p_out_hi[0x7] = p70; p_out_hi[0x8] = p80; p_out_hi[0x9] = p90; p_out_hi[0xa] = pa0; p_out_hi[0xb] = pb0; p_out_hi[0xc] = pc0; p_out_hi[0xd] = pd0; p_out_hi[0xe] = pe0;
+	  #endif
 	#endif
 
 		if(_cy_r[0])	/* If it's a new exponent of a range test, need to deallocate these. */
