@@ -210,7 +210,9 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int poff[RADIX>>2];	// Store mults of p4 offset for loop control
 #ifndef MULTITHREAD
 // Shared DIF+DIT:
+  #ifndef USE_SSE2
 	static int t_offsets[32];
+  #endif
 	// Need storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*21 elts:
 	static int dif_offsets[RADIX], dif_p20_cperms[42], dif_p20_lo_offset[32], dif_phi[ODD_RADIX];
 	static int dit_offsets[RADIX], dit_p20_cperms[42], dit_p20_lo_offset[32], dit_phi[ODD_RADIX];
@@ -1057,6 +1059,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		dit_phi[l++] =p140;
 
 	// Shared:
+	  #ifndef USE_SSE2
 		// Set array offsets for radix-32 DFT in/outputs:
 		// t_offsets w.r.to: t-array, same for all 5 DFTs:
 		t_offsets[0x00] = 0x00<<1;	t_offsets[0x10] = 0x10<<1;
@@ -1075,6 +1078,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		t_offsets[0x0d] = 0x0d<<1;	t_offsets[0x1d] = 0x1d<<1;
 		t_offsets[0x0e] = 0x0e<<1;	t_offsets[0x1e] = 0x1e<<1;
 		t_offsets[0x0f] = 0x0f<<1;	t_offsets[0x1f] = 0x1f<<1;
+	  #endif
 
 	/*** DIF indexing stuff: ***/
 
