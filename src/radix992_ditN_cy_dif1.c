@@ -189,8 +189,8 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int poff[RADIX>>2];
 #ifndef MULTITHREAD
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
-	static int dif_p20_cperms[62], plo[32],phi[62],jj[32], *iptr;
-	int idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
+	static int dif_p20_cperms[62], plo[32],phi[62],jj[32], *iptr, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
+	int idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf;
 	uint64 i64;
 // DIF:
 	// Low parts [p0-f] of output-index perms:
