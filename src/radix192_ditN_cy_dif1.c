@@ -205,7 +205,11 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 // Shared DIF+DIT:
 	int ilo,ihi,idx,jdx,hi_neg,k0,k1,k2, *iptr;
 	int nshift;
-	static int plo[16],phi[12], t_offsets[64];
+	static int plo[16];
+   #ifndef USE_SSE2
+	static int phi[12];
+   #endif
+	static int t_offsets[64];
 	uint64 i64;
 // DIF:
 	static int dif_o_offsets[RADIX];
@@ -923,9 +927,11 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		plo[0x8] = p8; plo[0x9] = p9; plo[0xa] = pa; plo[0xb] = pb;
 		plo[0xc] = pc; plo[0xd] = pd; plo[0xe] = pe; plo[0xf] = pf;
 
+	  #ifndef USE_SSE2
 		phi[0x0] =   0; phi[0x1] = p10; phi[0x2] = p20; phi[0x3] = p30;
 		phi[0x4] = p40; phi[0x5] = p50; phi[0x6] = p60; phi[0x7] = p70;
 		phi[0x8] = p80; phi[0x9] = p90; phi[0xa] = pa0; phi[0xb] = pb0;
+	  #endif
 
 		t_offsets[0x00] = 0x00<<1;	t_offsets[0x10] = 0x10<<1;	t_offsets[0x20] = 0x20<<1;	t_offsets[0x30] = 0x30<<1;
 		t_offsets[0x01] = 0x01<<1;	t_offsets[0x11] = 0x11<<1;	t_offsets[0x21] = 0x21<<1;	t_offsets[0x31] = 0x31<<1;
