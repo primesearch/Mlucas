@@ -167,8 +167,11 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
   #endif
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p8, nsave = 0;
-  #ifndef MULTITHREAD
-	static int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p4 offset for loop control
+	#if !defined(MULTITHREAD) && (!defined(USE_SSE2) || !defined(USE_AVX))
+	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p4 offset for loop control
+  #endif
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	static int p0123[4];	// Store [RADIX/4] mults of p4 offset for loop control
   #endif
   #if !defined(MULTITHREAD) || defined(USE_SSE2)
 	const double	c3m1= -1.50000000000000000000,	/* cos(twopi/3)-1	*/
@@ -840,9 +843,10 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
 		p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
 
-	#ifndef MULTITHREAD
+	#if !defined(MULTITHREAD) && !defined(USE_SSE2)
 		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
-
+	#endif
+	#if !defined(MULTITHREAD) && (!defined(USE_SSE2) || !defined(USE_AVX))
 		poff[0] =   0; poff[1] = p4; poff[2] = p8;
 	#endif
 
