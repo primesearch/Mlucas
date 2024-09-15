@@ -214,7 +214,10 @@ int radix320_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double rt,it;
   #endif
 	static int t_offsets[64];
-	static int plo[16],phi[20];
+	static int plo[16];
+  #ifndef USE_SSE2
+	static int phi[20];
+  #endif
 	// Need storage for 4 circular-shifts perms of a basic 5-vector, with shift count in [0,4] that means 4*9 elts:
 	static int dit_p20_cperms[36];
 	static int dif_o_offsets[RADIX], dit_i_offsets[RADIX];
@@ -989,11 +992,11 @@ int radix320_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	   #ifdef USE_SSE2
 		// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
 		// replacing p1*[] with []<<1 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
-		phi[0x00]= 0x00<<1; phi[0x01]= 0x10<<1; phi[0x02]= 0x20<<1; phi[0x03]= 0x30<<1;
-		phi[0x04]= 0x40<<1; phi[0x05]= 0x50<<1; phi[0x06]= 0x60<<1; phi[0x07]= 0x70<<1;
-		phi[0x08]= 0x80<<1; phi[0x09]= 0x90<<1; phi[0x0a]= 0xa0<<1; phi[0x0b]= 0xb0<<1;
-		phi[0x0c]= 0xc0<<1; phi[0x0d]= 0xd0<<1; phi[0x0e]= 0xe0<<1; phi[0x0f]= 0xf0<<1;
-		phi[0x10]=0x100<<1; phi[0x11]=0x110<<1; phi[0x12]=0x120<<1; phi[0x13]=0x130<<1;
+		//phi[0x00]= 0x00<<1; phi[0x01]= 0x10<<1; phi[0x02]= 0x20<<1; phi[0x03]= 0x30<<1;
+		//phi[0x04]= 0x40<<1; phi[0x05]= 0x50<<1; phi[0x06]= 0x60<<1; phi[0x07]= 0x70<<1;
+		//phi[0x08]= 0x80<<1; phi[0x09]= 0x90<<1; phi[0x0a]= 0xa0<<1; phi[0x0b]= 0xb0<<1;
+		//phi[0x0c]= 0xc0<<1; phi[0x0d]= 0xd0<<1; phi[0x0e]= 0xe0<<1; phi[0x0f]= 0xf0<<1;
+		//phi[0x10]=0x100<<1; phi[0x11]=0x110<<1; phi[0x12]=0x120<<1; phi[0x13]=0x130<<1;
 	   #else
 		phi[0x00]=   0; phi[0x01]= p10; phi[0x02]= p20; phi[0x03]= p30;
 		phi[0x04]= p40; phi[0x05]= p50; phi[0x06]= p60; phi[0x07]= p70;
