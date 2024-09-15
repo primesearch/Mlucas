@@ -351,9 +351,10 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int jt,jp,k1,k2,m,m2,ntmp;
 	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
-	int bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodnA,bjmodnB,bjmodnC,bjmodnD,bjmodnE,bjmodnF;
-	double cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_r8,cy_r9,cy_rA,cy_rB,cy_rC,cy_rD,cy_rE,cy_rF,
-			cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7,cy_i8,cy_i9,cy_iA,cy_iB,cy_iC,cy_iD,cy_iE,cy_iF;
+	// The init are here to prevent gcc warnings when building in singlethread mode on x86.
+	int bjmodn0=0,bjmodn1=0,bjmodn2=0,bjmodn3=0,bjmodn4=0,bjmodn5=0,bjmodn6=0,bjmodn7=0,bjmodn8=0,bjmodn9=0,bjmodnA=0,bjmodnB=0,bjmodnC=0,bjmodnD=0,bjmodnE=0,bjmodnF=0;
+	double cy_r0=0,cy_r1=0,cy_r2=0,cy_r3=0,cy_r4=0,cy_r5=0,cy_r6=0,cy_r7=0,cy_r8=0,cy_r9=0,cy_rA=0,cy_rB=0,cy_rC=0,cy_rD=0,cy_rE=0,cy_rF=0,
+			cy_i0=0,cy_i1=0,cy_i2=0,cy_i3=0,cy_i4=0,cy_i5=0,cy_i6=0,cy_i7=0,cy_i8=0,cy_i9=0,cy_iA=0,cy_iB=0,cy_iC=0,cy_iD=0,cy_iE=0,cy_iF=0;
   #ifdef USE_FGT61
 	const uint64 q  = 0x1FFFFFFFFFFFFFFFull, q2=q+q, q3=q2+q, q4=q2+q2, q5=q4+q, q8=q4+q4;	// q = 2^61 - 1, and needed small multiples
 	// primitive 16th root of unity, scaled by *8:
