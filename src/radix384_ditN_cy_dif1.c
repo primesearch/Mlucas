@@ -166,8 +166,14 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #endif
 
 #ifndef MULTITHREAD
-	static int dif_i_offsets[128], dif_o_offsets[384];
-	static int dit_i_offsets[384], dit_o_offsets[128];
+  #ifndef USE_SSE2
+	static int dif_i_offsets[128];
+  #endif
+	static int dif_o_offsets[384];
+	static int dit_i_offsets[384];
+  #ifndef USE_SSE2
+	static int dit_o_offsets[128];
+  #endif
 	static int dif_triplets[72];
 	static int dit_triplets[24];	// Only need 1/3 as many here as for DIF
 #endif
@@ -956,8 +962,10 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	#ifndef MULTITHREAD
 	/*** DIF: ***/
+	  #ifndef USE_SSE2
 	// Set array offsets for radix-128 inputs [these are same for all 3 such DFTs].
 		for(j = 0; j < 0x80; ++j) { dif_i_offsets[j] = j<<1; }
+	  #endif
 	// For the radix-128 DIF outputs we need the following offsets:
 		const int dif_perm0[16] = {0,p1,p2,p3,p5,p4,p7,p6,pa,pb,p9,p8,pf,pe,pc,pd};
 		const int dif_perm1[16] = {p5,p4,p7,p6,p2,p3,p1,0,pf,pe,pc,pd,p9,p8,pb,pa};
@@ -992,8 +1000,10 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			dif_o_offsets[j+0x170] =    0 + dif_perm2[j];
 		}
 	/*** DIT: ***/
+	  #ifndef USE_SSE2
 	// Set array offsets for radix-128 outputs [these are same for all 3 such DFTs].
 		for(j = 0; j < 0x80; ++j) { dit_o_offsets[j] = j<<1; }
+	  #endif
 	// For the radix-128 DIT inputs we need the following offsets:
 		const int dit_perm0[16] = {0,p1,p3,p2,p7,p6,p5,p4,pf,pe,pd,pc,pb,pa,p9,p8};
 		const int dit_perm1[16] = {pf,pe,pd,pc,pb,pa,p9,p8,p7,p6,p5,p4,p3,p2,p1,0};
