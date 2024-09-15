@@ -242,7 +242,10 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	static int poff[RADIX>>2];
 // DIF:
   #ifndef MULTITHREAD
-	static int dif_i_offsets[64], dif_po_br[16];
+	static int dif_i_offsets[64];
+  #endif
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	static int dif_po_br[16];
   #endif
 // DIT:
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
@@ -1215,10 +1218,12 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		}
 	  #endif
 
+	  #ifndef USE_SSE2
 		dif_po_br[0x0] =  0; dif_po_br[0x1] = p8; dif_po_br[0x2] = p4; dif_po_br[0x3] = pc;
 		dif_po_br[0x4] = p2; dif_po_br[0x5] = pa; dif_po_br[0x6] = p6; dif_po_br[0x7] = pe;
 		dif_po_br[0x8] = p1; dif_po_br[0x9] = p9; dif_po_br[0xa] = p5; dif_po_br[0xb] = pd;
 		dif_po_br[0xc] = p3; dif_po_br[0xd] = pb; dif_po_br[0xe] = p7; dif_po_br[0xf] = pf;
+	  #endif
 
 	// DIT:
 		// Set array offsets for radix-64 DFT in/outputs:
