@@ -209,8 +209,11 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p16, nsave = 0;
-  #ifndef MULTITHREAD
-	static int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
+  #if !defined(MULTITHREAD) && (!defined(USE_SSE2) || !defined(USE_AVX))
+	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
+  #endif
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	static int p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
   #endif
 	static double radix_inv, n2inv;
   #if !defined(MULTITHREAD) || defined(USE_SSE2)
@@ -959,9 +962,10 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
 		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
 
-	#ifndef MULTITHREAD
+	#if !defined(MULTITHREAD) && !defined(USE_SSE2)
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
-
+	#endif
+	#if !defined(MULTITHREAD) && (!defined(USE_SSE2) || !defined(USE_AVX))
 		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p04+p08; poff[4] = p16; poff[5] = p04+p16;
 	#endif
 
