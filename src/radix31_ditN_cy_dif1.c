@@ -209,7 +209,7 @@ DIT - Since the radix is prime - differs from DIF only in having the + and - of 
 */
 void radix31_dit_pass1(double a[], int n)
 {
-	int j,j1,j2;
+	int j,j1;
 	static int n31,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,
 		first_entry=TRUE;
 
@@ -300,7 +300,6 @@ void radix31_dit_pass1(double a[], int n)
 	#else
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 	#endif
-		j2 = j1+RE_IM_STRIDE;
 
 		RADIX_31_DFT(a+j1,0,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30
 	/* outputs: */	,a+j1,0,p30,p29,p28,p27,p26,p25,p24,p23,p22,p21,p20,p19,p18,p17,p16,p15,p14,p13,p12,p11,p10,p09,p08,p07,p06,p05,p04,p03,p02,p01);
