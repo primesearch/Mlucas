@@ -123,7 +123,7 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 **************** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: *************
 *                                                                                             *
 * -s medium Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering *
-* -s m      FFT lengths from 2M to 7.5M. This will take around an hour on a fast CPU.         *
+* -s m      FFT lengths from 2M to 7.5M. This will take around 10 minutes on a fast CPU.         *
 *                                                                                             *
 ***********************************************************************************************
 
