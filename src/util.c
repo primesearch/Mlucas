@@ -1982,14 +1982,15 @@ uint32 get_system_ram(void) {
 
 // Apr 2018: Due to portability issues, replace the system-headers-based version of the "has advanced SIMD?"
 // check with one based on what amounts to "is the result of 'grep asimd /proc/cpuinfo' empty or not?".
-// Dec 2020: Apple M1 needs special handling, use the Clang/GCC-shared __ARM_NEON__ predefine to detect SIMD support:
+// Dec 2020: Apple M1 needs special handling, use the Clang/GCC-shared __ARM_NEON__ predefine to detect SIMD support.
+// Nov 2024: Ditto for MinGW Windows, but only on 64-bit, otherwise we get false positives on ARMv7.
 #ifdef CPU_IS_ARM_EABI
 
-  #ifdef OS_TYPE_MACOSX
+  #if defined(OS_TYPE_MACOSX) || defined(__MINGW32__)
 
 	int has_asimd(void)
 	{
-	#ifdef __ARM_NEON
+	#if defined(__ARM_NEON) && OS_BITS == 64
 		return (int)__ARM_NEON;
 	#else
 		return 0;
