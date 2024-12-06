@@ -896,7 +896,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 
 	   The symbol __ARM_EABI__ is not defined if compiles under the old EABI.
 	*/
-	#if !(defined(__ARMEL__) && defined(__ARM_EABI__))
+	#if !defined (__MINGW32__) && !(defined(__ARMEL__) && defined(__ARM_EABI__))
 		#error __ARM_ARCH predefine seqeunce expects both __ARMEL__ and __ARM_EABI__ to be defined! Please check your platforms predefine list using 'gcc -dM -E - < /dev/null' and forward the results to the program author/maintainer(s) listed on the README page.
 	#endif
 
