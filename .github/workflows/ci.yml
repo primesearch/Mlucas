@@ -14,7 +14,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-22.04-arm, ubuntu-24.04-arm]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -28,14 +28,24 @@ jobs:
     - name: Before script
       run: |
         $CC --version
-        $CC -dM -E -march=native - </dev/null
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            $CC -dM -E -mcpu=native - </dev/null
+        else
+            $CC -dM -E -march=native - </dev/null
+        fi
     - name: Script
       run: |
         set -x
         set -o pipefail
         lscpu
         cat /proc/cpuinfo
-        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+        MODES=( '' NOSIMD )
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
@@ -55,6 +65,9 @@ jobs:
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_NOSIMD
+        fi
         bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
     - uses: actions/upload-artifact@v4
       if: always()
@@ -65,9 +78,10 @@ jobs:
   Singlethread-Linux:
     name: Mlucas Singlethreaded Linux
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
         cc: [gcc]
       fail-fast: false
     env:
@@ -82,7 +96,13 @@ jobs:
     - name: Script
       run: |
         set -x
-        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+        MODES=( '' NOSIMD )
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh $mode
             (cd obj${mode:+_$mode}; make clean)
@@ -99,11 +119,14 @@ jobs:
         done
         cd obj
         time ./Mlucas -s m
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_NOSIMD
+        fi
         bash -- ../config-fermat.sh
     - uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: ubuntu_${{ matrix.cc }}_singlethreaded_mlucas
+        name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
         path: ${{ github.workspace }}
 
   ASan-Linux:
@@ -205,7 +228,7 @@ jobs:
   Cppcheck:
     name: Cppcheck
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 # ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - name: Install
@@ -247,7 +270,11 @@ jobs:
     - name: Before script
       run: |
         clang --version
-        clang -dM -E -march=native - </dev/null
+        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+            clang -dM -E -mcpu=native - </dev/null
+        else
+            clang -dM -E -march=native - </dev/null
+        fi
     - name: Script
       run: |
         set -x
@@ -292,7 +319,11 @@ jobs:
   Singlethread-macOS:
     name: Mlucas Singlethreaded macOS
 
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-13, macos-latest]
+      fail-fast: false
     steps:
     - uses: actions/checkout@v4
     - name: Before script
@@ -303,7 +334,13 @@ jobs:
     - name: Script
       run: |
         set -x
-        for mode in '' NOSIMD ASIMD; do
+        MODES=( '' NOSIMD )
+        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh $mode
             (cd obj${mode:+_$mode}; make clean)
@@ -327,7 +364,7 @@ jobs:
     - uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: macos_singlethreaded_mlucas
+        name: ${{ matrix.os }}_singlethreaded_mlucas
         path: ${{ github.workspace }}
 
   ASan-macOS:
