@@ -2327,8 +2327,9 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 		// SdyBr: 2.20; Haswell: 1.84
 		// Jun 2016: bizarre ... GCC builds with opt > 0 on Haswell/Broadwell init this != 0 ...
 		//  making static not a reliable workaround, so try put cy = 0 init on separate line from declaration:
-		uint64 cy;
-		cy = 0ull;	ASSERT(cy == 0, "Init (cy = 0) fails!");
+		// Jan 2025: The operand __cy was incorrectly set as write-only ('=') in the inline assembly, causing
+		//  the cy = 0 init to be optimized out. Setting __cy to read/write ('+') fixes this.
+		uint64 cy = 0ull;
 		/* x86_64 ASM implementation of the add/carry loop: */
 		__asm__ volatile (\
 			"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
@@ -2371,7 +2372,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 		"jnz 0b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 			"adcq	%%rcx,%[__cy]	\n\t"/* Carryout. RCX is guaranteed to be zero at this point */\
-			: [__cy] "=m" (cy) /* outputs: cy */\
+			: [__cy] "+m" (cy) /* outputs: cy */\
 			: [__x0] "m" (x)	/* All inputs from memory/register here */\
 			 ,[__y0] "m" (y)	\
 			 ,[__z0] "m" (z)	\
