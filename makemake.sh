@@ -370,7 +370,7 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS = -fdiagnostics-color -Wall -g -O3 # -flto=auto
+CFLAGS = -fdiagnostics-color -Wall -g -O3 -flto # =auto
 CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS ?= -L/opt/homebrew/lib
 LDLIBS = ${LD_ARGS[@]} # -static
