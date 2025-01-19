@@ -1901,7 +1901,7 @@ From http://linux.die.net/man/2/setrlimit, here is form of struct returned by ge
 */
 void set_stacklimit_restart(char *argv[])
 {
-#if defined(OS_TYPE_LINUX) && defined(CPU_IS_X86)	// CPU_IS_X86 (platform.h) == '32-bit x86'.
+#if !defined(__MINGW32__) && defined(OS_TYPE_LINUX) && defined(CPU_IS_X86)	// CPU_IS_X86 (platform.h) == '32-bit x86'.
 	struct rlimit stack_limits;
 
 	if (getrlimit(RLIMIT_STACK, &stack_limits)) {
