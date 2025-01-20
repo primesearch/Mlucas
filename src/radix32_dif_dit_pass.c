@@ -46,9 +46,14 @@
 */
 void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
+#ifdef USE_SSE2
 	static int max_threads = 0;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+	int i,j,j1,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+#ifndef USE_SSE2
+	int j2;
+#endif
 	int p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 			,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784	/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
@@ -764,7 +769,9 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  {
 		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+#endif
 
 #ifdef USE_SSE2
 
@@ -1424,9 +1431,14 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 */
 void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
+#ifdef USE_SSE2
 	static int max_threads = 0;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+	int i,j,j1,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+#ifndef USE_SSE2
+	int j2;
+#endif
 	int p01,p02,p03,p04,p05,p06,p07,p08,p10,p18;
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 			,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784	/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
@@ -2288,7 +2300,9 @@ if(1) {
 	  {
 		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+#ifndef USE_SSE2
 		j2 = j1+RE_IM_STRIDE;
+#endif
 
 #ifdef USE_SSE2
 
