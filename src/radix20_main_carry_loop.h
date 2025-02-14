@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 		/*
 		!...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do a radix-20 DIT transform...
@@ -105,7 +107,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
 		#else
 			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
-			l = target_set&1;	target_set >>= 1;
+			int l = target_set&1;	target_set >>= 1;
 			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
 		#endif
 		}
@@ -116,7 +118,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
-		l= j & (nwt-1);						tmp = half_arr + 128;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		int l= j & (nwt-1);						tmp = half_arr + 128;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
 		n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
@@ -215,7 +217,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	 #endif
 		/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
 		uint32 k0,k1,k2,k3, nwtml;
-		l = j & (nwt-1);	nwtml = nwt-l;
+		int l = j & (nwt-1);	nwtml = nwt-l;
 		n_minus_sil   = n-si[l  ];
 		n_minus_silp1 = n-si[l+1];
 		sinwt   = si[nwtml  ];
@@ -261,7 +263,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		i = (!j);
 		addr = &prp_mult;
 		tm1 = s1p00r; tmp = cy00; tm2 = cy00 + 1; itmp = bjmodn00;
-		for(l = 0; l < RADIX>>2; l++) {
+		for(int l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
@@ -270,7 +272,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  } else {	// HiACC:
 
-		l= j & (nwt-1);
+		int l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
 		n_minus_silp1 = n-si[l+1];
 		sinwt   = si[nwt-l  ];
@@ -344,7 +346,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#else	// Scalar-double mode:
 
-		l= j & (nwt-1);
+		int l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
 		n_minus_silp1 = n-si[l+1];
 		sinwt   = si[nwt-l  ];
@@ -498,5 +500,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	col += RADIX;
 	co3 -= RADIX;
 
-}	/* end for(k=1; k <= khi; k++) */
-
+}	/* end for(int k=1; k <= khi; k++) */
