@@ -270,7 +270,7 @@ jobs:
     - name: Before script
       run: |
         clang --version
-        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+        if (( $(sysctl -n hw.optional.neon) )); then
             clang -dM -E -mcpu=native - </dev/null
         else
             clang -dM -E -march=native - </dev/null
@@ -281,7 +281,7 @@ jobs:
         set -o pipefail
         sysctl -a
         MODES=( '' NOSIMD )
-        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+        if (( $(sysctl -n hw.optional.neon) )); then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
@@ -306,7 +306,7 @@ jobs:
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+        if (( $(sysctl -n hw.optional.neon) )); then
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
@@ -335,7 +335,7 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
-        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+        if (( $(sysctl -n hw.optional.neon) )); then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
@@ -357,7 +357,7 @@ jobs:
         done
         cd obj
         time ./Mlucas -s m
-        if (( $(sysctl -n hw.optional.AdvSIMD) )); then
+        if (( $(sysctl -n hw.optional.neon) )); then
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh
@@ -387,7 +387,7 @@ jobs:
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        if ! (( $(sysctl -n hw.optional.AdvSIMD) )); then
+        if ! (( $(sysctl -n hw.optional.neon) )); then
             bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         fi
       continue-on-error: true
@@ -418,14 +418,19 @@ jobs:
   Windows:
     name: Windows
 
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
       matrix:
+        os: [windows-latest]
         cc: [gcc, clang]
+        include:
+          - os: windows-11-arm
+            cc: gcc
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      PACKAGE_PREFIX: mingw-w64-${{ endsWith(matrix.os, '-arm') && 'clang-aarch64' || 'x86_64' }}-
     steps:
     - uses: actions/checkout@v4
     - name: Before Install
@@ -435,26 +440,37 @@ jobs:
         echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         echo "LDFLAGS=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
     - name: Install
+      if: ${{ ! endsWith(matrix.os, '-arm') }}
       run: |
-        pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-hwloc
+        pacman -S --noconfirm "${PACKAGE_PREFIX}gmp" "${PACKAGE_PREFIX}hwloc"
         & $env:CC --version
     - name: Install Clang
       if: ${{ matrix.cc == 'clang' }}
       run: |
-        pacman -S --noconfirm mingw-w64-x86_64-clang
+        pacman -S --noconfirm "${PACKAGE_PREFIX}clang"
         (Get-Content makemake.sh) -replace ' -flto', '' | Set-Content makemake.sh
     - name: Before script
       shell: bash
       run: |
         $CC --version
-        $CC -dM -E -march=native - </dev/null
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            $CC -dM -E -mcpu=native - </dev/null
+        else
+            $CC -dM -E -march=native - </dev/null
+        fi
     - name: Script
       shell: bash
       run: |
         set -x
-        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
+        MODES=( '' NOSIMD )
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            bash -e -o pipefail -- makemake.sh ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || 'use_hwloc' }} $mode
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
@@ -469,11 +485,14 @@ jobs:
         done
         cd obj
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_NOSIMD
+        fi
         bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
     - uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: windows_${{ matrix.cc }}_mlucas
+        name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
         path: ${{ github.workspace }}
 
   ASan-Windows:
@@ -483,6 +502,7 @@ jobs:
     continue-on-error: true
     env:
       CC: clang
+      PACKAGE_PREFIX: mingw-w64-clang-x86_64-
     steps:
     - uses: actions/checkout@v4
     - name: Before Install
@@ -493,8 +513,8 @@ jobs:
         echo "LDFLAGS=-LC:\msys64\clang64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
     - name: Install
       run: |
-        pacman -S --noconfirm mingw-w64-clang-x86_64-toolchain
-        pacman -S --noconfirm mingw-w64-clang-x86_64-gmp mingw-w64-clang-x86_64-hwloc
+        pacman -S --noconfirm "${PACKAGE_PREFIX}toolchain"
+        pacman -S --noconfirm "${PACKAGE_PREFIX}gmp" "${PACKAGE_PREFIX}hwloc"
     - name: Before script
       shell: bash
       run: |

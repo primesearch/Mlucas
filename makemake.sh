@@ -254,7 +254,7 @@ elif [[ $OSTYPE == darwin* ]]; then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
 		ARGS+=(-DUSE_SSE2 -march=core2)
-	elif (($(sysctl -n hw.optional.AdvSIMD))); then
+	elif (($(sysctl -n hw.optional.neon))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
 		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
 	else
