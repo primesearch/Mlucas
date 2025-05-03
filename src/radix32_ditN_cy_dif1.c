@@ -134,7 +134,9 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix16_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix32_ditN_cy_dif1";
+  #if !defined(MULTITHREAD) && defined(USE_SSE2)
 	const int pfetch_dist = PFETCH_DIST;
+  #endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
   #ifdef USE_AVX512
 	const int jhi_wrap_mers = 15;
@@ -143,24 +145,42 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const int jhi_wrap_mers =  7;
 	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
   #endif
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	int NDIVR,i,j,j1,j2,jt,jp,full_pass,khi,l,outer;
+  #ifdef USE_SSE2
+	int nbytes;
+  #endif
+  #ifndef MULTITHREAD
+	int jstart,jhi,ntmp;
+   #if !defined(USE_SSE2) || defined(USE_AVX)
 	int k1,k2;
-	int col,co2,co3;
-  #ifdef USE_AVX512
-	double t0,t1,t2,t3;
-   #ifdef CARRY_16_WAY
-	static struct uint32x16 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-   #else
-	static struct uint32x8  *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
    #endif
-  #elif defined(USE_AVX)
+  #endif
+  #ifndef MULTITHREAD
+	int col,co2,co3;
+   #ifdef USE_AVX512
+	double t0,t1,t2,t3;
+    #ifdef CARRY_16_WAY
+	static struct uint32x16 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+    #else
+	static struct uint32x8  *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+    #endif
+   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-  #else
+   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+   #endif
   #endif
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
-	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+  #ifndef MULTITHREAD
+	double rt;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+   #if !defined(USE_SSE2) || defined(USE_AVX)
+	double it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+   #endif
+  #endif
+  #if !defined(MULTITHREAD) && !defined(USE_SSE2)
+	double wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+  #endif
 	static uint32 bjmodnini, nsave = 0;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
@@ -168,25 +188,47 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
-	static uint32 bw,sw,nm1,p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
-	static int poff[RADIX>>2],p0123[4];	// Store mults of p-offsets for loop-controlled DFT macro calls
+	static uint32 bw,sw,p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
+  #if !defined(MULTITHREAD) || defined(USE_SSE2)
+	static uint32 nm1;
+  #endif
+	static int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
+  #if !defined(USE_SSE2) && !defined(MULTITHREAD)
+	static int p0123[4];
+  #endif
 	static int arr_offsets[RADIX];	// Shared by the DIF & DIT
 	static double radix_inv, n2inv;
-	double *addr,*addi;
-	double temp,frac, scale, dtmp, maxerr = 0.0;
+  #ifndef MULTITHREAD
+	double *addr;
+   #ifndef USE_SSE2
+	double *addi;
+   #endif
+	double temp,frac;
+  #endif
+	double scale, dtmp, maxerr = 0.0;
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX], *tptr;
-	int *itmp,*itm2;	// Pointers into the bjmodn array
+	struct complex t[RADIX];
+  #ifndef MULTITHREAD
+	int *itmp;	// Pointers into the bjmodn array
+   #if defined(USE_AVX) && !defined(USE_AVX512)
+	int *itm2;	// Pointers into the bjmodn array
+   #endif
+  #endif
 	int err;
 	static int first_entry=TRUE;
 
-	int n_div_nwt, nwtml;
+	int n_div_nwt;
+  #if !defined(MULTITHREAD) && !defined(USE_AVX)
+	int nwtml;
+  #endif
 
 #ifdef USE_SSE2
 
+  #if !defined(MULTITHREAD) && !defined(USE_AVX)
 	int idx_offset,idx_incr;
+  #endif
 	static int cslots_in_local_store;
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
@@ -201,20 +243,36 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
 	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
 	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
+  #ifndef MULTITHREAD
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
+  #endif
+  #ifndef USE_AVX512
 	const double crnd = 3.0*0x4000000*0x2000000;
+  #endif
+  #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+  #endif
 	static vec_dbl *two,*one,*sqrt2,*isrt2,*cc1,*ss1,*cc2,*ss2,*cc3,*ss3, *max_err, *sse2_rnd, *half_arr
-		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
+		,*r00/* ,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
-		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E
-		,*cy_r,*cy_i;	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
+		,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+	  #if !defined(MULTITHREAD) && defined(USE_AVX)
+		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+	  #endif
+		;
   #ifdef USE_AVX
 	static vec_dbl *base_negacyclic_root;
   #endif
 
-	vec_dbl *tmp,*tm0,*tm1,*tm2;	// Non-static utility ptrs
+	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
+  #ifndef MULTITHREAD
+   #ifdef USE_AVX
+	vec_dbl *tm0;	// Non-static utility ptrs
+   #endif
+	vec_dbl *tm1;	// Non-static utility ptrs
+  #endif
 
 #endif	// USE_SSE2
 
@@ -222,7 +280,10 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	static struct cy_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch stuff:
-	static int main_work_units = 0, pool_work_units = 0;
+  #if 0//def OS_TYPE_MACOSX
+	static int main_work_units = 0;
+  #endif
+	static int pool_work_units = 0;
 	static struct threadpool *tpool = 0x0;
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
@@ -235,9 +296,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int m,m2;
 	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
-  #if PFETCH
-	int prefetch_offset;
-  #endif
 	int bjmodn[RADIX];
 	double cy_r[RADIX],cy_i[RADIX];
 
@@ -254,8 +312,10 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		_cy_r[0] = 0x0;	// First of these used as an "already inited consts?" sentinel, must init = 0x0 at same time do so for non-array static ptrs
 	}
 
+#ifndef MULTITHREAD
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+#endif
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
@@ -297,7 +357,9 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
 
+	  #if !defined(MULTITHREAD) || defined(USE_SSE2)
 		nm1   = n-1;
+	  #endif
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
@@ -377,7 +439,7 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 			#else
 
-				main_work_units = 0;
+				//main_work_units = 0;
 				pool_work_units = CY_THREADS;
 				ASSERT(0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
 
@@ -452,14 +514,14 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		__r0 = sc_ptr;
 	  #endif
 		tmp = sc_ptr;
-		r00 = tmp + 0x00;	r10 = tmp + 0x10;	r20 = tmp + 0x20;	r30 = tmp + 0x30;
-		r02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
-		r04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
-		r06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
-		r08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
-		r0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
-		r0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
-		r0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
+		r00 = tmp + 0x00;	//r10 = tmp + 0x10;	r20 = tmp + 0x20;	r30 = tmp + 0x30;
+		//rr02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
+		//rr04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
+		//rr06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
+		//rr08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
+		//rr0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
+		//rr0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
+		//rr0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
 		tmp += 0x40;
 		two  	= tmp + 0x0;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
 		one 	= tmp + 0x1;
@@ -473,17 +535,25 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ss3		= tmp + 0x9;
 		tmp += 0xa;
 	  #ifdef USE_AVX512
-		cy_r = tmp;	cy_i = tmp+0x04;	tmp += 0x08;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;										// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #ifndef MULTITHREAD
+					cy_i = tmp+0x04;					// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #endif
+										tmp += 0x08;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
-		cy_r = tmp;	cy_i = tmp+0x08;	tmp += 0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;										// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #ifndef MULTITHREAD
+					cy_i = tmp+0x08;					// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #endif
+										tmp += 0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 96 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
-		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;	/* cy_i = tmp+0x10; */	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 32 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
@@ -496,8 +566,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(two  , 2.0  );		VEC_DBL_INIT(one, 1.0  );
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -578,37 +648,37 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tm2 = tmp + RADIX/4 - 1;	// tmp+7
 			// Use tmp-pointer to init tmp+0,2; use tm2 to init tmp+3,1:
 											tmp->d0 = 1.0;	(tmp+1)->d0 = 0.0;
-			tmp64 = 0x3FEFF621E3796D7Eull;	tmp->d1 = tm2->d7 = *(double *)&tmp64;
-			tmp64 = 0x3FEFD88DA3D12526ull;	tmp->d2 = tm2->d6 = *(double *)&tmp64;
-			tmp64 = 0x3FEFA7557F08A517ull;	tmp->d3 = tm2->d5 = *(double *)&tmp64;
-			tmp64 = 0x3FEF6297CFF75CB0ull;	tmp->d4 = tm2->d4 = *(double *)&tmp64;
-			tmp64 = 0x3FEF0A7EFB9230D7ull;	tmp->d5 = tm2->d3 = *(double *)&tmp64;
-			tmp64 = 0x3FEE9F4156C62DDAull;	tmp->d6 = tm2->d2 = *(double *)&tmp64;
-			tmp64 = 0x3FEE212104F686E5ull;	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;	// tmp+2
-			tmp64 = 0x3FED906BCF328D46ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	tm2 -= 2;	// tmp+5
-			tmp64 = 0x3FECED7AF43CC773ull;	tmp->d1 = tm2->d7 = *(double *)&tmp64;
-			tmp64 = 0x3FEC38B2F180BDB1ull;	tmp->d2 = tm2->d6 = *(double *)&tmp64;
-			tmp64 = 0x3FEB728345196E3Eull;	tmp->d3 = tm2->d5 = *(double *)&tmp64;
-			tmp64 = 0x3FEA9B66290EA1A3ull;	tmp->d4 = tm2->d4 = *(double *)&tmp64;
-			tmp64 = 0x3FE9B3E047F38741ull;	tmp->d5 = tm2->d3 = *(double *)&tmp64;
-			tmp64 = 0x3FE8BC806B151741ull;	tmp->d6 = tm2->d2 = *(double *)&tmp64;
-			tmp64 = 0x3FE7B5DF226AAFAFull;	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;	// tmp+4
-			tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	tm2 -= 2;	// tmp+3
-			tmp64 = 0x3FE57D69348CECA0ull;	tmp->d1 = tm2->d7 = *(double *)&tmp64;
-			tmp64 = 0x3FE44CF325091DD6ull;	tmp->d2 = tm2->d6 = *(double *)&tmp64;
-			tmp64 = 0x3FE30FF7FCE17035ull;	tmp->d3 = tm2->d5 = *(double *)&tmp64;
-			tmp64 = 0x3FE1C73B39AE68C8ull;	tmp->d4 = tm2->d4 = *(double *)&tmp64;
-			tmp64 = 0x3FE073879922FFEEull;	tmp->d5 = tm2->d3 = *(double *)&tmp64;
-			tmp64 = 0x3FDE2B5D3806F63Bull;	tmp->d6 = tm2->d2 = *(double *)&tmp64;
-			tmp64 = 0x3FDB5D1009E15CC0ull;	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;	// tmp+6
-			tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	tm2 -= 2;	// tmp+1
-			tmp64 = 0x3FD58F9A75AB1FDDull;	tmp->d1 = tm2->d7 = *(double *)&tmp64;
-			tmp64 = 0x3FD294062ED59F06ull;	tmp->d2 = tm2->d6 = *(double *)&tmp64;
-			tmp64 = 0x3FCF19F97B215F1Bull;	tmp->d3 = tm2->d5 = *(double *)&tmp64;
-			tmp64 = 0x3FC8F8B83C69A60Bull;	tmp->d4 = tm2->d4 = *(double *)&tmp64;
-			tmp64 = 0x3FC2C8106E8E613Aull;	tmp->d5 = tm2->d3 = *(double *)&tmp64;
-			tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d6 = tm2->d2 = *(double *)&tmp64;
-			tmp64 = 0x3FA91F65F10DD814ull;	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;	// tmp+8 (unused)
+			tmp64 = 0x3FEFF621E3796D7Eull;	tmp->d1 = tm2->d7 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEFD88DA3D12526ull;	tmp->d2 = tm2->d6 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEFA7557F08A517ull;	tmp->d3 = tm2->d5 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEF6297CFF75CB0ull;	tmp->d4 = tm2->d4 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEF0A7EFB9230D7ull;	tmp->d5 = tm2->d3 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEE9F4156C62DDAull;	tmp->d6 = tm2->d2 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEE212104F686E5ull;	tmp->d7 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;	// tmp+2
+			tmp64 = 0x3FED906BCF328D46ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	tm2 -= 2;	// tmp+5
+			tmp64 = 0x3FECED7AF43CC773ull;	tmp->d1 = tm2->d7 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEC38B2F180BDB1ull;	tmp->d2 = tm2->d6 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEB728345196E3Eull;	tmp->d3 = tm2->d5 = u64_to_f64(tmp64);
+			tmp64 = 0x3FEA9B66290EA1A3ull;	tmp->d4 = tm2->d4 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE9B3E047F38741ull;	tmp->d5 = tm2->d3 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE8BC806B151741ull;	tmp->d6 = tm2->d2 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE7B5DF226AAFAFull;	tmp->d7 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;	// tmp+4
+			tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	tm2 -= 2;	// tmp+3
+			tmp64 = 0x3FE57D69348CECA0ull;	tmp->d1 = tm2->d7 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE44CF325091DD6ull;	tmp->d2 = tm2->d6 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE30FF7FCE17035ull;	tmp->d3 = tm2->d5 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE1C73B39AE68C8ull;	tmp->d4 = tm2->d4 = u64_to_f64(tmp64);
+			tmp64 = 0x3FE073879922FFEEull;	tmp->d5 = tm2->d3 = u64_to_f64(tmp64);
+			tmp64 = 0x3FDE2B5D3806F63Bull;	tmp->d6 = tm2->d2 = u64_to_f64(tmp64);
+			tmp64 = 0x3FDB5D1009E15CC0ull;	tmp->d7 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;	// tmp+6
+			tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	tm2 -= 2;	// tmp+1
+			tmp64 = 0x3FD58F9A75AB1FDDull;	tmp->d1 = tm2->d7 = u64_to_f64(tmp64);
+			tmp64 = 0x3FD294062ED59F06ull;	tmp->d2 = tm2->d6 = u64_to_f64(tmp64);
+			tmp64 = 0x3FCF19F97B215F1Bull;	tmp->d3 = tm2->d5 = u64_to_f64(tmp64);
+			tmp64 = 0x3FC8F8B83C69A60Bull;	tmp->d4 = tm2->d4 = u64_to_f64(tmp64);
+			tmp64 = 0x3FC2C8106E8E613Aull;	tmp->d5 = tm2->d3 = u64_to_f64(tmp64);
+			tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d6 = tm2->d2 = u64_to_f64(tmp64);
+			tmp64 = 0x3FA91F65F10DD814ull;	tmp->d7 = tm2->d1 = u64_to_f64(tmp64);	tmp += 2;	// tmp+8 (unused)
 
 			tmp = base_negacyclic_root + 2*RADIX;	// reset to point to start of above block
 
@@ -640,37 +710,37 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tmp = base_negacyclic_root + RADIX*2;	// First 2*RADIX slots reserved for RADIX/4 copies of the Re/Im parts of the 4 base multipliers
 			tm2 = tmp + RADIX/2 - 1;
 											tmp->d0 = 1.0;	(tmp+1)->d0 = 0.0;
-			tmp64 = 0x3FEFF621E3796D7Eull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(01*I*Pi/64) = sin(63*I*Pi/64) */
-			tmp64 = 0x3FEFD88DA3D12526ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(02*I*Pi/64) = sin(62*I*Pi/64) */
-			tmp64 = 0x3FEFA7557F08A517ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(03*I*Pi/64) = sin(61*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FEF6297CFF75CB0ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(04*I*Pi/64) = sin(60*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FEF0A7EFB9230D7ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(05*I*Pi/64) = sin(59*I*Pi/64) */
-			tmp64 = 0x3FEE9F4156C62DDAull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(06*I*Pi/64) = sin(58*I*Pi/64) */
-			tmp64 = 0x3FEE212104F686E5ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(07*I*Pi/64) = sin(57*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FED906BCF328D46ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(08*I*Pi/64) = sin(56*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FECED7AF43CC773ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(09*I*Pi/64) = sin(55*I*Pi/64) */
-			tmp64 = 0x3FEC38B2F180BDB1ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(10*I*Pi/64) = sin(54*I*Pi/64) */
-			tmp64 = 0x3FEB728345196E3Eull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(11*I*Pi/64) = sin(53*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FEA9B66290EA1A3ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(12*I*Pi/64) = sin(52*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FE9B3E047F38741ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(13*I*Pi/64) = sin(51*I*Pi/64) */
-			tmp64 = 0x3FE8BC806B151741ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(14*I*Pi/64) = sin(50*I*Pi/64) */
-			tmp64 = 0x3FE7B5DF226AAFAFull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(15*I*Pi/64) = sin(49*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(16*I*Pi/64) = sin(48*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FE57D69348CECA0ull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(17*I*Pi/64) = sin(47*I*Pi/64) */
-			tmp64 = 0x3FE44CF325091DD6ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(18*I*Pi/64) = sin(46*I*Pi/64) */
-			tmp64 = 0x3FE30FF7FCE17035ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(19*I*Pi/64) = sin(45*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FE1C73B39AE68C8ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(20*I*Pi/64) = sin(44*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FE073879922FFEEull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(21*I*Pi/64) = sin(43*I*Pi/64) */
-			tmp64 = 0x3FDE2B5D3806F63Bull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(22*I*Pi/64) = sin(42*I*Pi/64) */
-			tmp64 = 0x3FDB5D1009E15CC0ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(23*I*Pi/64) = sin(41*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(24*I*Pi/64) = sin(40*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FD58F9A75AB1FDDull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(25*I*Pi/64) = sin(39*I*Pi/64) */
-			tmp64 = 0x3FD294062ED59F06ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(26*I*Pi/64) = sin(38*I*Pi/64) */
-			tmp64 = 0x3FCF19F97B215F1Bull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(27*I*Pi/64) = sin(37*I*Pi/64) */	tmp += 2;
-			tmp64 = 0x3FC8F8B83C69A60Bull;	tmp->d0 = tm2->d0 = *(double *)&tmp64;	/* cos(28*I*Pi/64) = sin(36*I*Pi/64) */	tm2 -= 2;
-			tmp64 = 0x3FC2C8106E8E613Aull;	tmp->d1 = tm2->d3 = *(double *)&tmp64;	/* cos(29*I*Pi/64) = sin(35*I*Pi/64) */
-			tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(30*I*Pi/64) = sin(34*I*Pi/64) */
-			tmp64 = 0x3FA91F65F10DD814ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(31*I*Pi/64) = sin(33*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FEFF621E3796D7Eull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(01*I*Pi/64) = sin(63*I*Pi/64) */
+			tmp64 = 0x3FEFD88DA3D12526ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(02*I*Pi/64) = sin(62*I*Pi/64) */
+			tmp64 = 0x3FEFA7557F08A517ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(03*I*Pi/64) = sin(61*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FEF6297CFF75CB0ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(04*I*Pi/64) = sin(60*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FEF0A7EFB9230D7ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(05*I*Pi/64) = sin(59*I*Pi/64) */
+			tmp64 = 0x3FEE9F4156C62DDAull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(06*I*Pi/64) = sin(58*I*Pi/64) */
+			tmp64 = 0x3FEE212104F686E5ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(07*I*Pi/64) = sin(57*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FED906BCF328D46ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(08*I*Pi/64) = sin(56*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FECED7AF43CC773ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(09*I*Pi/64) = sin(55*I*Pi/64) */
+			tmp64 = 0x3FEC38B2F180BDB1ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(10*I*Pi/64) = sin(54*I*Pi/64) */
+			tmp64 = 0x3FEB728345196E3Eull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(11*I*Pi/64) = sin(53*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FEA9B66290EA1A3ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(12*I*Pi/64) = sin(52*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FE9B3E047F38741ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(13*I*Pi/64) = sin(51*I*Pi/64) */
+			tmp64 = 0x3FE8BC806B151741ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(14*I*Pi/64) = sin(50*I*Pi/64) */
+			tmp64 = 0x3FE7B5DF226AAFAFull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(15*I*Pi/64) = sin(49*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FE6A09E667F3BCDull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(16*I*Pi/64) = sin(48*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FE57D69348CECA0ull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(17*I*Pi/64) = sin(47*I*Pi/64) */
+			tmp64 = 0x3FE44CF325091DD6ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(18*I*Pi/64) = sin(46*I*Pi/64) */
+			tmp64 = 0x3FE30FF7FCE17035ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(19*I*Pi/64) = sin(45*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FE1C73B39AE68C8ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(20*I*Pi/64) = sin(44*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FE073879922FFEEull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(21*I*Pi/64) = sin(43*I*Pi/64) */
+			tmp64 = 0x3FDE2B5D3806F63Bull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(22*I*Pi/64) = sin(42*I*Pi/64) */
+			tmp64 = 0x3FDB5D1009E15CC0ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(23*I*Pi/64) = sin(41*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FD87DE2A6AEA963ull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(24*I*Pi/64) = sin(40*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FD58F9A75AB1FDDull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(25*I*Pi/64) = sin(39*I*Pi/64) */
+			tmp64 = 0x3FD294062ED59F06ull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(26*I*Pi/64) = sin(38*I*Pi/64) */
+			tmp64 = 0x3FCF19F97B215F1Bull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(27*I*Pi/64) = sin(37*I*Pi/64) */	tmp += 2;
+			tmp64 = 0x3FC8F8B83C69A60Bull;	tmp->d0 = tm2->d0 = u64_to_f64(tmp64);	/* cos(28*I*Pi/64) = sin(36*I*Pi/64) */	tm2 -= 2;
+			tmp64 = 0x3FC2C8106E8E613Aull;	tmp->d1 = tm2->d3 = u64_to_f64(tmp64);	/* cos(29*I*Pi/64) = sin(35*I*Pi/64) */
+			tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d2 = tm2->d2 = u64_to_f64(tmp64);	/* cos(30*I*Pi/64) = sin(34*I*Pi/64) */
+			tmp64 = 0x3FA91F65F10DD814ull;	tmp->d3 = tm2->d1 = u64_to_f64(tmp64);	/* cos(31*I*Pi/64) = sin(33*I*Pi/64) */	tmp += 2;
 
 			tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
 
@@ -885,23 +955,29 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
+		#ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x16*)sse_nm1 + 1;
 		n_minus_silp1 = (struct uint32x16*)sse_nm1 + 2;
 		sinwt         = (struct uint32x16*)sse_nm1 + 3;
 		sinwtm1       = (struct uint32x16*)sse_nm1 + 4;
+		#endif
 		nbytes += 256;
 	   #else
+		#ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x8 *)sse_nm1 + 1;
 		n_minus_silp1 = (struct uint32x8 *)sse_nm1 + 2;
 		sinwt         = (struct uint32x8 *)sse_nm1 + 3;
 		sinwtm1       = (struct uint32x8 *)sse_nm1 + 4;
+		#endif
 		nbytes += 128;
 	   #endif
 	  #elif defined(USE_AVX)
+	   #ifndef MULTITHREAD
 		n_minus_sil   = (struct uint32x4 *)sse_nm1 + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_nm1 + 2;
 		sinwt         = (struct uint32x4 *)sse_nm1 + 3;
 		sinwtm1       = (struct uint32x4 *)sse_nm1 + 4;
+	   #endif
 		nbytes += 64;
 	  #endif
 
@@ -913,10 +989,12 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
 
-	  #ifdef USE_AVX
+	  #ifndef MULTITHREAD
+	   #ifdef USE_AVX
 		bjmodn = (int*)(sinwtm1 + RE_IM_STRIDE);
-	  #else
+	   #else
 		bjmodn = (int*)(sse_nm1 + RE_IM_STRIDE);
+	   #endif
 	  #endif
 
 	#endif	// USE_SSE2
@@ -945,7 +1023,9 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 		p1C = p1C + ( (p1C >> DAT_BITS) << PAD_BITS );
 
+	#if !defined(USE_SSE2) && !defined(MULTITHREAD)
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
+	#endif
 
 		poff[0] =   0; poff[1] = p04    ; poff[2] = p08; poff[3] = p04+p08;
 		poff[4] = p10; poff[5] = p04+p10; poff[6] = p18; poff[7] = p04+p18;
@@ -1683,7 +1763,7 @@ void radix32_dif_pass1(double a[], int n)
 !
 !   See the documentation in radix16_dif_pass for further details on storage and indexing.
 */
-	int j,j1,j2;
+	int j,j1;
 	static int n32,p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C, first_entry=TRUE;
 	static int arr_offsets[RADIX];
 
@@ -1745,7 +1825,6 @@ void radix32_dif_pass1(double a[], int n)
 		j1 = j;
 	#endif
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
 
 		RADIX_32_DIF(\
 			a+j1,arr_offsets,RE_IM_STRIDE,\
@@ -1765,7 +1844,7 @@ void radix32_dit_pass1(double a[], int n)
 !
 !   See the documentation in radix16_dif_pass for further details.
 */
-	int j,j1,j2;
+	int j,j1;
 	static int n32,p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C, first_entry=TRUE;
 	static int arr_offsets[RADIX];
 
@@ -1827,7 +1906,6 @@ void radix32_dit_pass1(double a[], int n)
 		j1 = j;
 	#endif
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
 
 		/* Macro-ized version of code below: */
 		RADIX_32_DIT(\
@@ -1850,14 +1928,24 @@ void radix32_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
-		struct complex *tptr;
+	#ifdef USE_SSE2
 		const int pfetch_dist = PFETCH_DIST;
+	#endif
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
-		int poff[RADIX>>2],p0123[4];	// Store mults of p-offsets for loop-controlled DFT macro calls
+		int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
+	#ifndef USE_SSE2
+		int p0123[4];
+	#endif
 		int arr_offsets[RADIX];	// Shared by the DIF & DIT
-		int j,j1,j2,jt,jp,k,l,ntmp;
-		double wtl,wtlp1,wtn,wtnm1, temp,frac, dtmp;	/* Mersenne-mod weights stuff */
+		int j,j1,j2,jt,jp,l,ntmp;
+	#ifndef USE_AVX
+		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+	#endif
+		double temp,frac;	/* Mersenne-mod weights stuff */
+	#ifdef USE_SSE2
+		double dtmp;	/* Mersenne-mod weights stuff */
+	#endif
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;
 	  #ifdef CARRY_16_WAY
@@ -1870,30 +1958,59 @@ void radix32_dit_pass1(double a[], int n)
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
-		double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+		double rt;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+	#if !defined(USE_SSE2) || defined(USE_AVX)
+		double it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+	#endif
+	#ifndef USE_SSE2
+		double wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+	#endif
+	#if !defined(USE_SSE2) || defined(USE_AVX)
 		int k1,k2;
+	#endif
 
 	#ifdef USE_SSE2
 
+	  #ifndef USE_AVX512
 		const double crnd = 3.0*0x4000000*0x2000000;
+	  #endif
 		double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
-		int *itmp,*itm2;	// Pointers into the bjmodn array
+		vec_dbl *tmp,*tm2;	// utility ptrs
+	  #ifdef USE_AVX
+		vec_dbl *tm0;	// utility ptrs
+	  #endif
+		vec_dbl *tm1;	// utility ptrs
+		int *itmp;	// Pointers into the bjmodn array
+	  #if defined(USE_AVX) && !defined(USE_AVX512)
+		int *itm2;	// Pointers into the bjmodn array
+	  #endif
+	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *two,*one,*sqrt2,*isrt2, *cc2, *ss2, *cc1, *ss1, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
-			,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
+	  #endif
+		vec_dbl /* *two,*one,*sqrt2, */*isrt2, /* *cc2, *ss2, *cc1, *ss1, *cc3, *ss3, */ *max_err
+		  #ifndef USE_AVX512
+			,*sse2_rnd
+		  #endif
+			,*half_arr
+			,*r00/* ,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 			,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E
 			,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
-			,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E
-			,*cy_r,*cy_i;
+			,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
+			,*cy_r
+		#ifdef USE_AVX
+			,*cy_i
+		#endif
+			;
 	  #ifdef USE_AVX
 		vec_dbl *base_negacyclic_root;
 	  #endif
 
 		/* These are used in conjunction with the langth-odd_radix arrays in the USE_SCALAR_CARRY #define below;
 		In SSE2 mode store doubled versions of these data in the scratch storage accessed via the half_arr pointer: */
+	  #ifndef USE_AVX
 		int idx_offset, idx_incr;
+	  #endif
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
 
 	#else
@@ -1904,18 +2021,16 @@ void radix32_dit_pass1(double a[], int n)
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 		int bjmodn[RADIX];	// Thread only carries a base datum here, must alloc a local array for remaining values
 		double *cy_r = thread_arg->cy_r,*cy_i = thread_arg->cy_i;
-		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
-		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
-		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
 		int *itmp;	// Pointer into the bjmodn array
 
 	#endif
 
 	// int data:
-		int iter = thread_arg->iter;
 		int NDIVR = thread_arg->ndivr;
-		int n = NDIVR*RADIX, nm1 = n-1;
+		int n = NDIVR*RADIX;
+	#ifndef USE_SSE2
+		int nm1 = n-1;
+	#endif
 		int target_idx = thread_arg->target_idx;
 		int target_set = thread_arg->target_set;
 		double target_cy  = thread_arg->target_cy;
@@ -1926,8 +2041,14 @@ void radix32_dit_pass1(double a[], int n)
 		int col = thread_arg->col;
 		int co2 = thread_arg->co2;
 		int co3 = thread_arg->co3;
-		int sw  = thread_arg->sw, bw = n - sw;
-		int nwt = thread_arg->nwt, nwtml;
+		int sw  = thread_arg->sw;
+	#ifndef USE_SSE2
+		int bw = n - sw;
+	#endif
+		int nwt = thread_arg->nwt;
+	#ifndef USE_AVX
+		int nwtml;
+	#endif
 
 	// double data:
 		double maxerr = thread_arg->maxerr;
@@ -1969,7 +2090,9 @@ void radix32_dit_pass1(double a[], int n)
 		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 		p1C = p1C + ( (p1C >> DAT_BITS) << PAD_BITS );
 
+	#ifndef USE_SSE2
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
+	#endif
 
 		poff[0] =   0; poff[1] = p04    ; poff[2] = p08; poff[3] = p04+p08;
 		poff[4] = p10; poff[5] = p04+p10; poff[6] = p18; poff[7] = p04+p18;
@@ -1989,30 +2112,30 @@ void radix32_dit_pass1(double a[], int n)
 		}
 
 		tmp = thread_arg->r00;	// declared above
-		r00 = tmp + 0x00;	r10 = tmp + 0x10;	r20 = tmp + 0x20;	r30 = tmp + 0x30;
-		r02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
-		r04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
-		r06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
-		r08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
-		r0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
-		r0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
-		r0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
+		r00 = tmp + 0x00;	//r10 = tmp + 0x10;	r20 = tmp + 0x20;	r30 = tmp + 0x30;
+		//r02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
+		//r04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
+		//r06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
+		//r08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
+		//r0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
+		//r0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
+		//r0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
 		tmp += 0x40;
-		two  	= tmp + 0x0;
-		one 	= tmp + 0x1;
-		sqrt2	= tmp + 0x2;
+		//two  	= tmp + 0x0;
+		//one 	= tmp + 0x1;
+		//sqrt2	= tmp + 0x2;
 		isrt2	= tmp + 0x3;
-		cc2		= tmp + 0x4;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
-		ss2		= tmp + 0x5;
-		cc1		= tmp + 0x6;
-		ss1		= tmp + 0x7;
-		cc3		= tmp + 0x8;
-		ss3		= tmp + 0x9;
+		//cc2		= tmp + 0x4;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
+		//ss2		= tmp + 0x5;
+		//cc1		= tmp + 0x6;
+		//ss1		= tmp + 0x7;
+		//cc3		= tmp + 0x8;
+		//ss3		= tmp + 0x9;
 		tmp += 0xa;
 	  #ifdef USE_AVX512
 		cy_r = tmp;	cy_i = tmp+0x04;	tmp += 0x08;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
+		//sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 		base_negacyclic_root = half_arr + RADIX;	// Only used for Fermat-mod
 	  #elif defined(USE_AVX)
@@ -2022,7 +2145,7 @@ void radix32_dit_pass1(double a[], int n)
 		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 		base_negacyclic_root = half_arr + RADIX;	// Only used for Fermat-mod
 	  #else
-		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;	/* cy_i = tmp+0x10; */	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */

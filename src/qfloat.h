@@ -130,10 +130,10 @@ uint64 qfdbl_as_uint64(const struct qfloat q);
 double qfdbl		(const struct qfloat q);
 double qfdbl_wrong_way_rnd(struct qfloat q);
 double dbl_flip_lsb	(double d);
-long double qfldbl	(const struct qfloat q);
+long double qfldbl	(const struct qfloat q);	// This should only be used for x87 code.
 // double / long-double --> qfloat conversions:
 struct qfloat dbl_to_q	(double d);
-struct qfloat ldbl_to_q	(long double ld);
+struct qfloat ldbl_to_q	(long double ld);		// This should only be used for x87 code.
 // int --> qfloat conversion:
 struct qfloat i64_to_q	(int64 i64);
 struct qfloat i128_to_q	(uint128 i);

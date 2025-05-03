@@ -57,7 +57,6 @@ void radix16_wrapper_square(
 	int init_sse2, int thr_id, uint64 fwd_fft_only, double c_arr[]
 )
 {
-	const char func[] = "radix16_wrapper_square";
 /*
 !   NOTE: In the following commentary, N refers to the COMPLEX vector length (N2 in the code),
 !   which is half the real vector length.
@@ -113,7 +112,9 @@ void radix16_wrapper_square(
 
 The scratch array (2nd input argument) is only needed for data table initializations, i.e. if first_entry = TRUE.
 */
+#ifdef USE_AVX
 	const int pfetch_dist = PFETCH_DIST;
+#endif
 #ifdef USE_SSE2
 	const int stride = (int)RE_IM_STRIDE << 4;	// main-array loop stride = 32 for SSE2, 64 for AVX, 128 for AVX-512
 #else
@@ -127,7 +128,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #endif
 	int *itmp = 0x0;
 	int rdum,idum, j1pad,j2pad,kp,l,iroot,k1,k2;
-	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum,nbytes;
+	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
+#ifdef USE_SSE2
+	int nbytes;
+#endif
 	/*int ndivrad0m1;*/
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
 	double rt,it, RT = 0.0,IT = 0.0;	// Caps used to highlight roots terms which need saving-for-squaring-step
@@ -161,10 +165,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #ifdef USE_AVX512
 	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7, *cdd4,*cdd5,*cdd6,*cdd7;
   #endif
-	vec_dbl *tmp,*tm1, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
-  #ifdef USE_AVX2
-	vec_dbl *bpt4,*bpt5,*bpt6,*bpt7;
+  #ifdef USE_PRECOMPUTED_TWIDDLES
+	vec_dbl *tmp,*tm1, *c_tmp,*s_tmp;
   #endif
+	vec_dbl *bpt0,*bpt1,*bpt2,*bpt3;
 
   #ifdef MULTITHREAD
 	// Base addresses for discrete per-thread local stores ... 'r' for double-float data, 'i' for int:
@@ -227,7 +231,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		#endif
 
 		#ifdef USE_SSE2
-		//	fprintf(stderr, "%s: pfetch_dist = %d\n",func,pfetch_dist);
+		//	fprintf(stderr, "%s: pfetch_dist = %d\n",__FUNCTION__,pfetch_dist);
 			if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 				free((void *)sm_arr);	sm_arr=0x0;
 				free((void *)sc_arr);	sc_arr=0x0;
@@ -235,8 +239,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			// Index vectors used in SIMD roots-computation.
 			// The AVX512 compute-sincos-mults code needs 2 elements per complex-double-load, so use 10*RE_IM_STRIDE per array
 			// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
-			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-			sm_ptr = ALIGN_INT(sm_arr);
+			sm_arr = ALLOC_UINT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+			sm_ptr = ALIGN_UINT(sm_arr);
 			ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 			// Twiddles-array: Need 0x47 slots for data, plus need to leave room to pad-align.
 			// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 32 added vec_dbl, thus 0x4c ==> 0x6c:
@@ -395,7 +399,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
 	#ifdef USE_PRECOMPUTED_TWIDDLES
-	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",func,N2*15/8);
+	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",__FUNCTION__,N2*15/8);
 		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(twidl_ptmp != 0,"ERROR: unable to allocate twidl_ptmp!");
 		twidl = ALIGN_COMPLEX(twidl_ptmp);	ASSERT(((long)twidl & 0x3f) == 0, "twidl-array not 64-byte aligned!");
 	#endif
@@ -2041,7 +2045,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 	  #endif
 
 		// Use scalar code (with index offsets properly fiddled) for j1 == 0 case in SIMD mode:
+  #ifdef USE_AVX
 	jump_new:
+  #endif
 	  #ifdef USE_AVX
 		// SSE2/AVX/AVX-512 need SIMD data processing to begin at j1 = 64,128,256, respectively. Here, 160
 		// is the scalar-DFT-mode j1-value which is followed by j1 = 256 after block-index updating:
@@ -2093,8 +2099,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	#endif	// USE_SSE2
 
-	if(fwd_fft_only == 3)
+	if(fwd_fft_only == 3) {
 		goto skip_fwd_fft;	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
+	}
 
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
@@ -4698,7 +4705,7 @@ loop:
 !   second execution of the above loop. The exception is the first loop execution, where j1 needs to be doubled (32 x 2).
 */
 
-update_blocklen:
+//update_blocklen:
 
 	j1 = j1+(blocklen << 1);
 //	fprintf(stderr,"(j2_start == %d\n",j2_start);
@@ -4762,7 +4769,7 @@ update_blocklen:
 	j2=j2_start;			    /* Reset j2 for start of the next block. */
 
 //	fprintf(stderr,"after update_blocklen: j1,j2 = %u, %u\n",j1,j2);
-//	fprintf(stderr,"%s[thread %u]: after update_blocklen: j1,j2 = %u,%u; k = %u\n",func,thr_id,j1,j2,k);
+//	fprintf(stderr,"%s[thread %u]: after update_blocklen: j1,j2 = %u,%u; k = %u\n",__FUNCTION__,thr_id,j1,j2,k);
 
 /*printf("newblock: blocklen = %8d blocklen_sum = %8d j2 = %8d\n",blocklen,blocklen_sum,j2);*/
 }	 /* End of Main (i) loop */
