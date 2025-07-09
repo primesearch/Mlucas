@@ -442,12 +442,12 @@ jobs:
     - name: Install
       if: ${{ ! endsWith(matrix.os, '-arm') }}
       run: |
-        pacman -S --noconfirm "${PACKAGE_PREFIX}gmp" "${PACKAGE_PREFIX}hwloc"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
         & $env:CC --version
     - name: Install Clang
       if: ${{ matrix.cc == 'clang' }}
       run: |
-        pacman -S --noconfirm "${PACKAGE_PREFIX}clang"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}clang"
         (Get-Content makemake.sh) -replace ' -flto', '' | Set-Content makemake.sh
     - name: Before script
       shell: bash
@@ -513,8 +513,8 @@ jobs:
         echo "LDFLAGS=-LC:\msys64\clang64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
     - name: Install
       run: |
-        pacman -S --noconfirm "${PACKAGE_PREFIX}toolchain"
-        pacman -S --noconfirm "${PACKAGE_PREFIX}gmp" "${PACKAGE_PREFIX}hwloc"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}toolchain"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
     - name: Before script
       shell: bash
       run: |

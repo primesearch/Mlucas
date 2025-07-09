@@ -59,7 +59,7 @@ case $OSTYPE in
 		echo -e "MacOS detected for build host.\n"
 		CPU_THREADS=$(sysctl -n hw.ncpu)
 		;;
-	msys)
+	msys | cygwin)
 		echo -e "Windows detected for build host.\n"
 		CPU_THREADS=$NUMBER_OF_PROCESSORS
 		;;
@@ -92,7 +92,7 @@ fi
 if [[ ! $OSTYPE == darwin* ]]; then
 	MAKE_ARGS+=(-O)
 	LD_ARGS+=(-lm -lpthread)
-	if [[ $OSTYPE != msys ]]; then
+	if [[ $OSTYPE != msys && $OSTYPE != cygwin ]]; then
 		LD_ARGS+=(-lrt)
 	fi
 fi
@@ -172,7 +172,7 @@ if [[ -n $WORDS ]]; then
 	fi
 fi
 
-if [[ $OSTYPE == msys ]]; then
+if [[ $OSTYPE == msys || $OSTYPE == cygwin ]]; then
 	Mlucas+=.exe
 	Mfactor+=.exe
 	TARGET+=.exe
