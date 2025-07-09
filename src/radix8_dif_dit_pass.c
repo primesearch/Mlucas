@@ -46,11 +46,19 @@
 */
 void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
+#ifdef USE_SSE2
 	static int max_threads = 0;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+	int i,j,j1,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+#ifndef USE_SSE2
+	int j2;
+#endif
 	int p1,p2,p3,p4,p5,p6,p7;
-	double dtmp,rt,it;
+#ifdef USE_SSE2
+	double dtmp;
+#endif
+	double rt,it;
 	double re0,im0,re1,im1;
 
 #ifdef USE_SSE2
@@ -124,8 +132,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 			/* These remain fixed within each per-thread local store: */
 		  #if 1
 			// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		  #else
 			VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 		  #endif
@@ -151,8 +159,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -180,8 +188,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -391,7 +399,9 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 	  {
 		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 	#ifdef USE_SSE2
 
@@ -506,11 +516,19 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 */
 void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
+#ifdef USE_SSE2
 	static int max_threads = 0;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+	int i,j,j1,jlo,jhi,m,iroot_prim,iroot,k1,k2;
+#ifndef USE_SSE2
+	int j2;
+#endif
 	int p1,p2,p3,p4,p5,p6,p7;
-	double dtmp,rt,it;
+#ifdef USE_SSE2
+	double dtmp;
+#endif
+	double rt,it;
 	double re0,im0,re1,im1;
 
 #ifdef USE_SSE2
@@ -584,8 +602,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 			/* These remain fixed within each per-thread local store: */
 		  #if 1
 			// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 		  #else
 			VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 		  #endif
@@ -611,8 +629,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -643,8 +661,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		/* These remain fixed: */
 	  #if 1
 		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		dtmp = u64_to_f64(sqrt2_dn);	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = u64_to_f64(isrt2_dn);	VEC_DBL_INIT(isrt2, dtmp);
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
@@ -901,7 +919,9 @@ if(1) {
 	  {
 		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 	#ifdef USE_SSE2
 

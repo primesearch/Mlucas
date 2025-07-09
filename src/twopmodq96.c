@@ -194,7 +194,7 @@ uint96 twopmodq96(uint64 p, uint64 k)
 	uint128 y;
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
-	uint64 pshift, hi64, tmp;
+	uint64 pshift, hi64;
 	uint96 q, qhalf, qinv, x, lo, hi;
 	uint32 jshift, leadb, start_index, zshift;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
@@ -445,7 +445,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			,*qhalf0,*qhalf1,*qhalf2,*qhalf3
 			,*x0,*x1,*x2,*x3
 			,*lo0,*lo1,*lo2,*lo3
-			,*hi0,*hi1,*hi2,*hi3
+			//,*hi0,*hi1,*hi2,*hi3
 			,*ONE96_PTR;
 	#else
 		static uint96
@@ -454,7 +454,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			,*qhalf0,*qhalf1,*qhalf2,*qhalf3
 			,*x0,*x1,*x2,*x3
 			,*lo0,*lo1,*lo2,*lo3
-			,*hi0,*hi1,*hi2,*hi3
+			//,*hi0,*hi1,*hi2,*hi3
 			,*ONE96_PTR;
 	#endif
 		 int32 j;
@@ -506,7 +506,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			x0     = (uint96*)(sm_ptr + 0x10);	x1     = (uint96*)(sm_ptr + 0x12);	x2     = (uint96*)(sm_ptr + 0x14);	x3     = (uint96*)(sm_ptr + 0x16);
 			lo0    = (uint96*)(sm_ptr + 0x18);	lo1    = (uint96*)(sm_ptr + 0x1a);	lo2    = (uint96*)(sm_ptr + 0x1c);	lo3    = (uint96*)(sm_ptr + 0x1e);
 			qhalf0 = (uint96*)(sm_ptr + 0x20);	qhalf1 = (uint96*)(sm_ptr + 0x22);	qhalf2 = (uint96*)(sm_ptr + 0x24);	qhalf3 = (uint96*)(sm_ptr + 0x26);
-			hi0    = (uint96*)(sm_ptr + 0x28);	hi1    = (uint96*)(sm_ptr + 0x2a);	hi2    = (uint96*)(sm_ptr + 0x2c);	hi3    = (uint96*)(sm_ptr + 0x2e);
+			//hi0    = (uint96*)(sm_ptr + 0x28);	hi1    = (uint96*)(sm_ptr + 0x2a);	hi2    = (uint96*)(sm_ptr + 0x2c);	hi3    = (uint96*)(sm_ptr + 0x2e);
 			ONE96_PTR = (uint96*)(sm_ptr + 0x30);
 			ptr64 = (uint64*)ONE96_PTR;	*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
 		#endif
@@ -522,7 +522,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		x0     = (uint96*)(ptr64 + 0x10);	x1     = (uint96*)(ptr64 + 0x12);	x2     = (uint96*)(ptr64 + 0x14);	x3     = (uint96*)(ptr64 + 0x16);
 		lo0    = (uint96*)(ptr64 + 0x18);	lo1    = (uint96*)(ptr64 + 0x1a);	lo2    = (uint96*)(ptr64 + 0x1c);	lo3    = (uint96*)(ptr64 + 0x1e);
 		qhalf0 = (uint96*)(ptr64 + 0x20);	qhalf1 = (uint96*)(ptr64 + 0x22);	qhalf2 = (uint96*)(ptr64 + 0x24);	qhalf3 = (uint96*)(ptr64 + 0x26);
-		hi0    = (uint96*)(ptr64 + 0x28);	hi1    = (uint96*)(ptr64 + 0x2a);	hi2    = (uint96*)(ptr64 + 0x2c);	hi3    = (uint96*)(ptr64 + 0x2e);
+		//hi0    = (uint96*)(ptr64 + 0x28);	hi1    = (uint96*)(ptr64 + 0x2a);	hi2    = (uint96*)(ptr64 + 0x2c);	hi3    = (uint96*)(ptr64 + 0x2e);
 		ONE96_PTR = (uint96*)(ptr64 + 0x30);
 	//	printf("Thr %d ONE96_PTR address = %" PRIX64 "; data.d0,d1 = %" PRIu64 ",%u\n",thr_id,(uint64)ONE96_PTR,ONE96_PTR->d0,ONE96_PTR->d1);
 		ASSERT((ONE96_PTR->d0 == ONE96.d0) && (ONE96_PTR->d1 == ONE96.d1), "Bad data at ONE96_PTR address!");

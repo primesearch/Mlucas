@@ -87,16 +87,17 @@
 // Conventional positive-power version of twopmodq256, returns true mod:
 uint256 twopmmodq256(uint256 p, uint256 q)
 {
-	 int32 j, pow;	// j needs to be signed because of the LR binary exponentiation
+	int32 j;
 #if FAC_DEBUG
+	int32 pow;
 	int dbg = STREQ(&char_buf[convert_uint256_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 #endif
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 lo64;
 	uint256 pshift, qhalf, qinv, x, lo,hi, rsqr;
-	// char_buf is local, cstr is globall available:
+	// char_buf is local, g_cstr is globally available:
 #if FAC_DEBUG
-	if(dbg) printf("twopmmodq256: computing 2^%s (mod %s)\n",&char_buf[convert_uint256_base10_char(char_buf,p)],&cstr[convert_uint256_base10_char(cstr,q)]);
+	if(dbg) printf("twopmmodq256: computing 2^%s (mod %s)\n",&char_buf[convert_uint256_base10_char(char_buf,p)],&g_cstr[convert_uint256_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST256(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 	// If p <= 256, directly compute 2^p (mod q):
