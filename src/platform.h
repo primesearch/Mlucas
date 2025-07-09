@@ -1140,7 +1140,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 #endif
 
 /* Time to name names: */
-#if(defined(OS_TYPE_WINDOWS))
+#if(defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)) /* MinGW builds use the Linux codepath with defined(__MINGW32__) overrides */
   #if OS_DEBUG
 	#warning	OS_NAME "Windows"
   #endif
