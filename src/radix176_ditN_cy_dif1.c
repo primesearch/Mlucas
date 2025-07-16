@@ -397,7 +397,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 						// was not threadsafe since FFT-length-raising causes wt0,wt1 arrays to be realloc'ed and reinited.
 						// The realloc will generally leave the wt0 small-table the same size, but the pointer to wt1 will
 						// change. If that's the case, we need it to trigger a fully thread-data reinit:
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+						// Jul 2025: In some cases (always on x86-64 Windows, one report on ARM Linux) the pointers to
+						// wt0 and/or si (rn0 for Fermat numbers) change while the pointer to wt1 doesn't. We need to check all of them.
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
