@@ -188,7 +188,7 @@ of the leading 3 characters of the two version strings in question.
 A version suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
 A third index following release # indicates a patch number relative to that release. No 3rd index can be read as "patch number 0".
 */
-const char VERSION   [] = "21.0.1";
+const char VERSION   [] = "21.0.2";
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -388,7 +388,7 @@ uint32	ernstMain
 	// (for p < 10^8) by the Lenstra/Wagstaff heuristic (cf. est_num_mp_in_interval() in util.c):
 	const uint32 knowns[] = {2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941,11213,19937,21701	// M#1-25
 		,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593,13466917,20996011		// M#26-40
-		,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,77232917,82589933,0x0};	// M#41-51
+		,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,77232917,82589933,136279841,0x0};	// M#41-52
 
 /*...What a bunch of characters...	*/
 	char *cptr = 0x0, *endp, gcd_str[STR_MAX_LEN], aid[33] = "\0";	// 32-hexit Primenet assignment id needs 33rd char for \0
@@ -1664,6 +1664,7 @@ READ_RESTART_FILE:
 	} else if(DO_GCHECK) {
 		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && !INTERACT) {	// Allow shift in timing-test mode
 			ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
+			// exit(1);
 		}
 		memcpy(d, b, nbytes);	// If doing a PRP test, init redundant copy d[] Gerbicz residue-product accumulator b[].
 	}
@@ -3458,8 +3459,8 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 #define numTeensy			15	// v21: added 'Teensy', moved 8 smallest 'Tiny' into it,
 #define numTiny 			32	// changed counts from [-,32,32,16,24,16,9,0,0] to [15,32,24,20,20,16,9,0,0]
 #define numSmall			24
-#define numMedium			20
-#define numLarge			20
+#define numMedium			24
+#define numLarge			16
 #define numHuge				16
 /* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
 #define numEgregious		 9
@@ -3605,11 +3606,11 @@ struct testMers MersVec[numTest+1] =
 	{  9216, 171465013ull, { {0x60FE24EF89D6140Eull, 25324379967ull,  3841674711ull}, {0x6753411471AD8945ull, 17806860702ull,  3977771754ull}, {0xED3635BF88F37FEFull,  7478721112ull, 47452797377ull} } },
 	{ 10240, 190066777ull, { {0x65CF47927C02AC8Eull, 33635344843ull, 67530958158ull}, {0xBADA7FD24D959D21ull, 12777066809ull, 67273129313ull}, {0x82F65495D24A985Full, 22254800275ull, 49183722280ull} } },
 	{ 11264, 208626181ull, { {0x6FC0151B81E5173Full, 29164620640ull, 19126254587ull}, {0xD74AA66757A5345Eull, 17524190590ull, 14029371481ull}, {0xDCF9ED39C7EB15B8ull, 34266921309ull, 65896285387ull} } },
-	/* Large: */
 	{ 12288, 227147083ull, { {0xE01AE9C859ADB03Aull,  7273133358ull,   681418986ull}, {0x303F142E1E88D5B4ull, 28479237457ull, 42044197589ull}, {0x3102781BC131D263ull, 24437355640ull, 48518577431ull} } },
 	{ 13312, 245632679ull, { {0x0A6ACB405ADC0354ull,    39452330ull, 38999048555ull}, {0xB38B02A4F195762Full,  3280152282ull, 30314100936ull}, {0xF020F5041AE2CABEull, 24388185991ull, 16285954298ull} } },
 	{ 14336, 264085733ull, { {0x5ACE4CCE3B925A81ull,  4584210608ull, 36618317213ull}, {0x02F5EC0CBB1C2032ull, 27165893636ull,   687123146ull}, {0xC6D65BD8A6087F08ull, 15586314376ull, 54717373852ull} } },
 	{ 15360, 282508657ull, { {0xE7B08ED3A92EC6ECull,   875689313ull, 41754616020ull}, {0xD08FBAFF5CA5096Full, 30398073011ull, 62088094181ull}, {0xD6B7357DF761AA51ull, 28631146088ull, 26883666300ull} } },
+	/* Large: */
 	{ 16384, 300903377ull, { {0xA23E8D2F532F05E6ull, 17871262795ull, 53388776441ull}, {0x14F20059083BF452ull, 16549596802ull, 56184170215ull}, {0x76B8A857EC9B3042ull, 14094306048ull, 61845793513ull} } },
 	{ 18432, 337615277ull, { {0xAEB976D153A4176Bull, 15040345558ull, 14542578090ull}, {0x503B443CB1E0CD2Dull, 29149628739ull,  5785599363ull}, {0x2D3047CEFF2F5A6Dull,  6100949709ull, 36303747216ull} } },
 	{ 20480, 374233309ull, { {0x6D95C0E62C8F9606ull,  3426866174ull, 39787406588ull}, {0xD08FB9031D460B7Eull, 30083048700ull, 30636357797ull}, {0x3A58018C387FBB68ull, 26771468430ull,  7763681227ull} } },
@@ -3760,11 +3761,11 @@ struct testMers MvecPRP[numTest+1] =
 	{  9216, 171465013ull, { {0x7FC9A3D6580A67DBull,  2493822844ull, 32653389776ull}, {0xEDBDBED649AC1C07ull, 31826896222ull, 51396833159ull}, {0x1259EFF4D4B88CE2ull, 20123348812ull, 61034401374ull} } },
 	{ 10240, 190066777ull, { {0xC875BAE2D9D23F8Eull, 10787379418ull, 62215501884ull}, {0xD0534B8C3FD4FEBDull, 22561335508ull, 19377764663ull}, {0xD7B93BF968F0F50Full, 24193017740ull,  1698596575ull} } },
 	{ 11264, 208626181ull, { {0x121330EF1C9C65D4ull, 15421852243ull, 16454197259ull}, {0x9342E60165C9515Bull, 21714755947ull,  9528514349ull}, {0xB73DA3A3DCFC2715ull, 18785773681ull,  5941932830ull} } },
-	/* Large: */
 	{ 12288, 227147083ull, { {0x939900344B3A9CF5ull, 10791587738ull, 51376518661ull}, {0x9B6A405153110744ull, 33911048215ull, 10244698095ull}, {0x372C128DE18F44A8ull, 22661022105ull, 28319883481ull} } },
 	{ 13312, 245632679ull, { {0x77BAD267187DB572ull,  6978161239ull, 31566453664ull}, {0x843B2C80EFD985D4ull, 31638655555ull, 34886706969ull}, {0xFEA3E15FF92C0B9Eull, 25087739150ull, 65596702716ull} } },
 	{ 14336, 264085733ull, { {0x3B6C5DD137A06F3Cull,  2041442582ull, 41068697072ull}, {0x1D4E6F465FB90F6Eull, 30561782032ull,  1263429588ull}, {0xAA93E30434811C8Dull,  2228362920ull,  8335956471ull} } },
 	{ 15360, 282508657ull, { {0x006B5DC0A65002D1ull, 31937249556ull, 54892782386ull}, {0xCC239E0E7FCBC7E2ull, 22387326720ull, 24840066078ull}, {0x804B979EB89922BAull, 26535016499ull, 63049971720ull} } },
+	/* Large: */
 	{ 16384, 300903377ull, { {0xE1FFB7FA51A666BDull, 16509353676ull, 33290659747ull}, {0x729F90E2F3D1C751ull, 11110715400ull, 57675528900ull}, {0xE584214AFA269421ull, 33543551870ull, 17530147104ull} } },
 	{ 18432, 337615277ull, { {0x4EA0D844C4D4A158ull, 15144962431ull, 63334776550ull}, {0xB23CA173BE980CD5ull, 34244619245ull, 21356443084ull}, {0xBCE24CE8A48EF4C8ull, 18408960714ull, 40047346011ull} } },
 	{ 20480, 374233309ull, { {0xAC8A22C76BFE8A7Dull, 30655495979ull, 20979915815ull}, {0xB31E512AD3D23426ull, 19514358995ull, 11856185197ull}, {0x38B9508197A2F880ull, 17914520610ull, 40675602543ull} } },
@@ -6182,13 +6183,14 @@ void generate_JSON_report(
 		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
 			strncpy(aid,char_addr,32);
 	}
+	const uint32 error_code = (MIN(NERR_ROE, 0x3F) << 8) | (MIN(NERR_GCHECK, 0xF) << 20);
 	// Write the result line. The 2 nested conditionals here are LL-or-PRP and has-AID-or-not:
 	if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 		snprintf(ttype,10,"LL");
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer,aid);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP && KNOWN_FACTORS[0]) {	// PRP-CF result
 		// Print list of known factors used for CF test. Unlike the Primenet assignment formtting on the input side,
@@ -6207,19 +6209,19 @@ void generate_JSON_report(
 		strcat( cbuf, "]");
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer,aid);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {	// Only support type-1 PRP tests, so hardcode that subfield:
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
 		if(*aid) {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer,aid);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,VERSION,timebuffer);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PM1) {	// For p-1 assume there was an AID in the assignment, even if an all-0s one:
-		snprintf(ttype,10,"PM1");
+		snprintf(ttype,10,"P-1");
 		if(!strlen(factor)) {	// No factor was found:
 		  if(*aid) {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%" PRIu64 ", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer,aid);
