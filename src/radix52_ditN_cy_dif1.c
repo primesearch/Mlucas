@@ -328,7 +328,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 
 	if(p != psave || n != nsave
 	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;

@@ -386,7 +386,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 
 	if(p != psave || n != nsave
 	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si || tdat[0].rn0 != rn0))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
