@@ -2645,7 +2645,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 							}
 							// Now compare the params from the restartfile vs those captured in the log:
 							if(psmall)
-								ASSERT(psmall == i && B2_start == B2/psmall, "Stage 2 params mismatch those captured in the .stat logfile!");
+								ASSERT(psmall == i && (B2_start == psmall * B1 || B2_start == B2 / psmall), "Stage 2 params mismatch those captured in the .stat logfile!");
 							else
 								psmall = i;
 							// If stage 2 q of checkpoint >= B2, proceed directly to GCD:
