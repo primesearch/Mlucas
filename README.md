@@ -64,8 +64,8 @@ Dependencies:
 ##### macOS
 
 1. Verify that the dependencies above are installed. Run: `brew install gmp hwloc`.
-2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `curl -LO https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-3. To download AutoPrimeNet, run: `curl -sSLO https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`.
+2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `curl -fLO https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
+3. To download AutoPrimeNet, run: `curl -sSfLO https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`.
 
 ##### Windows
 
