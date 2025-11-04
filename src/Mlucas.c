@@ -641,6 +641,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		by that (mod 9) to get k. Note the difference between this mod-inverse computation and the one in option [1]: This one is
 		not the mod-inverse w.r.to N, it's one w.r.to a^2, which is tiny compared to N.
 			Calling that with args x = 4, n = 9 gives our k = -3*modinv(4,9) = -3*-2 = 6, same as the above trial-and-error approach.
+
+		Syntax.
+			{PRP|PRPDC}=[AID,]k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]
+			https://github.com/shafferjohn/Prime95/blob/bd33606ac1d821413edac86409760e68a2665faf/commonc.c#L3042
 		*/
 		if((char_addr = strstr(in_line, "PRP")) != 0)	// This also handles the PRPDC= format
 		{
@@ -649,13 +653,17 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			// Next 2 entries in in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
+			// Check for known factors, determine where the cptr portion ends.
+			char* startq = NULL;
+			extract_known_factors_from_line_end(p, cptr, &startq);
+
+			// Next 2 entries in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
 			TF_BITS = 0xffffffff; tests_saved = 0.0;
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
+			if((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0) {
 				cptr++;
 				// Only check if there's an appropriate TF_BITS entry in the input line
 				TF_BITS = strtoul(++char_addr, &endp, 10);
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
+				ASSERT((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
 				tests_saved = strtod(++char_addr, &endp);
 				if(tests_saved < 0 || tests_saved > 2) {
 					sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
@@ -690,24 +698,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 				goto GET_NEXT_ASSIGNMENT;
 			}	// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
-			if(!cptr || (char_addr = strstr(cptr, ",")) == 0x0) {
-				PRP_BASE = 3;
-				TEST_TYPE = TEST_TYPE_PRP;
-			} else {	// PRP double-check:
-				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
-				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(i == 3,"PRP-test base must be 3!");
-				PRP_BASE = i;
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
-				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
-				// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-				if(*cptr == ',')						//vv--- Pass in unused file-ptr fq here in case function emits any messages:
-					nfac = extract_known_factors(p,cptr+1);
-				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
-				if(KNOWN_FACTORS[0] != 0ull) {
-					ASSERT(i == 5,"Only PRP-CF tests of type 5 supported!");
-					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
-				}
-			}
 			goto GET_EXPO;
 		}
 		else if((char_addr = strstr(in_line, "Fermat")) != 0)
@@ -6436,6 +6426,36 @@ uint32 extract_known_factors(uint64 p, char*fac_start) {
 	exit(0);
 #endif
 	return nfac;
+}
+
+/*********************/
+
+/*
+Extract known factors by jumping to end of line. line_start does not need to be start of line, but
+has to include the starting double-quote of the known-factors string.
+
+If startq_out != NULL, sets *startq_out to point to either the first dquote (if present) or to line_end
+to ease further processing by caller.
+*/
+uint32 extract_known_factors_from_line_end(uint64 p, char*line_start, char**startq_out) {
+	const char* line_end = strchr(line_start, '\n');
+	if (line_end == NULL) {
+		line_end = line_start + strlen(line_start);
+	}
+	const char* last = line_end - 1;
+	if (startq_out != NULL) {
+		*startq_out = line_end;
+	}
+	if (last > line_start && *last == '\"') {
+		const char* startq = memrchr(line_start, '\"', last - line_start);
+		if (startq != NULL && startq < last) {
+			if (startq_out != NULL) {
+				*startq_out = startq;
+			}
+			return extract_known_factors(p, (char*)startq);
+		}
+	}
+	return 0;
 }
 
 /*********************/

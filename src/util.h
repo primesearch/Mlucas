@@ -26,6 +26,7 @@
 #ifndef util_h_included
 #define util_h_included
 
+#include "config.h"
 #include "masterdefs.h"
 #include "types.h"
 #include "float_intrin.h"

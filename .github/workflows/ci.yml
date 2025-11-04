@@ -200,6 +200,7 @@ jobs:
       run: |
         set -x
         set -o pipefail
+        cp src/config.analyzer.h src/config.h
         gcc -c -fdiagnostics-color -g -O3 -march=native -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
         rm -- *.o
         echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
@@ -220,6 +221,7 @@ jobs:
       run: |
         set -x
         set -o pipefail
+        cp src/config.analyzer.h src/config.h
         clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -Wall -O3 -march=native -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
         echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
