@@ -148,7 +148,7 @@ jobs:
     - name: Before script
       # With [^\s]* we also remove possible -flto= stuff
       run: |
-        sed -i 's/-O3 -flto[^\s]*/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i 's/-O3 -flto[^[:space:]]*/-Og -fsanitize=address,undefined/' makemake.sh
         $CC --version
     - name: Script
       run: |
