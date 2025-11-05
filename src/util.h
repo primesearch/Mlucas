@@ -189,7 +189,7 @@ int		mkdir_p(char *path); /* Emulate `mkdir -p path'  */
 char	*shell_quote(char *dest, char *src); /* Escape shell meta characters  */
 FILE	*mlucas_fopen(const char *path, const char *mode); /* fopen() wrapper  */
 // v20: Add simple utility to print the input string to the current-assignment logfile and/or to stderr:
-void	mlucas_fprint(char*const cstr, uint32 echo_to_stderr);
+void	mlucas_fprint(char*const p_cstr, uint32 echo_to_stderr);
 double	mlucas_getOptVal(const char*fname, char*optname);
 
 #ifdef USE_GPU
@@ -234,8 +234,6 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 #endif
 
 #define ASSERT(expr, assert_string) (void)((expr) || (ABORT(#expr, __FILE__, __LINE__, __func__, assert_string),0))
-
-void	VAR_WARN(char *typelist, ...);
 
 void	byte_bitstr(const uint8  byte, char*ostr);
 void	ui32_bitstr(const uint32 ui32, char*ostr);

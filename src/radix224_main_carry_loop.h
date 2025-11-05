@@ -23,12 +23,14 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	for(j = jstart; j < jhi; j += stride)	// Stride = 4 reals for SSE2, 8 for AVX
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 	/*...The radix-224 DIT pass is here:	*/
 	#ifdef USE_SSE2
@@ -207,7 +209,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+		tmp = s1p00; tm1 = cy_r; itmp = bjmodn;
+	  #ifndef USE_AVX512
+		tm2 = cy_r+1; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+	  #endif
 		incr = inc_arr;
 		for(loop = 0; loop < nloop; loop += *incr++)
 		{
@@ -471,9 +476,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
-
-		idx_offset = j;
-		idx_incr = NDIVR;
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
@@ -790,4 +792,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
+}	/* end for(int k=1; k <= khi; k++) */

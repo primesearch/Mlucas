@@ -303,7 +303,7 @@ extern "C" {
 		"vfnmadd231pd	%%zmm3,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm3,%%zmm5,%%zmm4	\n\t vfnmadd231pd	%%zmm3,%%zmm9 ,%%zmm8		\n\t vfnmadd231pd	%%zmm3,%%zmm13,%%zmm12		\n\t"/* lo0 = fma(fcy ,-TWO26FLOAT,flo); overwrites flo */\
 			"vmovaps	%%zmm0,    (%%rax)		\n\t	vmovaps	%%zmm4,0x40(%%rax)			\n\t	vmovaps	%%zmm8,0x80(%%rax)				\n\t	vmovaps	%%zmm12,0xc0(%%rax)				\n\t"/* Store lo0 */\
 		/* Digit 1: */\
-		/*	"vmovaps	%%zmm1,0x100(%%rax)		\n\t	vmovaps	%%zmm5,0x140(%%rax)			\n\t	vmovaps	%%zmm9 ,0x180(%%rax)			\n\t	vmovaps	%%zmm13,0x1c0(%%rax)			\n\t"/* Store lo1 = fcy */\
+		/*	"vmovaps	%%zmm1,0x100(%%rax)		\n\t	vmovaps	%%zmm5,0x140(%%rax)			\n\t	vmovaps	%%zmm9 ,0x180(%%rax)			\n\t	vmovaps	%%zmm13,0x1c0(%%rax)			\n\t"// Store lo1 = fcy */ \
 		/* Digit 2: */\
 			"vmulpd		 (%%rbx),%%zmm2,%%zmm0	\n\t	vmulpd		 (%%rbx),%%zmm6,%%zmm4	\n\t	vmulpd		 (%%rbx),%%zmm10,%%zmm8 	\n\t	vmulpd		 (%%rbx),%%zmm14,%%zmm12	\n\t"/* fcy =       flo2*TWO26FLINV  */\
 			"vrndscalepd $1,%%zmm0,%%zmm0		\n\t	vrndscalepd $1,%%zmm4,%%zmm4		\n\t	vrndscalepd $1,%%zmm8 ,%%zmm8 			\n\t	vrndscalepd $1,%%zmm12,%%zmm12			\n\t"/* fcy = floor(flo2*TWO26FLINV) */\
@@ -658,7 +658,7 @@ extern "C" {
 		"vfnmadd231pd	%%ymm3,%%ymm1,%%ymm0	\n\t vfnmadd231pd	%%ymm3,%%ymm5,%%ymm4	\n\t vfnmadd231pd	%%ymm3,%%ymm9 ,%%ymm8		\n\t vfnmadd231pd	%%ymm3,%%ymm13,%%ymm12		\n\t"/* lo0 = fma(fcy ,-TWO26FLOAT,flo); overwrites flo */\
 			"vmovaps	%%ymm0,    (%%rax)		\n\t	vmovaps	%%ymm4,0x20(%%rax)			\n\t	vmovaps	%%ymm8,0x40(%%rax)				\n\t	vmovaps	%%ymm12,0x60(%%rax)				\n\t"/* Store lo0 */\
 		/* Digit 1: */\
-		/*	"vmovaps	%%ymm1,0x80(%%rax)		\n\t	vmovaps	%%ymm5,0xa0(%%rax)			\n\t	vmovaps	%%ymm9 ,0xc0(%%rax)				\n\t	vmovaps	%%ymm13,0xe0(%%rax)				\n\t"/* Store lo1 = fcy */\
+		/*	"vmovaps	%%ymm1,0x80(%%rax)		\n\t	vmovaps	%%ymm5,0xa0(%%rax)			\n\t	vmovaps	%%ymm9 ,0xc0(%%rax)				\n\t	vmovaps	%%ymm13,0xe0(%%rax)				\n\t"// Store lo1 = fcy */\
 		/* Digit 2: */\
 			"vmulpd		 (%%rbx),%%ymm2,%%ymm0	\n\t	vmulpd		 (%%rbx),%%ymm6,%%ymm4	\n\t	vmulpd		 (%%rbx),%%ymm10,%%ymm8 	\n\t	vmulpd		 (%%rbx),%%ymm14,%%ymm12	\n\t"/* fcy =       flo2*TWO26FLINV  */\
 			"vroundpd $1,%%ymm0,%%ymm0			\n\t	vroundpd $1,%%ymm4,%%ymm4			\n\t	vroundpd $1,%%ymm8 ,%%ymm8 			\n\t	vroundpd $1,%%ymm12,%%ymm12				\n\t"/* fcy = floor(flo2*TWO26FLINV) */\

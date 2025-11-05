@@ -23,13 +23,15 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	for(j = jstart; j < jhi; j += stride)
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 	/*...The radix-208 DIT pass is here:	*/
 	#ifdef USE_SSE2
@@ -141,8 +143,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			k8 = *(iptr+0x8);	rad9_optr[8] = tm1 + (k8<<5);
 
 			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-			tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
-			tm2 = rad9_optr;
+			tm1 = (vec_dbl *)rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			tm2 = (vec_dbl *)rad9_optr;
 			SSE2_RADIX_09_DIT_X2(va0,va1,va2,va3,va4,va5,va6,va7,va8, cc1,two, vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,
 				tm1,tm2
 			);	tmp += 4;
@@ -326,7 +328,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy; tm2 = cy+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+		tmp = s1p00; tm1 = cy; itmp = bjmodn;
+	  #ifndef USE_AVX512
+		tm2 = cy+1; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+	  #endif
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
@@ -631,8 +636,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			rad9_optr[7] = tmp + 0xe2;
 			rad9_optr[8] = tmp + 0x102;
 			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-			tm0 = rad9_iptr;	// Can't use tm1 here since use that for s1p00 offsets in loop body
-			tm2 = rad9_optr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			tm0 = (vec_dbl *)rad9_iptr;	// Can't use tm1 here since use that for s1p00 offsets in loop body
+			tm2 = (vec_dbl *)rad9_optr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
 			SSE2_RADIX_09_DIF_X2(vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8, cc1,two, va0,va1,va2,va3,va4,va5,va6,va7,va8,
 				tm0,tm2
 			);	tmp += 4;
@@ -772,4 +777,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
+}	/* end for(int k=1; k <= khi; k++) */
