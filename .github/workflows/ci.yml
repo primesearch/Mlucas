@@ -146,14 +146,12 @@ jobs:
         sudo apt-get update -y
         sudo apt-get install -y libhwloc-dev
     - name: Before script
-      # With [^\s]* we also remove possible -flto= stuff
       run: |
-        sed -i 's/-O3 -flto[^[:space:]]*/-Og -fsanitize=address,undefined/' makemake.sh
         $CC --version
     - name: Script
       run: |
-        set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
+        set -x 
+        bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
@@ -180,12 +178,11 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/-O3 -flto[^\s]*/-Og -fsanitize=thread/' makemake.sh
         $CC --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
+        bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
@@ -379,12 +376,11 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/-O3 -flto[^\s]*/-Og -fsanitize=address,undefined/' makemake.sh
         clang --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
+        bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
@@ -405,12 +401,11 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/-O3 -flto[^\s]*/-Og -fsanitize=thread/' makemake.sh
         clang --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
+        bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
@@ -519,13 +514,12 @@ jobs:
     - name: Before script
       shell: bash
       run: |
-        sed -i 's/-O3 -flto[^\s]*/-Og -fsanitize=address,undefined/' makemake.sh
         $CC --version
     - name: Script
       shell: bash
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
+        bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
         time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
