@@ -48,7 +48,7 @@ TARGET=$Mlucas
 # Optional compile [optimize] args
 C_ARGS=(-fdiagnostics-color -Wall -g)
 C_ARGS_OPT=(-g -O3)
-C_ARGS_DEBUG=(-g -Og -fsanitize=address,undefined)
+C_ARGS_DEBUG=(-g -Og '-fsanitize=address,undefined')
 C_ARGS_LTO=()
 # Optional preprocessor args
 CPP_ARGS=(-DUSE_THREADS)
@@ -79,6 +79,7 @@ case $OSTYPE in
 		;;
 esac
 
+# shellcheck disable=SC2209
 MAKE=make
 if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
 	MAKE=mingw32-make
@@ -117,7 +118,7 @@ if [[ ! $OSTYPE == darwin* ]]; then
 	# Only supported on ELF platforms, but is harmless on not-mac since the compiler is not ancient:
 	CC_ARGS+=(-gz)
 	# Could make output smaller
-	LD_ARGS+=(-Wl,-O1)
+	LD_ARGS+=("-Wl,-O1")
 fi
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
@@ -383,7 +384,8 @@ EOF
 		echo "Error: Unable to detect the SIMD build mode" >&2
 		exit 1
 	fi
-	C_ARGS+=($output)
+	mapfile -t output_array <<<"$output"
+	C_ARGS+=("${output_array[@]}")
 fi
 
 if [[ -d $DIR ]]; then
