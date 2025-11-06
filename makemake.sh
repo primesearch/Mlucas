@@ -131,7 +131,7 @@ echo "Total number of input parameters = $#"
 # order fashion, [details snipped]
 arglist=("$@") # Local array into which we copy cmd-line args in order to be able to manipulate them
 for i in "${!arglist[@]}"; do
-	printf "Arg[$i] = %q\n" "${arglist[i]}"
+	printf 'Arg[%s] = %q\n' "$i" "${arglist[i]}"
 done
 # Now loop over the optional args and execute the above-described preprocessing step:
 for arg in "$@"; do
