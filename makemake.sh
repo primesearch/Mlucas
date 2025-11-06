@@ -46,9 +46,11 @@ Mfactor=Mfactor
 TARGET=$Mlucas
 
 # Optional compile [optimize] args
-C_ARGS=(-fdiagnostics-color -Wall -g)
+C_ARGS=(-fdiagnostics-color -Wall)
 C_ARGS_OPT=(-g -O3)
-C_ARGS_DEBUG=(-g -Og '-fsanitize=address,undefined')
+C_ARGS_DEBUG=(-g -Og)
+mapfile -t C_ARGS_ADD <<< "$XCFLAGS"
+C_ARGS+=("${C_ARGS_ADD[@]}")
 C_ARGS_LTO=()
 # Optional preprocessor args
 CPP_ARGS=(-DUSE_THREADS)

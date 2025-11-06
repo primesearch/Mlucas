@@ -151,6 +151,7 @@ jobs:
     - name: Script
       run: |
         set -x 
+        export XCFLAGS=-fsanitize=address,undefined
         bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
@@ -182,6 +183,7 @@ jobs:
     - name: Script
       run: |
         set -x
+        export XCFLAGS=-fsanitize=thread
         bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
@@ -380,6 +382,7 @@ jobs:
     - name: Script
       run: |
         set -x
+        export XCFLAGS=-fsanitize=address,undefined
         bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
@@ -405,6 +408,7 @@ jobs:
     - name: Script
       run: |
         set -x
+        export XCFLAGS=-fsanitize=thread
         bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
@@ -519,6 +523,7 @@ jobs:
       shell: bash
       run: |
         set -x
+        export XCFLAGS=-fsanitize=address,undefined
         bash -e -o pipefail -- makemake.sh use_hwloc debug
         cd obj
         make clean
