@@ -655,7 +655,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
 			// Check for known factors, determine where the cptr portion ends.
 			char* startq = NULL;
-			extract_known_factors_from_line_end(p, cptr, &startq);
+			nfac = extract_known_factors_from_line_end(p, cptr, &startq);
 
 			// Next 2 entries in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
 			TF_BITS = 0xffffffff; tests_saved = 0.0;
@@ -773,17 +773,16 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			input was in fact == ULONG_LONG_MAX? We assume here that nobody will use a p-1 stage bound so large:
 			*/
 			B2 = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
+			char *startq = NULL;
+			nfac = extract_known_factors_from_line_end(p, cptr, &startq);
+
 			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present:
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
+			if((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0) {
 				TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);	ASSERT(TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
-				if((char_addr = strstr(cptr, ",")) != 0x0) {
+				if((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0) {
 					B2_start = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
 					if(B2_start > B1)	// It's a stage 2 continuation run
 						s2_continuation = TRUE;
-					// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-					if(*cptr == ',') nfac = extract_known_factors(p,cptr+1);
-				} else if((char_addr = strstr(cptr, "\"")) != 0x0) {	// Known-factors list need not be preceded by TF_BITS or B2_start
-					nfac = extract_known_factors(p,cptr);	// cptr, not cptr+1 here, since need to preserve leading " bracketing factors-list
 				}
 			}
 		}
@@ -6431,11 +6430,20 @@ uint32 extract_known_factors(uint64 p, char*fac_start) {
 /*********************/
 
 /*
-Extract known factors by jumping to end of line. line_start does not need to be start of line, but
-has to include the starting double-quote of the known-factors string.
+Extract known factors by jumping to end of line.
 
-If startq_out != NULL, sets *startq_out to point to either the first dquote (if present) or to line_end
-to ease further processing by caller.
+* line_start does not need to be start of line, but has to include the starting
+  double-quote of the known-factors string.
+* If startq_out != NULL, sets *startq_out to point to either the first dquote
+  (if present) or to line_end to ease further processing by caller.
+
+Returns the number of known factors extracted, as with extract_known_factors().
+
+This function is useful when processing worktodo lines that may have several
+optional fields. In comparison the (also optional) KF field is always at the
+end of the line, so this function can be used to "anchor down" more parts.
+
+[Alternatively, we could just write a line-tokenizer that goes left-to-right.]
 */
 uint32 extract_known_factors_from_line_end(uint64 p, char*line_start, char**startq_out) {
 	const char* line_end = strchr(line_start, '\n');
