@@ -681,7 +681,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				kblocks = get_default_fft_length(p);
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
-				cptr = strstr(in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
+				cptr = strchr(in_line, '=');	ASSERT(cptr != 0x0,"Malformed assignment!");
 				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
 					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
@@ -762,9 +762,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
+			ASSERT((char_addr = strchr(cptr, ',')) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			B1 = (uint32)strtoul (char_addr+1, &cptr, 10);
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
+			ASSERT((char_addr = strchr(cptr, ',')) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			/* The C11 standard re. strtoull: "On success the function returns the converted integer as unsigned long long int type
 			and sets endPtr to point to the first character after the input number. On failure it returns 0 and sets endPtr to
 			point to NULL. It handles integer overflows efficiently and return ULONG_LONG_MAX on overflow."
@@ -794,9 +794,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
+			ASSERT((char_addr = strchr(cptr, ',')) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
+			ASSERT((char_addr = strchr(cptr, ',')) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			tests_saved = strtod(++char_addr, &endp);
 			if(tests_saved < 0 || tests_saved > 2) {
 				sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
@@ -818,7 +818,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 
 		if(!p) {	// For legacy assignment types, set p here
-			ASSERT((char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
+			ASSERT((char_addr = strchr(char_addr, '=')) != 0x0,"Expected '=' not found in assignment-specifying line!");
 			char_addr++;
 			/* Skip any whitespace following the equals sign:*/
 			while(isspace(*char_addr)) { ++char_addr; }
@@ -826,7 +826,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(is_hex_string(char_addr, 32))
 				char_addr += 33;
 			else if(STREQN_NOCASE(char_addr,"n/a",3))
-				char_addr = strstr(char_addr, ",") + 1;
+				char_addr = strchr(char_addr, ',') + 1;
 
 			p = strtoull(char_addr, &cptr, 10);	ASSERT(p != -1ull, "strtoull() overflow detected.");
 		}
@@ -881,7 +881,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ASSERT(log2_max_factor <= MAX_FACT_BITS, "log2_max_factor > MAX_FACT_BITS!");
 
 			/* Field following the exponent is the already-factored-to depth: if none found, use defaults. */
-			char_addr = strstr(char_addr, ",");
+			char_addr = strchr(char_addr, ',');
 			if(char_addr++) {
 				/* Convert the ensuing numeric digits to ulong: */
 				TF_BITS = strtoul(char_addr, &endp, 10);
@@ -897,7 +897,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			desired factoring depth overrides the normal default for the exponent in question.
 			In this mode, warn if TF-to depth greater than automated-mode default, but allow: */
 			if(char_addr)
-				char_addr = strstr(char_addr, ",");
+				char_addr = strchr(char_addr, ',');
 			if(char_addr++) {
 				bit_depth_todo = strtoul(char_addr, &endp, 10);
 				if(bit_depth_todo > MAX_FACT_BITS) {
@@ -934,7 +934,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 			/* TF_BITS: */
 			TF_BITS = 0xffffffff;	/* Only check if there's an appropriate entry in the input line */
-			char_addr = strstr(char_addr, ",");
+			char_addr = strchr(char_addr, ',');
 			if(char_addr++) {
 				/* Convert the ensuing numeric digits to ulong: */
 				TF_BITS = strtoul(char_addr, &endp, 10);
@@ -959,7 +959,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				}
 			#endif
 				// p-1 factoring already done?
-				char_addr = strstr(char_addr, ",");
+				char_addr = strchr(char_addr, ',');
 				if(char_addr++) {
 					/* Convert the ensuing numeric digits to ulong: */
 					pm1_done = strtoul(char_addr, &endp, 10);
@@ -975,7 +975,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 						kblocks = get_default_fft_length(p);
 						ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 						// Format the p-1 assignment into cbuf:
-						char_addr = strstr(in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
+						char_addr = strchr(in_line, '=');	ASSERT(char_addr != 0x0,"Malformed assignment!");
 						char_addr++;	while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
 						if(is_hex_string(char_addr, 32)) {
 							strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
@@ -2817,7 +2817,7 @@ GET_NEXT_ASSIGNMENT:
 			#if INCLUDE_TF
 				if(TEST_TYPE == TEST_TYPE_TF) {
 					/* Factor depth assumed to follow the first comma in in_line: */
-					char_addr = strstr(char_addr, ",");
+					char_addr = strchr(char_addr, ',');
 					ASSERT(char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "%u", TF_BITS);
 					fputs(in_line, fq);
@@ -2835,7 +2835,7 @@ GET_NEXT_ASSIGNMENT:
 				// note that split_curr_assignment == TRUE only at time of the initial splitting - delete them both:
 				ASSERT(TEST_TYPE == TEST_TYPE_PM1,"GET_NEXT_ASSIGNMENT: current assignment is Pminus1=, but TEST_TYPE != PM1.");
 				if(strlen(gcd_str) != 0) {	// Found a factor?
-					char_addr = strstr(in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
+					char_addr = strchr(in_line, '=');	ASSERT(char_addr != 0x0,"Malformed assignment!");
 					char_addr++;
 					if(is_hex_string(char_addr, 32)) {
 						strncpy(aid,char_addr,32);
@@ -6055,20 +6055,20 @@ char*check_kbnc(char*in_str, uint64*p) {
 	char*char_addr = in_str, *cptr = 0x0;
 	int i = 0;
 	while(1) {
-		if((char_addr = strstr(char_addr, "=")) == 0x0) {
+		if((char_addr = strchr(char_addr, '=')) == 0x0) {
 			fprintf(stderr,"Expected '=' not found in assignment-specifying line!"); break;
 		}
 		char_addr++;
 		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
 		if(is_hex_string(char_addr, 32)) {
 			cptr = char_addr + 32;
-			if((char_addr = strstr(cptr, ",")) == 0x0) {
+			if((char_addr = strchr(cptr, ',')) == 0x0) {
 				fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
 			} else
 				++char_addr;
 		} else if(STREQN_NOCASE(char_addr,"n/a",3)) {
 			cptr = char_addr + 3;
-			if((char_addr = strstr(cptr, ",")) == 0x0) {
+			if((char_addr = strchr(cptr, ',')) == 0x0) {
 				fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
 			} else
 				++char_addr;
@@ -6081,21 +6081,21 @@ char*check_kbnc(char*in_str, uint64*p) {
 		if(i != 1) {
 			fprintf(stderr,"%s: In modulus expression m = k*b^n+c, only k = 1 currently supported!\n",func); break;
 		}
-		if((char_addr = strstr(cptr, ",")) == 0x0) {
+		if((char_addr = strchr(cptr, ',')) == 0x0) {
 			fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
 		}
 		i = (int)strtol(char_addr+1, &cptr, 10);
 		if(i != 2) {
 			fprintf(stderr,"%s: In modulus expression m = k*b^n+c, only b = 2 currently supported!\n",func); break;
 		}
-		if((char_addr = strstr(cptr, ",")) == 0x0) {
+		if((char_addr = strchr(cptr, ',')) == 0x0) {
 			fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
 		}
 		*p = strtoull(char_addr+1, &cptr, 10);	ASSERT(*p != -1ull, "strtoull() overflow detected.");
 		if(*p > PMAX) {
 			fprintf(stderr,"%s: Exponent n in modulus expression m = k*b^n+c exceeds limit! (Suggest checking for unsigned overflow.)\n",func); break;
 		}
-		if((char_addr = strstr(cptr, ",")) == 0x0) {
+		if((char_addr = strchr(cptr, ',')) == 0x0) {
 			fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
 		}
 		i = (int)strtol(char_addr+1, &cptr, 10);
@@ -6165,7 +6165,7 @@ void generate_JSON_report(
 		ASSERT(0,cbuf);
 	}
 	// Is there a Primenet-server 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
-	char_addr = strstr(in_line, "=");
+	char_addr = strchr(in_line, '=');
 	if(char_addr) {
 		char_addr++;
 		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
@@ -6326,7 +6326,7 @@ uint32 extract_known_factors(uint64 p, char*fac_start) {
 			ASSERT(0,"nbits_in_p <= MAX_PRIMALITY_TEST_BITS");
 	}
 	// Factors separated by commas (first clause of while()); list terminated with " (2nd clause):
-	while((char_addr = strstr(cptr,",")) != 0x0 || (char_addr = strstr(cptr,"\"")) != 0x0) {
+	while((char_addr = strchr(cptr,',')) != 0x0 || (char_addr = strchr(cptr,'"')) != 0x0) {
 		nchar = char_addr - cptr;
 		strncpy(cbuf,cptr,nchar);	cbuf[nchar] = '\0';	// Extract current-factor-as-string into cbuf
 		// Convert stringified factor f to mi64 form:
@@ -6455,10 +6455,18 @@ uint32 extract_known_factors_from_line_end(uint64 p, char*line_start, char**star
 		*startq_out = line_end;
 	}
 	if (last > line_start && *last == '\"') {
-		const char* startq = memrchr(line_start, '\"', last - line_start);
-		if (startq != NULL && startq < last) {
+		// This is an inlined memrchr(). Not using it since not in POSIX.
+		const char* startq = last;
+		int found = 0;
+		for (; startq > line_start; startq--) {
+			if (*startq == '\"') {
+				found = 1;
+				break;
+			}
+		}
+		if (found) {
 			if (startq_out != NULL) {
-				*startq_out = startq;
+				*startq_out = (char*)startq;
 			}
 			return extract_known_factors(p, (char*)startq);
 		}

@@ -347,7 +347,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		}
 
 		sprintf(cbuf,"Using complex FFT radices*");
-		char_addr = strstr(cbuf,"*");
+		char_addr = strchr(cbuf,'*');
 		for(i = 0; i < NRADICES; i++)
 		{
 			sprintf(char_addr,"%10d",RADIX_VEC[i]); char_addr += 10;
