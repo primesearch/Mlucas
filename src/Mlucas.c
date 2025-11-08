@@ -644,7 +644,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 		Syntax.
 			{PRP|PRPDC}=[AID,]k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]
-			https://github.com/shafferjohn/Prime95/blob/bd33606ac1d821413edac86409760e68a2665faf/commonc.c#L3042
+			https://github.com/primesearch/Prime95/blob/aa69d4c9f8805c8540297a95fb0e9b34738a65a2/commonc.c#L3063-L3065
 		*/
 		if((char_addr = strstr(in_line, "PRP")) != 0)	// This also handles the PRPDC= format
 		{
@@ -658,47 +658,72 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			nfac = extract_known_factors_from_line_end(p, cptr, &startq);
 
 			// Next 2 entries in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
-			TF_BITS = 0xffffffff; tests_saved = 0.0;
+			TF_BITS = 0xffffffff; tests_saved = -1.0;
+			char* tests_saved_ptr = NULL;
 			if((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0) {
 				cptr++;
 				// Only check if there's an appropriate TF_BITS entry in the input line
 				TF_BITS = strtoul(++char_addr, &endp, 10);
 				ASSERT((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
+				tests_saved_ptr = char_addr;
 				tests_saved = strtod(++char_addr, &endp);
 				if(tests_saved < 0 || tests_saved > 2) {
 					sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
 				}
-				// char_addr now points to leftmost char of tests_saved field, which we will overwrite with 0;
+				// tests_saved_ptr now points to leftmost char of tests_saved field, which we will overwrite with 0;
 				// endp points to to-be-appended leftover portion
 			}
-			pm1_done = (tests_saved == 0);
-			// If there is still factoring remaining to be done, modify the assignment type appropriately.
-			if(pm1_done) {	// pm1_done == TRUE is more or less a no-op, translating to "proceed with primality test"
-				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved char-block
+
+			// First continue parsing for PRP base and residue type, if present:
+			// This lets us keep reusing startq for the range of the current assignment line.
+			// This is technically not limited to PRPDC
+			if (tests_saved >= 0 && (char_addr = memchr(cptr, ',', startq - cptr)) != 0x0) {
+				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
+				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(i == 3,"PRP-test base must be 3!");
+				PRP_BASE = i;
+				ASSERT((char_addr = memchr(cptr, ',', startq - cptr)) != 0x0,"Expected ',' not found in assignment-specifying line!");
+				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
+				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
+				if(KNOWN_FACTORS[0] != 0ull) {
+					ASSERT(i == 5,"Only PRP-CF tests of type 5 supported!");
+					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
+				}
+			}
+
+			// Now go back to rewrite fields if needed. Not as smart but more straightforward...
+			// Not present (-1) or written as not needed (0)
+			pm1_done = (tests_saved <= 0);
+			if(pm1_done) {
+				goto GET_EXPO;
 			} else {
 				// Create p-1 assignment, then edit original assignment line appropriately
 				TEST_TYPE = TEST_TYPE_PM1;
 				kblocks = get_default_fft_length(p);
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
-				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
+
+				// Format the p-1 assignment into cbuf
 				cptr = strchr(in_line, '=');	ASSERT(cptr != 0x0,"Malformed assignment!");
 				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
 					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 				} else
 					sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
+				
 				// Copy up to the final (tests_saved) char of the assignment into cstr and append tests_saved = 0;
-				// A properly formatted tests_saved field is 1 char wide and begins at the current value of char_addr:
-				i = char_addr - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
-				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy:
-				strcat(cstr,endp);
-				if(cstr[strlen(cstr)-1] != '\n') {
-					strcat(cstr,"\n");
+				// A properly formatted tests_saved field is 1 char wide and begins at the current value of tests_saved_ptr:
+				i = tests_saved_ptr - 1 - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
+				
+				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy.
+				// stpcpy is a neat little POSIX function that copies a string and returns a pointer to the terminating null byte.
+				// It should be within our goal of "any C99 Unix machine within the last 10 years" since it's present in POSIX Issue 1 (1990).
+				char* newend = stpcpy(cstr+i+2, endp);
+				if (*(newend-1) != '\n') {
+					*newend = '\n'; *(newend+1) = '\0';
 				}
 				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 				goto GET_NEXT_ASSIGNMENT;
-			}	// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
-			goto GET_EXPO;
+			}
+			// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
 		}
 		else if((char_addr = strstr(in_line, "Fermat")) != 0)
 		{
