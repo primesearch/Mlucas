@@ -106,6 +106,7 @@ void dif1_dit1_func_name(
 	void (**func_dit_pass1)(double [], int)
 );
 uint32	extract_known_factors(uint64 p, char*fac_start);
+uint32  extract_known_factors_from_line_end(uint64 p, char*line_start, char**startq_out);
 uint32	gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*const gcd_str);
 void	modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb);
 int		restart_file_valid(const char*fname, const uint64 p, uint8*arr1, uint8*arr2);

@@ -388,7 +388,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		}
 
 		sprintf(cbuf,"%s: Using complex FFT radices*",func);
-		char_addr = strstr(cbuf,"*");
+		char_addr = strchr(cbuf,'*');
 		for(i = 0; i < NRADICES; i++) {
 			sprintf(char_addr,"%10d",RADIX_VEC[i]); char_addr += 10;
 		}; sprintf(char_addr,"\n");
