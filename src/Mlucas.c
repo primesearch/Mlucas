@@ -690,6 +690,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				}
 			}
 
+			// At this point we should have parsed everything.
+			ASSERT(startq == cptr, "Extra terms between known-factors list and prior parsed fields in PRP assignment line!");
+
 			// Now go back to rewrite fields if needed. Not as smart but more straightforward...
 			// Not present (-1) or written as not needed (0)
 			pm1_done = (tests_saved <= 0);
@@ -6482,7 +6485,7 @@ uint32 extract_known_factors_from_line_end(uint64 p, char*line_start, char**star
 	if (last > line_start && *last == '\"') {
 		// This is an inlined memrchr(). Not using it since not in POSIX.
 		const char* startq = last;
-		int found = 0;
+		bool found = FALSE;
 		for (; startq > line_start; startq--) {
 			if (*startq == '\"') {
 				found = 1;
