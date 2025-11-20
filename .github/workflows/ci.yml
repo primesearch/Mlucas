@@ -129,6 +129,62 @@ jobs:
         name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
         path: ${{ github.workspace }}
 
+  Linux-old:
+    name: Mlucas Linux old
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    continue-on-error: true
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        container: ["ubuntu:16.04"]
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    # - uses: actions/checkout@v5
+    - name: Install
+      run: |
+        apt-get update
+        apt-get install -y wget build-essential libgmp-dev libhwloc-dev
+    - name: Install Clang
+      if: ${{ matrix.cc == 'clang' }}
+      run: |
+        apt-get install -y clang
+    - name: Download
+      run: |
+        wget "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz"
+        tar -xzvf "$GITHUB_SHA.tar.gz" --strip-components=1
+    - name: Before script
+      run: |
+        $CC --version
+    - name: Script
+      shell: bash
+      run: |
+        set -x
+        MODES=( '' NOSIMD )
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            (cd obj${mode:+_$mode}; make clean)
+            for word in '' 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                (
+                    cd obj_mfac${mode:+_$mode}
+                    make clean
+                    mv -v build.log build_${word}.log
+                )
+            done
+        done
+
   ASan-Linux:
     name: AddressSanitizer Linux
 
