@@ -20,7 +20,7 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         sudo apt-get update -y
@@ -87,7 +87,7 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Before script
       run: |
         sed -i 's/-DUSE_THREADS//' makemake.sh
@@ -144,7 +144,7 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
     steps:
-    # - uses: actions/checkout@v5
+    # - uses: actions/checkout@v6
     - name: Install
       run: |
         apt-get update
@@ -196,7 +196,7 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         sudo apt-get update -y
@@ -228,7 +228,7 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         sudo apt-get update -y
@@ -251,7 +251,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: GCC analyzer
       run: |
         set -x
@@ -267,7 +267,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         sudo apt-get update -y
@@ -286,7 +286,7 @@ jobs:
 
     runs-on: ubuntu-22.04 # ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         sudo apt-get update -y
@@ -305,7 +305,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: ShellCheck
       run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-extra-masked-returns,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
       continue-on-error: true
@@ -319,7 +319,7 @@ jobs:
         os: [macos-13, macos-14, macos-15, macos-26]
       fail-fast: false
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         brew install hwloc
@@ -381,7 +381,7 @@ jobs:
         os: [macos-13, macos-latest]
       fail-fast: false
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Before script
       run: |
         sed -i '' 's/-DUSE_THREADS//' makemake.sh
@@ -428,7 +428,7 @@ jobs:
 
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         brew install hwloc
@@ -454,7 +454,7 @@ jobs:
 
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install
       run: |
         brew install hwloc
@@ -488,7 +488,7 @@ jobs:
       CC: ${{ matrix.cc }}
       PACKAGE_PREFIX: mingw-w64-${{ endsWith(matrix.os, '-arm') && 'clang-aarch64' || 'x86_64' }}-
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Before Install
       run: |
         echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -560,7 +560,7 @@ jobs:
       CC: clang
       PACKAGE_PREFIX: mingw-w64-clang-x86_64-
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Before Install
       run: |
         echo "C:\msys64\clang64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
