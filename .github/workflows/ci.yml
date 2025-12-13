@@ -316,7 +316,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-13, macos-14, macos-15, macos-26]
+        os: [macos-14, macos-15-intel, macos-15, macos-26]
       fail-fast: false
     steps:
     - uses: actions/checkout@v6
@@ -378,7 +378,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-13, macos-latest]
+        os: [macos-15-intel, macos-latest]
       fail-fast: false
     steps:
     - uses: actions/checkout@v6
