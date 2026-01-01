@@ -34,16 +34,26 @@ shopt -s nocasematch
 # for mode in AVX512 AVX2 AVX SSE2; do
 	# if grep -iq "$mode" /proc/cpuinfo; then
 		# echo -e "The CPU supports the ${mode} SIMD build mode.\n"
-		# ARGS+=( "-DUSE_${mode}" )
+		# CPP_ARGS+=( "-DUSE_${mode}" )
 		# break
 	# fi
 # done
+
 
 DIR=obj
 Mlucas=Mlucas
 Mfactor=Mfactor
 TARGET=$Mlucas
-ARGS=(-DUSE_THREADS) # Optional compile args
+
+# Optional compile [optimize] args
+C_ARGS=(-fdiagnostics-color -Wall)
+C_ARGS_OPT=(-g -O3)
+C_ARGS_DEBUG=(-g -Og)
+mapfile -t C_ARGS_ADD <<< "$XCFLAGS"
+C_ARGS+=("${C_ARGS_ADD[@]}")
+C_ARGS_LTO=()
+# Optional preprocessor args
+CPP_ARGS=(-DUSE_THREADS)
 WORDS=''
 # Optional link args
 LD_ARGS=()
@@ -53,22 +63,25 @@ MAKE_ARGS=()
 MODES=()
 GMP=1
 HWLOC=0
+DEBUG=0  # 0: off, 1: on, keep lto, 2: on, no lto (lto is compatible with debug info in recent gcc/clang)
+CC=${CC:-gcc}
 
 case $OSTYPE in
-	darwin*)
+	(darwin*)
 		echo -e "MacOS detected for build host.\n"
 		CPU_THREADS=$(sysctl -n hw.ncpu)
 		;;
-	msys | cygwin)
+	(msys | cygwin)
 		echo -e "Windows detected for build host.\n"
 		CPU_THREADS=$NUMBER_OF_PROCESSORS
 		;;
-	linux* | *)
+	(linux* | *)
 		echo -e "Assuming OS = Linux for build host.\n"
 		CPU_THREADS=$(nproc --all)
 		;;
 esac
 
+# shellcheck disable=SC2209
 MAKE=make
 if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
 	MAKE=mingw32-make
@@ -78,15 +91,24 @@ if ! command -v $MAKE >/dev/null; then
 	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
 	exit 1
 fi
-if [[ -n $CC ]]; then
-	if ! command -v "$CC" >/dev/null; then
-		echo "Error: $CC is not installed." >&2
-		exit 1
-	fi
-elif ! command -v gcc >/dev/null; then
-	echo "Error: This script requires the GNU C compiler" >&2
-	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
+if ! command -v "$CC" >/dev/null; then
+	echo "Error: $CC is not installed." >&2
+	echo "For GCC, on Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
 	exit 1
+fi
+
+MAKE_ARGS+=(-j "$CPU_THREADS")
+
+CCVER=$($CC --version | head -n1)
+if [[ $CCVER == *"clang"* ]]; then
+	echo "Clang detected as C compiler. Enabling ThinLTO for multithreaded codegen."
+	C_ARGS_LTO+=(-flto=thin)
+elif [[ $CCVER == *"gcc"* ]]; then
+	echo "GCC detected as C compiler. Enabling multithreaded LTO."
+	C_ARGS_LTO+=(-flto="$CPU_THREADS")
+else 
+	echo "Unknown C compiler detected: $CCVER, doing just -flto and hoping for the best."
+	C_ARGS_LTO+=(-flto)
 fi
 
 if [[ ! $OSTYPE == darwin* ]]; then
@@ -95,8 +117,11 @@ if [[ ! $OSTYPE == darwin* ]]; then
 	if [[ $OSTYPE != msys && $OSTYPE != cygwin ]]; then
 		LD_ARGS+=(-lrt)
 	fi
+	# Only supported on ELF platforms, but is harmless on not-mac since the compiler is not ancient:
+	CC_ARGS+=(-gz)
+	# Could make output smaller
+	LD_ARGS+=("-Wl,-O1")
 fi
-MAKE_ARGS+=(-j "$CPU_THREADS")
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
 echo "Total number of input parameters = $#"
@@ -106,30 +131,33 @@ echo "Total number of input parameters = $#"
 # order fashion, [details snipped]
 arglist=("$@") # Local array into which we copy cmd-line args in order to be able to manipulate them
 for i in "${!arglist[@]}"; do
-	echo "Arg[$i] = ${arglist[i]}"
+	printf 'Arg[%s] = %q\n' "$i" "${arglist[i]}"
 done
 # Now loop over the optional args and execute the above-described preprocessing step:
 for arg in "$@"; do
 
 	case ${arg} in
-		'no_gmp')
+		('no_gmp')
 			GMP=0
 			;;
-		'use_hwloc')
+		('use_hwloc')
 			HWLOC=1
 			;;
-		'avx512_skylake' | 'avx512_knl' | 'avx512' | 'k1om' | 'avx2' | 'avx' | 'sse2' | 'asimd' | 'nosimd')
+		('avx512_skylake' | 'avx512_knl' | 'avx512' | 'k1om' | 'avx2' | 'avx' | 'sse2' | 'asimd' | 'nosimd')
 			MODES+=("$arg")
 			;;
-		'mfac')
+		('mfac')
 			TARGET=$Mfactor
 			;;
-		'1word' | '2word' | '3word' | '4word' | 'nword')
+		('1word' | '2word' | '3word' | '4word' | 'nword')
 			WORDS=$arg
 			;;
-		*)
+		('debug')
+			((DEBUG++))
+			;;
+		(*)
 			echo "Usage: $0 [SIMD build mode]" >&2
-			echo "Optional arguments must be 'no_gmp', 'use_hwloc' or one and only one of the supported SIMD-arithmetic types:" >&2
+			echo "Optional arguments must be 'no_gmp', 'use_hwloc', 'debug' or one and only one of the supported SIMD-arithmetic types:" >&2
 			echo -e "\t[x86_64: avx512 k1om avx2 avx sse2]; [Armv8: asimd]; or 'nosimd' for scalar-double build.\n" >&2
 			exit 1
 			;;
@@ -141,13 +169,24 @@ if ((GMP)); then
 	LD_ARGS+=(-lgmp)
 else
 	echo "Building sans Gnu-MP ... this means no GCDs will be taken in p-1 work."
-	ARGS+=(-DINCLUDE_GMP=0)
+	CPP_ARGS+=(-DINCLUDE_GMP=0)
 fi
 
 if ((HWLOC)); then
 	echo "Building with HWLOC hardware-topology support."
-	ARGS+=(-DINCLUDE_HWLOC=1)
+	CPP_ARGS+=(-DINCLUDE_HWLOC=1)
 	LD_ARGS+=(-lhwloc)
+fi
+
+if ((DEBUG)); then
+	echo "Building with debug flags."
+	C_ARGS+=("${C_ARGS_DEBUG[@]}")
+else
+	C_ARGS+=("${C_ARGS_OPT[@]}")
+fi
+
+if ((DEBUG < 2)); then
+	C_ARGS+=("${C_ARGS_LTO[@]}")
 fi
 
 if [[ $TARGET == "$Mfactor" ]]; then
@@ -182,6 +221,7 @@ fi
 # o "Use GMP" = TRUE is default in link step, 'no_gmp' overrides;
 # o "Use HWLOC" = FALSE is default, 'use_hwloc' overrides.
 # Thx to tdulcet for offering a streamlined case-based syntax here, but ugh - non-matching ')', really?:
+# It can match in both POSIX sh and bash! --Artoria2e5
 if [[ ${#MODES[*]} -gt 1 ]]; then
 	echo -e "Only one arch-specifying optional argument is allowed ... aborting." >&2
 	exit 1
@@ -192,45 +232,45 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 	arg=${MODES[0]}
 
 	case ${arg} in
-		'avx512_skylake')
+		('avx512_skylake')
 			echo "Building for avx512_skylake SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			echo "Warning: The 'avx512_skylake' option is deprecated, use 'avx512' instead."
-			ARGS+=(-DUSE_AVX512 -march=skylake-avx512)
+			C_ARGS+=(-DUSE_AVX512 -march=skylake-avx512)
 			;;
-		'avx512_knl')
+		('avx512_knl')
 			echo "Building for avx512_knl SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			echo "Warning: The 'avx512_knl' option is deprecated, use 'avx512' instead."
-			ARGS+=(-DUSE_AVX512 -march=knl)
+			C_ARGS+=(-DUSE_AVX512 -march=knl)
 			;;
-		'avx512')
+		('avx512')
 			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_AVX512 -mavx512f)
+			C_ARGS+=(-DUSE_AVX512 -mavx512f)
 			;;
-		'k1om')
+		('k1om')
 			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_IMCI512)
+			C_ARGS+=(-DUSE_IMCI512)
 			;;
-		'avx2')
+		('avx2')
 			echo "Building for AVX2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_AVX2 -mavx2)
+			C_ARGS+=(-DUSE_AVX2 -mavx2)
 			;;
-		'avx')
+		('avx')
 			echo "Building for AVX SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_AVX -mavx)
+			C_ARGS+=(-DUSE_AVX -mavx)
 			;;
-		'sse2')
+		('sse2')
 			echo "Building for SSE2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_SSE2 -msse2)
+			C_ARGS+=(-DUSE_SSE2 -msse2)
 			;;
-		'asimd')
+		('asimd')
 			echo "Building for ASIMD SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_ARM_V8_SIMD)
+			C_ARGS+=(-DUSE_ARM_V8_SIMD)
 			;;
-		'nosimd')
+		('nosimd')
 			echo "Building in scalar-double (no-SIMD) mode in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			# This one's a no-op
 			;;
-		*)
+		(*)
 			echo "Unrecognized SIMD-build flag ... aborting." >&2
 			exit 1
 			;;
@@ -243,24 +283,24 @@ elif [[ $OSTYPE == darwin* ]]; then
 	# MacOS:
 	if (($(sysctl -n hw.optional.avx512f))); then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX512 -march=native)
+		C_ARGS+=(-DUSE_AVX512 -march=native)
 	elif (($(sysctl -n hw.optional.avx2_0))); then
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX2 -march=native -mavx2)
+		C_ARGS+=(-DUSE_AVX2 -march=native -mavx2)
 	elif (($(sysctl -n hw.optional.avx1_0))); then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX -march=native -mavx)
+		C_ARGS+=(-DUSE_AVX -march=native -mavx)
 	elif (($(sysctl -n hw.optional.sse2))); then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
-		ARGS+=(-DUSE_SSE2 -march=core2)
+		C_ARGS+=(-DUSE_SSE2 -march=core2)
 	elif (($(sysctl -n hw.optional.neon))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
+		C_ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
-		ARGS+=(-march=native)
+		C_ARGS+=(-march=native)
 	fi
 
 elif [[ $OSTYPE == linux* ]]; then
@@ -268,23 +308,23 @@ elif [[ $OSTYPE == linux* ]]; then
 	# Linux:
 	if grep -iq 'avx512' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX512 -march=native)
+		CPP_ARGS+=(-DUSE_AVX512 -march=native)
 	elif grep -iq 'avx2' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX2 -march=native -mavx2)
+		CPP_ARGS+=(-DUSE_AVX2 -march=native -mavx2)
 	elif grep -iq 'avx' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX -march=native -mavx)
+		CPP_ARGS+=(-DUSE_AVX -march=native -mavx)
 	elif grep -iq 'sse2' /proc/cpuinfo; then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
-		ARGS+=(-DUSE_SSE2 -march=native)
+		CPP_ARGS+=(-DUSE_SSE2 -march=native)
 	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
+		CPP_ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
-		ARGS+=(-march=native)
+		CPP_ARGS+=(-march=native)
 	fi
 
 else
@@ -333,10 +373,10 @@ EOF
 	trap 'rm /tmp/simd{.c,}' EXIT
 	args=()
 	case $HOSTTYPE in
-		aarch64 | arm*)
+		(aarch64 | arm*)
 			args+=(-mcpu=native)
 			;;
-		x86_64 | *)
+		(x86_64 | *)
 			args+=(-march=native)
 			;;
 	esac
@@ -346,7 +386,8 @@ EOF
 		echo "Error: Unable to detect the SIMD build mode" >&2
 		exit 1
 	fi
-	ARGS+=($output)
+	mapfile -t output_array <<<"$output"
+	C_ARGS+=("${output_array[@]}")
 fi
 
 if [[ -d $DIR ]]; then
@@ -370,8 +411,8 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS = -fdiagnostics-color -Wall -g -O3 -flto # =auto
-CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
+CFLAGS ?= ${C_ARGS[@]}
+CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include ${CPP_ARGS[@]}
 LDFLAGS ?= -L/opt/homebrew/lib
 LDLIBS = ${LD_ARGS[@]} # -static
 
@@ -383,9 +424,9 @@ $Mlucas: \$(OBJS)
 $Mfactor: \$(OBJS_MFAC)
 	\$(CC) \$(LDFLAGS) \$(CFLAGS) -o \$@ \$^ \$(LDLIBS)
 factor.o: ../src/factor.c
-	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS -DTRYQ=4 \$<
+	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c -DFACTOR_STANDALONE $WORDS -DTRYQ=4 \$<
 %.o: ../src/%.c
-	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} \$<
+	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c \$<
 clean:
 	rm -f \$(OBJS) \$(OBJS_MFAC)
 
