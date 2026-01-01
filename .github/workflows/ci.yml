@@ -69,7 +69,7 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
@@ -123,7 +123,7 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
@@ -366,7 +366,7 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       if: always()
       with:
         name: ${{ matrix.os }}_mlucas
@@ -417,7 +417,7 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       if: always()
       with:
         name: ${{ matrix.os }}_singlethreaded_mlucas
@@ -545,7 +545,7 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
