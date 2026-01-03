@@ -332,7 +332,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		}
 
 		sprintf(cbuf,"Using complex FFT radices*");
-		char_addr = strstr(cbuf,"*");
+		char_addr = strchr(cbuf,'*');
 		for(i = 0; i < NRADICES; i++)
 		{
 			sprintf(char_addr,"%10d",RADIX_VEC[i]); char_addr += 10;
