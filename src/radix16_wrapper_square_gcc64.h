@@ -1715,7 +1715,7 @@
 		"vmovaps	%%zmm7,0x740(%%rax)	/* r29 */	\n\t		vmovaps	%%zmm13,0x7c0(%%rax)	/* r31 */\n\t"\
 		"vmovaps	%%zmm6,0x700(%%rax)	/* r28 */	\n\t		vmovaps	%%zmm12,0x780(%%rax)	/* r30 */\n\t"\
 	/*******************************************
-	/**** Finish with 8-way 'un'terleaving: ****
+	***** Finish with 8-way 'un'terleaving: ****
 	Using the AVX-512 data layout, the rcol pattern is:
 		a[ 0- 7] = re[ 0, 8, 1, 9, 2,10, 3,11].d0	a[ 8-15] = im[ 0, 8, 1, 9, 2,10, 3,11].d0
 		a[16-23] = re[ 4,12, 5,13, 6,14, 7,15].d0	a[24-31] = im[ 4,12, 5,13, 6,14, 7,15].d0 ,
@@ -2175,7 +2175,7 @@
 		"vmovaps	%%zmm6,0x700(%%rax)	/* r28 */	\n\t		vmovaps	%%zmm12,0x780(%%rax)	/* r30 */\n\t"\
 	"prefetcht1	-0x400(%%r14)\n\t"\
 	/*******************************************
-	/**** Finish with 8-way 'un'terleaving: ****
+	***** Finish with 8-way 'un'terleaving: ****
 	Using the AVX-512 data layout, the rcol pattern is:
 		a[ 0- 7] = re[ 0, 8, 1, 9, 2,10, 3,11].d0	a[ 8-15] = im[ 0, 8, 1, 9, 2,10, 3,11].d0
 		a[16-23] = re[ 4,12, 5,13, 6,14, 7,15].d0	a[24-31] = im[ 4,12, 5,13, 6,14, 7,15].d0 ,

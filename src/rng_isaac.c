@@ -141,7 +141,7 @@ double	rng_isaac_rand_double()
 		fexp = (uint32)(iran64 >> 52) & 0x7ff;
 		if(fexp != 0 && fexp < 0x7f0) break;
 	}
-	return	*(double *)&iran64;
+	return u64_to_f64(iran64);
 }
 
 /* Assumes IEEE64-compliant: */
@@ -158,7 +158,7 @@ double	rng_isaac_rand_double_norm_pos()
 
 	itmp64 = rng_isaac_rand();
 	iran64 = 0x3FF0000000000000ull + (itmp64 & 0x000FFFFFFFFFFFFFull);
-	retval=(*(double *)&iran64) - 1.0;
+	retval = u64_to_f64(iran64) - 1.0;
 	/* GCC compiler bug: needed to insert the explicit range-check here, otherwise compiler 'optimized' the (*(double *)&iran64) to zero: */
 	if(retval < 0.0 || retval > 1.0)
 	{
@@ -189,7 +189,7 @@ double	rng_isaac_rand_double_norm_pm1()
 	itmp64 = rng_isaac_rand();
 	sign = pm1[itmp64 >> 63];	/* Use high bit of iran64 for sign */
 	iran64 = 0x3FF0000000000000ull + (itmp64 & 0x000FFFFFFFFFFFFFull);
-	retval=sign*((*(double *)&iran64) - 1.0);
+	retval = sign * (u64_to_f64(iran64) - 1.0);
 	/* GCC compiler bug: needed to insert the explicit range-check here, otherwise compiler 'optimized' the (*(double *)&iran64) to zero: */
 	if(retval < -1.0 || retval > 1.0)
 	{

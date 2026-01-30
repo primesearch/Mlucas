@@ -1,0 +1,31 @@
+Recipe for MSVC --> GCC inline ASM conversion:
+
+Before you begin tranmslation:
+- Max. number of input variables GCC allows = 30 ... if you're using more than that,
+trying reducing the count e.g. by using var2 = var1 + memoffset in the ASM.
+DO THIS USING THE MSVC CODE, i.e. only *after* you've successfully reduced
+the inline ASM macro arg count should you proceed with syntax translation.
+That allows you to work through small chunks of inline ASM at a time, doing
+quick-build-and-debug to check the changes, i.e. greatly eases debug.
+
+0. Remove all but most-crucial comments to ease conversion, as follows:
+	[blockmode] space all "keeper" comments to extreme left
+	multistatement __asm lines --> one __asm pre line, realign __asm to left-justify, delete __asm\t
+	For non-keeper comments: /* --> @@
+	[regexp] @@ --> \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t@@
+	(delete all @@... stuff)\
+	\t\n --> \n (repeat until no more trailing tabs)
+	[/regexp]
+	Repeat /* --> @@, [regexp] @@ --> \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t@@ steps for keeper comments, to move out of harm's way.
+1. [...] --> (...)
+2. ALU ops [e.g. mov, add, shl] --> spaces to tabs, then append "l" [if e*x] or "q" [if r*x] to instruction name
+3. Numeric literals in above kinds of instructions: Prepend "$" [",0x" --> ",$0x"]
+4. Address offsets of form (...+0x100) --> 0x100(...), (...-0x100) --> -0x100(...)
+5. External variable names get wrapped in %[]
+6. Line up commas in vertically stacked columns, then reverse operand order columnwise [for both 2 and 3-operand instructions].
+7. Prepend "%%" to all register names
+8. Only e*x/r*x registers appear in clobber list, not special regs like mmx and xmm.
+
+Additional Notes:
+	- Need to strip off any leading white space from named vars inside [], e.g. for "movl %[  c4],%%ecx \n\t" get "undefined named operand '  c4'" error;
+	- Offsets with explicit + sign, e.g. "+0x10(%%eax)", not allowed

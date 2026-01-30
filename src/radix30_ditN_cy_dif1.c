@@ -40,7 +40,7 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
 !   storage scheme, and radix7/8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,iroot,root_incr,k1,k2,k,khi,l,ntmp,outer;
+	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,root_incr,k1,k2,k,khi,l,ntmp,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29, nsave = 0;
 	static int poff[(RADIX+2)>>2];
@@ -188,7 +188,6 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	*fracmax=0;	/* init max. fractional error	*/
 
-	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
 	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
@@ -699,8 +698,6 @@ int full_pass = (root_incr!=0);
 			a[j1+p29]=t26r-t27r;	a[j2+p29]=t26i-t27i;
 			a[j1+p27]=t28r+t29r;	a[j2+p27]=t28i+t29i;
 			a[j1+p26]=t28r-t29r;	a[j2+p26]=t28i-t29i;
-
-			iroot += root_incr;		/* increment sincos index.	*/
 		}
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -749,7 +746,6 @@ int full_pass = (root_incr!=0);
 		cy_r[0] = -t01; cy_i[0] = +t00;
 	}
 
-	iroot = 0;
 	root_incr = 0;
 	scale = prp_mult = 1;
 

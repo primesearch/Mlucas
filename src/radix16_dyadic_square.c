@@ -85,7 +85,9 @@ void radix16_dyadic_square(
 )
 {
 	const char func[] = "radix16_dyadic_square";
+#ifdef USE_AVX
 	const int pfetch_dist = PFETCH_DIST;
+#endif
 	const int stride = (int)RE_IM_STRIDE << 5, stridh = (stride>>1);	// main-array loop stride = 32*RE_IM_STRIDE
 	static int max_threads = 0;
 	static int nsave = 0;
@@ -95,9 +97,21 @@ void radix16_dyadic_square(
 		   int index0_idx=-1, index1_idx=-1;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
-	int i,j,j1,j2,l,iroot,k,k1,k2,nbytes;
+	int i,j,j1,iroot/* ,k */;
+#ifndef USE_AVX512
+	int l,k1,k2;
+#endif
+#ifdef USE_SSE2
+	int nbytes;
+#endif
+#ifndef USE_SSE2
+	int j2;
+#endif
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
-	double re0,im0,re1,im1,rt,it;
+#ifndef USE_SSE2
+	double re0,im0,re1,im1;
+#endif
+	double rt,it;
 
 #ifdef USE_SSE2
 
@@ -106,16 +120,23 @@ void radix16_dyadic_square(
   #endif
 	static uint32 *sm_arr = 0x0,*sm_ptr;	// Base-ptr to arrays of k1,k2-index-vectors used in SIMD roots-computation.
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0,*add1, *bdd0,*bdd1;	/* Addresses into array sections */
+	double *add0,*add1;	/* Addresses into array sections */
+  #ifndef USE_ARM_V8_SIMD
+	double *bdd0;		/* Addresses into array sections */
+  #endif
+  #ifndef USE_ARM_V8_SIMD
 	const double *cdd0;
+  #endif
   #ifdef USE_AVX
-	double *add2,*add3, *bdd2,*bdd3;
+	double *add2,*add3;
   #endif
   #ifdef USE_AVX512
-	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7;
+	double *add4,*add5,*add6,*add7;
   #endif
 	vec_dbl *c_tmp,*s_tmp;
+  #ifdef USE_IMCI512
 	vec_dbl *tmp,*tm1;
+  #endif
   #ifdef MULTITHREAD
 	// Base addresses for discrete per-thread local stores ... 'r' for double-float data, 'i' for int:
 	static vec_dbl *__r0;
@@ -148,10 +169,14 @@ void radix16_dyadic_square(
 	In this case we require bits 0:1 == 0, and fwd_fft = & ~0xC yields pointer to FFT(b), and we skip over fwd-FFT directly to
 	the dyadic-multiply FFT(a) * FFT(b) step, then iFFT the product, storing the result in a[].
 	*/
+#if !defined(USE_SSE2) || (!FULLY_FUSED && !defined(USE_ARM_V8_SIMD))
 	double *b = 0x0;
+#endif
 	if(fwd_fft_only >> 2) {		// Do the following 3 steps in both cases - if bits 2:3 == 0 the ANDs are no-ops...
 		// The submul-auxiliary array c_arr[], if present, in already in proper double[] form, but b[] needs low-bits-cleared and casting
+	  #if !defined(USE_SSE2) || (!FULLY_FUSED && !defined(USE_ARM_V8_SIMD))
 		b = (double *)(fwd_fft_only & ~0xCull);
+	  #endif
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {
 			ASSERT((fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
@@ -256,8 +281,8 @@ void radix16_dyadic_square(
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// Index vectors used in SIMD roots-computation.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-		sm_ptr = ALIGN_INT(sm_arr);
+		sm_arr = ALLOC_UINT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		sm_ptr = ALIGN_UINT(sm_arr);
 		ASSERT(((uintptr_t)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array:
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
@@ -369,7 +394,9 @@ void radix16_dyadic_square(
 	for(j = 0; j < ndivrad0; j += stride)
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
+	#ifndef USE_SSE2
 		j2 = j1+RE_IM_STRIDE;
+	#endif
 
 	#ifndef USE_SSE2	// Scalar-double mode:
 
@@ -1252,8 +1279,10 @@ locations, just with local-store address offsets doubled due to the double data 
 		nbytes = ((intptr_t)r17 - (intptr_t)r1)<<1;
 		memcpy(r1, add0, nbytes);	// add0 = a + j1pad;
 	  }
+	  #ifndef USE_ARM_V8_SIMD
 		bdd0 = b + j1;	// No reverse-running addresses as in Mers-mod/real-vector-FFT case, just need single B-array base address
 		cdd0 = c_arr + j1;
+	  #endif
 
 		if(c_arr) {	// c_arr != 0x0: a * (b - c)
 
@@ -2359,8 +2388,9 @@ locations, just with local-store address offsets doubled due to the double data 
 
 #else	/* if(!USE_SSE2) */
 
-	if(fwd_fft_only == 3)
+	if(fwd_fft_only == 3) {
 		goto skip_fwd_fft;	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
+	}
 
 	/*...Block 1: */
 		t1 =a[j1   ];					t2 =a[j2   ];

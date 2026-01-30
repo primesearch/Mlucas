@@ -99,6 +99,36 @@ EWM: nvcc gives 'error: invalid redeclaration of type name "int64_t"' for the ty
 	typedef uint64		uint64_t;
 #endif
 */
+
+/* Type to safely cast uint64 <-> double.
+ * This is used to get rid of gcc strict aliasing violation warnings.
+ */
+typedef union {
+  uint64 u64;
+  double f64;
+} i64_f64;
+
+static inline double u64_to_f64(uint64 u)
+{
+  i64_f64 cvt;
+  cvt.u64 = u;
+  return cvt.f64;
+}
+
+static inline uint64 f64_to_u64(double u)
+{
+  i64_f64 cvt;
+  cvt.f64 = u;
+  return cvt.u64;
+}
+
+static inline int64 f64_to_i64(double u)
+{
+  i64_f64 cvt;
+  cvt.f64 = u;
+  return cvt.u64;
+}
+
 /*******************************************************************************
    Some useful utility macros:
 *******************************************************************************/
