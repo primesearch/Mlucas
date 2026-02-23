@@ -7,8 +7,6 @@ Ernst Mayer's Mlucas and Mfactor programs for GIMPS
 
 Mlucas and Mfactor are 100% open source programs. Mlucas is for [primality](https://en.wikipedia.org/wiki/Primality_test) and [P-1](https://en.wikipedia.org/wiki/Pollard%27s_p_%E2%88%92_1_algorithm) testing of [Mersenne](https://en.wikipedia.org/wiki/Mersenne_prime) and [Fermat](https://en.wikipedia.org/wiki/Fermat_number) numbers, including support for the [Lucas-Lehmer](https://en.wikipedia.org/wiki/Lucas%E2%80%93Lehmer_primality_test), [Probable prime](https://en.wikipedia.org/wiki/Probable_prime) (PRP) and [Pépin](https://en.wikipedia.org/wiki/P%C3%A9pin%27s_test) tests. Mfactor is for trial factoring. They support x86 Intel and AMD, ARM and other CPUs.
 
-The original [Mlucas README](https://mersenneforum.org/mayer/README.html) is available for posterity and contains a lot of information, but note that it is no longer up to date. For more information about Mlucas v21, please see the [Ernst's Mlucas - the future](https://www.mersenneforum.org/showthread.php?t=28926) thread on the Mersenne Forum.
-
 Feature | | Mlucas | Prime95/MPrime
 --- | --- | ---: | ---:
 **Architectures** | x86 | ✔️ | ✔️
@@ -35,6 +33,13 @@ Feature | | Mlucas | Prime95/MPrime
 **Free** 🆓 | | **Yes**, GPL | No, EULA
 **100% Open Source** | | ✔️ | Mostly
 **Claim Full EFF Awards** | | ✔️ | 
+
+The original [Mlucas README](https://mersenneforum.org/mayer/README.html) is available for posterity and contains a lot of information, but note that it is no longer up to date. For more information about Mlucas, please see the [Mlucas subforum](https://www.mersenneforum.org/node/91) on the Mersenne Forum. The source code for and information about historical versions of Mlucas can be found on:
+
+* [mersenneforum.org](https://mersenneforum.org/mayer/README.html)
+* [hogranch.com](https://web.archive.org/web/20170606082351/http://hogranch.com/mayer/README.html)
+* [mersenne.org](https://web.archive.org/web/20100612202354/http://mersenne.org:80/freesoft/mlucas.html)
+* [SourceForge](https://sourceforge.net/p/mlucas/code/)
 
 ## Usage
 
