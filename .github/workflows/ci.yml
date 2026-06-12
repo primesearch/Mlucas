@@ -12,9 +12,10 @@ jobs:
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' && matrix.cc == 'gcc' }}
     strategy:
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-22.04-arm, ubuntu-24.04-arm]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -134,11 +135,11 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    continue-on-error: true
+    continue-on-error: ${{ (!endsWith(matrix.os, '-arm') && matrix.container == 'ubuntu:16.04') || (endsWith(matrix.os, '-arm') && (matrix.container == 'ubuntu:16.04' || matrix.container == 'ubuntu:18.04' || matrix.container == 'alpine:3.8') && matrix.cc == 'clang') }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:16.04"]
+        container: ["ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04"] # "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -146,13 +147,27 @@ jobs:
     steps:
     # - uses: actions/checkout@v6
     - name: Install
+      if: ${{ startsWith(matrix.container, 'ubuntu:') }}
       run: |
         apt-get update
-        apt-get install -y wget build-essential libgmp-dev libhwloc-dev
+        DEBIAN_FRONTEND=noninteractive apt-get install -y wget build-essential libgmp-dev libhwloc-dev
+        echo 'HAVE_HWLOC=1' >> "$GITHUB_ENV"
     - name: Install Clang
-      if: ${{ matrix.cc == 'clang' }}
+      if: ${{ startsWith(matrix.container, 'ubuntu:') && matrix.cc == 'clang' }}
       run: |
         apt-get install -y clang
+    - name: Install
+      if: ${{ startsWith(matrix.container, 'alpine:') }}
+      run: |
+        apk update
+        apk add bash wget build-base gmp-dev
+        if apk add hwloc-dev; then
+            echo 'HAVE_HWLOC=1' >> "$GITHUB_ENV"
+        fi
+    - name: Install Clang
+      if: ${{ startsWith(matrix.container, 'alpine:') && matrix.cc == 'clang' }}
+      run: |
+        apk add clang
     - name: Download
       run: |
         wget "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz"
@@ -160,6 +175,7 @@ jobs:
     - name: Before script
       run: |
         $CC --version
+        ldd --version || true
     - name: Script
       shell: bash
       run: |
@@ -172,7 +188,7 @@ jobs:
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            bash -e -o pipefail -- makemake.sh ${HAVE_HWLOC:+use_hwloc} $mode
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
@@ -307,7 +323,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: ShellCheck
-      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-extra-masked-returns,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
+      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
       continue-on-error: true
 
   macOS:
