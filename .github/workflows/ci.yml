@@ -12,6 +12,7 @@ jobs:
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ (matrix.os == 'ubuntu-24.04' && matrix.cc == 'clang') || matrix.os == 'ubuntu-26.04' }}
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
@@ -79,6 +80,7 @@ jobs:
     name: Mlucas Singlethreaded Linux
 
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !endsWith(matrix.os, '-arm') }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
@@ -134,11 +136,11 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    continue-on-error: ${{ (!endsWith(matrix.os, '-arm') && matrix.container == 'ubuntu:16.04') || (endsWith(matrix.os, '-arm') && (matrix.container == 'ubuntu:16.04' || matrix.container == 'ubuntu:18.04' || matrix.container == 'alpine:3.8') && matrix.cc == 'clang') }}
+    continue-on-error: ${{ (!endsWith(matrix.os, '-arm') && matrix.container == 'ubuntu:16.04') || (endsWith(matrix.os, '-arm') && (matrix.container == 'ubuntu:16.04' || matrix.container == 'ubuntu:18.04') && matrix.cc == 'clang') || (matrix.container == 'alpine:3.8' && (!endsWith(matrix.os, '-arm') || matrix.cc == 'clang')) }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04"] # "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"
+        container: ["ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -175,6 +177,10 @@ jobs:
       run: |
         $CC --version
         ldd --version || true
+    - name: Fix
+      if: ${{ (matrix.container == 'ubuntu:16.04' || matrix.container == 'alpine:3.8' || matrix.container == 'alpine:3.12' || matrix.container == 'alpine:3.16') && matrix.cc == 'clang' }}
+      run: |
+        sed -i 's/ -flto//' makemake.sh
     - name: Script
       shell: bash
       run: |

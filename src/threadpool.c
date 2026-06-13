@@ -329,7 +329,7 @@ me at: heber.tomer@gmail.com
 
 		cpu_set_t cpu_set;
 		int i,errcode;
-		pid_t thread_id = syscall (__NR_gettid);
+		pid_t thread_id = syscall (SYS_gettid);
 	  #if THREAD_POOL_DEBUG
 		printf("executing worker thread id %u, syscall_id = %u\n", my_id, thread_id);
 	  #endif
@@ -674,7 +674,7 @@ me at: heber.tomer@gmail.com
 		for (i = 0; i < num_threads; i++)
 		{
 			CPU_SET(i, &cpu_set);
-			thread_id = (pid_t) syscall (__NR_gettid);
+			thread_id = (pid_t) syscall (SYS_gettid);
 			errcode = sched_setaffinity (thread_id, sizeof(cpu_set), &cpu_set);
 		  #if THREAD_POOL_DEBUG
 			printf("syscall_id = %u, setaffinity[%d] = %d, ISSET[%d] = %d\n", thread_id,i,errcode,i,CPU_ISSET(i, &cpu_set));
