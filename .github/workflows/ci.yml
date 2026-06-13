@@ -12,7 +12,6 @@ jobs:
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' && matrix.cc == 'gcc' }}
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
