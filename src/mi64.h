@@ -324,7 +324,7 @@ DEV int		mi64_is_div_by_scalar64	(const uint64 x[], uint64 a, uint32 len);
 DEV int		mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint32 len);
 DEV int		mi64_is_div_by_scalar64_u2	(const uint64 x[], uint64 a, uint32 len);	// 2-way interleaved-|| loop
 DEV int		mi64_is_div_by_scalar64_u4	(const uint64 x[], uint64 a, uint32 len);	// 4-way interleaved-|| loop
-DEV uint32	mi64_div_y32			(uint64 x[], uint32 y, uint64 q[], uint32 len);
+DEV uint32	mi64_div_y32			(const uint64 x[], uint32 y, uint64 q[], uint32 len);
 
 /* Basic I/O routines: */
 /* This is an arbitrary-string-length core routine which can be called directly, requires caller to supply allocated-length of input string: */
@@ -499,11 +499,11 @@ __device__ uint32 mi64_twopmodq_gpu(
   #ifndef YES_ASM
 	#define MONT_MUL64(__x,__y,__q,__qinv,__z)\
 	{\
-		uint64 lo,hi;					\
-		MUL_LOHI64(__x,__y,lo,hi);		\
-		MULL64(__qinv,lo,lo);			\
-		MULH64(__q,lo,lo);			\
-		__z = hi - lo + ((-(int64)(hi < lo)) & __q);	/* did we have a borrow from (hi-lo)? */\
+		uint64 l_lo,l_hi;					\
+		MUL_LOHI64(__x,__y,l_lo,l_hi);		\
+		MULL64(__qinv,l_lo,l_lo);			\
+		MULH64(__q,l_lo,l_lo);				\
+		__z = l_hi - l_lo + ((-(int64)(l_hi < l_lo)) & __q);	/* did we have a borrow from (l_hi-l_lo)? */\
 	}
   #else
 	#define MONT_MUL64(__Xx,__Xy,__Xq,__Xqinv,__Xz)\

@@ -67,6 +67,25 @@ me at: heber.tomer@gmail.com
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
+// MacOS has its own versions of these, in /usr/include/X11/Xthreads.h:
+static void * xmalloc(size_t len) {
+	void *ptr = malloc(len);
+	if (ptr == NULL) {
+		printf("failed to allocate %u bytes\n", (uint32)len);
+		exit(-1);
+	}
+	return ptr;
+}
+
+static void * xcalloc(size_t num, size_t len) {
+	void *ptr = calloc(num, len);
+	if (ptr == NULL) {
+		printf("failed to calloc %u bytes\n", (uint32)(num * len));
+		exit(-1);
+	}
+	return ptr;
+}
+
 	#define THREAD_POOL_DEBUG	0
 
 	#if THREAD_POOL_DEBUG
@@ -255,7 +274,7 @@ me at: heber.tomer@gmail.com
 	 * @param data Contains a pointer to the startup data
 	 * @return NULL.
 	 */
-	#if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__>1)
+	#if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__>1) && defined(CPU_IS_X86)
 
 	/* gcc on win32 needs to force 16-byte stack alignment on
 	   thread entry, as this exceeds what windows may provide; see
@@ -266,10 +285,6 @@ me at: heber.tomer@gmail.com
 	#endif
 	static void *worker_thr_routine(void *data)
 	{
-		char cbuf[STR_MAX_LEN*2];
-	#if INCLUDE_HWLOC
-		char str[80];
-	#endif
 		struct thread_init *init = (struct thread_init *)data;
 		int my_id = init->thread_num;
 		struct threadpool *pool = init->pool;
@@ -327,9 +342,10 @@ me at: heber.tomer@gmail.com
 	  */
 	  #else
 
-		cpu_set_t cpu_set;
-		int i,errcode;
+		int i;
+	  #if THREAD_POOL_DEBUG || !INCLUDE_HWLOC
 		pid_t thread_id = syscall (__NR_gettid);
+	  #endif
 	  #if THREAD_POOL_DEBUG
 		printf("executing worker thread id %u, syscall_id = %u\n", my_id, thread_id);
 	  #endif
@@ -344,6 +360,8 @@ me at: heber.tomer@gmail.com
 	 #if INCLUDE_HWLOC
 
 	  if(HWLOC_AFFINITY) {	// Global, declared in Mdata.h, defined in Mlucas.c, set in util.c::host_init()
+		char cbuf[STR_MAX_LEN*2];
+		char str[80];
 		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc();
 		hwloc_obj_t obj = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, i);
 		if (obj) {
@@ -368,10 +386,12 @@ me at: heber.tomer@gmail.com
 
 	 #else	// INCLUDE_HWLOC = False:
 
+		cpu_set_t cpu_set;
+
 		// get cpu mask using sequential thread ID modulo #available cores in runtime-specified affinity set:
 		CPU_ZERO (&cpu_set);
 		CPU_SET(i, &cpu_set);
-		errcode = sched_setaffinity(thread_id, sizeof(cpu_set), &cpu_set);
+		int errcode = sched_setaffinity(thread_id, sizeof(cpu_set), &cpu_set);
 	  #if THREAD_POOL_DEBUG
 		printf("syscall_id = %u, tid = %d, setaffinity[%d] = %d, ISSET[%d] = %d\n", thread_id,my_id,i,errcode,i,CPU_ISSET(i, &cpu_set));
 	  #endif

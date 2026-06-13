@@ -35,10 +35,12 @@
 //p = 16264097; k[0] = k[1] = k[2] = k[3] = k[4] = k[5] = k[6] = k[7] = 204476354235ull;	// Debug
 		const char func[] = "twopmodq100_2WORD_DOUBLE_q32";
 		 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
-		uint64 lead7, r = 0, tmp64;
+		uint64 lead7, r = 0;
+	#ifdef USE_AVX512_I
+		uint64 tmp64;
+	#endif
 		static uint64 psave = 0, pshift;
 		static uint32 start_index, zshift, first_entry = TRUE;
-		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 		const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 	#ifdef USE_AVX512_I
@@ -52,7 +54,7 @@
 	  #else
 		static	// Following set of pointers only static-izable in single-thread mode
 	  #endif
-		uint64 *fq0[32],*fq1[32], *fqinv0[32],*fqinv1[32], *fx0[32],*fx1[32];
+		uint64 *fq0[32]/* ,*fq1[32] */, *fqinv0[32]/* ,*fqinv1[32] */, *fx0[32],*fx1[32];
 		for(j = 0; j < 32; j++) {
 			ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
 		}
@@ -70,7 +72,7 @@
 	  #else
 		static	// Following set of pointers only static-izable in single-thread mode
 	  #endif
-		double *fq0[32],*fq1[32], *fqinv0[32],*fqinv1[32], *fx0[32],*fx1[32], kdbl[32];
+		double *fq0[32]/* ,*fq1[32] */, *fqinv0[32]/* ,*fqinv1[32] */, *fx0[32],*fx1[32], kdbl[32];
 		// AVX-512 Foundation lacks the needed DQ extensions, so use HLL to convert kvec entries to double:
 		for(j = 0; j < 32; j++) {
 			ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
@@ -134,19 +136,19 @@
 		  #else
 			/* Remember, these are POINTERS-TO-UINT64, so need an increment of 8 to span an AVX-512 register: */
 			fq0   [0] = sc_ptr + 0x000;
-			fq1   [0] = sc_ptr + 0x020;
+			//fq1   [0] = sc_ptr + 0x020;
 			// +0x40 - Insert another slot here for q.lo + base*q.hi approximant
 			fqinv0[0] = sc_ptr + 0x060;
-			fqinv1[0] = sc_ptr + 0x080;
+			//fqinv1[0] = sc_ptr + 0x080;
 			fx0   [0] = sc_ptr + 0x0A0;
 			fx1   [0] = sc_ptr + 0x0C0;
 			// +0xE0,100 - Insert another 2 pairs of padding slots here for high-product-words (hi.lo,hi.hi) register spills
 			// +0x120 - Insert another slot here for hi.lo + base*h.hi approximant
 			for(j = 1, itmp = sc_ptr+1; j < 32; j++, itmp++) {
 				fq0   [j] = itmp + 0x000;
-				fq1   [j] = itmp + 0x020;
+				//fq1   [j] = itmp + 0x020;
 				fqinv0[j] = itmp + 0x060;
-				fqinv1[j] = itmp + 0x080;
+				//fqinv1[j] = itmp + 0x080;
 				fx0   [j] = itmp + 0x0A0;
 				fx1   [j] = itmp + 0x0C0;
 			}
@@ -158,26 +160,26 @@
 		/***************************************************/
 
 			sc_arr = ALLOC_DOUBLE(sc_arr, 0x140*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-			sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
+			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 			ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD
 			__r0  = sc_ptr;
 		  #else
 			/* Remember, these are POINTERS-TO-DOUBLE, so need an increment of 8 to span an AVX-512 register: */
 			fq0   [0] = sc_ptr + 0x000;
-			fq1   [0] = sc_ptr + 0x020;
+			//fq1   [0] = sc_ptr + 0x020;
 			// +0x40 - Insert another slot here for q.lo + base*q.hi approximant
 			fqinv0[0] = sc_ptr + 0x060;
-			fqinv1[0] = sc_ptr + 0x080;
+			//fqinv1[0] = sc_ptr + 0x080;
 			fx0   [0] = sc_ptr + 0x0A0;
 			fx1   [0] = sc_ptr + 0x0C0;
 			// +0xE0,100 - Insert another 2 pairs of padding slots here for high-product-words (hi.lo,hi.hi) register spills
 			// +0x120 - Insert another slot here for hi.lo + base*h.hi approximant
 			for(j = 1, dptr = sc_ptr+1; j < 32; j++, dptr++) {
 				fq0   [j] = dptr + 0x000;
-				fq1   [j] = dptr + 0x020;
+				//fq1   [j] = dptr + 0x020;
 				fqinv0[j] = dptr + 0x060;
-				fqinv1[j] = dptr + 0x080;
+				//fqinv1[j] = dptr + 0x080;
 				fx0   [j] = dptr + 0x0A0;
 				fx1   [j] = dptr + 0x0C0;
 			}
@@ -197,16 +199,16 @@
 		// Cf. above init-block for memory layout
 		/* Remember, these are POINTERS-TO-UINT64, so need an increment of 8 to span an AVX-512 register: */
 		fq0   [0] = sc_ptr + 0x000;
-		fq1   [0] = sc_ptr + 0x020;
+		//fq1   [0] = sc_ptr + 0x020;
 		fqinv0[0] = sc_ptr + 0x060;
-		fqinv1[0] = sc_ptr + 0x080;
+		//fqinv1[0] = sc_ptr + 0x080;
 		fx0   [0] = sc_ptr + 0x0A0;
 		fx1   [0] = sc_ptr + 0x0C0;
 		for(j = 1, itmp = sc_ptr+1; j < 32; j++, itmp++) {
 			fq0   [j] = itmp + 0x000;
-			fq1   [j] = itmp + 0x020;
+			//fq1   [j] = itmp + 0x020;
 			fqinv0[j] = itmp + 0x060;
-			fqinv1[j] = itmp + 0x080;
+			//fqinv1[j] = itmp + 0x080;
 			fx0   [j] = itmp + 0x0A0;
 			fx1   [j] = itmp + 0x0C0;
 		}
@@ -215,16 +217,16 @@
 		// Cf. above init-block for memory layout
 		/* Remember, these are POINTERS-TO-DOUBLE, so need an increment of 8 to span an AVX-512 register: */
 		fq0   [0] = sc_ptr + 0x000;
-		fq1   [0] = sc_ptr + 0x020;
+		//fq1   [0] = sc_ptr + 0x020;
 		fqinv0[0] = sc_ptr + 0x060;
-		fqinv1[0] = sc_ptr + 0x080;
+		//fqinv1[0] = sc_ptr + 0x080;
 		fx0   [0] = sc_ptr + 0x0A0;
 		fx1   [0] = sc_ptr + 0x0C0;
 		for(j = 1, dptr = sc_ptr+1; j < 32; j++, dptr++) {
 			fq0   [j] = dptr + 0x000;
-			fq1   [j] = dptr + 0x020;
+			//fq1   [j] = dptr + 0x020;
 			fqinv0[j] = dptr + 0x060;
-			fqinv1[j] = dptr + 0x080;
+			//fqinv1[j] = dptr + 0x080;
 			fx0   [j] = dptr + 0x0A0;
 			fx1   [j] = dptr + 0x0C0;
 		}
