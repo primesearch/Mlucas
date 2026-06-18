@@ -75,7 +75,7 @@ if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
 fi
 if ! command -v $MAKE >/dev/null; then
 	echo "Error: This script requires Make" >&2
-	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
+	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
 fi
 if [[ -n $CC ]]; then
@@ -85,7 +85,7 @@ if [[ -n $CC ]]; then
 	fi
 elif ! command -v gcc >/dev/null; then
 	echo "Error: This script requires the GNU C compiler" >&2
-	echo "On Ubuntu and Debian run: 'sudo apt-get update' and 'sudo apt-get install -y build-essential'" >&2
+	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
 fi
 
@@ -112,19 +112,19 @@ done
 for arg in "$@"; do
 
 	case ${arg} in
-		'no_gmp')
+		no_gmp)
 			GMP=0
 			;;
-		'use_hwloc')
+		use_hwloc)
 			HWLOC=1
 			;;
-		'avx512_skylake' | 'avx512_knl' | 'avx512' | 'k1om' | 'avx2' | 'avx' | 'sse2' | 'asimd' | 'nosimd')
+		avx512_skylake | avx512_knl | avx512 | k1om | avx2 | avx | sse2 | asimd | nosimd)
 			MODES+=("$arg")
 			;;
-		'mfac')
+		mfac)
 			TARGET=$Mfactor
 			;;
-		'1word' | '2word' | '3word' | '4word' | 'nword')
+		[1-4n]word)
 			WORDS=$arg
 			;;
 		*)
@@ -192,41 +192,41 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 	arg=${MODES[0]}
 
 	case ${arg} in
-		'avx512_skylake')
+		avx512_skylake)
 			echo "Building for avx512_skylake SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			echo "Warning: The 'avx512_skylake' option is deprecated, use 'avx512' instead."
-			ARGS+=(-DUSE_AVX512 -march=skylake-avx512)
+			ARGS+=(-DUSE_AVX512 -march=skylake-avx512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
-		'avx512_knl')
+		avx512_knl)
 			echo "Building for avx512_knl SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			echo "Warning: The 'avx512_knl' option is deprecated, use 'avx512' instead."
-			ARGS+=(-DUSE_AVX512 -march=knl)
+			ARGS+=(-DUSE_AVX512 -march=knl -mavx512f -mavx512cd -mavx512er -mfma)
 			;;
-		'avx512')
+		avx512)
 			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_AVX512 -mavx512f)
+			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
-		'k1om')
+		k1om)
 			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_IMCI512)
 			;;
-		'avx2')
+		avx2)
 			echo "Building for AVX2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			ARGS+=(-DUSE_AVX2 -mavx2)
+			ARGS+=(-DUSE_AVX2 -mavx2 -mfma)
 			;;
-		'avx')
+		avx)
 			echo "Building for AVX SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_AVX -mavx)
 			;;
-		'sse2')
+		sse2)
 			echo "Building for SSE2 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_SSE2 -msse2)
 			;;
-		'asimd')
+		asimd)
 			echo "Building for ASIMD SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_ARM_V8_SIMD)
 			;;
-		'nosimd')
+		nosimd)
 			echo "Building in scalar-double (no-SIMD) mode in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			# This one's a no-op
 			;;
@@ -243,17 +243,17 @@ elif [[ $OSTYPE == darwin* ]]; then
 	# MacOS:
 	if (($(sysctl -n hw.optional.avx512f))); then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX512 -march=native)
+		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 	elif (($(sysctl -n hw.optional.avx2_0))); then
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX2 -march=native -mavx2)
+		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
 	elif (($(sysctl -n hw.optional.avx1_0))); then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX -march=native -mavx)
 	elif (($(sysctl -n hw.optional.sse2))); then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
-		ARGS+=(-DUSE_SSE2 -march=core2)
+		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
 	elif (($(sysctl -n hw.optional.neon))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
 		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
@@ -268,16 +268,16 @@ elif [[ $OSTYPE == linux* ]]; then
 	# Linux:
 	if grep -iq 'avx512' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX512 -march=native)
+		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 	elif grep -iq 'avx2' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX2 -march=native -mavx2)
+		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
 	elif grep -iq 'avx' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX -march=native -mavx)
 	elif grep -iq 'sse2' /proc/cpuinfo; then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
-		ARGS+=(-DUSE_SSE2 -march=native)
+		ARGS+=(-DUSE_SSE2 -march=native -msse2)
 	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
 		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
@@ -298,16 +298,16 @@ int main()
 #ifdef __x86_64__
 	#ifdef __AVX512F__
 		fputs("The CPU supports the AVX512 SIMD build mode.\n\n", stderr);
-		puts("-DUSE_AVX512 -march=native");
+		puts("-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma");
 	#elif defined __AVX2__
 		fputs("The CPU supports the AVX2 SIMD build mode.\n\n", stderr);
-		puts("-DUSE_AVX2 -march=native -mavx2");
+		puts("-DUSE_AVX2 -march=native -mavx2 -mfma");
 	#elif defined __AVX__
 		fputs("The CPU supports the AVX SIMD build mode.\n\n", stderr);
 		puts("-DUSE_AVX -march=native -mavx");
 	#elif defined __SSE2__
 		fputs("The CPU supports the SSE2 SIMD build mode.\n\n", stderr);
-		puts("-DUSE_SSE2 -march=native");
+		puts("-DUSE_SSE2 -march=native -msse2");
 	#else
 		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
 		fputs("Warning: This likely means there is a bug in this script. Please report!\n", stderr);
@@ -370,10 +370,10 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS = -fdiagnostics-color -Wall -g -O3 -flto # =auto
+CFLAGS ?= -fdiagnostics-color -Wall -g -O3 -flto # =auto
 CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS ?= -L/opt/homebrew/lib
-LDLIBS = ${LD_ARGS[@]} # -static
+LDLIBS ?= ${LD_ARGS[@]} # -static
 
 OBJS=br.o dft_macro.o fermat_mod_square.o fgt_m61.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o get_preferred_fft_radix.o getRealTime.o imul_macro.o mers_mod_square.o mi64.o Mlucas.o pairFFT_mul.o pair_square.o pm1.o qfloat.o radix1008_ditN_cy_dif1.o radix1024_ditN_cy_dif1.o radix104_ditN_cy_dif1.o radix10_ditN_cy_dif1.o radix112_ditN_cy_dif1.o radix11_ditN_cy_dif1.o radix120_ditN_cy_dif1.o radix128_ditN_cy_dif1.o radix12_ditN_cy_dif1.o radix13_ditN_cy_dif1.o radix144_ditN_cy_dif1.o radix14_ditN_cy_dif1.o radix15_ditN_cy_dif1.o radix160_ditN_cy_dif1.o radix16_dif_dit_pass.o radix16_ditN_cy_dif1.o radix16_dyadic_square.o radix16_pairFFT_mul.o radix16_wrapper_ini.o radix16_wrapper_square.o radix176_ditN_cy_dif1.o radix17_ditN_cy_dif1.o radix18_ditN_cy_dif1.o radix192_ditN_cy_dif1.o radix208_ditN_cy_dif1.o radix20_ditN_cy_dif1.o radix224_ditN_cy_dif1.o radix22_ditN_cy_dif1.o radix240_ditN_cy_dif1.o radix24_ditN_cy_dif1.o radix256_ditN_cy_dif1.o radix26_ditN_cy_dif1.o radix288_ditN_cy_dif1.o radix28_ditN_cy_dif1.o radix30_ditN_cy_dif1.o radix31_ditN_cy_dif1.o radix320_ditN_cy_dif1.o radix32_dif_dit_pass.o radix32_ditN_cy_dif1.o radix32_dyadic_square.o radix32_wrapper_ini.o radix32_wrapper_square.o radix352_ditN_cy_dif1.o radix36_ditN_cy_dif1.o radix384_ditN_cy_dif1.o radix4032_ditN_cy_dif1.o radix40_ditN_cy_dif1.o radix44_ditN_cy_dif1.o radix48_ditN_cy_dif1.o radix512_ditN_cy_dif1.o radix52_ditN_cy_dif1.o radix56_ditN_cy_dif1.o radix5_ditN_cy_dif1.o radix60_ditN_cy_dif1.o radix63_ditN_cy_dif1.o radix64_ditN_cy_dif1.o radix6_ditN_cy_dif1.o radix72_ditN_cy_dif1.o radix768_ditN_cy_dif1.o radix7_ditN_cy_dif1.o radix80_ditN_cy_dif1.o radix88_ditN_cy_dif1.o radix8_dif_dit_pass.o radix8_ditN_cy_dif1.o radix960_ditN_cy_dif1.o radix96_ditN_cy_dif1.o radix992_ditN_cy_dif1.o radix9_ditN_cy_dif1.o rng_isaac.o threadpool.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o
 OBJS_MFAC=getRealTime.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o imul_macro.o mi64.o qfloat.o rng_isaac.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o threadpool.o factor.o

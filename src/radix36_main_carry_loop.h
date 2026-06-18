@@ -75,8 +75,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;	// O-ptrs
 	   #ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
-		tm2 = rad9_optr;
+		tm1 = (vec_dbl *)rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+		tm2 = (vec_dbl *)rad9_optr;
 		for(l = 0, tmp = r00, ntmp = 0; l < 2; l++, ntmp += 18) {
 	   #else
 		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 9) {
@@ -134,8 +134,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/* Radix-9 DFT uses adjacent temps, i.e. stride = 2*16 bytes: */
 	   #ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
-		tm2 = rad9_optr;
+		tm1 = (vec_dbl *)rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+		tm2 = (vec_dbl *)rad9_optr;
 		// Pointer patterns here same as for DIF, just need to swap I/O by reversing order of tm1,tm2 --> tm2,tm1 in macro arglists:
 		rad9_iptr[0] = s1p27; rad9_iptr[1] = s1p23; rad9_iptr[2] = s1p19; rad9_iptr[3] = s1p15; rad9_iptr[4] = s1p11; rad9_iptr[5] = s1p07; rad9_iptr[6] = s1p03; rad9_iptr[7] = s1p35; rad9_iptr[8] = s1p31;
 		rad9_optr[0] = r10; rad9_optr[1] = r12; rad9_optr[2] = r14; rad9_optr[3] = r16; rad9_optr[4] = r18; rad9_optr[5] = r1a; rad9_optr[6] = r1c; rad9_optr[7] = r1e; rad9_optr[8] = r1g;
@@ -325,7 +325,7 @@ $zmm1.v8_double = {0, 0, 0, 0, 1284, 257, 912, -274}, d4-7 nowhere near the corr
 Output:
 */
 		add0 += p04;				// prefetch of a + [prefetch offset] + p4,5,6,7
-		tmp  = (double *)tmp +  4;	// Call 2 will handle the .d4-7 doubles of our 4 input zmm register-sized vector data
+		tmp  = (vec_dbl *)((double *)tmp +  4);	// Call 2 will handle the .d4-7 doubles of our 4 input zmm register-sized vector data
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x800, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);	// Call 2 wts-data pointers += 0x400
 	   #endif
 /*
@@ -609,8 +609,8 @@ vinsertf64x4 1,ymm1,zmm0,zmm0	 3-6/1 for y,z,z, 7/1 for m256,z,z			3/1 for y,z,z
 		// Radix-9 DFT inputs can use same optr_off[] perm-index array as DIT:
 	   #ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
-		tm2 = rad9_optr;
+		tm1 = (vec_dbl *)rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+		tm2 = (vec_dbl *)rad9_optr;
 		for(l = 0, tmp = r00, ntmp = 0; l < 2; l++, ntmp += 18) {
 	   #else
 		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 9) {
@@ -668,8 +668,8 @@ vinsertf64x4 1,ymm1,zmm0,zmm0	 3-6/1 for y,z,z, 7/1 for m256,z,z			3/1 for y,z,z
 		/* Radix-9 DFT uses adjacent temps, i.e. stride = 2*16 bytes: */
 	   #ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
-		tm2 = rad9_optr;
+		tm1 = (vec_dbl *)rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+		tm2 = (vec_dbl *)rad9_optr;
 		rad9_iptr[0] = s1p27; rad9_iptr[1] = s1p23; rad9_iptr[2] = s1p19; rad9_iptr[3] = s1p15; rad9_iptr[4] = s1p11; rad9_iptr[5] = s1p07; rad9_iptr[6] = s1p03; rad9_iptr[7] = s1p35; rad9_iptr[8] = s1p31;
 		rad9_optr[0] = r10; rad9_optr[1] = r12; rad9_optr[2] = r14; rad9_optr[3] = r16; rad9_optr[4] = r18; rad9_optr[5] = r1a; rad9_optr[6] = r1c; rad9_optr[7] = r1e; rad9_optr[8] = r1g;
 		SSE2_RADIX_09_DIF_X2(s1p00,s1p32,s1p28,s1p24,s1p20,s1p16,s1p12,s1p08,s1p04, cc1,two, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g,

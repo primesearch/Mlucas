@@ -79,8 +79,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			rad9_iptr[8] = tmp + 0x202;		rad9_optr[8] = tm1 + k8;
 
 			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-			tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
-			tm2 = rad9_optr;
+			tm1 = (vec_dbl *)rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			tm2 = (vec_dbl *)rad9_optr;
 			SSE2_RADIX_09_DIT_X2(va0,va1,va2,va3,va4,va5,va6,va7,va8, ycc1,two, vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,
 				tm1,tm2
 			);	tmp += 4;
@@ -522,8 +522,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			rad9_optr[8] = tmp + 0x202;		rad9_iptr[8] = tm1 + k8;
 
 			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
-			tm0 = rad9_iptr;	// Can't use tm1 here since use that for s1p00 offsets in loop body
-			tm2 = rad9_optr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			tm0 = (vec_dbl *)rad9_iptr;	// Can't use tm1 here since use that for s1p00 offsets in loop body
+			tm2 = (vec_dbl *)rad9_optr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
 			SSE2_RADIX_09_DIF_X2(vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8, ycc1,two, va0,va1,va2,va3,va4,va5,va6,va7,va8,
 				tm0,tm2
 			);	tmp += 4;

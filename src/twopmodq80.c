@@ -5523,7 +5523,7 @@ if(~pshift != p+78) {
 			/***************************************************/
 
 				sc_arr = ALLOC_DOUBLE(sc_arr, 0x1c0*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-				sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
+				sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 				ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			  #ifdef MULTITHREAD
 				__r0  = sc_ptr;
@@ -6270,7 +6270,7 @@ if(~pshift != p+78) {
 			/***************************************************/
 
 				sc_arr = ALLOC_DOUBLE(sc_arr, 0x380*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-				sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
+				sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 				ASSERT(((uintptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			  #ifdef MULTITHREAD
 				__r0  = sc_ptr;
