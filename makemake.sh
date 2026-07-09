@@ -92,37 +92,43 @@ try_flag() {
 # xmm16-31, k0-k7) used throughout the AVX-512 inline-asm kernels. Some older Clang releases (pre-9ish)
 # reject these names even when otherwise AVX-512-aware:
 try_avx512_asm() {
-	printf 'int main(void){__asm__ __volatile__("vpxord %%%%zmm31,%%%%zmm31,%%%%zmm31\\n\\tvmovdqa64 %%%%xmm16,%%%%xmm17\\n\\tkmovw %%%%k1,%%%%eax" ::: "zmm31","xmm16","xmm17","k1","eax"); return 0;}\n' \
-		| "${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1
+	"${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1 <<'EOF'
+int main(void)
+{
+	__asm__ __volatile__(
+		"vpxord %%zmm31,%%zmm31,%%zmm31\n\t"
+		"vmovdqa64 %%xmm16,%%xmm17\n\t"
+		"kmovw %%k1,%%eax"
+		::: "zmm31","xmm16","xmm17","k1","eax"
+	);
+	return 0;
+}
+EOF
 }
 
-# Returns success iff $CC can compile two separate translation units with -flto and link them together.
-# A single-file compile-and-link (like try_flag) is too weak a test here: LTO breakage on some older or
-# misconfigured toolchains (missing/mismatched ar/nm/ranlib plugin support, old binutils) only shows up
-# once the linker actually has to combine LTO object files from more than one translation unit - which is
-# exactly what building Mlucas's ~90 source files does:
+# Returns success iff $CC can compile two separate translation units with the given -flto[=...] variant
+# and link them together. A single-file compile-and-link (like try_flag) is too weak a test here: LTO
+# breakage on some older or misconfigured toolchains (missing/mismatched ar/nm/ranlib plugin support,
+# old binutils) only shows up once the linker actually has to combine LTO object files from more than
+# one translation unit - which is exactly what building Mlucas's ~90 source files does:
 try_lto() {
-	local cc=${CC:-gcc} tmpdir
+	local cc=${CC:-gcc} flag=${1:--flto} tmpdir
 	tmpdir=$(mktemp -d) || return 1
+	trap 'rm -rf "$tmpdir"' RETURN
 	printf 'int mm_lto_probe_helper(void){return 0;}\n' >"$tmpdir/a.c"
 	printf 'int mm_lto_probe_helper(void);\nint main(void){return mm_lto_probe_helper();}\n' >"$tmpdir/b.c"
 	(
 		cd "$tmpdir" && \
-		"$cc" -flto -c a.c -o a.o && \
-		"$cc" -flto -c b.c -o b.o && \
-		"$cc" -flto a.o b.o -o out
+		"$cc" "$flag" -c a.c -o a.o && \
+		"$cc" "$flag" -c b.c -o b.o && \
+		"$cc" "$flag" a.o b.o -o out
 	) >/dev/null 2>&1
-	local rc=$?
-	rm -rf "$tmpdir"
-	return $rc
 }
 
-# GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe the actual version
-# rather than assuming by OS/distro (e.g. Ubuntu 14.04 and macOS's bundled Make both predate it):
+# GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe for the flag itself
+# rather than assuming by version number (which drifts, and varies by distro/backport):
 MAKE_SUPPORTS_dashO=0
-if make_ver_line=$("$MAKE" --version 2>/dev/null | head -n1) && [[ $make_ver_line =~ ([0-9]+)\.[0-9]+(\.[0-9]+)?[[:space:]]*$ ]]; then
-	(( ${BASH_REMATCH[1]} >= 4 )) && MAKE_SUPPORTS_dashO=1
-fi
+"$MAKE" --help 2>/dev/null | grep -wq -- '-O' && MAKE_SUPPORTS_dashO=1
 
 if [[ ! $OSTYPE == darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
@@ -302,10 +308,11 @@ elif [[ $OSTYPE == darwin* ]]; then
 		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
 	elif (($(sysctl -n hw.optional.neon))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
+		ARGS+=(-DUSE_ARM_V8_SIMD)
 		if try_flag -mcpu=native; then
-			ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native)
+			ARGS+=(-mcpu=native)
 		else
-			ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
+			ARGS+=(-march=native)
 		fi
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
@@ -319,7 +326,7 @@ elif [[ $OSTYPE == linux* ]]; then
 	if grep -iq 'avx512' /proc/cpuinfo && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif grep -iq 'avx512' /proc/cpuinfo || grep -iq 'avx2' /proc/cpuinfo; then
+	elif grep -iq 'avx512\|avx2' /proc/cpuinfo; then
 		if grep -iq 'avx512' /proc/cpuinfo; then
 			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
 		fi
@@ -333,10 +340,11 @@ elif [[ $OSTYPE == linux* ]]; then
 		ARGS+=(-DUSE_SSE2 -march=native -msse2)
 	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
+		ARGS+=(-DUSE_ARM_V8_SIMD)
 		if try_flag -mcpu=native; then
-			ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native)
+			ARGS+=(-mcpu=native)
 		else
-			ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
+			ARGS+=(-march=native)
 		fi
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
@@ -423,10 +431,13 @@ fi
 # or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe for both
 # instead of assuming. CI jobs that need a different CFLAGS entirely (sanitizer builds) should export a
 # CFLAGS environment variable before invoking this script - the generated Makefile's "CFLAGS ?=" already
-# defers to a pre-set environment CFLAGS instead of the computed value below:
+# defers to a pre-set environment CFLAGS instead of the computed value below. Prefer -flto=auto (parallel
+# LTO codegen, see #56) over plain -flto when supported:
 CFLAGS_PROBED=(-Wall -g -O3)
 try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
-if try_lto; then
+if try_lto -flto=auto; then
+	CFLAGS_PROBED+=(-flto=auto)
+elif try_lto -flto; then
 	CFLAGS_PROBED+=(-flto)
 else
 	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
@@ -440,7 +451,7 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS ?= ${CFLAGS_PROBED[*]} # =auto
+CFLAGS ?= ${CFLAGS_PROBED[*]}
 CPPFLAGS ?= -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS ?= -L/opt/homebrew/lib
 LDLIBS ?= ${LD_ARGS[@]} # -static
