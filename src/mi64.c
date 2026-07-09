@@ -4203,7 +4203,7 @@ void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 		:					/* outputs: none */\
 		: [__a] "m" (a)	/* All inputs from memory addresses here */\
 		 ,[__b] "m" (b)\
-		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","xmm30","rax","rbx","rcx","xmm0","xmm1","xmm31"	/* Clobbered registers */\
 	);
 	for(i = 0; i < 8; i++) {
 		ASSERT(b[i] == (double)a[i], "uint64->double conversion result differs from reference!");

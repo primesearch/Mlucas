@@ -411,7 +411,7 @@
 			 ,[__base0]  "m" (dptr2), [__binv0]  "m" (dptr3)	/* double-ptrs */\
 			 ,[__base1]  "m" (dptr4), [__binv1]  "m" (dptr5)	/* double-ptrs */\
 			 ,[__two32f] "m" (dptr6), [__two32i] "m" (dptr7)	/* double-ptrs */\
-			: "cc","memory","rax","rbx","rcx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27", "xmm30","xmm31"	/* Clobbered registers */\
+			: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27", "xmm30","xmm31"	/* Clobbered registers */\
 		);
 
 	#endif
@@ -567,7 +567,7 @@ opcount - umulh adds 5 mul, 3 fma, 5 add, 1 round:
 			:					/* outputs: none */\
 			: [__fq0] "m" (dptr)	/* All inputs from memory addresses here */\
 			 ,[__result] "m" (r)	\
-			: "cc","memory","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","xmm30","xmm31","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);
 
 		return r;
