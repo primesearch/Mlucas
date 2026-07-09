@@ -5126,7 +5126,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_nm1]	"m" (Xsse_nm1)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -5567,7 +5567,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_nm1]	"m" (Xsse_nm1)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -6084,7 +6084,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -6558,7 +6558,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -7025,7 +7025,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_nm1]	"m" (Xsse_nm1)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -7461,7 +7461,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_nm1]	"m" (Xsse_nm1)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -7941,7 +7941,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm17","xmm18","xmm20","xmm21","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -8405,7 +8405,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		, [__sinwtm1]	"m" (Xsinwtm1)		\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -10637,7 +10637,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","xmm18","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25"	/* Clobbered registers */\
 	);\
 	}
 
@@ -11379,7 +11379,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23"	/* Clobbered registers */\
 	);\
 	}
 
@@ -12318,7 +12318,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","xmm18","xmm19","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -13062,7 +13062,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -17299,7 +17299,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","rdi","rsi","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27"	/* Clobbered registers */\
 	);\
 	}
 
@@ -18076,7 +18076,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","k6","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20"	/* Clobbered registers */\
 	);\
 	}
 
@@ -19091,7 +19091,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -19899,7 +19899,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		,	[__p4]   "m" (Xp4)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -20247,7 +20247,7 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		,	[__p3]   "m" (Xp3)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm15","xmm20"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm15","xmm20"	/* Clobbered registers */\
 	);\
 	}
 
@@ -20668,7 +20668,7 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		,	[__p3]   "m" (Xp3)\
 		/* Mar 2018: Needed to support PRP testing: */\
 		,	[__prp_mult]   "m" (Xprp_mult)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
