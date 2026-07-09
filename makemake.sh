@@ -31,14 +31,6 @@ set -e
 
 shopt -s nocasematch
 
-# for mode in AVX512 AVX2 AVX SSE2; do
-	# if grep -iq "$mode" /proc/cpuinfo; then
-		# echo -e "The CPU supports the ${mode} SIMD build mode.\n"
-		# ARGS+=( "-DUSE_${mode}" )
-		# break
-	# fi
-# done
-
 DIR=obj
 Mlucas=Mlucas
 Mfactor=Mfactor
@@ -89,13 +81,56 @@ elif ! command -v gcc >/dev/null; then
 	exit 1
 fi
 
+# Returns success iff $CC (default gcc) accepts the given flag(s) for a full compile-and-link of a
+# trivial program - used below to auto-detect toolchain-version-dependent flag/feature support instead
+# of hardcoding version-number cutoffs (which drift out of date and vary by distro/backport):
+try_flag() {
+	printf 'int main(void){return 0;}\n' | "${CC:-gcc}" "$@" -x c -o /dev/null - >/dev/null 2>&1
+}
+
+# Returns success iff $CC's assembler accepts the AVX-512 "extended" register names (zmm16-31,
+# xmm16-31, k0-k7) used throughout the AVX-512 inline-asm kernels. Some older Clang releases (pre-9ish)
+# reject these names even when otherwise AVX-512-aware:
+try_avx512_asm() {
+	printf 'int main(void){__asm__ __volatile__("vpxord %%%%zmm31,%%%%zmm31,%%%%zmm31\\n\\tvmovdqa64 %%%%xmm16,%%%%xmm17\\n\\tkmovw %%%%k1,%%%%eax" ::: "zmm31","xmm16","xmm17","k1","eax"); return 0;}\n' \
+		| "${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1
+}
+
+# Returns success iff $CC can compile two separate translation units with -flto and link them together.
+# A single-file compile-and-link (like try_flag) is too weak a test here: LTO breakage on some older or
+# misconfigured toolchains (missing/mismatched ar/nm/ranlib plugin support, old binutils) only shows up
+# once the linker actually has to combine LTO object files from more than one translation unit - which is
+# exactly what building Mlucas's ~90 source files does:
+try_lto() {
+	local cc=${CC:-gcc} tmpdir
+	tmpdir=$(mktemp -d) || return 1
+	printf 'int mm_lto_probe_helper(void){return 0;}\n' >"$tmpdir/a.c"
+	printf 'int mm_lto_probe_helper(void);\nint main(void){return mm_lto_probe_helper();}\n' >"$tmpdir/b.c"
+	(
+		cd "$tmpdir" && \
+		"$cc" -flto -c a.c -o a.o && \
+		"$cc" -flto -c b.c -o b.o && \
+		"$cc" -flto a.o b.o -o out
+	) >/dev/null 2>&1
+	local rc=$?
+	rm -rf "$tmpdir"
+	return $rc
+}
+
+# GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe the actual version
+# rather than assuming by OS/distro (e.g. Ubuntu 14.04 and macOS's bundled Make both predate it):
+MAKE_SUPPORTS_dashO=0
+if make_ver_line=$("$MAKE" --version 2>/dev/null | head -n1) && [[ $make_ver_line =~ ([0-9]+)\.[0-9]+(\.[0-9]+)?[[:space:]]*$ ]]; then
+	(( ${BASH_REMATCH[1]} >= 4 )) && MAKE_SUPPORTS_dashO=1
+fi
+
 if [[ ! $OSTYPE == darwin* ]]; then
-	MAKE_ARGS+=(-O)
 	LD_ARGS+=(-lm -lpthread)
 	if [[ $OSTYPE != msys && $OSTYPE != cygwin ]]; then
 		LD_ARGS+=(-lrt)
 	fi
 fi
+((MAKE_SUPPORTS_dashO)) && MAKE_ARGS+=(-O)
 MAKE_ARGS+=(-j "$CPU_THREADS")
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
@@ -236,15 +271,26 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			;;
 	esac
 
+	# The AVX-512 kernels use "extended" register names (zmm16-31/xmm16-31/k0-7) that some older
+	# Clang releases reject even when otherwise AVX-512-aware; probe rather than let the user hit a
+	# wall of asm errors deep in the build:
+	if [[ $arg == avx512* ]] && ! try_avx512_asm; then
+		echo "Error: ${CC:-gcc}'s assembler does not support the AVX-512 extended register names (zmm16-31/xmm16-31/k0-7) needed for this build mode ... aborting. Try a newer compiler, or build with 'avx2' instead." >&2
+		exit 1
+	fi
+
 	DIR+="_$arg"
 
 elif [[ $OSTYPE == darwin* ]]; then
 
 	# MacOS:
-	if (($(sysctl -n hw.optional.avx512f))); then
+	if (($(sysctl -n hw.optional.avx512f))) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif (($(sysctl -n hw.optional.avx2_0))); then
+	elif (($(sysctl -n hw.optional.avx512f))) || (($(sysctl -n hw.optional.avx2_0))); then
+		if (($(sysctl -n hw.optional.avx512f))); then
+			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
+		fi
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
 	elif (($(sysctl -n hw.optional.avx1_0))); then
@@ -256,7 +302,11 @@ elif [[ $OSTYPE == darwin* ]]; then
 		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
 	elif (($(sysctl -n hw.optional.neon))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
+		if try_flag -mcpu=native; then
+			ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native)
+		else
+			ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
+		fi
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
@@ -266,10 +316,13 @@ elif [[ $OSTYPE == darwin* ]]; then
 elif [[ $OSTYPE == linux* ]]; then
 
 	# Linux:
-	if grep -iq 'avx512' /proc/cpuinfo; then
+	if grep -iq 'avx512' /proc/cpuinfo && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif grep -iq 'avx2' /proc/cpuinfo; then
+	elif grep -iq 'avx512' /proc/cpuinfo || grep -iq 'avx2' /proc/cpuinfo; then
+		if grep -iq 'avx512' /proc/cpuinfo; then
+			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
+		fi
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
 	elif grep -iq 'avx' /proc/cpuinfo; then
@@ -280,7 +333,11 @@ elif [[ $OSTYPE == linux* ]]; then
 		ARGS+=(-DUSE_SSE2 -march=native -msse2)
 	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
+		if try_flag -mcpu=native; then
+			ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native)
+		else
+			ARGS+=(-DUSE_ARM_V8_SIMD -march=native)
+		fi
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
@@ -362,6 +419,19 @@ if [[ -x $TARGET ]]; then
 	exit 1
 fi
 
+# -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on some older
+# or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe for both
+# instead of assuming. CI jobs that need a different CFLAGS entirely (sanitizer builds) should export a
+# CFLAGS environment variable before invoking this script - the generated Makefile's "CFLAGS ?=" already
+# defers to a pre-set environment CFLAGS instead of the computed value below:
+CFLAGS_PROBED=(-Wall -g -O3)
+try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
+if try_lto; then
+	CFLAGS_PROBED+=(-flto)
+else
+	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+fi
+
 # Clang-under-MacOS linker barfs if one tries to explicitly invoke standard libs - h/t tdulcet for the
 # conditional-inline syntax. Some OSes put the GMP headers in /usr/local/include, so -I that path in the
 # compile command. If said path does not exist, make silently ignores it.
@@ -370,8 +440,8 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS ?= -fdiagnostics-color -Wall -g -O3 -flto # =auto
-CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
+CFLAGS ?= ${CFLAGS_PROBED[*]} # =auto
+CPPFLAGS ?= -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS ?= -L/opt/homebrew/lib
 LDLIBS ?= ${LD_ARGS[@]} # -static
 
@@ -391,10 +461,6 @@ clean:
 
 .phony: clean
 EOF
-
-# if [[ -e build.log ]]; then
-	# cp -vf --backup=t build.log{,}
-# fi
 
 echo -e "Building $TARGET"
 printf "%'d CPU cores detected ... parallel-building using that number of make threads.\n" "$CPU_THREADS"
