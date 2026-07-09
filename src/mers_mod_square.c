@@ -331,6 +331,26 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			}
 		}
 
+	#ifdef USE_AVX
+		/* The AVX/AVX-512 radix16|32_wrapper_square routines read RE_IM_STRIDE (=4|8)
+		sincos-index sets per SIMD pass from the length-(N2/radix_final) index[] array. For FFT
+		lengths so small that the final-block schedule leaves a partial chunk with fewer than
+		RE_IM_STRIDE sets, those wide-SIMD code paths read past the end of index[] (garbage
+		twiddles, or SIGSEGV under ASan / when the slack falls on an unmapped page). This is
+		independent of the DAT_BITS/array-padding logic above (which is disabled - DAT_BITS=31 -
+		for the runlengths <= 32K where this bites). Such lengths are sub-1-Mdigit toy sizes with
+		no production use; they compute correctly in scalar/SSE2 builds but not the wide-SIMD ones,
+		so soft-skip here (self-test moves on to the next radix set instead of crashing). The
+		bound is empirical: the overrun occurs only for N2/radix_final <= 32 in AVX (stride 4)
+		builds; require >= 16*RE_IM_STRIDE for margin (and 2x that for the stride-8 AVX-512 path). */
+		if((N2 / (uint32)RADIX_VEC[NRADICES-1]) < (uint32)(16*RE_IM_STRIDE))
+		{
+			sprintf(cbuf,"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
+				(uint32)(n>>10), N2/(uint32)RADIX_VEC[NRADICES-1], (uint32)(16*RE_IM_STRIDE));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
+
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
 		for(i = 0; i < NRADICES; i++)
