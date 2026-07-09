@@ -567,7 +567,7 @@ opcount - umulh adds 5 mul, 3 fma, 5 add, 1 round:
 			:					/* outputs: none */\
 			: [__fq0] "m" (dptr)	/* All inputs from memory addresses here */\
 			 ,[__result] "m" (r)	\
-			: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","xmm30","xmm31","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm30","xmm31"	/* Clobbered registers */\
 		);
 
 		return r;

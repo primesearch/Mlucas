@@ -1009,7 +1009,7 @@ void radix32_dyadic_square(
 			 ,[__index1_mod] "m" (index1_mod)	\
 			 ,[__k1_arr] "m" (k1_arr)	\
 			 ,[__k2_arr] "m" (k2_arr)	\
-			: "cc","memory","k1","k2","xmm8","cl","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6"	/* Clobbered registers */\
+			: "cc","memory","k1","k2","cl","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8"	/* Clobbered registers */\
 		);
 
 		// Need one more (scalar-mode) update of these in preparation for the next 8-fold chunk:
