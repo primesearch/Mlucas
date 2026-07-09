@@ -1352,6 +1352,11 @@ for(i=0; i < NRT; i++) {
 
 		main_work_units = 0;
 		pool_work_units = nchunks;
+		// Free any threadpool left over from a prior runlength/radix-set before creating the new one,
+		// so a radix/runlength switch does not leak NTHREADS worker threads each time. Safe here because
+		// this re-init only happens at the top of a mod_square call, at which point the previous config's
+		// pool is quiescent - the preceding call drained it via the dispatch-completion wait below:
+		if(tpool) { threadpool_free(tpool); tpool = 0x0; }
 		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
 

@@ -989,7 +989,6 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #ifdef MULTITHREAD
 	static int *thr_ret = 0x0;
 	static pthread_t *thread = 0x0;
-	static pthread_attr_t attr;
 	static struct pm1_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch:
 	static struct threadpool *tpool = 0x0;
@@ -1161,12 +1160,16 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	containing as close to npad/NTHREADS doubles as possible, but satisfying the aforementioned starting-
 	address alignment criterion:
 	*/
+	// Free any thread-arrays/pool left over from a prior Stage-2 call before re-allocating, so repeated
+	// Stage-2 invocations - including any that returned early on a modmul error, bypassing the ERR_RETURN
+	// cleanup below - do not leak the NTHREADS worker threads or the per-thread arrays:
+	if(tpool)   { threadpool_free(tpool); tpool   = 0x0; }
+	if(thr_ret) { free((void *)thr_ret); thr_ret = 0x0; }
+	if(thread)  { free((void *)thread ); thread  = 0x0; }
+	if(tdat)    { free((void *)tdat   ); tdat    = 0x0; }
 	thr_ret  = (int *)calloc(NTHREADS, sizeof(int));
 	thread   = (pthread_t *)calloc(NTHREADS, sizeof(pthread_t));
 	tdat     = (struct pm1_thread_data_t *)calloc(NTHREADS, sizeof(struct pm1_thread_data_t));
-	// Initialize and set thread detached attribute:
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	const int nbytes_simd_align = (RE_IM_STRIDE*8) - 1;	// And per-thread data chunk addresses with this to check SIMD alignment
 	ASSERT(((intptr_t)mult[0] & nbytes_simd_align) == 0x0,"mult[0] not aligned on 64-byte boundary!");
 	ASSERT(((intptr_t)buf [0] & nbytes_simd_align) == 0x0,"buf [0] not aligned on 64-byte boundary!");	// Since npad a multiple of RE_IM_STRIDE, only need to check buf[0] alignment
@@ -2534,6 +2537,7 @@ ERR_RETURN:
 	free((void *)b); b = 0x0;
 	free((void *)map); map = 0x0;
   #ifdef MULTITHREAD
+	if(tpool) { threadpool_free(tpool); tpool = 0x0; }	// Join+free the Stage-2 worker pool so it does not linger after this call
 	free((void *)thr_ret ); thr_ret  = 0x0;
 	free((void *)thread  ); thread   = 0x0;
 	free((void *)tdat    ); tdat     = 0x0;
