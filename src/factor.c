@@ -3482,8 +3482,12 @@ MFACTOR_HELP:
 
 						  #else
 
-							#ifdef USE_FMADD
-								/* Use 50x50-bit FMADD-based modmul routines, if def'd: */
+							#if 0	/* USE_FMADD has no single-candidate twopmodq100_2WORD_DOUBLE
+									variant - the only FMADD-based 100-bit modpow ever implemented is the
+									AVX-512-only, 32-way twopmodq100_2WORD_DOUBLE_q32 in twopmodq100.c (unused
+									by this TRYQ==1 code path, and in any case unreachable here since factor.h
+									restricts USE_FMADD builds to TRYQ = 1, 2 or 4). Fall through to the
+									already-correct paths below instead of calling a nonexistent function. */
 								res = twopmodq100_2WORD_DOUBLE(p[0],k);
 							#elif(defined(USE_FLOAT))
 								/* Otherwise use 78-bit floating-double-based modmul: */
@@ -3536,14 +3540,19 @@ MFACTOR_HELP:
 
 						  #elif(defined(P1WORD))
 
-							#ifdef USE_FMADD
-								/* Use 50x50-bit FMADD-based modmul routines, if def'd: */
+							#if 0	/* USE_FMADD has no 2-way twopmodq100_2WORD_DOUBLE_q2
+									variant - see the longer note at the TRYQ==1 case above. There is no
+									integer-based q2 batch routine either, so unlike TRYQ==1/4 there is no
+									fallback to fall through to; if this is ever hit for real (it currently
+									is not - factor.h's default TRYQ under USE_FMADD is 2, but makemake.sh's
+									'mfac' target always overrides to TRYQ=4), build with TRYQ=1 or TRYQ=4
+									instead, or use USE_FLOAT instead of USE_FMADD. */
 								res = twopmodq100_2WORD_DOUBLE_q2(p[0],k_to_try[0],k_to_try[1]);
 							#elif(defined(USE_FLOAT))
 								/* Otherwise use 78-bit floating-double-based modmul: */
 								res = twopmodq78_3WORD_DOUBLE_q2(p[0],k_to_try[0],k_to_try[1], 0,tid);
 							#else
-								#error	TRYQ = 2 / P1WORD only allowed if USE_FLOAT or USE_FMADD is defined!
+								#error	TRYQ = 2 / P1WORD requires USE_FLOAT (USE_FMADD's 2-way 100-bit modpow, twopmodq100_2WORD_DOUBLE_q2, was never implemented - use TRYQ=1 or TRYQ=4 with USE_FMADD instead)!
 							#endif	/* #ifdef USE_FMADD */
 
 						  #else
@@ -3580,8 +3589,14 @@ MFACTOR_HELP:
 
 						  #else	// Default single-word-p mode:
 
-							#ifdef USE_FMADD
-								/* Use 50x50-bit FMADD-based modmul routines, if def'd: */
+							#if 0	/* USE_FMADD has no 4-way twopmodq100_2WORD_DOUBLE_q4
+									variant - see the longer note at the TRYQ==1 case above (only a
+									never-called, AVX-512-only 32-way _q32 routine was ever completed for
+									this 100-bit FMADD family). This #if 0 previously read '#ifdef USE_FMADD'
+									and called the nonexistent _q4 function, which is an implicit-declaration
+									hard error on GCC 14+/C23 (was a mere warning on older compilers) - this is
+									what broke the standalone Mfactor build (which always builds with TRYQ=4).
+									Fall through to the already-correct 78-bit/integer paths below instead. */
 								res = twopmodq100_2WORD_DOUBLE_q4(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 
 							#elif(defined(USE_FLOAT))
