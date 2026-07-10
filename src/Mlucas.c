@@ -1775,18 +1775,18 @@ READ_RESTART_FILE:
 	int update_shift = (RES_SHIFT != 0ull);	// If shift = 0 at outset, don't update (only need for Fermat-mod, due to the random-bit aspect there)
 
 	if(TEST_TYPE == TEST_TYPE_PM1 && ilo >= maxiter) {
-		// Task 20/#31: For a genuinely-completed Stage 1 we expect ilo == maxiter == PM1_S1_PROD_BITS. If instead
+		// For a genuinely-completed Stage 1 we expect ilo == maxiter == PM1_S1_PROD_BITS. If instead
 		// ilo *exceeds* the current-B1 product length, the savefile was produced with a larger B1 (e.g. a low-memory
 		// run bumps B1 up ~25%) and its '.s1_prod' product-savefile is missing, so compute_pm1_s1_product() could not
 		// recover/adopt the original B1. Do NOT proceed to Stage 2 - a partial powering to the larger B1 is not a
 		// completed Stage 1 at this B1, and treating it as such silently loses factors. Fail with actionable guidance.
 		if(ilo != maxiter || ilo != PM1_S1_PROD_BITS) {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: %s p-1 restart-file Stage 1 iteration count [%u] exceeds the Stage 1 prime-powers-product length [%u] for the current b1 = %u.\n"
+			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: %s P-1 restart-file Stage 1 iteration count [%u] exceeds the Stage 1 prime-powers-product length [%u] for the current B1 = %u.\n"
 				"The savefile was written with a larger B1 and its '.s1_prod' product-savefile is missing, so the original B1 cannot be recovered automatically.\n"
-				"Re-run with the original (larger) '-b1 <N>', or delete this exponent's p-1 savefiles to start a fresh run.\n", PSTRING, ilo, PM1_S1_PROD_BITS, B1);
-			mlucas_fprint(cbuf,1);	ASSERT(0, "p-1 Stage 1 restart B1-mismatch: see preceding message.");
+				"Re-run with the original (larger) '-b1 <N>', or delete this exponent's P-1 savefiles to start a fresh run.\n", PSTRING, ilo, PM1_S1_PROD_BITS, B1);
+			mlucas_fprint(cbuf,1);	ASSERT(0, "P-1 Stage 1 restart B1-mismatch: see preceding message.");
 		}
-		snprintf(cbuf,STR_MAX_LEN*2, "%s: p-1 stage 1 to b1 = %u already done -- proceeding to stage 2.\n",PSTRING,B1);
+		snprintf(cbuf,STR_MAX_LEN*2, "%s: P-1 Stage 1 to B1 = %u already done -- proceeding to Stage 2.\n",PSTRING,B1);
 		fprintf(stderr,"%s",cbuf);
 		ilo = ihi;		// Need this to differentiate between just-completed S1 and S1 residue read from restart file,
 		goto PM1_STAGE2;// in terms of whether we need to do a GCD before proceeding to S2
@@ -5184,16 +5184,16 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 				ASSERT(B2_start <= nsquares, "P-1 stage 2 restart requires (B2_start in worktodo assignment) <= (savefile nsquares field)!");
 		} else {	// It's a stage 1 restart:
 			ASSERT(nsquares <= 0xFFFFFFFFull, "P-1 stage 1 restart: savefile nsquares value out of bounds!");
-			// Task 20/#31: nsquares >= ~1.5*B1 means the savefile's in-progress Stage 1 was run to a larger B1 than
+			// nsquares >= ~1.5*B1 means the savefile's in-progress Stage 1 was run to a larger B1 than
 			// the current run's. compute_pm1_s1_product() normally recovers that B1 from the '.s1_prod' product-savefile
 			// and adopts it before we get here; if we still land here, that file is missing/unreadable, so the original
 			// B1 cannot be recovered. Fail with actionable guidance rather than the bare bounds-assert (a partial powering
 			// to the larger B1 is not a completed - nor a valid partial - Stage 1 at the smaller B1: proceeding loses factors).
 			if(nsquares >= 1.5*(double)B1) {
-				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: %s: p-1 Stage 1 restart-file iteration count [%" PRIu64 "] is too large for the current b1 = %u.\n"
+				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: %s: P-1 Stage 1 restart-file iteration count [%" PRIu64 "] is too large for the current B1 = %u.\n"
 					"The in-progress Stage 1 was run to a larger B1; its '.s1_prod' product-savefile (which records that B1) is missing or unreadable, so it cannot be recovered automatically.\n"
-					"Re-run with the original (larger) '-b1 <N>', or delete this exponent's p-1 savefiles to start a fresh run.\n", func, nsquares, B1);
-				mlucas_fprint(cbuf,1);	ASSERT(0, "p-1 Stage 1 restart B1-mismatch: see preceding message.");
+					"Re-run with the original (larger) '-b1 <N>', or delete this exponent's P-1 savefiles to start a fresh run.\n", func, nsquares, B1);
+				mlucas_fprint(cbuf,1);	ASSERT(0, "P-1 Stage 1 restart B1-mismatch: see preceding message.");
 			}
 		}
 		// If S2 restart and (nsquares > B2_start), read the ensuing S2 interim residue; if (nsquares == B2_start)
