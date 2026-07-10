@@ -333,11 +333,43 @@ global would be needed to store that - and remultiply by the appropriate one for
 */
 uint32 compute_pm1_s1_product(const uint64 p) {
 	const double A = 1.1;
+	const char func[] = "compute_pm1_s1_product";
 	ASSERT(B1 > 0, "Call to compute_pm1_s1_product needs Stage 1 bound global B1 to be set!");
-	double ln = log(B1), lg = ln*ILG2;
-	uint32 i,len = 0,nmul,nbits,ebits = (uint32)((lg-A)*B1/(ln-A));
+	uint32 i,len = 0,nmul,nbits,ebits;
 	uint64 iseed,maxmult;
 	char savefile[STR_MAX_LEN];
+
+  #ifndef PM1_STANDALONE
+	// Build the ".s1_prod" precomputed-product savefile name:
+	strcpy(savefile, RESTARTFILE);
+	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+	strcat(savefile, ".s1_prod");
+	/* Task 20/#31: pm1_set_bounds() auto-sizes B1 from available RAM - a low-memory run bumps B1 up ~25% to run a
+	deeper Stage 1 - so a restart under a different memory budget can pick a different B1 than the Stage 1 already in
+	progress. The in-progress powering (and the residue restart-file's iteration count) belong to the B1 recorded in
+	the ".s1_prod" savefile, and a partial powering to one B1 is not interchangeable with any other B1. So if that
+	savefile exists, adopt its B1 *before* sizing PM1_S1_PRODUCT below - both so the buffer matches the stored product
+	and so we resume that exact Stage 1 rather than silently recomputing at a different B1 (the crash reported in #31).
+	Peek just the header here (TEST_TYPE, MODULUS_TYPE, B1); read_pm1_s1_prod() re-reads and fully validates it. To
+	instead start a fresh p-1 run at a different B1, delete this exponent's p-1 savefiles first. */
+	{
+		FILE*fp_s1p = mlucas_fopen(savefile,"rb");
+		if(fp_s1p) {
+			int c0 = fgetc(fp_s1p), c1 = fgetc(fp_s1p), eof = 0;	uint32 j,fb1 = 0;
+			for(j = 0; j < 32; j += 8) { int cc = fgetc(fp_s1p); if(cc == EOF) { eof = 1; break; } fb1 += (uint32)cc << j; }
+			fclose(fp_s1p);
+			// Only adopt a sane, different B1 from a header whose type-tags match this run (guards against a truncated/foreign file):
+			if(!eof && test_types_compatible(c0,TEST_TYPE) && c1 == MODULUS_TYPE && fb1 >= 10000 && fb1 <= 2863311530u && fb1 != B1) {
+				sprintf(cbuf,"INFO: %s: current-run B1 [%u] differs from the in-progress Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,fb1);
+				mlucas_fprint(cbuf,pm1_standlone+1);
+				if(B2_start) B2_start = fb1;	// keep the Stage 2 start-bound tracking the adopted Stage 1 bound (Stage 2 begins where Stage 1 ends)
+				B1 = fb1;
+			}
+		}
+	}
+  #endif
+	double ln = log(B1), lg = ln*ILG2;
+	ebits = (uint32)((lg-A)*B1/(ln-A));
 
 	// Compute Stage 1 prime-powers product, starting with alloc of needed memory:
 	uint32 s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
@@ -349,10 +381,8 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 
 	// (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product for this p and B1 exists:
   #ifndef PM1_STANDALONE
-	strcpy(savefile, RESTARTFILE);
-	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
-	strcat(savefile, ".s1_prod");
 	if((len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, PM1_S1_PRODUCT, &PM1_S1_PROD_RES64)) != 0) {
+		PM1_S1_PROD_B1 = B1;	// The stored product corresponds to (the possibly-just-adopted) B1
 		sprintf(cbuf, "INFO: Successfully read precomputed/bit-reversed Stage 1 prime-powers product savefile for this modulus and B1 = %u.\n",B1);
 		mlucas_fprint(cbuf,pm1_standlone+1);
 	} else {	// Compute product from scratch:
@@ -483,6 +513,8 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uin
 		i = fgetc(fptr);	b1 += (uint64)i << j;
 	}
 	if(B1 != b1) {
+		// Task 20/#31: caller (compute_pm1_s1_product) peeks and adopts the savefile's B1 before this read, so a
+		// mismatch here should not happen for a valid file; treat it as a corrupt/foreign savefile and recompute.
 		sprintf(cbuf, "INFO: %s: B1 of current run[%u] mismatches one[%u] of savefile data.\n",func,B1,b1);
 		goto PM1_S1P_READ_RETURN;
 	}
