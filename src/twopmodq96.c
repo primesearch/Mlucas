@@ -689,8 +689,8 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movslq	%[__start_index], %%rcx		\n\t"\
 			"subq $2,%%rcx						\n\t"\
 			"test %%rcx, %%rcx					\n\t"\
-			"jl LoopEnd		/* Skip if n < 0 */	\n\t"\
-		"LoopBeg:								\n\t"\
+			"jl LoopEnd%=		/* Skip if n < 0 */	\n\t"\
+		"LoopBeg%=:								\n\t"\
 		"/* SQR_LOHI96_q4(x*, lo*, hi*): */	\n\t"\
 			"movq	%%r8 ,%%rax	/* Low 64 bits of x0-3 in r8-11. */\n\t"\
 			"mulq	%%rax		\n\t"\
@@ -947,7 +947,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movq	%[__pshift],%%rax		\n\t"\
 			"shrq	%%cl,%%rax				\n\t"\
 			"andq	$0x1,%%rax				\n\t"\
-		"je	twopmodq96_q4_pshiftjmp			\n\t"\
+		"je	twopmodq96_q4_pshiftjmp%=			\n\t"\
 			"\n\t"\
 		"/* if h<l carryout of low 64 bits gives hi=2^32 = 0x100000000, need to zero upper 32 bits prior to double step: */\n\t"\
 			"movq	$-1,%%rdi	\n\t"\
@@ -1007,7 +1007,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"andq	%%rdi,%%rdx	\n\t"\
 			"addq	%%rax,%%r11	\n\t"\
 			"adcq	%%rdx,%%r15	\n\t"\
-		"twopmodq96_q4_pshiftjmp:					\n\t"\
+		"twopmodq96_q4_pshiftjmp%=:					\n\t"\
 			"/* } endif((pshift >> j) & (uint64)1) */						\n\t"\
 			"movq	%%r8 ,0x80(%%rsi)	/* Write lo 64 bits into [__x.d0] */\n\t"\
 			"movq	%%r12,0x88(%%rsi)	/* Write hi 32 bits into [__x.d1] */\n\t"\
@@ -1019,8 +1019,8 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movq	%%r15,0xb8(%%rsi)	\n\t"\
 			"subq	$1,%%rcx	/* j-- */		\n\t"\
 			"cmpq	$0,%%rcx	/* compare decremented j vs 0 */\n\t"\
-			"jge	LoopBeg	/* if (j >= 0), Loop */	\n\t"\
-		"LoopEnd:							\n\t"\
+			"jge	LoopBeg%=	/* if (j >= 0), Loop */	\n\t"\
+		"LoopEnd%=:							\n\t"\
 			:	/* outputs: none */\
 			: [__q0] "m" (qptr0)	/* All inputs from memory addresses here */\
 			 ,[__pshift] "m" (pshift)	\
