@@ -374,6 +374,9 @@ uint32	ernstMain
 	uint32 i,j,k = 0;
 	/* TODO: some of these need to become 64-bit: */
 	uint32 dum = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
+#if USE_FFTLEN_REVERSION
+	uint32 fft_reversion_kblocks = 0;	// #21: in-use FFT length saved before a per-checkpoint FFT-length-reversion attempt (0 = none in progress)
+#endif
 	uint64 itmp64,cy, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
 	uint32 mode_flag = 0, first_sub, last_sub;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
@@ -1344,6 +1347,23 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
 
+  #if USE_FFTLEN_REVERSION
+	/* #21: If we reached SETUP_FFT from the per-checkpoint FFT-length-reversion attempt (below), decide whether
+	get_preferred_fft_radix() actually reduced the FFT length. If it re-selected the same length we were already
+	running (e.g. the .cfg file's fastest entry for this exponent is larger than the default length), the reversion is
+	a no-op: the residue array and FFT-radix data remain valid for the current length, so resume the iteration loop in
+	place instead of falling through into a needless (and, per #19, risky) savefile re-read - this is what breaks the
+	issue-#21 restart-every-checkpoint livelock. If the length did change, this is a genuine reversion to a smaller
+	FFT (less roundoff headroom), so switch to the max-accuracy carry chain and fall through to the usual
+	re-alloc + savefile-reread. */
+	if(fft_reversion_kblocks) {
+		uint32 fft_reversion_pvs = fft_reversion_kblocks;	fft_reversion_kblocks = 0;
+		if(kblocks == fft_reversion_pvs)
+			goto FFT_REVERSION_NOOP;
+		USE_SHORT_CY_CHAIN = USE_SHORT_CY_CHAIN_MAX;
+	}
+  #endif
+
 	/* If specified FFT length smaller than default for this exponent [only an issue for user-specified FFT length],
 	print a warning if the p/pmax ratio > 1 to an acceptably small degree; error out if the ratio is unreasonably > 1:
 	*/
@@ -2274,16 +2294,24 @@ READ_RESTART_FILE:
 
 	  #if USE_FFTLEN_REVERSION
 		/* If FFTlen was pvsly auto-increased due to ROE but latest interval clean and err-freq sufficiently low, revert
-		FFTlen to default. 2nd clause in the if() guards against doing this if the user has forced the larger FFT.
-		Our criterion for such FFT-length reversion is
-			(64 * NERR_ROE)*ITERS_BETWEEN_CHECKPOINTS <= ihi ==> NERR_ROE <= ihi/ITERS_BETWEEN_CHECKPOINTS/64 ,
-		or in words "if cumulative count of worrisome ROEs <= 1 every 64th iteration interval, on average, revert".
+		FFTlen to default. Gating clauses in the if():
+			- NERR_ROE > 0     : only attempt reversion if a roundoff error actually drove an FFT-length increase.
+			                     Without this clause, a run whose in-use FFT exceeds the default purely because the .cfg
+			                     file's fastest entry for this exponent is larger (i.e. not due to any ROE) reverted at
+			                     *every* checkpoint; get_preferred_fft_radix() then immediately re-selected the same
+			                     larger length and control fell through into the restart-file read path -> the
+			                     restart-every-checkpoint livelock of issue #21.
+			- kblocks > default: only revert a larger-than-default in-use length.
+			- kblocks > fft_length : don't revert below a user-forced FFT length.
+			- (64*NERR_ROE)*ITERS_BETWEEN_CHECKPOINTS <= ihi ==> NERR_ROE <= ihi/ITERS_BETWEEN_CHECKPOINTS/64 , i.e.
+			  "if cumulative count of worrisome ROEs <= 1 every 64th iteration interval, on average, revert".
+		The SETUP_FFT path below completes the reversion: should get_preferred_fft_radix() re-select the same length we
+		are already running (making this attempt a no-op), it resumes the loop in place rather than needlessly re-reading
+		the savefile - see the fft_reversion_kblocks handling just after SETUP_FFT.
 		*/
-		if(kblocks > get_default_fft_length(p) && kblocks > fft_length && (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS <= ihi) {
+		if(NERR_ROE > 0 && kblocks > get_default_fft_length(p) && kblocks > fft_length && (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS <= ihi) {
+			fft_reversion_kblocks = kblocks;	// #21: remember in-use length so SETUP_FFT can detect a no-op reversion
 			kblocks = get_default_fft_length(p);	// Default FFT length in Kdoubles for this exponent
-			if(n > (kblocks << 10))		// We are already running at a larger-than-default FFT length
-				n = kblocks << 10;
-			USE_SHORT_CY_CHAIN = USE_SHORT_CY_CHAIN_MAX;
 			// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
 			for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
 			NRADICES = 0;
@@ -2291,6 +2319,9 @@ READ_RESTART_FILE:
 		}
 	  #endif
 		/*...reset loop parameters and begin next iteration cycle...	*/
+	  #if USE_FFTLEN_REVERSION
+	FFT_REVERSION_NOOP:	// #21: a no-op FFT-length-reversion attempt resumes here, skipping the needless savefile re-read
+	  #endif
 		ilo = ihi;
 		ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
 		// If Fermat-mod-with-residue-shift, re-init the random-offset-bit array:
