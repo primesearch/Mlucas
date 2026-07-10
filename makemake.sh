@@ -311,9 +311,11 @@ elif [[ $OSTYPE == darwin* ]]; then
 		ARGS+=(-DUSE_ARM_V8_SIMD)
 		if try_flag -mcpu=native; then
 			ARGS+=(-mcpu=native)
-		else
+		elif try_flag -march=native; then
 			ARGS+=(-march=native)
 		fi
+		# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
+		# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
@@ -343,9 +345,11 @@ elif [[ $OSTYPE == linux* ]]; then
 		ARGS+=(-DUSE_ARM_V8_SIMD)
 		if try_flag -mcpu=native; then
 			ARGS+=(-mcpu=native)
-		else
+		elif try_flag -march=native; then
 			ARGS+=(-march=native)
 		fi
+		# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
+		# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
