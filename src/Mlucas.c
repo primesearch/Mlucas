@@ -1319,8 +1319,15 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			/* Only allow lengths that are <= 2x default */
 			if( !(i >= kblocks && i <= (kblocks<<1) ) )
 			{
-				sprintf(cbuf,"Call to get_preferred_fft_radix returns out-of-range FFT length: asked for %u, returned %u, packed value= %#8X\n", kblocks, i, dum);
-				ASSERT(0, cbuf);
+				/* Should be unreachable now that get_preferred_fft_radix() itself bounds its
+				cfg-file scan to i <= 2*kblocks, but guard defensively rather than asserting/
+				crashing on a stale or hand-edited cfg file: warn and treat this the same as
+				a "not found" (dum == 0) result above, i.e. request a fresh timing self-test
+				for the requested length rather than trusting the out-of-range entry.
+				*/
+				sprintf(cbuf,"WARN: get_preferred_fft_radix returned out-of-range FFT length: asked for %u, returned %u, packed value= %#8X -- ignoring and treating as 'not found' in '%s'; please rerun the self-test for this length.\n", kblocks, i, dum, CONFIGFILE);
+				fprintf(stderr, "%s", cbuf);
+				if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 			}
 			else	/* If length acceptable, extract the FFT-radix data encoded and populate the NRADICES and RADIX_VEC[] globals */
 			{
