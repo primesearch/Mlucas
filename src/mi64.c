@@ -2835,8 +2835,8 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 		"leaq	0x8(%%rsi), %%rsi	\n\t"\
 	"decq	%%rcx \n\t"\
 	"jnz 0b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
-		"adcq	%%r9 ,%[__cy]	\n\t"/* Carryout. */\
-		: [__cy] "=m" (cy) /* outputs: cy */\
+		"adcq	%%r9 ,%[__cy]	\n\t"/* Carryout: cy (pre-set to 0 by caller) += r9 + final CF. MUST be "+m", not "=m": this adcq READS cy, so a write-only "=m" lets the compiler leave that memory uninitialized -> spurious nonzero carryout. */\
+		: [__cy] "+m" (cy) /* outputs: cy (read-modify-write) */\
 		: [__x0] "g" (x)	/* All inputs from memory/register here */\
 		 ,[__y0] "g" (y)	\
 		 ,[__z0] "g" (z)	\
