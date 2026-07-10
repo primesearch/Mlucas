@@ -28,7 +28,7 @@
 #endif
 // AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
 // all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); the
-// #ifndef YES_ASM branches provide a portable-C fallback, so disable the asm under ASan (Task 23, issue #60):
+// #ifndef YES_ASM branches provide a portable-C fallback, so disable the asm under ASan:
 #if defined(__SANITIZE_ADDRESS__)
 	#undef YES_ASM
 #elif defined(__has_feature)

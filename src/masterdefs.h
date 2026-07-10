@@ -45,7 +45,7 @@
 	#include <console.h>	/* Macintosh CW */
 #endif
 
-/* Task 23 / issue #60: AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that
+/* AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that
 the hand-tuned all-14-GPR-clobber SIMD DFT macros (e.g. SSE2_RADIX_11/13_DFT) can no longer be register-
 allocated ('operand has impossible constraints', GCC PR23200). Those macros have no non-asm fallback within
 a given SIMD build mode, so we suppress ASan *instrumentation* (not the asm) on the enclosing carry routines;

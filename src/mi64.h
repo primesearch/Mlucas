@@ -40,7 +40,7 @@ extern "C" {
 #endif
 // AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
 // all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); since
-// these routines have a portable-C fallback, disable the asm under ASan and use it (Task 23, issue #60):
+// these routines have a portable-C fallback, disable the asm under ASan and use it:
 #if defined(__SANITIZE_ADDRESS__)
 	#define NO_ASM
 #elif defined(__has_feature)
