@@ -3274,7 +3274,7 @@ void RADIX_256_DIT(
 			tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im,(tptr+0x5)->re,(tptr+0x5)->im,(tptr+0x6)->re,(tptr+0x6)->im,(tptr+0x7)->re,(tptr+0x7)->im,(tptr+0x8)->re,(tptr+0x8)->im,(tptr+0x9)->re,(tptr+0x9)->im,(tptr+0xa)->re,(tptr+0xa)->im,(tptr+0xb)->re,(tptr+0xb)->im,(tptr+0xc)->re,(tptr+0xc)->im,(tptr+0xd)->re,(tptr+0xd)->im,(tptr+0xe)->re,(tptr+0xe)->im,(tptr+0xf)->re,(tptr+0xf)->im,
 			c16,s16	// These = (c16,s16) typically def'd for use in the radix-16 DFT
 		);	tptr += 16;
-		if(i_idx) {	// vvv +2 here because this is setup for next loop pass
+		if(i_idx && i < 15) {	// vvv +2 here because this is setup for next loop pass
 			nshift = i+i+2;	// i_idx shift counts here run as >>2,4,...,30
 			off_ptr = i_offsets_lo + ( ((i_idx>>nshift)&0x3) << 4 );
 			p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
@@ -3853,7 +3853,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Intermediates pointers:
 		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
 			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
+			*r10,*r20,*r30,*r40,*r50,*r60,*r70;
 		/* Addresses into array sections */
 		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
@@ -4034,6 +4034,11 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		} else {
 			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
+
+		// Each of these rhi-ptrs points to next 8 vec_cmplx = 16 vec_dbl data sets; done here (rather than
+		// in the above declarations) since r00 == 0x0 on the (thr_id == -1) init-mode calls above, and
+		// forming pointer offsets from a null base pointer is undefined behavior:
+		r10 = r00+0x10; r20 = r00+0x20; r30 = r00+0x30; r40 = r00+0x40; r50 = r00+0x50; r60 = r00+0x60; r70 = r00+0x70;
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
@@ -4268,7 +4273,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Intermediates pointers:
 		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
 			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70,
+			*r10,*r20,*r30,*r40,*r50,*r60,*r70,
 			*w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIF_TWIDDLE_OOP
 		/* Addresses into array sections */
 		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
@@ -4437,6 +4442,11 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		} else {
 			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
+
+		// Each of these rhi-ptrs points to next 8 vec_cmplx = 16 vec_dbl data sets; done here (rather than
+		// in the above declarations) since r00 == 0x0 on the (thr_id == -1) init-mode calls above, and
+		// forming pointer offsets from a null base pointer is undefined behavior:
+		r10 = r00+0x10; r20 = r00+0x20; r30 = r00+0x30; r40 = r00+0x40; r50 = r00+0x50; r60 = r00+0x60; r70 = r00+0x70;
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
@@ -5006,14 +5016,21 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	{
 		// Intermediates pointers:
 		vec_dbl *tm0,*tm1,*tm2,
-							*r10 = r00+0x20,*r20 = r00+0x40,*r30 = r00+0x60,*r40 = r00+0x80,*r50 = r00+0xa0,*r60 = r00+0xc0,*r70 = r00+0xe0,
-			*r80 =r00+0x100,*r90 = r80+0x20,*ra0 = r80+0x40,*rb0 = r80+0x60,*rc0 = r80+0x80,*rd0 = r80+0xa0,*re0 = r80+0xc0,*rf0 = r80+0xe0;
+							*r10,*r20,*r30,*r40,*r50,*r60,*r70,
+			*r80,*r90,*ra0,*rb0,*rc0,*rd0,*re0,*rf0;
 		/* Addresses into array sections */
 		double *addr, *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j,nshift;
 		const int *off_ptr;
 		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
+
+		// Each of these rhi-ptrs points to next 8 vec_cmplx = 16 vec_dbl data sets; assigned here (rather than
+		// in the above declarations) prophylactically, in case a future caller passes r00 == 0x0 (as some
+		// analogous init-mode DFT functions' callers do) - forming pointer offsets from a null base pointer
+		// is undefined behavior:
+		r10 = r00+0x20; r20 = r00+0x40; r30 = r00+0x60; r40 = r00+0x80; r50 = r00+0xa0; r60 = r00+0xc0; r70 = r00+0xe0;
+		r80 = r00+0x100; r90 = r80+0x20; ra0 = r80+0x40; rb0 = r80+0x60; rc0 = r80+0x80; rd0 = r80+0xa0; re0 = r80+0xc0; rf0 = r80+0xe0;
 
 	/* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
 	  #ifdef USE_ARM_V8_SIMD
@@ -5052,7 +5069,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				isrt2,two,
 				tm0,OFF1,OFF2,OFF3,OFF4
 			); tm0 += 32;
-			if(i_idx) {	// vvv +2 here because this is setup for next loop pass
+			if(i_idx && i < 15) {	// vvv +2 here because this is setup for next loop pass
 				nshift = i+i+2;	// i_idx shift counts here run as >>2,4,...,30
 				off_ptr = i_offsets_lo + ( ((i_idx>>nshift)&0x3) << 4 );
 			}
