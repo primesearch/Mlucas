@@ -530,7 +530,8 @@ jobs:
       shell: bash
       run: |
         $CC --version
-        if [[ $HOSTTYPE == aarch64 ]]; then
+        # windows-11-arm's MSYS2 bash reports $HOSTTYPE=x86_64, so detect ARM via the matrix OS label:
+        if [[ "${{ endsWith(matrix.os, '-arm') }}" == true ]]; then
             $CC -dM -E -mcpu=native - </dev/null
         else
             $CC -dM -E -march=native - </dev/null
@@ -540,7 +541,9 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == aarch64 ]]; then
+        # windows-11-arm's MSYS2 bash reports $HOSTTYPE=x86_64, so detect ARM via the matrix OS label
+        # (otherwise it wrongly takes the x86 path and tries to build AVX-512 on an ARM gcc):
+        if [[ "${{ endsWith(matrix.os, '-arm') }}" == true ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 )
