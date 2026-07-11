@@ -530,8 +530,11 @@ jobs:
       shell: bash
       run: |
         $CC --version
-        # windows-11-arm's MSYS2 bash reports $HOSTTYPE=x86_64, so detect ARM via the matrix OS label:
-        if [[ "${{ endsWith(matrix.os, '-arm') }}" == true ]]; then
+        # The windows-11-arm runner ships no native aarch64 toolchain (no MSYS2/CLANGARM64), so its
+        # "gcc" is really an x86_64-w64-mingw32 compiler running under emulation. Both $HOSTTYPE
+        # (x86_64) and the matrix OS label (arm) mislead here, so key the arch off what the compiler
+        # itself targets:
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             $CC -dM -E -mcpu=native - </dev/null
         else
             $CC -dM -E -march=native - </dev/null
@@ -541,18 +544,30 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
-        # windows-11-arm's MSYS2 bash reports $HOSTTYPE=x86_64, so detect ARM via the matrix OS label
-        # (otherwise it wrongly takes the x86 path and tries to build AVX-512 on an ARM gcc):
-        if [[ "${{ endsWith(matrix.os, '-arm') }}" == true ]]; then
+        # The windows-11-arm runner ships no native aarch64 toolchain, so its "gcc" actually targets
+        # x86_64 (run under emulation); detect the arch the compiler targets rather than the matrix OS
+        # label or $HOSTTYPE, both of which say the wrong thing on that runner:
+        run_avx512=1
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 )
-            # Only test AVX-512 if the compiler's assembler supports the extended registers
-            # (zmm16-31/xmm16-31/k0-7) and the AVX-512ER vrcp28pd the kernels use. MinGW gcc's
-            # assembler does not, so an AVX-512 build aborts and kills this (allowed-to-fail) job;
-            # probe and skip rather than request a mode this toolchain provably cannot build.
+            # Only build AVX-512 if the assembler supports the extended registers (zmm16-31/xmm16-31/
+            # k0-7) and the AVX-512ER vrcp28pd the kernels use. MinGW gcc's assembler does not, so an
+            # AVX-512 build aborts and kills this (allowed-to-fail) job; probe and skip if so.
             if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax\n\tvrcp28pd %%zmm8,%%zmm0":::"zmm31","xmm16","xmm17","k1","eax","zmm0","zmm8");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1; then
                 MODES+=( AVX512 )
+                # The assembler can build AVX-512, but GitHub's Windows runner CPUs are AVX2-only, so the
+                # built AVX-512 binaries hit SIGILL when run. Probe whether baseline AVX-512 actually
+                # executes here; if not, still build the mode (compile-time coverage) but skip running
+                # its test binaries below.
+                if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                    run_avx512=1
+                else
+                    run_avx512=0
+                    echo "::warning title=AVX-512 execution skipped::$("${CC:-gcc}" --version | head -n1): this runner's CPU cannot execute AVX-512; building the AVX-512 mode for compile coverage but not running its test binaries."
+                fi
+                rm -f conftest_avx512run conftest_avx512run.exe
             else
                 echo "::warning title=AVX-512 build skipped::$("${CC:-gcc}" --version | head -n1): its assembler cannot handle the AVX-512 constructs Mlucas's kernels need; skipping the AVX-512 build mode."
             fi
@@ -568,7 +583,13 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
+                            echo "Skipping execution of AVX-512 Mfactor${word:+_$word}: this runner's CPU cannot run AVX-512."
+                        else
+                            ./Mfactor${word:+_$word} -h
+                        fi
+                    fi
                 )
             done
         done
