@@ -380,7 +380,7 @@ uint32	ernstMain
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
 	form in the factoring module. For all other types of assignments uint64 should suffice: */
 	uint64 p = 0, i1,i2,i3, rmodb,mmodb;
-	uint32 nbits_in_p = 0, nfac;
+	uint32 nbits_in_p = 0, nfac, nfld = 0, residue_type = 0;
 	/* Res64 and Selfridge-Hurwitz residues: */
 	uint64 Res64, Res35m1, Res36m1;
 /*...Known Mersenne prime exponents. This array must be null-terminated.	*/
@@ -392,6 +392,8 @@ uint32	ernstMain
 
 /*...What a bunch of characters...	*/
 	char *cptr = 0x0, *endp, gcd_str[STR_MAX_LEN], aid[33] = "\0";	// 32-hexit Primenet assignment id needs 33rd char for \0
+	// Used to bound optional-numeric-field parsing in PRP|Pminus1 assignment lines to precede any trailing known-factors list:
+	char *bound = 0x0, *kf_start = 0x0, *tsv_ptr = 0x0;
 /*...initialize logicals and factoring parameters...	*/
 	int restart = FALSE, use_lowmem = 0, check_interval = 0;
 
@@ -582,7 +584,25 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		// Otherwise assume Prime95-style ini file format, with a possible modulus-specific leading keyword;
 		// Default "Test=" means Mersenne, unless "Test" preceded by an explicit modulus-type string:
 		MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
-		/* Re. the recently-added-to-Primenet PRP assignment type, On Dec 19, 2017, at 5:07 PM, George Woltman wrote:
+		/* Syntax accepted for PRP|PRPDC assignment lines, per Prime95/PrimeNet (cf. commonc.c parseLine()
+		at https://github.com/primesearch/Prime95 ):
+
+			{PRP|PRPDC}=[AID,]k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]
+
+		[AID,] is an optional 32-hexit assignment ID (or the literal string "n/a"); k,b,n,c are always
+		present. After that, PrimeNet may abbreviate the line by omitting the how_far_factored,tests_saved
+		pair (and, with it, the base,residue_type pair) entirely: only 0, 2, or 4 of those four numeric
+		fields may be present, never 1 or 3. Missing fields default to how_far_factored = unknown,
+		tests_saved = 0, base = 3, and residue_type = 5 if a known_factors list is supplied, else 1.
+		Finally, an optional known_factors list, a comma-separated list of factors bracketed in double
+		quotes, may follow, e.g.:
+
+			PRP=<AID>,1,2,16582879,-1,"1628121653153521"
+
+		is a legal abbreviated-form PRP-CF assignment with how_far_factored, tests_saved, base and
+		residue_type all defaulted.
+
+		Re. the recently-added-to-Primenet PRP assignment type, On Dec 19, 2017, at 5:07 PM, George Woltman wrote:
 
 		In "PRP=[aid],1,2,75869377,-1,75,0,3,4"		([aid] stands for an optional 32-hexit assignment ID)
 			The first four (numeric) values are k,b,n,c as in modulus = k*b^n + c
@@ -649,30 +669,39 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			// Next 2 entries in in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
-			TF_BITS = 0xffffffff; tests_saved = 0.0;
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
-				cptr++;
-				// Only check if there's an appropriate TF_BITS entry in the input line
-				TF_BITS = strtoul(++char_addr, &endp, 10);
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
-				tests_saved = strtod(++char_addr, &endp);
+			// Locate any trailing known-factors list before parsing the optional numeric fields, so a
+			// comma embedded in "factor1,factor2,..." can never be mistaken for a field separator:
+			bound = known_factors_bound(cptr, &kf_start);
+			// Count the optional numeric fields between [k,b,n,c] and any known-factors list - PrimeNet's
+			// abbreviated PRP format allows exactly 0, 2 (how_far_factored,tests_saved), or 4 of these
+			// (adding base,residue_type), never 1 or 3:
+			nfld = 0;
+			for(char_addr = cptr; (char_addr = memchr_bounded(char_addr, bound)) != 0x0; ++char_addr) { ++nfld; }
+			if(nfld != 0 && nfld != 2 && nfld != 4) {
+				sprintf(cbuf,"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
+				ASSERT(0,cbuf);
+			}
+			// Defaults for the fields PrimeNet is allowed to omit:
+			TF_BITS = 0xffffffff; tests_saved = 0.0; PRP_BASE = 3; residue_type = kf_start ? 5 : 1;
+			if(nfld >= 2) {
+				// how_far_factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
+				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0, "Expected ',' not found before TF_BITS field!");
+				TF_BITS = strtoul(char_addr+1, &cptr, 10);
+				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0, "Expected ',' not found after TF_BITS field in assignment-specifying line!");
+				tsv_ptr = char_addr+1;	// leftmost char of tests_saved field, which we will overwrite with 0 if a p-1 assignment is split off
+				tests_saved = strtod(tsv_ptr, &cptr);	endp = cptr;	// endp: to-be-appended leftover portion, if we split off a p-1 assignment below
 				if(tests_saved < 0 || tests_saved > 2) {
 					sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
 				}
-				// char_addr now points to leftmost char of tests_saved field, which we will overwrite with 0;
-				// endp points to to-be-appended leftover portion
 			}
 			pm1_done = (tests_saved == 0);
 			// If there is still factoring remaining to be done, modify the assignment type appropriately.
-			if(pm1_done) {	// pm1_done == TRUE is more or less a no-op, translating to "proceed with primality test"
-				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved char-block
-			} else {
+			if(!pm1_done) {
 				// Create p-1 assignment, then edit original assignment line appropriately
 				TEST_TYPE = TEST_TYPE_PM1;
 				kblocks = get_default_fft_length(p);
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
-				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
+				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of tsv_ptr:
 				cptr = strstr(in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
 				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
@@ -680,8 +709,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				} else
 					sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
 				// Copy up to the final (tests_saved) char of the assignment into cstr and append tests_saved = 0;
-				// A properly formatted tests_saved field is 1 char wide and begins at the current value of char_addr:
-				i = char_addr - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
+				// A properly formatted tests_saved field is 1 char wide and begins at the current value of tsv_ptr:
+				i = tsv_ptr - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
 				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy:
 				strcat(cstr,endp);
 				if(cstr[strlen(cstr)-1] != '\n') {
@@ -689,25 +718,27 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				}
 				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 				goto GET_NEXT_ASSIGNMENT;
-			}	// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
-			if(!cptr || (char_addr = strstr(cptr, ",")) == 0x0) {
-				PRP_BASE = 3;
-				TEST_TYPE = TEST_TYPE_PRP;
-			} else {	// PRP double-check:
+			}
+			// First-time-or-double-check PRP test, p-1 (if any) already done. base,residue_type fields,
+			// if present, come next; any known-factors list is unaffected by whether they were given:
+			if(nfld == 4) {
 				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
+				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0, "Expected ',' not found before PRP base field!");
 				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(i == 3,"PRP-test base must be 3!");
 				PRP_BASE = i;
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
-				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
-				// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-				if(*cptr == ',')						//vv--- Pass in unused file-ptr fq here in case function emits any messages:
-					nfac = extract_known_factors(p,cptr+1);
-				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
-				if(KNOWN_FACTORS[0] != 0ull) {
-					ASSERT(i == 5,"Only PRP-CF tests of type 5 supported!");
-					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
-				}
+				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0,"Expected ',' not found in assignment-specifying line!");
+				i = (int)strtol(char_addr+1, &cptr, 10);	residue_type = i;
+				ASSERT(residue_type == 1 || residue_type == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
 			}
+			// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
+			if(kf_start)
+				nfac = extract_known_factors(p,kf_start);
+			// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
+			if(KNOWN_FACTORS[0] != 0ull) {
+				ASSERT(residue_type == 5,"Only PRP-CF tests of type 5 supported!");
+				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
+			}
+			TEST_TYPE = TEST_TYPE_PRP;
 			goto GET_EXPO;
 		}
 		else if((char_addr = strstr(in_line, "Fermat")) != 0)
@@ -783,19 +814,21 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			input was in fact == ULONG_LONG_MAX? We assume here that nobody will use a p-1 stage bound so large:
 			*/
 			B2 = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
-			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present:
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
+			// Locate any trailing known-factors list before parsing the optional TF_BITS,B2_start fields, so a
+			// comma embedded in "factor1,factor2,..." can never be mistaken for one of their separators:
+			bound = known_factors_bound(cptr, &kf_start);
+			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present.
+			// Either (or both) may be absent even when a known-factors list follows directly after B1,B2:
+			if((char_addr = memchr_bounded(cptr, bound)) != 0x0) {
 				TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);	ASSERT(TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
-				if((char_addr = strstr(cptr, ",")) != 0x0) {
+				if((char_addr = memchr_bounded(cptr, bound)) != 0x0) {
 					B2_start = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
 					if(B2_start > B1)	// It's a stage 2 continuation run
 						s2_continuation = TRUE;
-					// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-					if(*cptr == ',') nfac = extract_known_factors(p,cptr+1);
-				} else if((char_addr = strstr(cptr, "\"")) != 0x0) {	// Known-factors list need not be preceded by TF_BITS or B2_start
-					nfac = extract_known_factors(p,cptr);	// cptr, not cptr+1 here, since need to preserve leading " bracketing factors-list
 				}
 			}
+			// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
+			if(kf_start) nfac = extract_known_factors(p,kf_start);
 		}
 		else if((char_addr = stristr(in_line, "pfactor")) != 0)	// Caseless substring-match as with pminus 1
 		{
@@ -6037,6 +6070,47 @@ int	is_hex_string(char*s, int len)
 			return FALSE;
 	}
 	return TRUE;
+}
+
+/*********************/
+
+/* memchr(), restricted to the half-open range [from,bound). Used in place of unbounded strstr(cptr,",") when
+scanning for optional-field separators, so that a comma embedded in a trailing "factor1,factor2,..." known-factors
+list can never be mistaken for one. Returns 0x0 if bound <= from (no room left to search) or no comma is found.
+*/
+char *memchr_bounded(char*from, char*bound) {
+	if(bound <= from) return 0x0;
+	return (char*)memchr(from, ',', (size_t)(bound - from));
+}
+
+/* Several worktodo assignment-line formats (PRP, PRPDC, Pminus1) end with an optional, double-quoted,
+comma-separated list of known factors, e.g. ...,3,5,"4457025343,185822885311153245017". Since that list's
+internal commas must never be confused with the separators between the *preceding* optional numeric fields
+(how_far_factored, tests_saved, base, residue_type, ...), locate the list - if present - before those fields
+are parsed, and use the pointer this function returns to bound the numeric-field scan.
+
+cptr must point into the line just past the last field known to be unconditionally present (i.e. just past
+the c-value of [k,b,n,c] for PRP|PRPDC, or just past B2 for Pminus1).
+
+Returns a pointer marking the end of the as-yet-unparsed optional-numeric-field region: if a known-factors
+list terminates the line, this is a pointer to the comma which introduces it (so numeric fields are confined
+to its left); otherwise it is a pointer to the line's terminating '\n', or its terminating '\0' if no such
+newline is present (e.g. if the calling program synthesized the line in-memory).
+
+If kf_start != 0x0, *kf_start is set to point to the known-factors list's opening '"' (suitable for passing
+directly to extract_known_factors()), or to 0x0 if no such list is present.
+*/
+char *known_factors_bound(char*cptr, char**kf_start) {
+	char*line_end = cptr + strcspn(cptr, "\r\n");
+	if(kf_start) *kf_start = 0x0;
+	if(line_end > cptr && line_end[-1] == '\"') {
+		char*q = line_end - 2;	// Skip the closing '"' itself, scan back for its opening-quote partner:
+		while(q > cptr && *q != '\"') --q;
+		ASSERT(q > cptr && *q == '\"' && q[-1] == ',', "Known-factors list must be introduced by a comma!");
+		if(kf_start) *kf_start = q;
+		return q - 1;
+	}
+	return line_end;
 }
 
 /*********************/
