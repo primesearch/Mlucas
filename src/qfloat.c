@@ -833,7 +833,7 @@ char* qf2str(struct qfloat q)
 	const char pm[2] = {'+','-'};
 	os[0] = pm[sgn];	os[1] = '\0';
 	if(!u) {	// Allocate scratch space
-		u = (uint64 *)calloc(32, sizeof(uint64));
+		u = (uint64 *)CALLOC(32, sizeof(uint64));
 	}
 	mi64_clear(u,32);
 	if(qfiszero(q)) {	// +-0.0
