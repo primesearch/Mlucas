@@ -3100,6 +3100,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			  #if 0
 				#error to-do!
 				double r1,r2, lo,hi;
+				uint64 i64r1,i64r2;
 				r1 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				r2 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				mul50x50_debug(r1,r2, &lo,&hi);
@@ -3227,7 +3228,7 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 	int cmp_fma_lohi_vs_exact(double dx, double dy, double dhi, double dlo, uint64 ix, uint64 iy, uint64 ihi, uint64 ilo)
 	{
 		int retval;
-		uint64 i64, e1,e0, m1,m0;
+		uint64 i64, e1,e0, m1,m0, u_dhi,u_dlo;
 		uint32 s1,s0;
 		const uint64 two52 = 0x0010000000000000ull, mmask = 0x000FFFFFFFFFFFFFull;
 		uint128 exact;
@@ -5280,9 +5281,9 @@ double	convert_base10_char_double (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5360,9 +5361,9 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5428,9 +5429,9 @@ uint128	convert_base10_char_uint128(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5491,9 +5492,9 @@ uint192	convert_base10_char_uint192(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5555,9 +5556,9 @@ uint256	convert_base10_char_uint256(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -9455,7 +9456,7 @@ int mkdir_p(char *path)
 	FILE *fp;
 	int err;
 
-	strcpy(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
 	if (mlucas_path[0] == '\0')
 		return 1;
 	else if (mlucas_path[0] == '/')
@@ -9540,13 +9541,13 @@ char *shell_quote(char *dest, char *src)
    which is then passed to fopen()
 
    Since the length of both MLUCAS_PATH and path are at most STR_MAX_LEN,
-   we can use strcpy() and strcat() safely  */
+   mlucas_path is guaranteed large enough, but build it with a bounded
+   snprintf() rather than strcpy()+strcat() as a defensive measure  */
 FILE *mlucas_fopen(const char *path, const char *mode)
 {
 	char mlucas_path[2 * STR_MAX_LEN + 1];
 
-	strcpy(mlucas_path, MLUCAS_PATH);
-	strcat(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s%s", MLUCAS_PATH, path);
 	return fopen(mlucas_path, mode);
 }
 
