@@ -571,12 +571,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		fprintf(stderr," %s entry: %s\n",WORKFILE,in_line);
 		/* Skip any whitespace at beginning of the line: */
 		char_addr = in_line;
-		while(isspace(*char_addr)) {
+		while(isspace((unsigned char)*char_addr)) {
 			++char_addr;
 		}
 		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic; print "Ignoring (copy of workfile line)" for all entries not so.
 		// NB: Discontinue support for numeric leading char, i.e. Mersenne-exponent-only legacy format:
-		if(!isalpha(*char_addr)) {
+		if(!isalpha((unsigned char)*char_addr)) {
 			fprintf(stderr," Leading non-WS char of %s entry is not alphabetic ... skipping to next entry.\n",WORKFILE);
 			goto read_next_assignment;
 		}
@@ -678,7 +678,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			nfld = 0;
 			for(char_addr = cptr; (char_addr = memchr_bounded(char_addr, bound)) != 0x0; ++char_addr) { ++nfld; }
 			if(nfld != 0 && nfld != 2 && nfld != 4) {
-				sprintf(cbuf,"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
+				snprintf(cbuf,STR_MAX_LEN*2,"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
 				ASSERT(0,cbuf);
 			}
 			// Defaults for the fields PrimeNet is allowed to omit:
@@ -703,7 +703,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of tsv_ptr:
 				cptr = strstr(in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
-				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
+				cptr++;	while(isspace((unsigned char)*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
 					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 				} else
