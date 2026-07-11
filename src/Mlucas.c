@@ -881,7 +881,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(TEST_TYPE == TEST_TYPE_TF) {
 			/* Currently TF only supported for Mersennes: */
 			if(MODULUS_TYPE != MODULUS_TYPE_MERSENNE) {
-				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",in_line);
+				snprintf(cbuf, STR_MAX_LEN*2, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",in_line);
 				fprintf(stderr,"%s",cbuf);
 				goto GET_NEXT_ASSIGNMENT;
 			}
@@ -912,12 +912,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(char_addr++) {
 				bit_depth_todo = strtoul(char_addr, &endp, 10);
 				if(bit_depth_todo > MAX_FACT_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,in_line);
+					snprintf(cbuf, STR_MAX_LEN*2, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo <= TF_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,in_line);
+					snprintf(cbuf, STR_MAX_LEN*2, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
@@ -931,7 +931,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 		else if(nbits_in_p > MAX_PRIMALITY_TEST_BITS)
 		{
-			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",in_line);
+			snprintf(cbuf, STR_MAX_LEN*2, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",in_line);
 			fprintf(stderr,"%s",cbuf);
 			goto GET_NEXT_ASSIGNMENT;
 		}
@@ -3438,7 +3438,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		sprintf(cbuf,"This cofactor is COMPOSITE [C%u]. Checking prime-power-ness via GCD(A - B,C) ... \n",i); mlucas_fprint(cbuf,1);
 		i = gcd(0,0ull,ai,ci,j,gcd_str);	// 1st arg = stage of (p-1 or ecm) just completed, does not apply here
 		if(i)
-			sprintf(cbuf,"Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
+			snprintf(cbuf, STR_MAX_LEN*2, "Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
 		else
 			sprintf(cbuf,"Cofactor is not a prime power.\n");
 		mlucas_fprint(cbuf,1);
@@ -6386,7 +6386,7 @@ uint32 extract_known_factors(uint64 p, char*fac_start) {
 		cptr = char_addr+1;	// Advance 1-char past the current , or "
 	}
 	if(char_addr != 0x0) {
-		sprintf(cbuf,"%s: Unrecognized token sequence in parsing known-factors portion of assignment: \"%s\".",WORKFILE,fac_start);	ASSERT(0,cbuf);
+		snprintf(cbuf, STR_MAX_LEN*2, "%s: Unrecognized token sequence in parsing known-factors portion of assignment: \"%s\".",WORKFILE,fac_start);	ASSERT(0,cbuf);
 	}
 	ASSERT(nfac != 0,"Must specify at least one known factor!");
 // A bit of just-for-fun code: For smaller moduli N, use mi64 utils to see if cofactor C is a base-3 PRP:
@@ -6658,7 +6658,7 @@ uint32 filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_be
 		}
 		fclose(fptr);
 	} else {
-		sprintf(cbuf,"filegrep error: file %s not found.\n",fname);
+		snprintf(cbuf, STR_MAX_LEN*2, "filegrep error: file %s not found.\n",fname);
 		ASSERT(0, cbuf);
 	}
 	if(strlen(cstr) != 0)

@@ -534,7 +534,7 @@ PM1_S1P_READ_RETURN:
 
 		FILE*fptr = mlucas_fopen(fname, "wb");
 		if(!fptr) {
-			sprintf(cbuf,"ERROR: Unable to open precomputed p-1 stage 1 primes-product file %s for writing.\n",fname);
+			snprintf(cbuf, STR_MAX_LEN*2, "ERROR: Unable to open precomputed p-1 stage 1 primes-product file %s for writing.\n",fname);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0, cbuf);
 		}
 		fprintf(stderr,"INFO: Opened precomputed p-1 stage 1 primes-product file %s for writing...\n",fname);
