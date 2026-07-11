@@ -2679,7 +2679,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }		NRADICES = 0;
 					goto SETUP_FFT;
 				} else if(ierr & (1<<ERR_CARRY)) {	// One or more modmuls hit a nonzero-exit-carry (residue-corruption) error
-					sprintf(cbuf,"p-1 stage 2 hit a carry error, retrying from most-recent savefile in case the issue was due to residue-data corruption.\n");
+					snprintf(cbuf,STR_MAX_LEN*2,"p-1 stage 2 hit a carry error, retrying from most-recent savefile in case the issue was due to residue-data corruption.\n");
 					mlucas_fprint(cbuf,1);
 					goto READ_RESTART_FILE;
 				} else if(ierr) {
