@@ -1198,7 +1198,7 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	if(debug) printf("twopmmodq64: computing 2^%" PRIu64 " (mod %" PRIu64 ")\n",p,q);
 	// If p <= 64, directly compute 2^p (mod q):
 	if(p < 64)
-		return (1ull < p) % q;
+		return (1ull << p) % q;
 	else if(p == 64) {
 		x = (1ull << 63) % q;
 		MOD_ADD64(x,x,q,x);
