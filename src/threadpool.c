@@ -644,11 +644,11 @@ me at: heber.tomer@gmail.com
 		}
 
 		/* Start the worker threads. */
+		pool->num_of_threads = 0;
+		pool->num_of_cores = num_cores;
+
 		for (i = 0; i < num_threads; i++)
 		{
-			pool->num_of_threads = num_threads;
-			pool->num_of_cores = num_cores;
-
 			pool->thr_init[i].thread_num = i;
 			pool->thr_init[i].pool = pool;
 			pool->thr_init[i].control = *t;
@@ -661,6 +661,11 @@ me at: heber.tomer@gmail.com
 				threadpool_free(pool);
 				return NULL;
 			}
+
+			/* Only count a thread once it has actually been created, so that if a
+			 * later pthread_create() call fails, threadpool_free() joins just the
+			 * threads that exist rather than walking uninitialized thr_arr slots. */
+			pool->num_of_threads = i + 1;
 		}
 
 		// Set CPU affinity masks of the threads:
