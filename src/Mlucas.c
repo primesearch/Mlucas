@@ -1325,7 +1325,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				a "not found" (dum == 0) result above, i.e. request a fresh timing self-test
 				for the requested length rather than trusting the out-of-range entry.
 				*/
-				sprintf(cbuf,"WARN: get_preferred_fft_radix returned out-of-range FFT length: asked for %u, returned %u, packed value= %#8X -- ignoring and treating as 'not found' in '%s'; please rerun the self-test for this length.\n", kblocks, i, dum, CONFIGFILE);
+				snprintf(cbuf,STR_MAX_LEN*2,"WARN: get_preferred_fft_radix returned out-of-range FFT length: asked for %u, returned %u, packed value= %#8X -- ignoring and treating as 'not found' in '%s'; please rerun the self-test for this length.\n", kblocks, i, dum, CONFIGFILE);
 				fprintf(stderr, "%s", cbuf);
 				if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 			}
