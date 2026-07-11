@@ -345,7 +345,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		builds; require >= 16*RE_IM_STRIDE for margin (and 2x that for the stride-8 AVX-512 path). */
 		if((N2 / (uint32)RADIX_VEC[NRADICES-1]) < (uint32)(16*RE_IM_STRIDE))
 		{
-			sprintf(cbuf,"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
+			snprintf(cbuf,STR_MAX_LEN*2,"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
 				(uint32)(n>>10), N2/(uint32)RADIX_VEC[NRADICES-1], (uint32)(16*RE_IM_STRIDE));
 			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 		}
