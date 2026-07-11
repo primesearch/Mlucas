@@ -5678,7 +5678,7 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	fold below handles that correctly, same as the MS word < 0 case.): */
 	if(cy && (a[j1] > 0 || cy != +1))
 	{
-		sprintf(cbuf, "convert_res_bytewise_FP: Illegal combination of nonzero carry = %" PRId64 ", most sig. word = %20.4f\n", cy, a[j1]);
+		snprintf(cbuf, STR_MAX_LEN*2, "convert_res_bytewise_FP: Illegal combination of nonzero carry = %" PRId64 ", most sig. word = %20.4f\n", cy, a[j1]);
 		ASSERT(0, cbuf);
 	}
 
