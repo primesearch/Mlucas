@@ -1140,7 +1140,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 	}
 	a      = ALIGN_DOUBLE(a_ptmp);	ASSERT(((intptr_t)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
-	buf = (double **)calloc(num_b*m,sizeof(double *));
+	buf = (double **)CALLOC(num_b*m,sizeof(double *));
 	// ...and num_b*m "buffers" for precomputed bigstep-coprime odd-square powers of the stage 1 residue:
 	for(i = 0; i < num_b*m; i++) {
 		buf[i] = a + i*npad;
@@ -1161,9 +1161,9 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	containing as close to npad/NTHREADS doubles as possible, but satisfying the aforementioned starting-
 	address alignment criterion:
 	*/
-	thr_ret  = (int *)calloc(NTHREADS, sizeof(int));
-	thread   = (pthread_t *)calloc(NTHREADS, sizeof(pthread_t));
-	tdat     = (struct pm1_thread_data_t *)calloc(NTHREADS, sizeof(struct pm1_thread_data_t));
+	thr_ret  = (int *)CALLOC(NTHREADS, sizeof(int));
+	thread   = (pthread_t *)CALLOC(NTHREADS, sizeof(pthread_t));
+	tdat     = (struct pm1_thread_data_t *)CALLOC(NTHREADS, sizeof(struct pm1_thread_data_t));
 	// Initialize and set thread detached attribute:
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);

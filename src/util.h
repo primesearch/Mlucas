@@ -235,6 +235,16 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 
 #define ASSERT(expr, assert_string) (void)((expr) || (ABORT(#expr, __FILE__, __LINE__, __func__, assert_string),0))
 
+/* Checked heap-allocation wrappers (defined in util.c): on failure they print the file:line
+of the call site plus the requested size, then abort, rather than returning NULL for the
+caller to dereference. Use via the MALLOC/CALLOC/REALLOC macros, which capture the call site: */
+void	*malloc_check (size_t nbytes, const char*file, int line);
+void	*calloc_check (size_t nmemb, size_t size, const char*file, int line);
+void	*realloc_check(void*ptr, size_t nbytes, const char*file, int line);
+#define MALLOC(n)		malloc_check ((n), __FILE__, __LINE__)
+#define CALLOC(nm,sz)	calloc_check ((nm),(sz), __FILE__, __LINE__)
+#define REALLOC(p,n)	realloc_check((p),(n), __FILE__, __LINE__)
+
 void	VAR_WARN(char *typelist, ...);
 
 void	byte_bitstr(const uint8  byte, char*ostr);
