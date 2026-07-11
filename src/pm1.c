@@ -367,7 +367,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
 		PM1_S1_PRODUCT = ALLOC_UINT64(PM1_S1_PRODUCT, s1p_alloc);
 		if(!PM1_S1_PRODUCT ){
-			sprintf(cbuf, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
+			snprintf(cbuf, STR_MAX_LEN*2, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 		}
 		// For M(p) want to seed the S1 prime-powers product with 2*p; for F(m) we want seed = 2^(m+2). Since in the latter
@@ -411,7 +411,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		}
 	} 	// endif(read_pm1_s1_prod)
   #endif
-	sprintf(cbuf,"Product of Stage 1 prime powers with B1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
+	snprintf(cbuf,STR_MAX_LEN*2,"Product of Stage 1 prime powers with B1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	PRP_BASE = 3;
 	sprintf(cbuf,"BRed (PM1_S1_PRODUCT sans leading bit) has %u limbs, Res64 = %" PRIu64 "\n",len,PM1_S1_PROD_RES64);
@@ -502,12 +502,12 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uin
 		recomputing at a different B1. Only adopt a sane value; an out-of-range b1 (or the type-tag mismatches above)
 		means a truncated/foreign file, so bail and recompute at the current B1. */
 		if(b1 >= 10000 && b1 <= 2863311530u) {
-			sprintf(cbuf, "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
+			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			if(B2_start) B2_start = b1;	// keep the Stage 2 start-bound tracking the adopted Stage 1 bound (Stage 2 begins where Stage 1 ends)
 			B1 = b1;
 		} else {
-			sprintf(cbuf, "INFO: %s: savefile B1 [%u] is out of range; treating as corrupt/foreign and recomputing.\n",func,b1);
+			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: savefile B1 [%u] is out of range; treating as corrupt/foreign and recomputing.\n",func,b1);
 			goto PM1_S1P_READ_RETURN;
 		}
 	}
@@ -522,7 +522,7 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uin
 	nbytes = (*nbits + 7)/8; nlimbs = (nbytes + 7)/8;
 	*arr = ALLOC_UINT64(*arr, nlimbs);
 	if(!*arr) {
-		sprintf(cbuf, "ERROR: %s: unable to allocate array PM1_S1_PRODUCT with %u limbs.\n",func,nlimbs);
+		snprintf(cbuf, STR_MAX_LEN*2, "ERROR: %s: unable to allocate array PM1_S1_PRODUCT with %u limbs.\n",func,nlimbs);
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 	}
 	for(i = 0; i < nlimbs; i++) { (*arr)[i] = 0ull; }
