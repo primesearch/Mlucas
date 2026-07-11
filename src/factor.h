@@ -100,15 +100,13 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#error USE_FMADD option requires TRYQ = 1, 2 or 4
   #endif
 
-	/* FMADD-based modmul currently only supported for one-word p's: */
-	#ifdef P2WORD
-		#error P2WORD may not be used together with USE_FMADD!
-	#endif
-	#ifdef P3WORD
-		#error P3WORD may not be used together with USE_FMADD!
-	#endif
-	#ifdef P4WORD
-		#error P4WORD may not be used together with USE_FMADD!
+	/* FMADD-based modmul is implemented only for one-word p. For multiword p, quietly fall back to the
+	standard (non-FMADD) modmul instead of erroring out, so multiword factoring builds succeed on
+	FMA-capable targets (where USE_FMADD is auto-defined per-platform, e.g. every FMA-x86 Mfactor build).
+	The enclosing '#ifdef USE_FMADD' block only validates - it defines nothing the rest of the file needs -
+	so undefining USE_FMADD here cleanly routes multiword builds down the standard modmul path below: */
+	#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
+		#undef USE_FMADD
 	#endif
 
 	#ifdef USE_FLOAT
