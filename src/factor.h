@@ -106,6 +106,7 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	The enclosing '#ifdef USE_FMADD' block only validates - it defines nothing the rest of the file needs -
 	so undefining USE_FMADD here cleanly routes multiword builds down the standard modmul path below: */
 	#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
+		#warning USE_FMADD is not implemented for multiword p; falling back to the standard (non-FMADD) modmul, so this build gets no FMADD speedup.
 		#undef USE_FMADD
 	#endif
 

@@ -551,26 +551,18 @@ jobs:
         if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             MODES+=( ASIMD )
         else
-            MODES+=( SSE2 AVX AVX2 )
-            # Only build AVX-512 if the assembler supports the extended registers (zmm16-31/xmm16-31/
-            # k0-7) and the AVX-512ER vrcp28pd the kernels use. MinGW gcc's assembler does not, so an
-            # AVX-512 build aborts and kills this (allowed-to-fail) job; probe and skip if so.
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax\n\tvrcp28pd %%zmm8,%%zmm0":::"zmm31","xmm16","xmm17","k1","eax","zmm0","zmm8");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1; then
-                MODES+=( AVX512 )
-                # The assembler can build AVX-512, but GitHub's Windows runner CPUs are AVX2-only, so the
-                # built AVX-512 binaries hit SIGILL when run. Probe whether baseline AVX-512 actually
-                # executes here; if not, still build the mode (compile-time coverage) but skip running
-                # its test binaries below.
-                if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
-                    run_avx512=1
-                else
-                    run_avx512=0
-                    echo "::warning title=AVX-512 execution skipped::$("${CC:-gcc}" --version | head -n1): this runner's CPU cannot execute AVX-512; building the AVX-512 mode for compile coverage but not running its test binaries."
-                fi
-                rm -f conftest_avx512run conftest_avx512run.exe
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+            # The AVX-512 mode compiles fine here (the assembler handles the extended registers). But
+            # GitHub's Windows runner CPUs are AVX2-only, so the built AVX-512 binaries hit SIGILL when
+            # run. Probe whether baseline AVX-512 actually executes here; if not, still build the mode
+            # (compile-time coverage) but skip running its test binaries below.
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                run_avx512=1
             else
-                echo "::warning title=AVX-512 build skipped::$("${CC:-gcc}" --version | head -n1): its assembler cannot handle the AVX-512 constructs Mlucas's kernels need; skipping the AVX-512 build mode."
+                run_avx512=0
+                echo "::warning title=AVX-512 execution skipped::$("${CC:-gcc}" --version | head -n1): this runner's CPU cannot execute AVX-512; building the AVX-512 mode for compile coverage but not running its test binaries."
             fi
+            rm -f conftest_avx512run conftest_avx512run.exe
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
