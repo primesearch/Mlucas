@@ -83,9 +83,18 @@ fi
 
 # Returns success iff $CC (default gcc) accepts the given flag(s) for a full compile-and-link of a
 # trivial program - used below to auto-detect toolchain-version-dependent flag/feature support instead
-# of hardcoding version-number cutoffs (which drift out of date and vary by distro/backport):
+# of hardcoding version-number cutoffs (which drift out of date and vary by distro/backport).
+# Compile a real temp file to a real output rather than piping stdin to '-o /dev/null': a native
+# Windows (MinGW) gcc does not understand the POSIX path /dev/null as an -o target (it becomes a
+# nonexistent C:\dev\null), so the /dev/null form spuriously fails every probe on that toolchain:
 try_flag() {
-	printf 'int main(void){return 0;}\n' | "${CC:-gcc}" "$@" -x c -o /dev/null - >/dev/null 2>&1
+	local tmpdir rc
+	tmpdir=$(mktemp -d) || return 1
+	printf 'int main(void){return 0;}\n' >"$tmpdir/t.c"
+	"${CC:-gcc}" "$@" "$tmpdir/t.c" -o "$tmpdir/t.out" >/dev/null 2>&1
+	rc=$?
+	rm -rf "$tmpdir"
+	return $rc
 }
 
 # Returns success iff $CC's assembler accepts the AVX-512 constructs Mlucas's inline-asm kernels use:
@@ -94,7 +103,9 @@ try_flag() {
 # reject one or both even when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register
 # names, clang 5.0 assembles those but rejects vrcp28pd - so probe both, exactly as the CI does (#73):
 try_avx512_asm() {
-	"${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1 <<'EOF'
+	local tmpdir rc
+	tmpdir=$(mktemp -d) || return 1
+	cat >"$tmpdir/t.c" <<'EOF'
 int main(void)
 {
 	__asm__ __volatile__(
@@ -107,6 +118,13 @@ int main(void)
 	return 0;
 }
 EOF
+	# -c (compile to a real object, mirroring the real per-file build) still runs the assembler, so a
+	# toolchain that genuinely can't assemble these constructs still fails; but compiling a real file to a
+	# real .o avoids the MinGW '-o /dev/null' pitfall that made this probe a false-negative on Windows:
+	"${CC:-gcc}" -mavx512f -c "$tmpdir/t.c" -o "$tmpdir/t.o" >/dev/null 2>&1
+	rc=$?
+	rm -rf "$tmpdir"
+	return $rc
 }
 
 # Returns success iff $CC can compile two separate translation units with the given -flto[=...] variant
@@ -484,6 +502,19 @@ fi
 # defers to a pre-set environment CFLAGS instead of the computed value below. Prefer -flto=auto (parallel
 # LTO codegen, see #56) over plain -flto when supported:
 CFLAGS_PROBED=(-Wall -g -O3)
+# The Mlucas sources use C99 features (for-loop-scope declarations, mixed declarations-and-code). Old
+# gcc (e.g. 4.8 on Ubuntu 14.04) defaults to gnu89/gnu90 and rejects these with a hard error; newer
+# toolchains default to gnu11+ and accept them. Probe the compiler's default and request -std=gnu99 only
+# when the default won't compile a C99 for-loop-scope declaration, so modern builds keep their default:
+c99_probe() {	# $1: optional -std flag
+	local tmpdir rc; tmpdir=$(mktemp -d) || return 1
+	printf 'int main(void){for(int i=0;i<1;++i){int j=i;(void)j;}return 0;}\n' >"$tmpdir/t.c"
+	"${CC:-gcc}" ${1:+"$1"} -c "$tmpdir/t.c" -o "$tmpdir/t.o" >/dev/null 2>&1; rc=$?
+	rm -rf "$tmpdir"; return $rc
+}
+if ! c99_probe && c99_probe -std=gnu99; then
+	CFLAGS_PROBED+=(-std=gnu99)
+fi
 try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
 if try_lto -flto=auto; then
 	CFLAGS_PROBED+=(-flto=auto)
