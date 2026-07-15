@@ -351,6 +351,9 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 		const int MODULUS_TYPE,
 		const char*VERSION,
 		const char*OFILE
+	#ifdef USE_AVX512
+		, uint32*psmall	// Small-primes table for the AVX-512 gather/scatter bit-clear asm (see factor.c)
+	#endif
 	);
 
 #endif
