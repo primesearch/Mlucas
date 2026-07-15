@@ -570,7 +570,9 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                # The windows-11-arm runner has no GMP installed (the Install step is x86-only), so the
+                # Mfactor build must also request no_gmp there, exactly as the main build above does:
+                bash -e -o pipefail -- makemake.sh mfac ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || '' }} $word $mode || true
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
