@@ -97,39 +97,15 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 /**********************************/
 /****** CHECKED ALLOCATION ********/
 /**********************************/
-/* malloc/calloc/realloc wrappers: on allocation failure these print the file:line of the
-call site plus the requested size, then abort - so an out-of-memory condition yields a clear
-diagnostic instead of a later SIGSEGV from a caller dereferencing a NULL pointer. Reached via
-the MALLOC/CALLOC/REALLOC macros in util.h (and the ALLOC_* macros in align.h), which supply
-__FILE__/__LINE__ of the actual call site. */
-void *malloc_check(size_t nbytes, const char*file, int line) {
-	void *p = malloc(nbytes);
-	if(!p && nbytes) {
-		char msg[STR_MAX_LEN];
-		sprintf(msg, "malloc of %" PRIu64 " bytes failed - out of memory", (uint64)nbytes);
-		ABORT("ptr != 0x0", file, line, "malloc_check", msg);
-	}
-	return p;
-}
-
-void *calloc_check(size_t nmemb, size_t size, const char*file, int line) {
-	void *p = calloc(nmemb, size);
-	if(!p && nmemb && size) {
-		char msg[STR_MAX_LEN];
-		sprintf(msg, "calloc of %" PRIu64 " x %" PRIu64 " bytes failed - out of memory", (uint64)nmemb, (uint64)size);
-		ABORT("ptr != 0x0", file, line, "calloc_check", msg);
-	}
-	return p;
-}
-
-void *realloc_check(void*ptr, size_t nbytes, const char*file, int line) {
-	void *p = realloc(ptr, nbytes);
-	if(!p && nbytes) {
-		char msg[STR_MAX_LEN];
-		sprintf(msg, "realloc to %" PRIu64 " bytes failed - out of memory", (uint64)nbytes);
-		ABORT("ptr != 0x0", file, line, "realloc_check", msg);
-	}
-	return p;
+/* Common failure path for the checked-allocation macros (MALLOC/CALLOC/REALLOC in util.h and the
+ALLOC_* macros in align.h): print the file:line:function of the call site plus the requested size,
+then abort - so an out-of-memory condition yields a clear diagnostic instead of a later SIGSEGV from a
+caller dereferencing a NULL pointer. The success-path malloc/calloc/realloc is done inline in the
+macros; this is only ever reached on failure, so a function call here costs nothing on the hot path. */
+__attribute__ ((__noreturn__)) void alloc_fail(const char*what, size_t nbytes, const char*file, int line, const char*func) {
+	char msg[STR_MAX_LEN];
+	snprintf(msg, sizeof(msg), "%s of %" PRIu64 " bytes failed - out of memory", what, (uint64)nbytes);
+	ABORT("ptr != 0x0", file, line, func, msg);
 }
 
 /***************/
