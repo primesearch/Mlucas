@@ -393,7 +393,7 @@ uint32	ernstMain
 /*...What a bunch of characters...	*/
 	char *cptr = 0x0, *endp, gcd_str[STR_MAX_LEN], aid[33] = "\0";	// 32-hexit Primenet assignment id needs 33rd char for \0
 	// Used to bound optional-numeric-field parsing in PRP|Pminus1 assignment lines to precede any trailing known-factors list:
-	char *bound = 0x0, *kf_start = 0x0, *tsv_ptr = 0x0;
+	char *num_end = 0x0, *kf_start = 0x0, *tsv_ptr = 0x0;
 /*...initialize logicals and factoring parameters...	*/
 	int restart = FALSE, use_lowmem = 0, check_interval = 0;
 
@@ -669,25 +669,31 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			// Locate any trailing known-factors list before parsing the optional numeric fields, so a
-			// comma embedded in "factor1,factor2,..." can never be mistaken for a field separator:
-			bound = known_factors_bound(cptr, &kf_start);
+			// The optional known-factors list, if present, is always introduced by a double-quote; since the
+			// numeric fields never contain one, strchr() locates it directly. Finding it up front keeps a
+			// comma embedded in "factor1,factor2,..." from being mistaken for a numeric-field separator below.
+			// num_end marks the end of the numeric region: the ',' that introduces the factors list (so that
+			// separating comma is itself excluded), or the end of the line if there is no factors list:
+			kf_start = strchr(cptr, '\"');
+			num_end = kf_start ? kf_start-1 : cptr + strlen(cptr);
 			// Count the optional numeric fields between [k,b,n,c] and any known-factors list - PrimeNet's
 			// abbreviated PRP format allows exactly 0, 2 (how_far_factored,tests_saved), or 4 of these
-			// (adding base,residue_type), never 1 or 3:
+			// (adding base,residue_type), never 1 or 3. Each field is comma-introduced and lies before num_end:
 			nfld = 0;
-			for(char_addr = cptr; (char_addr = memchr_bounded(char_addr, bound)) != 0x0; ++char_addr) { ++nfld; }
+			for(char_addr = cptr; (char_addr = strchr(char_addr, ',')) != 0x0 && char_addr < num_end; ++char_addr) { ++nfld; }
 			if(nfld != 0 && nfld != 2 && nfld != 4) {
 				snprintf(cbuf,STR_MAX_LEN*2,"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
 				ASSERT(0,cbuf);
 			}
 			// Defaults for the fields PrimeNet is allowed to omit:
 			TF_BITS = 0xffffffff; tests_saved = 0.0; PRP_BASE = 3; residue_type = kf_start ? 5 : 1;
+			// nfld (validated above) guarantees the counted fields precede any factors list, so the plain
+			// strchr()s below only ever land on numeric-field separators, never a factors-list comma:
 			if(nfld >= 2) {
 				// how_far_factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
-				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0, "Expected ',' not found before TF_BITS field!");
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0, "Expected ',' not found before TF_BITS field!");
 				TF_BITS = strtoul(char_addr+1, &cptr, 10);
-				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0, "Expected ',' not found after TF_BITS field in assignment-specifying line!");
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0, "Expected ',' not found after TF_BITS field in assignment-specifying line!");
 				tsv_ptr = char_addr+1;	// leftmost char of tests_saved field, which we will overwrite with 0 if a p-1 assignment is split off
 				tests_saved = strtod(tsv_ptr, &cptr);	endp = cptr;	// endp: to-be-appended leftover portion, if we split off a p-1 assignment below
 				if(tests_saved < 0 || tests_saved > 2) {
@@ -723,10 +729,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// if present, come next; any known-factors list is unaffected by whether they were given:
 			if(nfld == 4) {
 				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
-				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0, "Expected ',' not found before PRP base field!");
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0, "Expected ',' not found before PRP base field!");
 				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(i == 3,"PRP-test base must be 3!");
 				PRP_BASE = i;
-				char_addr = memchr_bounded(cptr, bound);	ASSERT(char_addr != 0x0,"Expected ',' not found in assignment-specifying line!");
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0,"Expected ',' not found in assignment-specifying line!");
 				i = (int)strtol(char_addr+1, &cptr, 10);	residue_type = i;
 				ASSERT(residue_type == 1 || residue_type == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
 			}
@@ -814,14 +820,17 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			input was in fact == ULONG_LONG_MAX? We assume here that nobody will use a p-1 stage bound so large:
 			*/
 			B2 = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
-			// Locate any trailing known-factors list before parsing the optional TF_BITS,B2_start fields, so a
-			// comma embedded in "factor1,factor2,..." can never be mistaken for one of their separators:
-			bound = known_factors_bound(cptr, &kf_start);
+			// Locate any trailing known-factors list (always introduced by a double-quote) before parsing the
+			// optional TF_BITS,B2_start fields, so a comma embedded in "factor1,factor2,..." can never be
+			// mistaken for one of their separators. num_end marks the end of the numeric region (the ',' that
+			// introduces the factors list, itself excluded), or the end of the line if there is no such list:
+			kf_start = strchr(cptr, '\"');
+			num_end = kf_start ? kf_start-1 : cptr + strlen(cptr);
 			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present.
-			// Either (or both) may be absent even when a known-factors list follows directly after B1,B2:
-			if((char_addr = memchr_bounded(cptr, bound)) != 0x0) {
+			// Either (or both) may be absent even when a known-factors list follows directly after B1,B2 - the num_end bound keeps that list's ',' out:
+			if((char_addr = strchr(cptr, ',')) != 0x0 && char_addr < num_end) {
 				TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);	ASSERT(TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
-				if((char_addr = memchr_bounded(cptr, bound)) != 0x0) {
+				if((char_addr = strchr(cptr, ',')) != 0x0 && char_addr < num_end) {
 					B2_start = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
 					if(B2_start > B1)	// It's a stage 2 continuation run
 						s2_continuation = TRUE;
@@ -6070,47 +6079,6 @@ int	is_hex_string(char*s, int len)
 			return FALSE;
 	}
 	return TRUE;
-}
-
-/*********************/
-
-/* memchr(), restricted to the half-open range [from,bound). Used in place of unbounded strstr(cptr,",") when
-scanning for optional-field separators, so that a comma embedded in a trailing "factor1,factor2,..." known-factors
-list can never be mistaken for one. Returns 0x0 if bound <= from (no room left to search) or no comma is found.
-*/
-char *memchr_bounded(char*from, char*bound) {
-	if(bound <= from) return 0x0;
-	return (char*)memchr(from, ',', (size_t)(bound - from));
-}
-
-/* Several worktodo assignment-line formats (PRP, PRPDC, Pminus1) end with an optional, double-quoted,
-comma-separated list of known factors, e.g. ...,3,5,"4457025343,185822885311153245017". Since that list's
-internal commas must never be confused with the separators between the *preceding* optional numeric fields
-(how_far_factored, tests_saved, base, residue_type, ...), locate the list - if present - before those fields
-are parsed, and use the pointer this function returns to bound the numeric-field scan.
-
-cptr must point into the line just past the last field known to be unconditionally present (i.e. just past
-the c-value of [k,b,n,c] for PRP|PRPDC, or just past B2 for Pminus1).
-
-Returns a pointer marking the end of the as-yet-unparsed optional-numeric-field region: if a known-factors
-list terminates the line, this is a pointer to the comma which introduces it (so numeric fields are confined
-to its left); otherwise it is a pointer to the line's terminating '\n', or its terminating '\0' if no such
-newline is present (e.g. if the calling program synthesized the line in-memory).
-
-If kf_start != 0x0, *kf_start is set to point to the known-factors list's opening '"' (suitable for passing
-directly to extract_known_factors()), or to 0x0 if no such list is present.
-*/
-char *known_factors_bound(char*cptr, char**kf_start) {
-	char*line_end = cptr + strcspn(cptr, "\r\n");
-	if(kf_start) *kf_start = 0x0;
-	if(line_end > cptr && line_end[-1] == '\"') {
-		char*q = line_end - 2;	// Skip the closing '"' itself, scan back for its opening-quote partner:
-		while(q > cptr && *q != '\"') --q;
-		ASSERT(q > cptr && *q == '\"' && q[-1] == ',', "Known-factors list must be introduced by a comma!");
-		if(kf_start) *kf_start = q;
-		return q - 1;
-	}
-	return line_end;
 }
 
 /*********************/
