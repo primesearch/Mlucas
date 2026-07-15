@@ -30,6 +30,12 @@ Then to run, e.g.
 #include "Mlucas.h"
 #define STR_MAX_LEN 1024
 
+// P-1 Stage 1 B1 bounds. The Stage 1 prime-powers product has ~1.5*B1 bits and its bitlength is stored
+// as a uint32, so B1 must satisfy 1.5*B1 <= 2^32, i.e. B1 <= 2^33/3 = 2863311530. Lower bound of 10^4
+// avoids a large-buffer-count underflow of qlo in Stage 2 (see pm1_set_bounds()):
+#define PM1_B1_MIN         10000u
+#define PM1_B1_MAX    2863311530u	// = 2^33/3
+
 #ifdef PM1_STANDALONE
 	#warning Building pm1.c in PM1_STANDALONE mode.
 	char STATFILE[] = "pm1_debug.txt";
@@ -199,11 +205,11 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 			PM1_S2_NBUF = (uint32)dtmp - 5;
 		}
 	}
-	// Force B1 >= 10^4 to avoid possible large-buffer-count underflow of qlo in stage 2.
-	// Conservatively use (#bits in Stage 1 prime-powers product ~= 1.5*B1), must fit into a uint32, thus B1_max = 2^33/3 = 2863311530:
+	// PM1_B1_MIN/PM1_B1_MAX (defined at top of file) bound B1: lower to avoid a Stage 2 qlo underflow,
+	// upper (2^33/3) so the ~1.5*B1-bit Stage 1 prime-powers product's bitlength fits a uint32:
 	i64 = p>>7;
-	ASSERT(i64 <= 2863311530ull, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
-	B1 = MAX((uint32)i64,10000);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
+	ASSERT(i64 <= PM1_B1_MAX, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
+	B1 = MAX((uint32)i64,PM1_B1_MIN);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
 	B1 = (B1 + 99999)*inv100k;	B1 *= 100000;	ASSERT(B1 >= 100000, "B1 unacceptably small!");	// Round up to nearest 100k:
 	if(PM1_S2_NBUF < 24) {
 		sprintf(cbuf,"pm1_set_bounds: Insufficient free memory for Stage 2 ... will run only Stage 1.\n");
@@ -333,7 +339,6 @@ global would be needed to store that - and remultiply by the appropriate one for
 */
 uint32 compute_pm1_s1_product(const uint64 p) {
 	const double A = 1.1;
-	const char func[] = "compute_pm1_s1_product";
 	ASSERT(B1 > 0, "Call to compute_pm1_s1_product needs Stage 1 bound global B1 to be set!");
 	uint32 i,len = 0,nmul,nbits,ebits,s1p_alloc;
 	uint64 iseed,maxmult;
@@ -501,7 +506,7 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uin
 		B1 is not interchangeable with any other, so adopt the savefile's B1 and resume that exact Stage 1 rather than
 		recomputing at a different B1. Only adopt a sane value; an out-of-range b1 (or the type-tag mismatches above)
 		means a truncated/foreign file, so bail and recompute at the current B1. */
-		if(b1 >= 10000 && b1 <= 2863311530u) {
+		if(b1 >= PM1_B1_MIN && b1 <= PM1_B1_MAX) {
 			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			if(B2_start) B2_start = b1;	// keep the Stage 2 start-bound tracking the adopted Stage 1 bound (Stage 2 begins where Stage 1 ends)
