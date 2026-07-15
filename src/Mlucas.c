@@ -3079,7 +3079,6 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 		// Then exactly compute the bitcount at the resulting word, by adding the BIGWORD_NBITS-array-stored exact
 		// total bitcount at the next-lower index-multiple-of-64 to the number of bits in the next (mod64) words,
 		// not including the current word, hence (64-mod64) rather than (63-mod64) as the BIGWORD_BITMAP[w64] shift count.
-		// NOTE: That (64 - ...) shiftcount also necessitates an added AND-mask to zero the result in the mod64 == 0 case:
 		itmp64 = BIGWORD_BITMAP[w64];	i = (int)bits_per_word;
 		ii = BIGWORD_NBITS[w64] + i*mod64 + (mod64 ? popcount64( itmp64<<(64-mod64) ) : 0);
 		// Loop up or down (should be by at most 1 word in either direction) if the resulting #bits is such that RES_SHIFT maps to a <> word:

@@ -3851,9 +3851,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
 	  #endif
 		// Intermediates pointers:
-		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
-			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-			*r10,*r20,*r30,*r40,*r50,*r60,*r70;
+		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7;
 		/* Addresses into array sections */
 		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
@@ -4034,11 +4032,6 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		} else {
 			ASSERT(sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
 		}	/* end of inits */
-
-		// Each of these rhi-ptrs points to next 8 vec_cmplx = 16 vec_dbl data sets; done here (rather than
-		// in the above declarations) since r00 == 0x0 on the (thr_id == -1) init-mode calls above, and
-		// forming pointer offsets from a null base pointer is undefined behavior:
-		r10 = r00+0x10; r20 = r00+0x20; r30 = r00+0x30; r40 = r00+0x40; r50 = r00+0x50; r60 = r00+0x60; r70 = r00+0x70;
 
 		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
@@ -5015,22 +5008,16 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	)
 	{
 		// Intermediates pointers:
-		vec_dbl *tm0,*tm1,*tm2,
-							*r10,*r20,*r30,*r40,*r50,*r60,*r70,
-			*r80,*r90,*ra0,*rb0,*rc0,*rd0,*re0,*rf0;
+		vec_dbl *tm0,*tm1,*tm2;
 		/* Addresses into array sections */
 		double *addr, *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j,nshift;
 		const int *off_ptr;
 		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
-
-		// Each of these rhi-ptrs points to next 8 vec_cmplx = 16 vec_dbl data sets; assigned here (rather than
-		// in the above declarations) prophylactically, in case a future caller passes r00 == 0x0 (as some
-		// analogous init-mode DFT functions' callers do) - forming pointer offsets from a null base pointer
-		// is undefined behavior:
-		r10 = r00+0x20; r20 = r00+0x40; r30 = r00+0x60; r40 = r00+0x80; r50 = r00+0xa0; r60 = r00+0xc0; r70 = r00+0xe0;
-		r80 = r00+0x100; r90 = r80+0x20; ra0 = r80+0x40; rb0 = r80+0x60; rc0 = r80+0x80; rd0 = r80+0xa0; re0 = r80+0xc0; rf0 = r80+0xe0;
+		// NB: unlike the analogous DIF/DIT functions above, this one never dereferences the r10..rf0
+		// rhi-pointers, so they are not declared here at all - which also sidesteps the null-base
+		// pointer-offset UB (r00 == 0x0 on init-mode calls) that motivated the change in those functions.
 
 	/* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
 	  #ifdef USE_ARM_V8_SIMD
