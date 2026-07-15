@@ -88,9 +88,11 @@ try_flag() {
 	printf 'int main(void){return 0;}\n' | "${CC:-gcc}" "$@" -x c -o /dev/null - >/dev/null 2>&1
 }
 
-# Returns success iff $CC's assembler accepts the AVX-512 "extended" register names (zmm16-31,
-# xmm16-31, k0-k7) used throughout the AVX-512 inline-asm kernels. Some older Clang releases (pre-9ish)
-# reject these names even when otherwise AVX-512-aware:
+# Returns success iff $CC's assembler accepts the AVX-512 constructs Mlucas's inline-asm kernels use:
+# the "extended" register names (zmm16-31, xmm16-31, k0-k7), and the AVX-512ER reciprocal instruction
+# vrcp28pd (mi64_modmul53_batch, compiled and called under plain USE_AVX512). Some older Clang releases
+# reject one or both even when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register
+# names, clang 5.0 assembles those but rejects vrcp28pd - so probe both, exactly as the CI does (#73):
 try_avx512_asm() {
 	"${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1 <<'EOF'
 int main(void)
@@ -98,8 +100,9 @@ int main(void)
 	__asm__ __volatile__(
 		"vpxord %%zmm31,%%zmm31,%%zmm31\n\t"
 		"vmovdqa64 %%xmm16,%%xmm17\n\t"
-		"kmovw %%k1,%%eax"
-		::: "zmm31","xmm16","xmm17","k1","eax"
+		"kmovw %%k1,%%eax\n\t"
+		"vrcp28pd %%zmm8,%%zmm0"
+		::: "zmm31","xmm16","xmm17","k1","eax","zmm0","zmm8"
 	);
 	return 0;
 }
