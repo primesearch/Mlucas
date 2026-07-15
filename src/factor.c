@@ -3482,7 +3482,7 @@ MFACTOR_HELP:
 
 						  #else
 
-							#if 0	/* USE_FMADD has no single-candidate twopmodq100_2WORD_DOUBLE
+							#if defined(USE_FMADD) && 0	/* USE_FMADD has no single-candidate twopmodq100_2WORD_DOUBLE
 									variant - the only FMADD-based 100-bit modpow ever implemented is the
 									AVX-512-only, 32-way twopmodq100_2WORD_DOUBLE_q32 in twopmodq100.c (unused
 									by this TRYQ==1 code path, and in any case unreachable here since factor.h
@@ -3540,7 +3540,7 @@ MFACTOR_HELP:
 
 						  #elif(defined(P1WORD))
 
-							#if 0	/* USE_FMADD has no 2-way twopmodq100_2WORD_DOUBLE_q2
+							#if defined(USE_FMADD) && 0	/* USE_FMADD has no 2-way twopmodq100_2WORD_DOUBLE_q2
 									variant - see the longer note at the TRYQ==1 case above. There is no
 									integer-based q2 batch routine either, so unlike TRYQ==1/4 there is no
 									fallback to fall through to; if this is ever hit for real (it currently
@@ -3589,7 +3589,7 @@ MFACTOR_HELP:
 
 						  #else	// Default single-word-p mode:
 
-							#if 0	/* USE_FMADD has no 4-way twopmodq100_2WORD_DOUBLE_q4
+							#if defined(USE_FMADD) && 0	/* USE_FMADD has no 4-way twopmodq100_2WORD_DOUBLE_q4
 									variant - see the longer note at the TRYQ==1 case above (only a
 									never-called, AVX-512-only 32-way _q32 routine was ever completed for
 									this 100-bit FMADD family). This #if 0 previously read '#ifdef USE_FMADD'
