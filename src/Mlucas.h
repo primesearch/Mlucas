@@ -58,6 +58,9 @@
 
 /* Mlucas.c: */
 void	sig_handler(int signo);
+#ifndef NO_USE_SIGNALS
+void	mlucas_install_signal_handlers(void);
+#endif
 void	Mlucas_init(void);
 uint32	ernstMain
 (
