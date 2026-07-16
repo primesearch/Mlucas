@@ -581,7 +581,11 @@ jobs:
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping execution of AVX-512 Mfactor${word:+_$word}: this runner's CPU cannot run AVX-512."
                         else
-                            ./Mfactor${word:+_$word} -h
+                            # Run Mfactor's built-in test_fac() self-test (see #82) rather than just -h:
+                            # M(127) has no factors <= 2^20 so the trial-factoring pass is quick. Assert the
+                            # self-test success marker while tolerating the run's own exit status.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
                         fi
                     fi
                 )
