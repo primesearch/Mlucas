@@ -3733,6 +3733,11 @@ MFACTOR_HELP:
 							{
 								if((res >> l) & 1)	/* If Lth bit = 1, Lth candidate of the inputs is a factor */
 								{
+									// k = 0 yields the trivial "factor" q = 2.k.p+1 = 1, which divides everything. It can
+									// be sieved when the lower factor-bound admits it (e.g. -bmin 0 => kmin 0); skip it, since
+									// 1 is not a factor and PRP-testing it would violate mi64_pprimeF's base-<-modulus
+									// precondition and abort the run (seen with tiny exponents such as -m 23 -bmin 0):
+									if(k_to_try[l] == 0) continue;
 								#ifdef MULTITHREAD
 									pthread_mutex_lock(&mutex_mi64);
 								//	printf("Found Factor: Thread %u locked mutex_mi64 ... ",tid);
