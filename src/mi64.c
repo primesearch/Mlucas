@@ -6767,7 +6767,6 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 #endif
 	uint32 i,nshift,lshift = -1,ptr_incr;
 	uint64 qinv,tmp = 0,bw,cy,lo,rem64,rem_save = 0,itmp64,mask,*iptr;
-	double fquo,fqinv;
 /* Debug:
 printf("x[]/q, quotient q = %" PRIu64 ", base b = 2^64\n",q);
 for(i = 0; i < len; i++)
@@ -6886,42 +6885,35 @@ printf("\n");
 	#endif
 	}
 
-	// Prepare to transform back out of "Montgomery space" ... first compute B^2 mod q using successive FP approximation:
-	// Compute how many 2^48s there are in the quotient 2^96/q:
-	fqinv = 1.0/q;
-
-	// If len = 1, simply return x[0] % q = tmp % q:
+	// If len == 1, return the exact remainder x[0] mod q = tmp mod q directly.
+	//
+	// This path formerly used an FP approximation (fquo = tmp/q) plus a fragile magic-constant
+	// "nudge" to repair round-off when the true quotient landed at 0.99999999999999 instead of
+	// 1.0 (see https://github.com/primesearch/Mlucas/issues/18 and #94). That nudge was both
+	// hardware-dependent and incomplete: it repaired only the specific 1-ULP-below-1.0 case, and
+	// while the remainder was always corrected by the exact `tmp % q` fallback, the FP-derived
+	// quotient itmp64 (returned in y[0]) was NOT, so a wrong quotient could slip through undetected.
+	// A single hardware integer divide yields the exact quotient AND remainder with no round-off,
+	// and is no slower in this once-per-call scalar tail (the old code already performed a `tmp % q`
+	// divide just for its self-check). The compiler fuses the `/` and `%` into one machine divide.
+	//
+	// Correctness of the nshift (even-modulus) restore below: here q is the odd part (q_odd) of the
+	// original modulus q_orig = q_odd << nshift, and tmp = x[0] >> nshift, rem_save = x[0] & (2^nshift-1),
+	// so x[0] = tmp*2^nshift + rem_save. Then
+	//     x[0] / q_orig = tmp / q_odd   (exactly), since the fractional part
+	//     rem_save + (tmp % q_odd)*2^nshift < 2^nshift + (q_odd-1)*2^nshift = q_orig,
+	// and x[0] mod q_orig = (tmp % q_odd) << nshift + rem_save. Thus the quotient needs no shift-restore
+	// and the remainder restore matches the multi-word paths.
 	if(len == 1) {
-		fquo = tmp*fqinv;
-		itmp64 = (uint64)fquo;
-		rem64 = tmp - q*itmp64;
-		// May need a 2nd pass to clean up any ROE in 1st iteration, and
-		// must account for ROE which leads to a borrow in the above subtraction to get rem64:
-		if(rem64 > tmp) {	// Had a borrow
-			fquo = -rem64*fqinv + 1;	// Add one to FP quotient to effectround-toward-zero
-			itmp64 -= (uint64)fquo;
-			rem64 = rem64 + q*(uint64)fquo;
-		} else {
-			fquo = rem64*fqinv;
-			if(fquo >= 0.99999999999999 && fquo < 1.0) { // CXC: Give fquo a tiny push if we are in the 2nd pass, to ensure a 0.9999999999999 value actually gets to 1.0;
-				fprintf(stderr,"WARNING: floating point round-off error, %llu * %1.16f = %1.16f (should be an integer)\n", rem64, fqinv, fquo);
-				fquo += 0.00000000000001; // see https://github.com/primesearch/Mlucas/issues/18
-			}
-			itmp64 += (uint64)fquo;
-			rem64 = rem64 - q*(uint64)fquo;
-		}
-		if(rem64 != tmp%q) {
-			fprintf(stderr,"WARNING: Bad floating-point mod in mi64_div_by_scalar64! x = %" PRIu64 ", q = %" PRIu64 ": exact remainder = %" PRIu64 ", FP gives %" PRIu64 ".\n",x[0],q,tmp%q,rem64);
-			rem64 = tmp%q;	// Replace FP-approximation result with exact
-		}
-		if(y) {
-			y[0] = itmp64;
-		}
-		if(nshift) {	// Mar 2015: BUG: Had left this restore-off-shifted-portion-to-remainder snip out of (len == 1) special-casing
+		rem64 = tmp % q;			// Exact remainder (hardware integer divide)
+		if(y) y[0] = tmp / q;		// Exact quotient (fused with the mod above into one divide)
+		if(nshift) {	// Restore off-shifted low bits of the true remainder (Mar 2015 bugfix, retained):
 			rem64 = (rem64 << nshift) + rem_save;
 		}
 		return rem64;
 	}
+
+	// Multi-word paths transform back out of "Montgomery space" via an exact-integer radix power:
 
 	if(!nshift) {	// Odd modulus uses Algo A
 		// Compute radix-power; no add-1 here since use scaled-remainder Algorithm B:
