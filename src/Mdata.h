@@ -86,7 +86,7 @@ extern const int CHAROFFSET;
 extern int len_a;
 
 /* These must match the smallest and largest values in the switch() in get_fft_radices(): */
-#define MIN_FFT_LENGTH_IN_K			1
+#define MIN_FFT_LENGTH_IN_K			2	/* 1K is unsupported (needs >= 3 radices; see get_fft_radices() and issue #101), so 2K is the smallest usable length */
 #define MAX_FFT_LENGTH_IN_K			524288
 /* This next one should be set to log2(MAX_FFT_LENGTH_IN_K) + 10 + 4,
 i.e. max. 16 bits per digit of the transform vector: */
