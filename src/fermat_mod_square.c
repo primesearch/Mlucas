@@ -708,6 +708,21 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(n%NRT){ sprintf(cbuf,"ERROR: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		NRTM1 = NRT - 1;
 
+		/* The radix{16|32}_dyadic_square final-pass twiddle computation indexes the rt1 sincos table
+		(length n/(2*NRT), allocated just below) with the high bits of the twiddle index; for the final
+		radix RADIX_VEC[NRADICES-1] those indices range up to that radix. When the FFT length is so small
+		that rt1 has fewer than RADIX_VEC[NRADICES-1] entries, the (multithreaded) dyadic-square reads past
+		rt1 - garbage twiddles, or a SIGSEGV under ASan / on an unmapped page. This bites e.g. the (32,32)
+		radix set at a 2K Fermat FFT: n = 1024 gives rt1 length n/(2*NRT) = 16 < 32. Such tiny length/radix
+		combos are toy sizes with no production use (and cannot represent the corresponding F_m regardless),
+		so soft-skip - the self-test then moves on to the next radix set - exactly as the n/radix0 checks
+		above do. (Unlike those, this bound is not gated on DAT_BITS, since it bites the small, DAT_BITS==31
+		lengths.) The (8,8,16) set at 2K is retained: final radix 16 <= rt1 length 16. */
+		if((n / (2*NRT)) < (uint32)RADIX_VEC[NRADICES-1]) {
+			sprintf(cbuf,"rt1 sincos-table length n/(2*NRT) = %u is too small for final radix %u at FFT length %u K! Skipping this radix combo.\n", n/(2*NRT), (uint32)RADIX_VEC[NRADICES-1], (uint32)(n>>10));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
 		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
 		*/
