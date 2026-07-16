@@ -88,13 +88,11 @@ fi
 # Windows (MinGW) gcc does not understand the POSIX path /dev/null as an -o target (it becomes a
 # nonexistent C:\dev\null), so the /dev/null form spuriously fails every probe on that toolchain:
 try_flag() {
-	local tmpdir rc
+	local tmpdir
 	tmpdir=$(mktemp -d) || return 1
+	trap 'rm -rf "$tmpdir"' RETURN
 	printf 'int main(void){return 0;}\n' >"$tmpdir/t.c"
 	"${CC:-gcc}" "$@" "$tmpdir/t.c" -o "$tmpdir/t.out" >/dev/null 2>&1
-	rc=$?
-	rm -rf "$tmpdir"
-	return $rc
 }
 
 # Returns success iff $CC's assembler accepts the AVX-512 constructs Mlucas's inline-asm kernels use:
@@ -103,8 +101,9 @@ try_flag() {
 # reject one or both even when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register
 # names, clang 5.0 assembles those but rejects vrcp28pd - so probe both, exactly as the CI does (#73):
 try_avx512_asm() {
-	local tmpdir rc
+	local tmpdir
 	tmpdir=$(mktemp -d) || return 1
+	trap 'rm -rf "$tmpdir"' RETURN
 	cat >"$tmpdir/t.c" <<'EOF'
 int main(void)
 {
@@ -122,9 +121,6 @@ EOF
 	# toolchain that genuinely can't assemble these constructs still fails; but compiling a real file to a
 	# real .o avoids the MinGW '-o /dev/null' pitfall that made this probe a false-negative on Windows:
 	"${CC:-gcc}" -mavx512f -c "$tmpdir/t.c" -o "$tmpdir/t.o" >/dev/null 2>&1
-	rc=$?
-	rm -rf "$tmpdir"
-	return $rc
 }
 
 # Returns success iff $CC can compile two separate translation units with the given -flto[=...] variant
@@ -146,18 +142,17 @@ try_lto() {
 	) >/dev/null 2>&1
 }
 
-# GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe for the flag itself
-# rather than assuming by version number (which drifts, and varies by distro/backport):
-MAKE_SUPPORTS_dashO=0
-"$MAKE" --help 2>/dev/null | grep -wq -- '-O' && MAKE_SUPPORTS_dashO=1
-
 if [[ ! $OSTYPE == darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
 	if [[ $OSTYPE != msys && $OSTYPE != cygwin ]]; then
 		LD_ARGS+=(-lrt)
 	fi
 fi
-((MAKE_SUPPORTS_dashO)) && MAKE_ARGS+=(-O)
+# GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe for the flag itself
+# rather than assuming by version number (which drifts, and varies by distro/backport):
+if "$MAKE" --help 2>/dev/null | grep -wq -- '-O'; then
+	MAKE_ARGS+=(-O)
+fi
 MAKE_ARGS+=(-j "$CPU_THREADS")
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
@@ -314,7 +309,7 @@ elif [[ $OSTYPE == darwin* ]]; then
 	if (($(sysctl -n hw.optional.avx512f))) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif (($(sysctl -n hw.optional.avx512f))) || (($(sysctl -n hw.optional.avx2_0))); then
+	elif (($(sysctl -n hw.optional.avx512f) || $(sysctl -n hw.optional.avx2_0))); then
 		if (($(sysctl -n hw.optional.avx512f))); then
 			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
 		fi
@@ -474,6 +469,15 @@ EOF
 				ARGS+=(-march=native)
 			fi
 			;;
+		none_x86)
+			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
+			echo "Warning: This is a 64-bit x86 system without even SSE2, which likely means there is a bug in this script. Please report!" >&2
+			ARGS+=(-march=native)
+			;;
+		none)
+			echo -e "The CPU architecture is not recognized by this script ... building in scalar-double mode.\n"
+			try_flag -march=native && ARGS+=(-march=native)
+			;;
 		*)
 			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 			echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!" >&2
@@ -502,19 +506,12 @@ fi
 # defers to a pre-set environment CFLAGS instead of the computed value below. Prefer -flto=auto (parallel
 # LTO codegen, see #56) over plain -flto when supported:
 CFLAGS_PROBED=(-Wall -g -O3)
-# The Mlucas sources use C99 features (for-loop-scope declarations, mixed declarations-and-code). Old
-# gcc (e.g. 4.8 on Ubuntu 14.04) defaults to gnu89/gnu90 and rejects these with a hard error; newer
-# toolchains default to gnu11+ and accept them. Probe the compiler's default and request -std=gnu99 only
-# when the default won't compile a C99 for-loop-scope declaration, so modern builds keep their default:
-c99_probe() {	# $1: optional -std flag
-	local tmpdir rc; tmpdir=$(mktemp -d) || return 1
-	printf 'int main(void){for(int i=0;i<1;++i){int j=i;(void)j;}return 0;}\n' >"$tmpdir/t.c"
-	"${CC:-gcc}" ${1:+"$1"} -c "$tmpdir/t.c" -o "$tmpdir/t.o" >/dev/null 2>&1; rc=$?
-	rm -rf "$tmpdir"; return $rc
-}
-if ! c99_probe && c99_probe -std=gnu99; then
-	CFLAGS_PROBED+=(-std=gnu99)
-fi
+# The Mlucas sources use C99 features (for-loop-scope declarations, mixed declarations-and-code) plus GNU
+# extensions (statement expressions in the checked-alloc macros). Old gcc (e.g. 4.8 on Ubuntu 14.04)
+# defaults to gnu89/gnu90 and rejects the C99 constructs with a hard error, so request -std=gnu99
+# unconditionally: every toolchain then compiles the same dialect, and gnu99 (vs plain c99) keeps the GNU
+# extensions enabled. -D_GNU_SOURCE (set in CPPFLAGS below) still exposes the POSIX/GNU library surface:
+CFLAGS_PROBED+=(-std=gnu99)
 try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
 if try_lto -flto=auto; then
 	CFLAGS_PROBED+=(-flto=auto)
