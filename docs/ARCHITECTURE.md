@@ -142,7 +142,30 @@ keeps expected round-off error around the ~0.25 target for that transform
 length. This is the concrete link between "bits per word" and "which FFT
 length can safely test exponent p".
 
+The largest FFT length Mlucas supports is 512M doubles
+(`MAX_FFT_LENGTH_IN_K = 524288`, `src/Mdata.h`). Because the residue-shift
+bookkeeping (`mi64_shlc`) is limited to a 32-bit shift count, the largest
+exponent testable *with* a nonzero residue shift is `p = 4,294,967,231 =
+2^32 - 65` — above that, `Mlucas.c` aborts with "Exponents this large do
+not support residue shift! Please run with '-shift 0'." Larger exponents
+(up to roughly 8.9 billion, the maximum-recommended-exponent this longest
+FFT length supports) require `-shift 0`.
+
+Not formally benchmarked against FFTW, but informal comparisons (see
+Ernst's README Q&A, linked below) put Mlucas's hand-tuned FFT at roughly
+2x FFTW's speed for the large real-vector lengths Mersenne searching cares
+about (≥128K doubles, K=1024) on comparable hardware.
+
 ### Threading
+
+Independent of the multithreading described below, each worker's inner
+FFT/carry loops are also hand-vectorized: the generic C FFT code is
+augmented with inline assembly that roughly doubles per-cycle throughput
+over scalar C on SSE2 (roughly Opteron through Core2), nearly doubles it
+again on AVX/AVX2 (256-bit registers, 4 doubles/vector), and again roughly
+doubles it on AVX-512 (memory-bandwidth permitting — often not the case on
+modern manycore systems); there's also dedicated Armv8 128-bit-SIMD
+(NEON/ASIMD) inline assembly, as used by Apple Silicon.
 
 Multithreaded builds run the middle FFT passes (steps 1 and 3 above) as
 parallel chunks dispatched through a small custom threadpool,
@@ -277,16 +300,34 @@ round-off, thread bug, etc.):
 carry-propagated digit landed from the nearest integer before rounding —
 see §1. `Mlucas.c` accumulates average (`AME`) and max (`MME`) ROE per
 checkpoint interval and prints them alongside Res64 in the progress line.
-A single very-bad ROE doesn't necessarily kill the
-run — it can trigger a switch to a shorter/safer carry chain
-(`USE_SHORT_CY_CHAIN`) or a Gerbicz-check-driven rollback; a *pattern* of
-bad ROEs at a given FFT length is a hint that the length is too small for
-the exponent (`Mlucas.c` compares against
-`get_default_fft_length`/`given_N_get_maxP`).
+
+The carry step itself runs at one of four "DWT-multipliers chain length"
+accuracy settings — `long`, `medium`, `short`, `hiacc`, in increasing
+order of numerical accuracy and decreasing speed (`USE_SHORT_CY_CHAIN`,
+`arr_sml[]` in `mers_mod_square.c`) — and the choice actually made is
+printed at startup as "Initial DWT-multipliers chain length = [...] in
+carry step." The initial setting is chosen from how close the exponent
+being tested is to the current FFT length's maximum supported exponent
+(the `exp_ratio` thresholds in `Mlucas.c`): runs pushing closer to that
+ceiling start out at a more accurate (shorter) chain. A single
+dangerously-high ROE (the 0.4375 threshold from §1) doesn't necessarily
+kill the run — `mers_mod_square()` first bumps `USE_SHORT_CY_CHAIN` to the
+next-more-accurate setting and continues; only if the run is already at
+`hiacc` and *still* hits a dangerous ROE does it return `ERR_ROUNDOFF`, at
+which point `Mlucas.c` restarts from the last checkpoint at the
+next-larger FFT length (`get_nextlarger_fft_length()`) and resets the
+chain length back to `long`. A *pattern* of such escalations at a given
+FFT length is a hint that the length is too small for the exponent
+(`Mlucas.c` compares against `get_default_fft_length`/`given_N_get_maxP`).
 
 **Gerbicz check** (PRP runs, and Pépin runs when memory allows — see
 `DO_GCHECK` in `Mlucas.c`), full math in
-[`docs/gerbicz.txt`](gerbicz.txt). Idea in plain terms: alongside the
+[`docs/gerbicz.txt`](gerbicz.txt). The mathematically rigorous LL test and
+the probabilistic PRP test identify M-primes with comparable practical
+accuracy — PRP's real advantage is that, unlike LL, it supports this
+check, which cheaply catches essentially all residue-integrity errors and
+so lets ordinary non-ECC consumer hardware run with reliability similar to
+expensive ECC server hardware. Idea in plain terms: alongside the
 primary residue `u(t) = a^(2^t)`, maintain a second "checkproduct" `d`,
 updated cheaply every `L` iterations as `d(t+1) = d(t) · u((t+1)·L)`. There's
 a second, more expensive way to compute the same value:
