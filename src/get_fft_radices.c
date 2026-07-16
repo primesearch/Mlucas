@@ -120,9 +120,8 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		// scheme requires at least one *intermediate* radix (>= 3 radices total), which 1K cannot provide without
 		// a first-radix-4 or last-radix-8 capability that has never been implemented. The 2-radix sets that used
 		// to be returned here (32,16 / 16,32) are not actually usable: they crash downstream in bit_reverse_int
-		// with "product of radices != vector length" (issue #101). Reject the length cleanly instead:
-		fprintf(stderr,"ERROR: 1K is not a supported FFT length (it needs >= 3 radices; only 2 are possible at 1K).\n");
-		fprintf(stderr,"       Use a larger FFT length; for numbers this small, a general-purpose tool (PARI/GP, etc.) is more appropriate.\n");
+		// with "product of radices != vector length" (issue #101). Reject the length; callers report it (the -fft
+		// range-check keys off MIN_FFT_LENGTH_IN_K == 2, and the self-test skips sub-minimum reference entries):
 		return ERR_FFTLENGTH_ILLEGAL;
 	case 2 :						/* 2K */
 		switch(radix_set) {

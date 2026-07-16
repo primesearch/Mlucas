@@ -4648,6 +4648,11 @@ TIMING_TEST_LOOP:
 		else if(modType == MODULUS_TYPE_FERMAT)
 			iarg = FermVec[xNum].fftLength;
 
+		// Skip any reference-table entry for an unsupported sub-minimum FFT length (e.g. the retired 1K,
+		// see issue #101) so the self-test doesn't try - and then loudly "fail" - a length we've disabled:
+		if(iarg < MIN_FFT_LENGTH_IN_K)
+			continue;
+
 		// For SIMD builds only use FFT lengths which are at least a multiple of 4 Kdoubles:
 	  #if 0//def USE_SSE2	*** v21: Removed array padding for FFT < 32K, disabled this "skip"
 		if(iarg & 3) continue;
