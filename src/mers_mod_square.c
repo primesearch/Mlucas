@@ -2004,21 +2004,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	clock1 = clock2;
 #endif
 #ifndef NO_USE_SIGNALS
-	// Listen for interrupts:
-	if (signal(SIGINT, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGINT.\n");
-	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGTERM.\n");
-	#ifndef __MINGW32__
-	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGHUP.\n");
-	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGALRM.\n");
-	else if (signal(SIGUSR1, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR1.\n");
-	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR2.\n");
-	#endif
+	// Listen for interrupts. Install-once, async-signal-safe handler (see Mlucas.c); this runs on the
+	// main thread, and the FFT worker threads block these signals so the handler only ever fires here:
+	mlucas_install_signal_handlers();
 #endif
 }	/* End of main for(iter....) loop	*/
 

@@ -276,6 +276,29 @@ me at: heber.tomer@gmail.com
 		thread_control_t *t = &init->control;
 		task_control_t *task;
 
+	#ifndef NO_USE_SIGNALS
+		// Block the graceful-quit signals in every FFT worker thread so they are always delivered to the
+		// main thread instead. This is a core part of the interrupt-safety fix (see Mlucas.c::sig_handler):
+		// the workers are the threads doing nearly all the CPU work and thus the ones most likely to be
+		// holding the malloc/stdio locks. Keeping them out of signal context makes signal delivery
+		// deterministic (only the main thread runs the handler) and eliminates the handler-self-deadlock
+		// that made the old savefile-on-interrupt feature hang intermittently. pthread_sigmask (not
+		// sigprocmask) is the correct per-thread call in a multithreaded process.
+		{
+			sigset_t quit_sigs;
+			sigemptyset(&quit_sigs);
+			sigaddset(&quit_sigs, SIGINT);
+			sigaddset(&quit_sigs, SIGTERM);
+		#ifndef __MINGW32__
+			sigaddset(&quit_sigs, SIGHUP);
+			sigaddset(&quit_sigs, SIGALRM);
+			sigaddset(&quit_sigs, SIGUSR1);
+			sigaddset(&quit_sigs, SIGUSR2);
+		#endif
+			pthread_sigmask(SIG_BLOCK, &quit_sigs, 0x0);
+		}
+	#endif
+
 		// Set CPU affinity masks of the thread:
 	#ifdef __OpenBSD__
 
