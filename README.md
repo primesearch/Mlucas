@@ -102,4 +102,4 @@ The [help.txt](help.txt) file includes a variety of usage information not covere
 
 ## Contributing
 
-Pull requests welcome!
+Pull requests welcome! New to the codebase? [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) is a contributor-oriented tour of the main subsystems (FFT-based modular squaring, test-type dispatch, error checking, self-test/cfg, threading, factoring).
