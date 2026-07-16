@@ -72,7 +72,10 @@ jobs:
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
-                            ./Mfactor${word:+_$word} -h
+                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
+                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
                         fi
                     fi
                 )
@@ -147,7 +150,10 @@ jobs:
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
-                            ./Mfactor${word:+_$word} -h
+                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
+                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
                         fi
                     fi
                 )
@@ -426,7 +432,10 @@ jobs:
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
-                            ./Mfactor${word:+_$word} -h
+                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
+                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
                         fi
                     fi
                 )
@@ -497,7 +506,10 @@ jobs:
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
-                            ./Mfactor${word:+_$word} -h
+                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
+                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
                         fi
                     fi
                 )
@@ -630,7 +642,12 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
+                        # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                    fi
                 )
             done
         done
