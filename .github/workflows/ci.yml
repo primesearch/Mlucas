@@ -57,7 +57,15 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                        # run's own exit status and instead assert the self-test success marker,
+                        # so a test_fac regression fails the job.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                    fi
                 )
             done
         done
@@ -115,7 +123,15 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                        # run's own exit status and instead assert the self-test success marker,
+                        # so a test_fac regression fails the job.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                    fi
                 )
             done
         done
@@ -374,7 +390,15 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                        # run's own exit status and instead assert the self-test success marker,
+                        # so a test_fac regression fails the job.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                    fi
                 )
             done
         done
@@ -428,7 +452,15 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                        # run's own exit status and instead assert the self-test success marker,
+                        # so a test_fac regression fails the job.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                    fi
                 )
             done
         done
@@ -556,7 +588,15 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                        # run's own exit status and instead assert the self-test success marker,
+                        # so a test_fac regression fails the job.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                    fi
                 )
             done
         done
