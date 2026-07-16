@@ -41,10 +41,21 @@ jobs:
         lscpu
         cat /proc/cpuinfo
         MODES=( '' NOSIMD )
+        run_avx512=1
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
+            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
+            # below (they are still built above, for compile coverage):
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                run_avx512=1
+            else
+                run_avx512=0
+                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
+            fi
+            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -57,7 +68,13 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
+                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        else
+                            ./Mfactor${word:+_$word} -h
+                        fi
+                    fi
                 )
             done
         done
@@ -99,10 +116,21 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
+        run_avx512=1
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
+            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
+            # below (they are still built above, for compile coverage):
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                run_avx512=1
+            else
+                run_avx512=0
+                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
+            fi
+            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -115,7 +143,13 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
+                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        else
+                            ./Mfactor${word:+_$word} -h
+                        fi
+                    fi
                 )
             done
         done
@@ -225,8 +259,11 @@ jobs:
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
+        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
+        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
+        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        cd obj_nosimd
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
         bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
@@ -354,10 +391,21 @@ jobs:
         set -o pipefail
         sysctl -a
         MODES=( '' NOSIMD )
+        run_avx512=1
         if (( $(sysctl -n hw.optional.neon) )); then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
+            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
+            # below (they are still built above, for compile coverage):
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                run_avx512=1
+            else
+                run_avx512=0
+                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
+            fi
+            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -370,7 +418,13 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
+                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        else
+                            ./Mfactor${word:+_$word} -h
+                        fi
+                    fi
                 )
             done
         done
@@ -408,10 +462,21 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
+        run_avx512=1
         if (( $(sysctl -n hw.optional.neon) )); then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
+            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
+            # below (they are still built above, for compile coverage):
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                run_avx512=1
+            else
+                run_avx512=0
+                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
+            fi
+            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -424,7 +489,13 @@ jobs:
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
+                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        else
+                            ./Mfactor${word:+_$word} -h
+                        fi
+                    fi
                 )
             done
         done
@@ -456,8 +527,11 @@ jobs:
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
+        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
+        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
+        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        cd obj_nosimd
         make clean
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         if ! (( $(sysctl -n hw.optional.neon) )); then
