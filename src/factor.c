@@ -4454,11 +4454,13 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 			char_addr = strstr(in_line, "=");
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			} else {
+				++char_addr;	// Skip past the '=' before parsing the value; sscanf("%lf") chokes on a leading '='
+				itmp = sscanf(char_addr, "%lf",bmin);
+				if(itmp != 1) {
+					++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
+				}
 			}
-		}
-		itmp = sscanf(char_addr, "%lf",bmin);
-		if(itmp != 1) {
-			++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
 		}
 
 		/* Line 4: bmax */
@@ -4471,11 +4473,13 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 			char_addr = strstr(in_line, "=");
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			} else {
+				++char_addr;	// Skip past the '=' before parsing the value; sscanf("%lf") chokes on a leading '='
+				itmp = sscanf(char_addr, "%lf",bmax);
+				if(itmp != 1) {
+					++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmax) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
+				}
 			}
-		}
-		itmp = sscanf(char_addr, "%lf",bmax);
-		if(itmp != 1) {
-			++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmax) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
 		}
 
 	/************************************
@@ -4684,125 +4688,36 @@ uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 pa
 	}
 }
 
-// Only overwrite passnow, know and count fields of savefile:
+// Overwrite the passnow, know and count fields of the savefile. We rewrite the entire file (via
+// init_savefile) rather than patching those fields in place, for two reasons:
+//   (1) The fields are variable-length decimal text (e.g. 'know' grows from "0" to a many-digit value
+//       between checkpoints), so an in-place overwrite would run past the field it means to replace.
+//   (2) Interleaving fgets reads and fprintf writes on a single "r+" (update-mode) stream without an
+//       intervening fseek/fflush is undefined behavior (C11 7.21.5.3p7); in practice it wrote the
+//       updated fields at the wrong offsets, corrupting the savefile and aborting the run at the first
+//       checkpoint. Reading the run-invariant fields back and re-emitting the whole file is both correct
+//       and simpler.
 int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 know, uint64 count)
 {
-	 int itmp;
-	uint32 curr_line = 0, nerr = 0, passnow_file;
-	uint64 know_file, count_file;
-	char *char_addr;
-	/* TF restart files are in HRF, not binary: */
-	fp = mlucas_fopen(fname,"r+");	// Open in update ("read plus") mode
-	if(!fp) {
-	#ifndef FACTOR_STANDALONE
-		fp = mlucas_fopen(STATFILE,"a");
-		fprintf(	fp,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
-		fclose(fp); fp = 0x0;
-	#endif
-		fprintf(stderr,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
-		return -1;
-	} else {
-		/* Line 1: pstring */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
-		}
-		/* Strip the expected newline char from in_line: */
-		char_addr = strstr(in_line, "\n");
-		if(char_addr)
-			*char_addr = '\0';
-		/* Make sure restart-file and current-run pstring match: */
-		if(STRNEQ(in_line, pstring)) {
-			++nerr; fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring,curr_line,fname);
-		}
-
-		/* Line 6: know */
-		while(++curr_line < 6) {
-			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				++nerr; fprintf(stderr,"ERROR: unable to read Line %d of factoring restart file %s!\n",curr_line,fname);
-			}
-		}
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (know) of factoring restart file %s!\n",curr_line,fname);
-		}
-		char_addr = strstr(in_line, "know");
-		if(!char_addr) {
-			++nerr; fprintf(stderr,"ERROR: 'know' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
-			}
-			char_addr++;
-			know_file = convert_base10_char_uint64(char_addr);
-		}
-		itmp = fprintf(fp,"know = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, know)]);
-		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (know) of factoring restart file %s!\n",curr_line,fname);
-		}
-
-		/* Line 7: kmax: */
-		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
-		/* Line 8: passmin: */
-		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
-
-		/* Line 9: passnow: */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
-		}
-		char_addr = strstr(in_line, "passnow");
-		if(!char_addr) {
-			++nerr; fprintf(stderr,"ERROR: 'passnow' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
-			}
-			char_addr++;
-			passnow_file = convert_base10_char_uint64(char_addr);
-		}
-		itmp = fprintf(fp,"passnow = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, passnow)]);
-		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
-		}
-
-		// Check progress: compared to previous checkpoint, passnow should be same and know greater, or passnow should be greater:
-		if(passnow == passnow_file && know > know_file) {
-			/* No-op */
-		} else if(passnow > passnow_file) {
-			/* No-op */
-		} else {
-			++nerr; fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, passnow[%u] should be same as file[%u] and know[%" PRIu64 "] greater than file[%" PRIu64 "], or passnow should be greater!\n",fname,passnow,passnow_file,know,know_file);
-		}
-
-		/* Line 10: passmax: */
-		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
-
-		/* Line 11: Number of q's tried: */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
-		}
-		char_addr = strstr(in_line, "#Q tried");
-		if(!char_addr) {
-			++nerr; fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
-			}
-			char_addr++;
-			count_file = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
-		}
-		++curr_line; itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
-		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
-		}
-		fclose(fp); fp = 0x0;
-		return (int)nerr;
+	int itmp;
+	double bmin = 0, bmax = 0;
+	uint64 kmin = 0, know_file = 0, kmax = 0, count_file = 0;
+	uint32 passmin = 0, passnow_file = 0, passmax = 0;
+	/* Recover the run-invariant fields (bmin/bmax/kmin/kmax/passmin/passmax) and the previous
+	checkpoint's know/passnow/count from the existing savefile: */
+	itmp = read_savefile(fname, pstring, &bmin,&bmax, &kmin,&know_file,&kmax, &passmin,&passnow_file,&passmax, &count_file);
+	if(itmp) {
+		fprintf(stderr,"ERROR: write_savefile: unable to read savefile %s prior to updating it.\n",fname);
+		return (itmp < 0) ? 1 : itmp;	// Normalize read_savefile's -1 ("no file") to a positive error count
 	}
+	/* Sanity-check forward progress vs the previous checkpoint: either the pass is unchanged and we
+	advanced within it (know increased), or we moved on to a later pass: */
+	if(!((passnow == passnow_file && know > know_file) || (passnow > passnow_file))) {
+		fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, either passnow[%u] must equal file[%u] with know[%" PRIu64 "] > file[%" PRIu64 "], or passnow must exceed file[%u]!\n",fname,passnow,passnow_file,know,know_file,passnow_file);
+		return 1;
+	}
+	/* Rewrite the whole file, preserving the invariants and updating know/passnow/count: */
+	return init_savefile(fname, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count);
 }
 
 /* This is actually an auxiliary source file, but give it a .h extension to allow wildcarded project builds of form 'gcc -c *.c' */
