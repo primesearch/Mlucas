@@ -9371,6 +9371,46 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use the environment variable MLUCAS_PATH (or the compiled-in default) verbatim,
+	   while enforcing the same invariants as the POSIX branch: the path must be
+	   no longer than STR_MAX_LEN and must end with a slash (fwd- or backslash,
+	   since both are directory separators on Windows).  */
+	char *mlucas_path;
+	size_t len;
+	int has_err = FALSE;
+
+	mlucas_path = getenv("MLUCAS_PATH");
+	if (mlucas_path != NULL) {
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
+		if (MLUCAS_PATH == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
+		strcpy(MLUCAS_PATH, mlucas_path);
+	}
+	len = strlen(MLUCAS_PATH);
+	if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+		goto out_err_check;
+	if (len > STR_MAX_LEN) {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+	if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+	out_err_check:
+	if (has_err)
+		ASSERT(0, "Exiting.");
+#else
 	char *mlucas_path;
 	char *cmdstr;
 	char *expanded_str;
@@ -9451,6 +9491,7 @@ void set_mlucas_path(void)
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 }
 
 /* Double-quote all spaces in the string pointed by src and write it to dest.
