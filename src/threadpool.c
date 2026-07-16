@@ -65,6 +65,12 @@ me at: heber.tomer@gmail.com
 #include "threadpool.h"
 #include "util.h"	// This is to get (or not) <hwloc.h>
 
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <windows.h>	// Windows CPU-affinity API: SetThreadAffinityMask()/GetCurrentThread(). MinGW is mapped to
+				// OS_TYPE_LINUX by platform.h but has no sched_setaffinity(), so its Windows build takes this
+				// Win32 path too (MinGW-w64 provides the full Win32 API).
+#endif
+
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
 	#define THREAD_POOL_DEBUG	0
@@ -383,37 +389,63 @@ me at: heber.tomer@gmail.com
 
 	 #endif	// INCLUDE_HWLOC?
 
-	#elif defined(OS_TYPE_MACOSX)
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 
-		thread_t thr = mach_thread_self();
-		thread_extended_policy_data_t epolicy;
-		epolicy.timeshare = FALSE;
-		kern_return_t ret = thread_policy_set(
-			thr, THREAD_EXTENDED_POLICY,
-			(thread_policy_t) &epolicy, THREAD_EXTENDED_POLICY_COUNT);
-		if (ret != KERN_SUCCESS) {
-			printf("thread_policy_set returned %d", ret);
-			exit(-1);
-		}
+		// Windows hard affinity: pin the current worker thread to logical core i. This covers BOTH the
+		// native-Windows toolchain (OS_TYPE_WINDOWS) and MinGW (which platform.h maps to OS_TYPE_LINUX but
+		// which has no sched_setaffinity() and so is deliberately excluded from the Linux branch above) -
+		// MinGW-w64 provides SetThreadAffinityMask(), so this is the affinity path for the MSYS2/MinGW
+		// Windows builds the CI actually produces.
+		// SetThreadAffinityMask() takes a single DWORD_PTR bitmask, so this simple form only
+		// addresses logical CPUs 0-63 within the thread's current processor group. Systems with
+		// >64 logical CPUs are partitioned into 64-CPU processor groups and require the
+		// SetThreadGroupAffinity()/GROUP_AFFINITY API, which we do not handle here; the
+		// single-mask form matches the model used elsewhere in the Windows port.
+		int i,errcode;
 
-		thread_affinity_policy_data_t apolicy;
-		int i = my_id % pool->num_of_cores;	// get cpu mask using sequential thread ID modulo #available cores
+		i = my_id % pool->num_of_cores;	// get cpu index using sequential thread ID modulo #available cores
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
 		if(i < 0) {
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
 			ASSERT(0, "Aborting.");
 		}
-		apolicy.affinity_tag = i; // set affinity tag
 	  #if THREAD_POOL_DEBUG
-		printf("Setting CPU = %d affinity of worker thread id %u, mach_id = %u\n", i, my_id, thr);
+		printf("Setting affinity of worker thread id %u to logical core %d\n", my_id, i);
 	  #endif
+		// SetThreadAffinityMask returns the thread's previous affinity mask, or 0 on failure:
+		errcode = (SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << i) == 0);
+		if (errcode) {
+			fprintf(stderr,"SetThreadAffinityMask failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
+		}
 
-		ret = thread_policy_set(
-			thr, THREAD_EXTENDED_POLICY,
-			(thread_policy_t) &apolicy, THREAD_EXTENDED_POLICY_COUNT);
-		if (ret != KERN_SUCCESS) {
-			printf("thread_policy_set returned %d", ret);
-			exit(-1);
+	#elif defined(OS_TYPE_MACOSX)
+
+		// macOS provides NO hard CPU pinning. The only documented mechanism is the Mach
+		// THREAD_AFFINITY_POLICY, which sets an *affinity tag*: an advisory hint asking the
+		// scheduler to co-locate (share an L2 cache domain) all threads that carry the same tag.
+		// It does NOT pin a thread to a specific logical core and gives no placement guarantee.
+		// We use each worker's logical-core index as its tag so every worker gets a distinct
+		// grouping hint, mirroring the *intent* of the hard pin done on Linux/FreeBSD/Windows.
+		// NOTE: This is advisory only. Apple Silicon (arm64) effectively ignores affinity tags,
+		// so on those machines this call is a no-op.
+		mach_port_t thr = pthread_mach_thread_np(pthread_self());
+		thread_affinity_policy_data_t apolicy;
+		int i,ret;
+
+		i = my_id % pool->num_of_cores;	// get cpu index using sequential thread ID modulo #available cores
+		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
+		if(i < 0) {
+			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
+			ASSERT(0, "Aborting.");
+		}
+		apolicy.affinity_tag = i;	// advisory affinity tag - NOT a hard core pin (see comment above)
+	  #if THREAD_POOL_DEBUG
+		printf("Setting affinity tag = %d of worker thread id %u, mach port = %u\n", i, my_id, (unsigned)thr);
+	  #endif
+		ret = thread_policy_set(thr, THREAD_AFFINITY_POLICY,
+			(thread_policy_t)&apolicy, THREAD_AFFINITY_POLICY_COUNT);
+		if (ret != KERN_SUCCESS) {	// warn but do not abort - affinity is advisory on macOS:
+			fprintf(stderr,"thread_policy_set(THREAD_AFFINITY_POLICY) returned %d.\nINFO: macOS affinity is advisory only, leaving up to OS to manage thread/core binding.\n", ret);
 		}
 
 	#else
