@@ -2109,9 +2109,9 @@ READ_RESTART_FILE:
 				case SIGUSR1: signame = "SIGUSR1"; break;
 				case SIGUSR2: signame = "SIGUSR2"; break;
 			#endif
-				default:      signame = "quit";    break;
+				default:      signame = "unknown"; break;
 			}
-			snprintf(cbuf,STR_MAX_LEN*2,"Received %s signal: writing savefile at Iter = %u and exiting.\n",signame,ihi);
+			snprintf(cbuf,sizeof(cbuf),"Received %s signal: writing savefile at Iter = %u and exiting.\n",signame,ihi);
 			mlucas_fprint(cbuf,1);
 			// Fall through to the checkpoint-write path below.
 		}
@@ -2747,7 +2747,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					// p-1 stage 2 does its own interior checkpointing (see pm1.c); on interrupt we resume
 					// from the last stage-2 checkpoint, so just report and exit. The async handler only
 					// recorded the signal number, so build the message here on the main thread:
-					snprintf(cbuf,STR_MAX_LEN*2,"Received quit signal (%d) in p-1 stage 2: exiting; will resume from last stage-2 checkpoint.\n",(int)MLUCAS_INTERRUPT_SIGNO);
+					snprintf(cbuf,sizeof(cbuf),"Received quit signal (%d) in p-1 stage 2: exiting; will resume from last stage-2 checkpoint.\n",(int)MLUCAS_INTERRUPT_SIGNO);
 					mlucas_fprint(cbuf,1);
 					exit(1);
 				} else if(ierr) {
