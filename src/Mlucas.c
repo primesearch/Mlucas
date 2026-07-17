@@ -1910,8 +1910,12 @@ READ_RESTART_FILE:
 					/* If interrupt *and* we're past the first subinterval, need to undo initial-fwd-FFT-pass and DWT-weighting on b[],
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
+					// This b[]-undo is only to make b[] savefile-consistent for the ensuing interrupt
+					// checkpoint-write; it must NOT clobber ierr, which has to stay ERR_INTERRUPT so the
+					// downstream savefile-write-and-exit handling fires (else the interrupt is lost and the
+					// PRP test spins to maxiter and aborts in the post-test residue step). Discard its return:
 					if(ierr == ERR_INTERRUPT && !first_sub)
-						ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+						(void)func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
 					break;
 				}
 				/* At end of each subinterval, do a single modmul of current residue a[] with Gerbicz-checkproduct to update the latter:
