@@ -305,24 +305,32 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 
 elif [[ $OSTYPE == darwin* ]]; then
 
-	# MacOS:
-	if (($(sysctl -n hw.optional.avx512f))) && try_avx512_asm; then
+	# MacOS: sysctl -n prints nothing (and exits nonzero) for an absent key - e.g. all the
+	# hw.optional.avx* keys on Apple Silicon - so capture each with a 0 default. This also lets the
+	# combined AVX-512||AVX2 test below use plain arithmetic without an empty operand tripping
+	# '((: || : syntax error' (as `(( || $(...) ))` would when the first sysctl yields nothing):
+	avx512f=$(sysctl -n hw.optional.avx512f 2>/dev/null || echo 0)
+	avx2_0=$( sysctl -n hw.optional.avx2_0  2>/dev/null || echo 0)
+	avx1_0=$( sysctl -n hw.optional.avx1_0  2>/dev/null || echo 0)
+	sse2=$(   sysctl -n hw.optional.sse2    2>/dev/null || echo 0)
+	neon=$(   sysctl -n hw.optional.neon    2>/dev/null || echo 0)
+	if ((avx512f)) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif (($(sysctl -n hw.optional.avx512f) || $(sysctl -n hw.optional.avx2_0))); then
-		if (($(sysctl -n hw.optional.avx512f))); then
+	elif ((avx512f || avx2_0)); then
+		if ((avx512f)); then
 			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
 		fi
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
-	elif (($(sysctl -n hw.optional.avx1_0))); then
+	elif ((avx1_0)); then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX -march=native -mavx)
-	elif (($(sysctl -n hw.optional.sse2))); then
+	elif ((sse2)); then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
 		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
-	elif (($(sysctl -n hw.optional.neon))); then
+	elif ((neon)); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
 		ARGS+=(-DUSE_ARM_V8_SIMD)
 		if try_flag -mcpu=native; then
