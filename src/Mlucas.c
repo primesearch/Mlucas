@@ -1436,8 +1436,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		// the limb-count [ #limbs for x bits = (x+63)>>6, doubled => (x+63)>>5 ] of the largest exponent that can
 		// run against these arrays: pmax at the allocated (max) FFT length, or the current p if the warn-path
 		// above admitted a p slightly above that pmax:
-		uint32 alloc_n = (maxFFT > kblocks) ? (maxFFT << 10) : n;	// max unpadded FFT length these arrays serve
-		arrtmp_alloc = (MAX((uint64)p, given_N_get_maxP(alloc_n)) + 63) >> 5;
+		// Size for the largest exponent supported at the largest FFT length these arrays will serve:
+		arrtmp_alloc = (MAX((uint64)p, given_N_get_maxP(maxFFT > kblocks ? maxFFT << 10 : n)) + 63) >> 5;
 		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "ERROR: unable to allocate array ARRTMP with %" PRIu64 " limbs in main.\n",arrtmp_alloc); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		// For an n-word main-array, BIGWORD_BITMAP and BIGWORD_NBITS have (n/64) elts each, thus need 1/64 + 1/32 the total
