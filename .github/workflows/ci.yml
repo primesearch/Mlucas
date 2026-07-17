@@ -58,13 +58,19 @@ jobs:
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                        # run's own exit status and instead assert the self-test success marker,
-                        # so a test_fac regression fails the job.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
+                        else
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                            # run's own exit status and instead assert the self-test success marker,
+                            # so a test_fac regression fails the job.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        fi
                     fi
                 )
             done
@@ -124,13 +130,19 @@ jobs:
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                        # run's own exit status and instead assert the self-test success marker,
-                        # so a test_fac regression fails the job.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
+                        else
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                            # run's own exit status and instead assert the self-test success marker,
+                            # so a test_fac regression fails the job.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        fi
                     fi
                 )
             done
@@ -391,13 +403,19 @@ jobs:
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                        # run's own exit status and instead assert the self-test success marker,
-                        # so a test_fac regression fails the job.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
+                        else
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                            # run's own exit status and instead assert the self-test success marker,
+                            # so a test_fac regression fails the job.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        fi
                     fi
                 )
             done
@@ -453,13 +471,19 @@ jobs:
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                        # run's own exit status and instead assert the self-test success marker,
-                        # so a test_fac regression fails the job.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
+                        else
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                            # run's own exit status and instead assert the self-test success marker,
+                            # so a test_fac regression fails the job.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        fi
                     fi
                 )
             done
@@ -589,13 +613,19 @@ jobs:
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                        # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                        # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                        # run's own exit status and instead assert the self-test success marker,
-                        # so a test_fac regression fails the job.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
+                        else
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
+                            # run's own exit status and instead assert the self-test success marker,
+                            # so a test_fac regression fails the job.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        fi
                     fi
                 )
             done
