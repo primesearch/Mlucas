@@ -3492,25 +3492,25 @@ HERE IS THE PROCEDURE FOR ADDING A BEW ENTRY TO THE EXPONENT/RESIDUE TABLE BELOW
 
 3. Use PARI isprime() to find the largest prime <= maxP;
 
-4. Run 100 and 1000-iteration self-tests at the next-higher runlength already appearing in the self-test table;
+4. Run 100, 1000 and 10,000-iteration self-tests at the next-higher runlength already appearing in the self-test table;
 
 5. Use the results - specifically the hexadecimal Res64 and the mod 2^35-1 and mod 2^36-1 SH residues - for the
-	2 runs to create a table entry for the new runlength;
+	3 runs to create a table entry for the new runlength;
 
-6. Rebuild this file, re-link and repeat the 2 self-tests on the exponent in the new table row, at the new runlength.
+6. Rebuild this file, re-link and repeat the 3 self-tests on the exponent in the new table row, at the new runlength.
 */
 struct testMers{
 	int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
 	uint64 exponent;	/* Test exponent for this FFT length. */
-	struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
+	struct res_triplet	res_t[3];	/* 100, 1000 and 10000-iteration SH-residue triplets */
 };
 
 // Reference LL-test residues:
 struct testMers MersVec[numTest+1] =
 {
-/*                                         100-iteration residues:	                               1000-iteration residues:                */
-/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
-/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
+/*                                         100-iteration residues:	                               1000-iteration residues:                                 1000-iteration residues:                     */
+/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1                   Res64           mod 2^35-1      mod 2^36-1      */
+/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------             ----------------     -----------     -----------     */
 	/* Teensy:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
 	{     1,     22679ull, { {0x27F79B322B31FDA9ull, 23663495240ull,  2817376218ull}, {0xF602AA618A821226ull,  1646512433ull, 39303046116ull}, {0x31E33974FE4AB5F8ull, 26644986014ull, 46355958559ull} } },
 	{     2,     44657ull, { {0xC15789922E67B055ull,  1083638452ull, 32161054300ull}, {0xAFA7CCAFEEE4A0AFull, 20332793592ull, 55476105191ull}, {0xE1061D8AAAA1E4E4ull, 17639694995ull, 28777282852ull} } },
@@ -3636,25 +3636,25 @@ struct testMers MersVec[numTest+1] =
 	{106496,1854927187ull, { {0xE214E9D9B5DF88C6ull, 31246037001ull, 41196573397ull}, {0x97B90915FCC84F3Dull,  4066557343ull,  8643832976ull}, {0xC925A7C98B071EA3ull,  4584603566ull,  5494202371ull} } },
 	{114688,1994166553ull, { {0x97CB9BB7B10ACDB6ull, 29731218900ull, 41079146164ull}, {0x731E1DEA0C44C6F0ull, 17898260503ull, 50239810521ull}, {0xE3B5A66B1E7BD939ull, 18336439338ull,  8747708778ull} } },
 	{122880,2133169847ull, { {0xE47D8B5358EF54C3ull, 23695933555ull,  9095062555ull}, {0x67AB11594B0259E2ull, 28996300980ull, 42317029883ull}, {0xF1BE5C86FC344316ull, 15007099960ull, 48305102359ull} } },
-	{131072,2271952979ull, { {0xF8137FB0E00BCC55ull, 26051697479ull, 27441427672ull}, {0x62A2E1A9A055358Bull,  4627749088ull, 28710079083ull}, {0x0ull, 0ull, 0ull} } },
-	{147456,2548912547ull, { {0x5E213FBAFF82685Aull, 22451221320ull, 39039734900ull}, {0xC389436CC479E2E1ull,  7838917905ull, 66548008864ull}, {0x0ull, 0ull, 0ull} } },
-	{163840,2825137853ull, { {0xAD3B129CD55821CFull,  2579580241ull, 65442845493ull}, {0x925F66B7986320BEull,  5355291557ull, 43930449714ull}, {0x0ull, 0ull, 0ull} } },
-	{180224,3100703087ull, { {0x0B9AADC5599AA013ull, 17824815619ull, 32339793121ull}, {0x15A52A9E4B638559ull, 18530057795ull, 63757289449ull}, {0x0ull, 0ull, 0ull} } },
-	{196608,3375668707ull, { {0x487B04D336385B62ull, 22477489910ull, 66079895176ull}, {0xC01F6617CD154EE8ull,  2883760509ull,  3966976333ull}, {0x0ull, 0ull, 0ull} } },
-	{212992,3650084989ull, { {0x4F061E9732F6D86Eull, 25292467156ull, 29551251146ull}, {0x4BA7E5B4BF1051BEull, 15573066947ull, 25395261391ull}, {0x0ull, 0ull, 0ull} } },
-	{229376,3923994593ull, { {0x1BCAD347E137ABECull, 19940191823ull, 48110255963ull}, {0x32677A46B243C568ull,   602580754ull, 43290561406ull}, {0x0ull, 0ull, 0ull} } },
-	{245760,4197433843ull, { {0xC198853698CCAC7Full,  4937317521ull, 39532729153ull}, {0x74BA0019FC712DA6ull,  4461023520ull,  2965110143ull}, {0x0ull, 0ull, 0ull} } },
+	{131072,2271952979ull, { {0xF8137FB0E00BCC55ull, 26051697479ull, 27441427672ull}, {0x62A2E1A9A055358Bull,  4627749088ull, 28710079083ull}, {0x2BB6AEE1DFEBF496ull, 11336475257ull, 53046770112ull} } },
+	{147456,2548912547ull, { {0x5E213FBAFF82685Aull, 22451221320ull, 39039734900ull}, {0xC389436CC479E2E1ull,  7838917905ull, 66548008864ull}, {0xC369D662BD63FA72ull, 12454841296ull, 17732757232ull} } },
+	{163840,2825137853ull, { {0xAD3B129CD55821CFull,  2579580241ull, 65442845493ull}, {0x925F66B7986320BEull,  5355291557ull, 43930449714ull}, {0x6D16A322FD9C19E5ull, 23135569436ull, 24245516385ull} } },
+	{180224,3100703087ull, { {0x0B9AADC5599AA013ull, 17824815619ull, 32339793121ull}, {0x15A52A9E4B638559ull, 18530057795ull, 63757289449ull}, {0x2E416CF909FD97BEull, 20314735035ull, 20497541050ull} } },
+	{196608,3375668707ull, { {0x487B04D336385B62ull, 22477489910ull, 66079895176ull}, {0xC01F6617CD154EE8ull,  2883760509ull,  3966976333ull}, {0xF3E968E66D782A45ull,  1455932396ull, 20952244462ull} } },
+	{212992,3650084989ull, { {0x4F061E9732F6D86Eull, 25292467156ull, 29551251146ull}, {0x4BA7E5B4BF1051BEull, 15573066947ull, 25395261391ull}, {0xE8EAA0322663206Cull, 27451209059ull,  5257432217ull} } },
+	{229376,3923994593ull, { {0x1BCAD347E137ABECull, 19940191823ull, 48110255963ull}, {0x32677A46B243C568ull,   602580754ull, 43290561406ull}, {0x022414756FE9B299ull, 25419172649ull, 13280518170ull} } },
+	{245760,4197433843ull, { {0xC198853698CCAC7Full,  4937317521ull, 39532729153ull}, {0x74BA0019FC712DA6ull,  4461023520ull,  2965110143ull}, {0xAC93ACFD3D4FEB5Eull, 18620245163ull, 20681861172ull} } },
 /* Larger require -shift 0: */
 	/* Egregious: */
-	{262144,4515590323ull, { {0x3B720039AA646317ull, 27060729660ull,  9603836312ull}, {0x9F8DD1E56E1063D9ull, 18665901522ull, 17899962874ull}, {0x0ull, 0ull, 0ull} } },
-	{294912,5065885219ull, { {0x48B9C434ADA5C932ull, 16019066807ull, 17346586962ull}, {0x7F65539D123420A8ull,  2842988794ull, 23960120686ull}, {0x0ull, 0ull, 0ull} } },
-	{327680,5614702259ull, { {0xE900D20947E96181ull, 12677175309ull, 46263325668ull}, {0xC0D077CD8E03FE07ull, 33414013825ull, 32326844283ull}, {0x0ull, 0ull, 0ull} } },
-	{360448,6162190477ull, { {0x9E271959008B80D3ull, 31437330830ull, 36751682930ull}, {0xAE9E9BE256655FE1ull, 30096752173ull, 10472606829ull}, {0x0ull, 0ull, 0ull} } },
-	{393216,6708471481ull, { {0x9DC838BAC4CCF77Cull, 26649031745ull,   200515496ull}, {0x59077693710A8DF3ull, 32893924229ull, 51130131345ull}, {0x0ull, 0ull, 0ull} } },
-	{425984,7253646773ull, { {0xF04B3315B0250C1Aull, 25225037379ull, 54925972151ull}, {0x2227BF75276EDDE1ull,  6501658866ull, 45908319782ull}, {0x0ull, 0ull, 0ull} } },
-	{458752,7797801821ull, { {0xDFB6E25E4DAE64D5ull,  2368273704ull, 20371186304ull}, {0x1D0AC271BAFB7B3Full, 19243408286ull, 36957506781ull}, {0x0ull, 0ull, 0ull} } },
-	{491520,8341009997ull, { {0x15ED525006050B39ull, 32048847842ull, 54898451004ull}, {0x15EAF415588F56D8ull, 14874774582ull, 22782105046ull}, {0x0ull, 0ull, 0ull} } },
-	{524288,8883334793ull, { {0x61776F2413CD7E79ull, 32946827752ull, 24059669414ull}, {0xE496C31B2534F520ull, 11663456039ull, 21852180932ull}, {0x0ull, 0ull, 0ull} } },
+	{262144,4515590323ull, { {0x3B720039AA646317ull, 27060729660ull,  9603836312ull}, {0x9F8DD1E56E1063D9ull, 18665901522ull, 17899962874ull}, {0x3F8DE21447B8F185ull,  6764815471ull, 48464398121ull} } },
+	{294912,5065885219ull, { {0x48B9C434ADA5C932ull, 16019066807ull, 17346586962ull}, {0x7F65539D123420A8ull,  2842988794ull, 23960120686ull}, {0x46A0DEC68BBF6200ull, 31729561791ull, 50147538919ull} } },
+	{327680,5614702259ull, { {0xE900D20947E96181ull, 12677175309ull, 46263325668ull}, {0xC0D077CD8E03FE07ull, 33414013825ull, 32326844283ull}, {0x7D30544CA1A5EE79ull,  1716040056ull, 46267327452ull} } },
+	{360448,6162190477ull, { {0x9E271959008B80D3ull, 31437330830ull, 36751682930ull}, {0xAE9E9BE256655FE1ull, 30096752173ull, 10472606829ull}, {0x617464509B85A2A7ull,  9678623737ull, 11139728088ull} } },
+	{393216,6708471481ull, { {0x9DC838BAC4CCF77Cull, 26649031745ull,   200515496ull}, {0x59077693710A8DF3ull, 32893924229ull, 51130131345ull}, {0x67C6B36832365A2Eull, 24767954692ull,  9192290328ull} } },
+	{425984,7253646773ull, { {0xF04B3315B0250C1Aull, 25225037379ull, 54925972151ull}, {0x2227BF75276EDDE1ull,  6501658866ull, 45908319782ull}, {0x1932CB83D6325C06ull, 14366185005ull, 35987114037ull} } },
+	{458752,7797801821ull, { {0xDFB6E25E4DAE64D5ull,  2368273704ull, 20371186304ull}, {0x1D0AC271BAFB7B3Full, 19243408286ull, 36957506781ull}, {0x5CE416D51B78DC14ull,  7301044805ull, 41508750073ull} } },
+	{491520,8341009997ull, { {0x15ED525006050B39ull, 32048847842ull, 54898451004ull}, {0x15EAF415588F56D8ull, 14874774582ull, 22782105046ull}, {0xFBB94BD0195AD781ull, 33952487380ull, 66697361995ull} } },
+	{524288,8883334793ull, { {0x61776F2413CD7E79ull, 32946827752ull, 24059669414ull}, {0xE496C31B2534F520ull, 11663456039ull, 21852180932ull}, {0x5CF3A189E35A4831ull, 29034259240ull, 63725767522ull} } },
 	/* Brobdingnagian: */
 	/* Godzillian: */
 	{     0,         0ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
@@ -3663,34 +3663,34 @@ struct testMers MersVec[numTest+1] =
 // Reference Mersenne base-3 PRP residues - as with above MersVec[], use a 0-padding slot to store any user-set-exponent data:
 struct testMers MvecPRP[numTest+1] =
 {
-/*                                         100-iteration residues:	                               1000-iteration residues:                */
-/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
-/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
+/*                                         100-iteration residues:	                               1000-iteration residues:                                     10000-iteration residues:                */
+/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1                    Res64           mod 2^35-1      mod 2^36-1     */
+/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------             ----------------     -----------     -----------     */
 	/* Teensy:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-	{     1,     22679ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{     2,     44657ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{     3,     66431ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{     4,     88019ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{     5,    109481ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{     6,    130873ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{     7,    152197ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{     1,     22679ull, { {0xFC0A19D8053E2C63ull,  7216573864ull, 15550058355ull}, {0x9434BF04E9DD6590ull, 12291859893ull, 22157814609ull}, {0x888DBE72E82F345Full, 19547029420ull, 28667112373ull} } },
+	{     2,     44657ull, { {0x2FF1DC59E364DC0Full, 25715977053ull, 20339083780ull}, {0x3906D50DAC9B5DE5ull, 19334653960ull, 53407377632ull}, {0x6FAFE66D304AF7B8ull,  4444792959ull, 38933186194ull} } },
+	{     3,     66431ull, { {0xDAF61E5D6CA68FC3ull, 26597355294ull,  8883812681ull}, {0x3523527987FEBE8Aull, 16798773482ull, 40029233454ull}, {0xBB8543FDA6338C94ull, 34066606209ull, 57333971045ull} } },
+	{     4,     88019ull, { {0xAC4E1D2FED4A0818ull, 11740794723ull, 24523876486ull}, {0x9748F39A4141A6A7ull,  3559327783ull, 38172811819ull}, {0xB7DF391740B12CC2ull, 14753831416ull,  2944828886ull} } },
+	{     5,    109481ull, { {0x0887E190E52ECAFBull, 16321078830ull, 53404323981ull}, {0xB0C4599DE533BC56ull, 20293003711ull, 60605408802ull}, {0xE82C62FECDAC2FFFull, 19960563930ull, 27847581824ull} } },
+	{     6,    130873ull, { {0x62D3349CB98B8AA4ull, 26551110132ull,   847007833ull}, {0xFAA3ECCDE153AC01ull,  4027039855ull,  2529621352ull}, {0x3BD638831DDFA52Full, 29323278765ull, 13545332526ull} } },
+	{     7,    152197ull, { {0x32B040E603350F3Dull, 7241281161ull,  31015309722ull}, {0x08D8F0A189ECA405ull,  4701434863ull, 36046424475ull}, {0x9424A4EAB177802Aull,  7995532968ull, 38268718113ull} } },
 	{     8,    173431ull, { {0x5626DEB6B07622F3ull, 32131772281ull, 45561861712ull}, {0x2CFA9D066FA0AC59ull, 19159609871ull,  3629111748ull}, {0x91968AE0B907BC06ull, 18780821129ull, 60175052951ull} } },
-	{     9,    194609ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{    10,    215767ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{    11,    236813ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{     9,    194609ull, { {0x64E75171C0A1D137ull, 20079327403ull, 15564557713ull}, {0x2B2457BD069DCDB4ull, 20684059561ull,  9153144175ull}, {0x1C07FD17EFAA4BD9ull, 14677419798ull, 23734975629ull} } },
+	{    10,    215767ull, { {0xCFB0E89BF692EA1Dull,  1348102569ull, 50382361953ull}, {0x50D7F1E582AA8D30ull, 25173523197ull, 16616747013ull}, {0x5953571C3B5C4CB2ull, 12267147387ull, 32423496458ull} } },
+	{    11,    236813ull, { {0x4C96FF3D3BC7FBD1ull, 17937855065ull, 26483446924ull}, {0x1B7BFECFEF48B91Aull, 28115637670ull,  9388358783ull}, {0x33DE56522637AB52ull, 28861067137ull,  7475100893ull} } },
 	{    12,    257903ull, { {0x582A66DD4D8799EEull, 29535927244ull, 68660141246ull}, {0xEA5F22C54501846Full, 28855133772ull, 33619980259ull}, {0x5869D6DAA84D8F95ull, 13664256258ull,  9507781795ull} } },
-	{    13,    278917ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{    14,    299903ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{    15,    320851ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    13,    278917ull, { {0x26F2374BA9A6A000ull, 11649249298ull, 59159268163ull}, {0xB1AA3B006701BD3Dull,  6103046004ull, 17334308413ull}, {0xBB0E30C4FAD1B96Cull, 16092992347ull, 11478925340ull} } },
+	{    14,    299903ull, { {0xC6D31B054D8060FAull,  6708173031ull, 49206093465ull}, {0x63823D9B911D5642ull,  9227134084ull, 41584198279ull}, {0xCFDA692C0F29F4B0ull, 25412870007ull, 64726732001ull} } },
+	{    15,    320851ull, { {0x2E13A705FBF21CCBull, 12724013307ull,  5466324004ull}, {0xCF1A064084F03CDDull, 21279551510ull, 66514817340ull}, {0xBFDED892AC53DF17ull, 26753890726ull, 19331799135ull} } },
 	/* Tiny: */
 	{    16,    341749ull, { {0xC736F1C2D213F1C1ull, 12211349626ull, 66509411860ull}, {0x8640A90521C2F7CCull, 26292223176ull, 67588668714ull}, {0x9EBE2EF30FB7D464ull, 12905240924ull, 64076380848ull} } },
-	{    18,    383521ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    18,    383521ull, { {0x55780FD8DC7467DAull, 23218470166ull, 68152686603ull}, {0x0D22D137224B1722ull, 32823276622ull,  6728794148ull}, {0x65452252B89A3D1Cull,   584268496ull, 27300607776ull} } },
 	{    20,    425149ull, { {0xD3C192FF131CFC3Bull, 24519426320ull, 28595715402ull}, {0xCF0C17092AA78E04ull,  2271546708ull, 64056281496ull}, {0xE1F87989962DF48Eull, 26999099038ull, 52441645398ull} } },
-	{    22,    466733ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    22,    466733ull, { {0x60DA090C844F8C53ull, 16872727324ull, 65402197126ull}, {0xA193F5A3E8ECB2DBull,   191717166ull, 21080627885ull}, {0xDCA9274F2B60D6AEull,  8835300280ull,  1994309235ull} } },
 	{    24,    508223ull, { {0x104F46B5B27DA109ull, 30634543418ull, 10636054863ull}, {0xFF40B3BCD8A23424ull, 30297179510ull, 62834095876ull}, {0x760A533DA9DE9552ull, 21594588451ull, 56782339492ull} } },
-	{    26,    549623ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    26,    549623ull, { {0xDC70DD5440FA2944ull, 28077075456ull, 53854953049ull}, {0x4CEAC7A3EC365345ull,  7870901997ull, 31305957738ull}, {0x2B967C9672B0E4DFull, 15934595368ull, 63873011872ull} } },
 	{    28,    590963ull, { {0xECC45D40806A111Cull,  5787783130ull, 59666588997ull}, {0x4B8E8B5D4FA21D2Dull, 18930182921ull, 43534886672ull}, {0x876053199A486A8Full,  6807528947ull, 12093315482ull} } },
-	{    30,    632251ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    30,    632251ull, { {0x8F3F1DD7FB30F7E6ull, 21212439336ull, 15609338206ull}, {0xF52EE67AA91E0A22ull,  5953031702ull, 38559667764ull}, {0x676A305C3C8ACD13ull,  7944324936ull, 62247604249ull} } },
 	{    32,    673469ull, { {0xBD9646EE9AB18A7Aull, 26182028770ull, 59419684231ull}, {0x739B932AC594AA0Aull, 27600316683ull, 23680060816ull}, {0x0090EA7A76098D32ull, 10354482855ull, 28199252596ull} } },
 	{    36,    755737ull, { {0xD3D7FCAAEC0D1CFAull, 16915465692ull, 12970156038ull}, {0x2ACB2B184E935C33ull,  2577059552ull, 25431200361ull}, {0xAD4F3FEAD246F78Dull, 11105939650ull, 27677803777ull} } },
 	{    40,    837817ull, { {0x4BB1FE516DA56352ull, 14130534986ull, 57171707410ull}, {0xEDE384F60E7930DEull,  6782691233ull, 37080068160ull}, {0x985E59A168A2C374ull, 19638026482ull, 42674666120ull} } },
@@ -3783,33 +3783,33 @@ struct testMers MvecPRP[numTest+1] =
 	{ 57344,1023472049ull, { {0x428763AC63EEBB06ull,  4046036533ull, 65887115399ull}, {0x9819D4EECD27A260ull,  2725007656ull, 27008383182ull}, {0x0B9FF561BB7E6A8Eull, 27229975800ull, 68594865215ull} } },
 	{ 61440,1094833457ull, { {0xD8419FF6C0F1BBE0ull,  1663876259ull, 34786957257ull}, {0x2A79788D7D8D853Bull, 20881114859ull, 33590133948ull}, {0x2D3034F9BEFD96D5ull,  2175887418ull, 16970800813ull} } },
 	/* Huge: */
-	{ 65536,1154422469ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 73728,1295192531ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 81920,1435594063ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 90112,1575664327ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 98304,1715433593ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{106496,1854927187ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{114688,1994166553ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{122880,2133169847ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{131072,2271952979ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{147456,2548912547ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{163840,2825137853ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{180224,3100703087ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{196608,3375668707ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{212992,3650084989ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{229376,3923994593ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{245760,4197433843ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 65536,1154422469ull, { {0xAAB3EFACD88A662Bull, 26039506574ull, 45258467308ull}, {0x87F03641E5099466ull, 25332961414ull,  7351785838ull}, {0x86DB0F2F4BAD3C49ull, 16274048549ull,  6230328190ull} } },
+	{ 73728,1295192531ull, { {0x3BAF3BC0752028D9ull,  4211191061ull, 51953675126ull}, {0x68FFB65A8C503E09ull,   853646730ull, 46847505695ull}, {0x9A3A32D518235558ull, 28640651783ull, 60021760688ull} } },
+	{ 81920,1435594063ull, { {0xD82818EBA048F96Bull, 21792288552ull,  4377678832ull}, {0x6D1C00BFBDBF149Dull,  9445100631ull, 33666710731ull}, {0xAA0955DB9FDCF46Bull, 13596604580ull, 25301057637ull} } },
+	{ 90112,1575664327ull, { {0x58D1239FD059A4F8ull, 12304115580ull, 30716590173ull}, {0x2814038A97AE97CCull,  9524737017ull, 15912568827ull}, {0x26411AAEE59BEEE1ull, 15430865120ull, 23447457690ull} } },
+	{ 98304,1715433593ull, { {0x57A172DCCD2EE1D7ull, 25480868995ull, 49711514149ull}, {0x7C8F53896E698F56ull, 25601216241ull, 42142784040ull}, {0xFADB6FB65137C7D5ull, 19601576971ull, 39412145439ull} } },
+	{106496,1854927187ull, { {0x486D5D472C8709ABull, 14633517060ull, 40932458729ull}, {0x0E943A8B1F79FD20ull, 12688214829ull, 45722472141ull}, {0xB151664BFADD763Dull, 21328624280ull, 45916160772ull} } },
+	{114688,1994166553ull, { {0x9BB7700EE5CDE109ull, 10767069752ull,  8690473675ull}, {0x0F71DFE0EFD32425ull, 32071871976ull, 46471885412ull}, {0xD20983BBCF9629D1ull,  8673194724ull, 41079194227ull} } },
+	{122880,2133169847ull, { {0x7263704CA252CDE9ull,  7710505240ull, 18410885168ull}, {0xE1BAF8C71ABA2CC8ull,  3136921144ull, 32646191646ull}, {0x7D41A3301D47FF18ull, 27032574263ull, 35262914411ull} } },
+	{131072,2271952979ull, { {0xFFE0E4DF7FD7FAECull,  1530112110ull, 53817108279ull}, {0x93C5B0CE313870C0ull, 31219892341ull, 31299332267ull}, {0x849BD4A5675F663Eull,   726382843ull, 10088066537ull} } },
+	{147456,2548912547ull, { {0x7D2D8AA2142CD95Bull, 24212415531ull, 26910488088ull}, {0xE627D737C6E89160ull, 27272479613ull,  5250198923ull}, {0x1D961CFC5709F821ull,  4028956298ull, 58061154091ull} } },
+	{163840,2825137853ull, { {0x6255A8E02B1F9D48ull,  4165259275ull, 35679096787ull}, {0xC6E0AE336EEF12EAull, 10019116751ull, 57959979587ull}, {0x4C4C78C01550BE00ull,  1906071539ull, 10935925236ull} } },
+	{180224,3100703087ull, { {0x6EEE9192972E88A2ull, 18106701259ull,  1635197396ull}, {0x2AF37FDE0E97CFCDull, 13425594844ull, 54301911364ull}, {0x2C5D03CC382B929Eull, 31248909857ull,   943615707ull} } },
+	{196608,3375668707ull, { {0x00124C86AC2947C9ull,  1350920834ull,   820732868ull}, {0x51482853235C5D4Aull, 11632657006ull, 37145958981ull}, {0x48664A9734EF98FFull, 14354675120ull, 37155046436ull} } },
+	{212992,3650084989ull, { {0x655587C5D1E4513Dull, 29674015839ull, 27034193333ull}, {0xBE240FF0620CC4F5ull, 26113504070ull, 33366619317ull}, {0xC1218855BAB2B236ull,  3102722305ull, 24916772871ull} } },
+	{229376,3923994593ull, { {0xD51F8A5CC2DD556Eull, 24029109428ull, 36330668849ull}, {0x03062CC2B846B01Full, 20889303231ull, 47316885863ull}, {0xE6ABB8FCF353E1CAull, 24032927196ull, 56067326232ull} } },
+	{245760,4197433843ull, { {0x2CB934C8DA3E9E23ull,    24837159ull, 67972435271ull}, {0xADAC13C86CAC1CF0ull,  9851335015ull, 65922109237ull}, {0x7E21E74771408F57ull,  7612020878ull, 33976469217ull} } },
 /* Larger require -shift 0: */
 	/* Egregious: */
-	{262144,4515590323ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{294912,5065885219ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{327680,5614702259ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{360448,6162190477ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{393216,6708471481ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{425984,7253646773ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{458752,7797801821ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{491520,8341009997ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{524288,8883334793ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{262144,4515590323ull, { {0xDE7862897CD105BFull, 21557688136ull, 29278800678ull}, {0x30D73086B6105D1Full, 20232133740ull, 59224902277ull}, {0xE316D09F2E979A50ull, 10883916443ull, 64276537399ull} } },
+	{294912,5065885219ull, { {0xA15CDEAE4FC92E54ull, 20335930910ull, 52111577615ull}, {0x133664A631632D45ull, 20591955046ull, 42769026159ull}, {0xC82EEC66302E5000ull,  3317222100ull, 36827261876ull} } },
+	{327680,5614702259ull, { {0xDABCCE581960C77Full,  4689167975ull, 50989438199ull}, {0x87C97E6EED2B589Aull, 27322442898ull, 15652409285ull}, {0x9CC804F606377555ull, 23666383555ull, 42308573038ull} } },
+	{360448,6162190477ull, { {0x88D57AD02E7FF9D1ull,  7797896964ull, 12206810510ull}, {0xADB0099298870D26ull, 20666677448ull, 40607129181ull}, {0x060E32E4F99DB03Aull,  4426388067ull, 19496433760ull} } },
+	{393216,6708471481ull, { {0xCD3F2653386B4DBEull, 22145685109ull, 13282277364ull}, {0xC07AE9C793CC9972ull,  7820473289ull, 36542560545ull}, {0x4F87F5437569B811ull, 25933083524ull, 58613510266ull} } },
+	{425984,7253646773ull, { {0xD5D121BDF5018829ull, 30237874639ull, 67733314617ull}, {0x2BEEEE0D5232A019ull, 18665265380ull, 49335857603ull}, {0x335A601EC75C92EDull, 23260402625ull, 40445799615ull} } },
+	{458752,7797801821ull, { {0x333B7307DDA3110Aull, 23952486516ull, 67975815006ull}, {0xAAA5EFCF1B0E0EF9ull, 14138180408ull, 58965694844ull}, {0xD62DC8E3798E370Cull, 31379881170ull, 16859019734ull} } },
+	{491520,8341009997ull, { {0x7A1E78170754616Cull, 22444555974ull, 65923732615ull}, {0x36CC092B06465361ull, 17144097022ull, 56268753289ull}, {0xE3CA58A33408A688ull, 31069437328ull, 59768470156ull} } },
+	{524288,8883334793ull, { {0x5C0B0B38853ED94Aull, 13054644171ull, 59702653729ull}, {0x644A9A3BEF70E59Eull, 34063554627ull, 9998692731ull}, {0xC88B06710BCE2AEDull, 13697640865ull, 36006572918ull} } },
 	/* Brobdingnagian: */
 	/* Godzillian: */
 	{     0,         0ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
@@ -3839,9 +3839,9 @@ struct testFerm{
 #define numFerm		20
 struct testFerm FermVec[numFerm+1] =
 {
-/*                                   100-iteration residues:                                  1000-iteration residues:              */
-/* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
-/*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
+/*                                       100-iteration residues:                                  1000-iteration residues:                                    10000-iteration residues:              */
+/* FFTlen(K) Fidx               Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1                   Res64           mod 2^35-1      mod 2^36-1     */
+/*   ------- ----          ----------------     -----------     -----------         ----------------     -----------     -----------              ----------------     -----------     -----------   */
 	/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
 //	{     2,  13u, { {0xC8FC67EA3A1AC788ull, 29592689237ull, 35156594447ull}, {0xBE489C2CF00D582Aull,  3108135315ull, 47125592449ull}, {0x0ull, 0ull, 0ull} } },
 	{     1,  14u, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x78738D068D641C2Cull, 12664273769ull, 29297626750ull} } },
@@ -4083,12 +4083,12 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			i64arg = -1ull;
 			darg = strtod(stFlag,&cptr);
 			if(strlen(cptr)) {
-				if(STREQ(cptr,"M"))
+				if(STREQ(cptr,"M") || STREQ(cptr,"m")) // add lower case m KK 2026-07-12 as a stopgap until a full case-insensitive teatment for all user cmd line input is implemented
 					i64arg = darg*1024;
-				else if(STREQ(cptr,"K"))
+				else if(STREQ(cptr,"K") || STREQ(cptr,"k")) // add lower case k KK 2026-07-12, see above comment
 					i64arg = darg;
 				else {
-					ASSERT(0, "The only non-numeric suffixes allowed for the argument to -fft are K and M");
+					ASSERT(0, "The only non-numeric suffixes allowed for the argument to -fft are K and M or the lowercase equivalents k and m");
 				}
 			} else
 				i64arg = darg;
