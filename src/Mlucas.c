@@ -1640,6 +1640,15 @@ READ_RESTART_FILE:
 		if(TEST_TYPE == TEST_TYPE_PM1) {
 			ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for p-1!\n");
 			RES_SHIFT = 0ull; a[0] = iseed;
+		} else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && DO_GCHECK && !INTERACT) {
+			// A Pépin test with Gerbicz check does not support shifted residues (the random-shift
+			// error-detection scheme is incompatible with the G-check residue-product scheme), and the
+			// resume path below asserts RES_SHIFT==0. Randomizing the shift here (as done for the other
+			// primality tests) would leave a nonzero shift in the savefile and make the run un-resumable
+			// from its own checkpoint (see #99). So force shift 0 for the non-interactive Pépin+G-check
+			// case; as in the p-1 branch above, a zero shift just means the seed goes straight into a[0]
+			// (no need for the random-shift selection or shift_word() carry-in of the else-branch below):
+			RES_SHIFT = 0ull; a[0] = iseed;
 		} else {
 			// Apply initial-residue shift - if user has not set one via cmd-line or current value >= p, randomly choose a value in [0,p).
 			// [Note that the RNG is inited as part of the standard program-start-sequence, via function host_init().]
