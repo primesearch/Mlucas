@@ -66,9 +66,7 @@ me at: heber.tomer@gmail.com
 #include "util.h"	// This is to get (or not) <hwloc.h>
 
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
-	#include <windows.h>	// Windows CPU-affinity API: SetThreadAffinityMask()/GetCurrentThread(). MinGW is mapped to
-				// OS_TYPE_LINUX by platform.h but has no sched_setaffinity(), so its Windows build takes this
-				// Win32 path too (MinGW-w64 provides the full Win32 API).
+	#include <windows.h>	// Windows CPU-affinity API (SetThreadGroupAffinity() etc.); see the affinity branch below.
 #endif
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
@@ -283,7 +281,45 @@ me at: heber.tomer@gmail.com
 		task_control_t *task;
 
 		// Set CPU affinity masks of the thread:
-	#ifdef __OpenBSD__
+	#if INCLUDE_HWLOC
+
+		// hwloc gives portable, OS-agnostic hard affinity, so when Mlucas is built with -DINCLUDE_HWLOC (the
+		// makemake.sh 'use_hwloc' option) we use it on every platform - this is what makes the v21 '-core' option
+		// work on Windows and macOS as well as on Linux/*BSD, and it also handles Windows >64-CPU processor groups
+		// internally. The per-OS native-API branches below are the fallback used only in non-hwloc builds.
+		int i;
+
+		i = my_id % pool->num_of_cores;
+		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
+		if(i < 0) {
+			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
+			ASSERT(0, "Aborting.");
+		}
+
+	  if(HWLOC_AFFINITY) {	// Global, declared in Mdata.h, defined in Mlucas.c, set in util.c::host_init()
+		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc();
+		hwloc_obj_t obj = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, i);
+		if (obj) {
+			hwloc_bitmap_or(cpuset, cpuset, obj->cpuset);
+		} else {
+			snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_PU[%u] not found.\n",i);
+			fprintf(stderr,"%s",cbuf);
+		}
+		// Set affinity to specified logical CPUs:
+		if (hwloc_set_cpubind(hw_topology, cpuset, HWLOC_CPUBIND_THREAD)) {
+			int error = errno;
+			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+			snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Warning: Unable to set affinity to cpuset %s: %s; leaving up to OS to manage thread/core binding.\n",str,strerror(error));
+			fprintf(stderr,"%s",cbuf);
+	  #if THREAD_POOL_DEBUG
+		} else {
+			printf("[hwloc] tid = %d: HWLOC_OBJ_PU[%u], lidx %u, pidx %u: setaffinity[%d] to cpuset %s\n",my_id,i,obj->logical_index,obj->os_index,str);
+	  #endif
+		}
+		hwloc_bitmap_free(cpuset);
+	  }	// HWLOC_AFFINITY = True?
+
+	#elif defined(__OpenBSD__)
 
 	  #warning OpenBSD has no user-affinity-setting support ... affinity-setting is up to the OS.
 
@@ -309,30 +345,6 @@ me at: heber.tomer@gmail.com
 
 	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 
-	  #if 0
-	  /*
-		// This is the affinity API tied to pthread library ... interestingly, it's less portable than the
-		// Linux system-centric one below; e.g. GCC gives "error: unknown type name ‘cpuset_t’; did you mean ‘cpu_set_t’?" here:
-		int i,errcode;
-		cpuset_t *cset;
-		pthread_t pth;
-
-		cset = cpuset_create();
-		if (cset == NULL) {
-			err(EXIT_FAILURE, "cpuset_create");
-		}
-		i = my_id % pool->num_of_cores;	// get cpu mask using sequential thread ID modulo #available cores
-		cpuset_set((cpuid_t)i, cset);
-
-		pth = pthread_self();
-		errcode = pthread_setaffinity_np(pth, cpuset_size(cset), cset);
-		if (errcode) {
-			perror("pthread_setaffinity_np");
-		}
-		cpuset_destroy(cset);
-	  */
-	  #else
-
 		cpu_set_t cpu_set;
 		int i,errcode;
 		pid_t thread_id = syscall (SYS_gettid);
@@ -346,34 +358,6 @@ me at: heber.tomer@gmail.com
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
 			ASSERT(0, "Aborting.");
 		}
-
-	 #if INCLUDE_HWLOC
-
-	  if(HWLOC_AFFINITY) {	// Global, declared in Mdata.h, defined in Mlucas.c, set in util.c::host_init()
-		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc();
-		hwloc_obj_t obj = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, i);
-		if (obj) {
-			hwloc_bitmap_or(cpuset, cpuset, obj->cpuset);
-		} else {
-			snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_PU[%u] not found.\n",i);
-			fprintf(stderr,"%s",cbuf);
-		}
-		// Set affinity to specified logical CPUs:
-		if (hwloc_set_cpubind(hw_topology, cpuset, HWLOC_CPUBIND_THREAD)) {
-			int error = errno;
-			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
-			snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Warning: Unable to set affinity to cpuset %s: %s; leaving up to OS to manage thread/core binding.\n",str,strerror(error));
-			fprintf(stderr,"%s",cbuf);
-	  #if THREAD_POOL_DEBUG
-		} else {
-			printf("[hwloc] tid = %d: HWLOC_OBJ_PU[%u], lidx %u, pidx %u: setaffinity[%d] to cpuset %s\n",my_id,i,obj->logical_index,obj->os_index,str);
-	  #endif
-		}
-		hwloc_bitmap_free(cpuset);
-	  }	// HWLOC_AFFINITY = True?
-
-	 #else	// INCLUDE_HWLOC = False:
-
 		// get cpu mask using sequential thread ID modulo #available cores in runtime-specified affinity set:
 		CPU_ZERO (&cpu_set);
 		CPU_SET(i, &cpu_set);
@@ -385,23 +369,17 @@ me at: heber.tomer@gmail.com
 			perror("sched_setaffinity");
 			fprintf(stderr,"INFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n");
 		}
-	  #endif
-
-	 #endif	// INCLUDE_HWLOC?
 
 	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 
-		// Windows hard affinity: pin the current worker thread to logical core i. This covers BOTH the
-		// native-Windows toolchain (OS_TYPE_WINDOWS) and MinGW (which platform.h maps to OS_TYPE_LINUX but
-		// which has no sched_setaffinity() and so is deliberately excluded from the Linux branch above) -
-		// MinGW-w64 provides SetThreadAffinityMask(), so this is the affinity path for the MSYS2/MinGW
-		// Windows builds the CI actually produces.
-		// SetThreadAffinityMask() takes a single DWORD_PTR bitmask, so this simple form only
-		// addresses logical CPUs 0-63 within the thread's current processor group. Systems with
-		// >64 logical CPUs are partitioned into 64-CPU processor groups and require the
-		// SetThreadGroupAffinity()/GROUP_AFFINITY API, which we do not handle here; the
-		// single-mask form matches the model used elsewhere in the Windows port.
-		int i,errcode;
+		// Windows hard affinity (non-hwloc fallback): pin the current worker thread to logical core i. This
+		// covers BOTH the native-Windows toolchain (OS_TYPE_WINDOWS) and MinGW (which platform.h maps to
+		// OS_TYPE_LINUX but which has no sched_setaffinity() and so is deliberately excluded from the Linux
+		// branch above) - MinGW-w64 provides the Win32 affinity API. We use SetThreadGroupAffinity() rather
+		// than the simpler SetThreadAffinityMask() so systems with >64 logical CPUs - which Windows partitions
+		// into 64-CPU processor groups - are handled: logical core i maps to group (i>>6), bit (i&63).
+		int i;
+		GROUP_AFFINITY grp_aff = {0};
 
 		i = my_id % pool->num_of_cores;	// get cpu index using sequential thread ID modulo #available cores
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
@@ -410,12 +388,13 @@ me at: heber.tomer@gmail.com
 			ASSERT(0, "Aborting.");
 		}
 	  #if THREAD_POOL_DEBUG
-		printf("Setting affinity of worker thread id %u to logical core %d\n", my_id, i);
+		printf("Setting affinity of worker thread id %u to logical core %d (group %u, bit %u)\n", my_id, i, (unsigned)(i>>6), (unsigned)(i&63));
 	  #endif
-		// SetThreadAffinityMask returns the thread's previous affinity mask, or 0 on failure:
-		errcode = (SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << i) == 0);
-		if (errcode) {
-			fprintf(stderr,"SetThreadAffinityMask failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
+		grp_aff.Group = (WORD)(i >> 6);
+		grp_aff.Mask  = (KAFFINITY)1 << (i & 63);
+		// SetThreadGroupAffinity returns 0 (FALSE) on failure:
+		if (SetThreadGroupAffinity(GetCurrentThread(), &grp_aff, NULL) == 0) {
+			fprintf(stderr,"SetThreadGroupAffinity failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
 		}
 
 	#elif defined(OS_TYPE_MACOSX)
