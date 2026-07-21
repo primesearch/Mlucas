@@ -238,13 +238,17 @@ void bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*
 	}
 	memset(tmp, 0, n*sizeof(int));
 
-	/*...Check that product of radices = vector length */
-	i = 0;
-	k = radix[i];
-	for(count = 1; count < nradices; count++)
+	/*...Check that product of radices = vector length. Accumulate from 1 and take exactly nradices
+	factors, so a zero-radix reversal (nradices == 0) yields the empty product 1 rather than reading
+	radix[0]. That legitimately occurs for a length-1 subvector - e.g. the index1 array in
+	radix16_dyadic_square for a Fermat 2K transform with leading radix 32, where index1_mod = 1 and
+	nradices = 0 (nothing to reverse); the original code mis-read radix[0] and aborted with a spurious
+	"product of radices != vector length": */
+	k = 1;
+	for(count = 0, i = 0; count < nradices; count++)
 	{
-		i += incr;
 		k *= radix[i];
+		i += incr;
 	}
 	if(k != n) {
 		printf("ERROR: product of radices [%u",radix[0]);
