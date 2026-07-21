@@ -1555,11 +1555,18 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			b_uint64_ptr = (uint64*)b; c_uint64_ptr = (uint64*)c; d_uint64_ptr = (uint64*)d; e_uint64_ptr = (uint64*)e;
 		}
 
-		// For this residue (and scratch) byte-array, conservatively figure at least 4 bits per float-double residue word.
-		// For multi-FFT-length self-tests, conservatively figure as many as 20 bits (2.5 bytes) per float-double residue word:
-		// v20: for largest currently supported FFT of 512Mdoubles, i still -barely - fits in a uint32, but 2.5*i does not:
-		arrtmp_alloc = i; arrtmp_alloc = MAX((p+63)>>2, (uint64)(arrtmp_alloc*2.5)) >> 3;	// #limb needed to store p bits = (p+63)>>6, so alloc at least 2x this
-		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "ERROR: unable to allocate array ARRTMP with %u bytes in main.\n",i); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		// This residue/scratch byte-array is allocated once and reused for every exponent in the run. In a
+		// multi-FFT-length self-test the arrays are sized for the largest FFT length used (maxFFT), and the
+		// largest exponent processed can be as high as pmax(maxFFT) - not the current (first, smallest) p. The
+		// old "2.5 bytes per float-double word" heuristic underestimated the storage: max bits/word is ~21
+		// (~2.6 bytes) at these lengths, so a large exponent near pmax overran arrtmp (heap-buffer-overflow
+		// writing e.g. M320851's 40107-byte residue into a 38400-byte arrtmp sized for a 15K FFT). Size for 2x
+		// the limb-count [ #limbs for x bits = (x+63)>>6, doubled => (x+63)>>5 ] of the largest exponent that can
+		// run against these arrays: pmax at the allocated (max) FFT length, or the current p if the warn-path
+		// above admitted a p slightly above that pmax:
+		// Size for the largest exponent supported at the largest FFT length these arrays will serve:
+		arrtmp_alloc = (MAX((uint64)p, given_N_get_maxP(maxFFT > kblocks ? maxFFT << 10 : n)) + 63) >> 5;
+		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "ERROR: unable to allocate array ARRTMP with %" PRIu64 " limbs in main.\n",arrtmp_alloc); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		// For an n-word main-array, BIGWORD_BITMAP and BIGWORD_NBITS have (n/64) elts each, thus need 1/64 + 1/32 the total
 		// storage of the main-array. Use uint64 alloc-macro for both, so halve the num-elts arg for the BIGWORD_NBITS alloc.
