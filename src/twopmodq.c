@@ -26,6 +26,16 @@
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define YES_ASM
 #endif
+// AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
+// all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); the
+// #ifndef YES_ASM branches provide a portable-C fallback, so disable the asm under ASan:
+#if defined(__SANITIZE_ADDRESS__)
+	#undef YES_ASM
+#elif defined(__has_feature)
+	#if __has_feature(address_sanitizer)	/* older Clang: no __SANITIZE_ADDRESS__ predefine */
+		#undef YES_ASM
+	#endif
+#endif
 
 #if FAC_DEBUG
 #error !!!

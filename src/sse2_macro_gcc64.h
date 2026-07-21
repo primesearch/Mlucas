@@ -4324,7 +4324,6 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		/* Need separate address Im parts of outputs due to literal-offsets below */\
 		"movq	%[__out0],%%rsi									\n\t	leaq	%c[__o4](%%rsi),%%r8 	\n\t"\
 		"leaq	0x40(%%rsi),%%rdi								\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+8*ostride */\
-		"																leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */							/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
 		"vmovaps	    (%%rax),%%zmm2							\n\t	vmovaps	    (%%r10),%%zmm10	\n\t"\
 		"vmovaps	    (%%rcx),%%zmm6							\n\t	vmovaps	    (%%r12),%%zmm14	\n\t"\
@@ -4349,16 +4348,16 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vsubpd	%%zmm6,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm14,%%zmm11,%%zmm11		\n\t"\
 		"vmovaps	%%zmm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%zmm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%zmm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%zmm10,%c[__o3](%%r8 )	\n\t"\
-		"vmovaps	%%zmm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%zmm9 ,%c[__o2](%%r9 )	\n\t"\
-		"vmovaps	%%zmm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%zmm11,%c[__o1](%%r9 )	\n\t"\
+		"vmovaps	%%zmm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%zmm9 ,%c[__o2]+0x40(%%r8 )	\n\t"\
+		"vmovaps	%%zmm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%zmm11,%c[__o1]+0x40(%%r8 )	\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm0,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm8 ,%%zmm12		\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm7						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm15		\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm1,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm9 ,%%zmm13		\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm6						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm14		\n\t"\
 		"vmovaps	%%zmm4,        (%%rsi)						\n\t	vmovaps	%%zmm12,        (%%r8 )	\n\t"\
 		"vmovaps	%%zmm7,%c[__o1](%%rsi)						\n\t	vmovaps	%%zmm15,%c[__o1](%%r8 )	\n\t"\
-		"vmovaps	%%zmm5,        (%%rdi)						\n\t	vmovaps	%%zmm13,        (%%r9 )	\n\t"\
-		"vmovaps	%%zmm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%zmm14,%c[__o3](%%r9 )	\n\t"\
+		"vmovaps	%%zmm5,        (%%rdi)						\n\t	vmovaps	%%zmm13,        0x40(%%r8 )	\n\t"\
+		"vmovaps	%%zmm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%zmm14,%c[__o3]+0x40(%%r8 )	\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */						/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
 		"movslq		0x10(%%r15),%%rax	\n\t	movslq		0x30(%%r15),%%r10	\n\t"/* off[4-7],[c-f] */\
 		"movslq		0x14(%%r15),%%rbx	\n\t	movslq		0x34(%%r15),%%r11	\n\t"\
@@ -4389,19 +4388,19 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vsubpd	%%zmm7,%%zmm2,%%zmm2							\n\t	vsubpd	%%zmm15,%%zmm10,%%zmm10		\n\t"\
 		"vsubpd	%%zmm5,%%zmm1,%%zmm1							\n\t	vsubpd	%%zmm13,%%zmm9 ,%%zmm9 		\n\t"\
 		"vsubpd	%%zmm6,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm14,%%zmm11,%%zmm11		\n\t"\
-		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
+		"leaq	0x40(%%rsi),%%rdi								\n\t	 	\n\t"\
 		"vmovaps	%%zmm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%zmm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%zmm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%zmm10,%c[__o3](%%r8 )	\n\t"\
-		"vmovaps	%%zmm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%zmm9 ,%c[__o2](%%r9 )	\n\t"\
-		"vmovaps	%%zmm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%zmm11,%c[__o1](%%r9 )	\n\t"\
+		"vmovaps	%%zmm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%zmm9 ,%c[__o2]+0x40(%%r8 )	\n\t"\
+		"vmovaps	%%zmm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%zmm11,%c[__o1]+0x40(%%r8 )	\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm0,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm8 ,%%zmm12		\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm7						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm15		\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm1,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm9 ,%%zmm13		\n\t"\
 	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm6						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm14		\n\t"\
 		"vmovaps	%%zmm4,        (%%rsi)						\n\t	vmovaps	%%zmm12,        (%%r8 )	\n\t"\
 		"vmovaps	%%zmm7,%c[__o1](%%rsi)						\n\t	vmovaps	%%zmm15,%c[__o1](%%r8 )	\n\t"\
-		"vmovaps	%%zmm5,        (%%rdi)						\n\t	vmovaps	%%zmm13,        (%%r9 )	\n\t"\
-		"vmovaps	%%zmm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%zmm14,%c[__o3](%%r9 )	\n\t"\
+		"vmovaps	%%zmm5,        (%%rdi)						\n\t	vmovaps	%%zmm13,        0x40(%%r8 )	\n\t"\
+		"vmovaps	%%zmm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%zmm14,%c[__o3]+0x40(%%r8 )	\n\t"\
 	/******************************************************************************/\
 	/*** Now do 4 DFTs with internal twiddles on the 4*stride - separated data: ***/\
 	/******************************************************************************/\
@@ -4514,7 +4513,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		,[__o2] "e" (Xo2)\
 		,[__o3] "e" (Xo3)\
 		,[__o4] "e" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -9297,15 +9296,15 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	/* Block 0: r0-3 */												/* Block 1: r8-b */\
 		"movq	%[__in0],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[0,8]*ostride */\
 	/* Need separate address for Im parts of outputs due to literal-offsets below: */\
-		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	        (%%rsi),%%ymm0						\n\t	vmovaps	        (%%r8 ),%%ymm8 	\n\t"/* ar */\
-		"vmovaps	        (%%rdi),%%ymm1						\n\t	vmovaps	        (%%r9 ),%%ymm9 	\n\t"/* ai */\
+		"vmovaps	        0x20(%%rsi),%%ymm1						\n\t	vmovaps	        (%%r9 ),%%ymm9 	\n\t"/* ai */\
 		"vmovaps	%c[__i2](%%rsi),%%ymm2						\n\t	vmovaps	%c[__i2](%%r8 ),%%ymm10	\n\t"/* br */\
-		"vmovaps	%c[__i2](%%rdi),%%ymm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%ymm11	\n\t"/* bi */\
+		"vmovaps	%c[__i2]+0x20(%%rsi),%%ymm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%ymm11	\n\t"/* bi */\
 		"vmovaps	%c[__i1](%%rsi),%%ymm4						\n\t	vmovaps	%c[__i1](%%r8 ),%%ymm12	\n\t"/* cr */\
-		"vmovaps	%c[__i1](%%rdi),%%ymm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%ymm13	\n\t"/* ci */\
+		"vmovaps	%c[__i1]+0x20(%%rsi),%%ymm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%ymm13	\n\t"/* ci */\
 		"vmovaps	%c[__i3](%%rsi),%%ymm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%ymm14	\n\t"/* dr */\
-		"vmovaps	%c[__i3](%%rdi),%%ymm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%ymm15	\n\t"/* di */\
+		"vmovaps	%c[__i3]+0x20(%%rsi),%%ymm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%ymm15	\n\t"/* di */\
 		"																movq	%[__isrt2],%%r14	\n\t"\
 		"vsubpd		%%ymm2 ,%%ymm0,%%ymm0						\n\t	vsubpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"/* ar-bi */\
 		"vsubpd		%%ymm3 ,%%ymm1,%%ymm1						\n\t	vsubpd		%%ymm10,%%ymm9 ,%%ymm9 	\n\t"/* ai-br */\
@@ -9347,15 +9346,14 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"																vmovaps	%%ymm14,0x20(%%r12)	\n\t"\
 	/* Block 2: */													/* Block 3: */\
 		"addq	$%c[__i4],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[4,c]*ostride */\
-		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	%c[__i1](%%rsi),%%ymm4						\n\t	vmovaps	%c[__i1](%%r8 ),%%ymm12	\n\t"\
 		"vmovaps	%c[__i3](%%rsi),%%ymm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%ymm14	\n\t"\
-		"vmovaps	%c[__i1](%%rdi),%%ymm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%ymm13	\n\t"\
-		"vmovaps	%c[__i3](%%rdi),%%ymm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%ymm15	\n\t"\
-		"movq	%[__isrt2],%%rdi	\n\t	addq	$0x20,%%rdi	\n\t"/* cc0, from isrt2 [rdi,rsi shared by both cols] */\
+		"vmovaps	%c[__i1]+0x20(%%rsi),%%ymm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%ymm13	\n\t"\
+		"vmovaps	%c[__i3]+0x20(%%rsi),%%ymm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%ymm15	\n\t"\
 		"vmovaps	%%ymm4,%%ymm0								\n\t	vmovaps	%%ymm12,%%ymm8 		\n\t"\
 	/*	"vmovaps	%%ymm6,%%ymm2								\n\t	vmovaps	%%ymm14,%%ymm10		\n\t"*/\
-		"vmovaps	(%%rdi),%%ymm2								\n\t	vmovaps	0x20(%%rdi),%%ymm10	\n\t"/* Instead use these to store [c,s] */\
+		"vmovaps	0x20(%%r14),%%ymm2								\n\t	vmovaps	0x40(%%r14),%%ymm10	\n\t"/* Instead use these to store [c,s] */\
 		"vmovaps	%%ymm5,%%ymm1								\n\t	vmovaps	%%ymm13,%%ymm9 		\n\t"\
 		"vmovaps	%%ymm7,%%ymm3								\n\t	vmovaps	%%ymm15,%%ymm11		\n\t"\
 		"vmulpd		    %%ymm2 ,%%ymm4,%%ymm4					\n\t	vmulpd		    %%ymm10,%%ymm12,%%ymm12	\n\t"\
@@ -9370,18 +9368,17 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vsubpd	%%ymm7,%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
 	"vfmadd132pd	(%%r15),%%ymm4,%%ymm6						\n\t	vfmadd132pd	(%%r15),%%ymm12,%%ymm14		\n\t"\
 	"vfmadd132pd	(%%r15),%%ymm5,%%ymm7						\n\t	vfmadd132pd	(%%r15),%%ymm13,%%ymm15		\n\t"\
-		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	%c[__i2](%%rsi),%%ymm2						\n\t	vmovaps	%c[__i2](%%r8 ),%%ymm10	\n\t"\
-		"vmovaps	%c[__i2](%%rdi),%%ymm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%ymm11	\n\t"\
+		"vmovaps	%c[__i2]+0x20(%%rsi),%%ymm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%ymm11	\n\t"\
 		"vmovaps	        (%%rsi),%%ymm0						\n\t	vmovaps	        (%%r8 ),%%ymm8 	\n\t"\
 		"vmovaps	    0x20(%%rsi),%%ymm1						\n\t	vmovaps	    0x20(%%r8 ),%%ymm9 	\n\t"\
 		"vsubpd		  %%ymm3,%%ymm2,%%ymm2						\n\t	vaddpd	%%ymm11,%%ymm10,%%ymm10	\n\t"\
 		"vaddpd	%c[__i2](%%rsi),%%ymm3,%%ymm3					\n\t	vsubpd	%c[__i2](%%r8 ),%%ymm11,%%ymm11	\n\t"\
-		"movq	%[__isrt2],%%r9 	\n\t"\
-	"vfnmadd231pd		 (%%r9),%%ymm2,%%ymm0				\n\t	vfnmadd231pd		 (%%r9),%%ymm10,%%ymm8 	\n\t"/* x = x - y.isrt2 */\
-	"vfnmadd231pd		 (%%r9),%%ymm3,%%ymm1				\n\t	vfnmadd231pd		 (%%r9),%%ymm11,%%ymm9 	\n\t"\
-	" vfmadd132pd	-0x20(%%r9),%%ymm0,%%ymm2				\n\t	 vfmadd132pd	-0x20(%%r9),%%ymm8 ,%%ymm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	" vfmadd132pd	-0x20(%%r9),%%ymm1,%%ymm3				\n\t	 vfmadd132pd	-0x20(%%r9),%%ymm9 ,%%ymm11	\n\t"\
+	"vfnmadd231pd		 (%%r14),%%ymm2,%%ymm0				\n\t	vfnmadd231pd		 (%%r14),%%ymm10,%%ymm8 	\n\t"/* x = x - y.isrt2 */\
+	"vfnmadd231pd		 (%%r14),%%ymm3,%%ymm1				\n\t	vfnmadd231pd		 (%%r14),%%ymm11,%%ymm9 	\n\t"\
+	" vfmadd132pd	-0x20(%%r14),%%ymm0,%%ymm2				\n\t	 vfmadd132pd	-0x20(%%r14),%%ymm8 ,%%ymm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	" vfmadd132pd	-0x20(%%r14),%%ymm1,%%ymm3				\n\t	 vfmadd132pd	-0x20(%%r14),%%ymm9 ,%%ymm11	\n\t"\
 	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
 		"movslq		0x20(%%r9),%%rax	\n\t"/*        off8 */"movslq	0x30(%%r9),%%r10	\n\t"/*        offc */\
 		"movslq		0x24(%%r9),%%rbx	\n\t"/*        off9 */"movslq	0x34(%%r9),%%r11	\n\t"/*        offd */\
@@ -9418,7 +9415,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		,[__two] "m" (Xtwo)\
 		,[out0] "m" (Xout0) /* output-address-octet base pointer */\
 		,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -9657,8 +9654,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	"prefetcht1	0x100(%%rax)	\n\t"\
 		/* Need separate address Im parts of outputs due to literal-offsets below */\
 		"movq	%[__out0],%%rsi									\n\t	leaq	%c[__o4](%%rsi),%%r8 	\n\t"\
-		"leaq	0x20(%%rsi),%%rdi								\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+8*ostride */\
-		"																leaq	0x20(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+8*ostride */\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */							/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
 		"vmovaps	    (%%rax),%%ymm2							\n\t	vmovaps	    (%%r10),%%ymm10	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6							\n\t	vmovaps	    (%%r12),%%ymm14	\n\t"\
@@ -9687,16 +9683,16 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	"movq2dq	%%mm0,%%xmm14	\n\t	vbroadcastsd	%%xmm14,%%ymm14	\n\t"/* reload 2.0 from MMX0 */\
 		"vmovaps	%%ymm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%ymm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%ymm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%ymm10,%c[__o3](%%r8 )	\n\t"\
-		"vmovaps	%%ymm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%ymm9 ,%c[__o2](%%r9 )	\n\t"\
-		"vmovaps	%%ymm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%ymm11,%c[__o1](%%r9 )	\n\t"\
+		"vmovaps	%%ymm1,%c[__o2]+0x20(%%rsi)						\n\t	vmovaps	%%ymm9 ,%c[__o2]+0x20(%%r8 )	\n\t"\
+		"vmovaps	%%ymm3,%c[__o1]+0x20(%%rsi)						\n\t	vmovaps	%%ymm11,%c[__o1]+0x20(%%r8 )	\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm0,%%ymm4						\n\t	vfmadd132pd	%%ymm14,%%ymm8 ,%%ymm12		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm2,%%ymm7						\n\t	vfmadd132pd	%%ymm14,%%ymm10,%%ymm15		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm1,%%ymm5						\n\t	vfmadd132pd	%%ymm14,%%ymm9 ,%%ymm13		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm3,%%ymm6						\n\t	vfmadd132pd	(%%rax),%%ymm11,%%ymm14		\n\t"\
 		"vmovaps	%%ymm4,        (%%rsi)						\n\t	vmovaps	%%ymm12,        (%%r8 )	\n\t"\
 		"vmovaps	%%ymm7,%c[__o1](%%rsi)						\n\t	vmovaps	%%ymm15,%c[__o1](%%r8 )	\n\t"\
-		"vmovaps	%%ymm5,        (%%rdi)						\n\t	vmovaps	%%ymm13,        (%%r9 )	\n\t"\
-		"vmovaps	%%ymm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%ymm14,%c[__o3](%%r9 )	\n\t"\
+		"vmovaps	%%ymm5,        0x20(%%rsi)						\n\t	vmovaps	%%ymm13,        0x20(%%r8 )	\n\t"\
+		"vmovaps	%%ymm6,%c[__o3]+0x20(%%rsi)						\n\t	vmovaps	%%ymm14,%c[__o3]+0x20(%%r8 )	\n\t"\
 	"prefetcht1	0x100(%%rax)									\n\tprefetcht1	0x100(%%r10)\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */						/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
 		"movslq		0x10(%%r15),%%rax	\n\t	movslq		0x30(%%r15),%%r10	\n\t"/* off[4-7],[c-f] */\
@@ -9731,21 +9727,20 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
 		"vsubpd	%%ymm6,%%ymm3,%%ymm3							\n\t	vsubpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
 	"prefetcht1	0x100(%%rcx)								\n\t	prefetcht1	0x100(%%r12)	\n\t"\
-		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
 	"vmovaps	%%ymm14,(%%rax) 	\n\t"/* spill ymm14 to make room for 2.0 */\
 	"movq2dq	%%mm0,%%xmm14	\n\t	vbroadcastsd	%%xmm14,%%ymm14	\n\t"/* reload 2.0 from MMX0 */\
 		"vmovaps	%%ymm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%ymm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%ymm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%ymm10,%c[__o3](%%r8 )	\n\t"\
-		"vmovaps	%%ymm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%ymm9 ,%c[__o2](%%r9 )	\n\t"\
-		"vmovaps	%%ymm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%ymm11,%c[__o1](%%r9 )	\n\t"\
+		"vmovaps	%%ymm1,%c[__o2]+0x20(%%rsi)						\n\t	vmovaps	%%ymm9 ,%c[__o2]+0x20(%%r8 )	\n\t"\
+		"vmovaps	%%ymm3,%c[__o1]+0x20(%%rsi)						\n\t	vmovaps	%%ymm11,%c[__o1]+0x20(%%r8 )	\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm0,%%ymm4						\n\t	vfmadd132pd	%%ymm14,%%ymm8 ,%%ymm12		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm2,%%ymm7						\n\t	vfmadd132pd	%%ymm14,%%ymm10,%%ymm15		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm1,%%ymm5						\n\t	vfmadd132pd	%%ymm14,%%ymm9 ,%%ymm13		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm3,%%ymm6						\n\t	vfmadd132pd	(%%rax),%%ymm11,%%ymm14		\n\t"\
 		"vmovaps	%%ymm4,        (%%rsi)						\n\t	vmovaps	%%ymm12,        (%%r8 )	\n\t"\
 		"vmovaps	%%ymm7,%c[__o1](%%rsi)						\n\t	vmovaps	%%ymm15,%c[__o1](%%r8 )	\n\t"\
-		"vmovaps	%%ymm5,        (%%rdi)						\n\t	vmovaps	%%ymm13,        (%%r9 )	\n\t"\
-		"vmovaps	%%ymm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%ymm14,%c[__o3](%%r9 )	\n\t"\
+		"vmovaps	%%ymm5,        0x20(%%rsi)						\n\t	vmovaps	%%ymm13,        0x20(%%r8 )	\n\t"\
+		"vmovaps	%%ymm6,%c[__o3]+0x20(%%rsi)						\n\t	vmovaps	%%ymm14,%c[__o3]+0x20(%%r8 )	\n\t"\
 	"prefetcht1	0x100(%%rax)	\n\t"\
 	/******************************************************************************/\
 	/*** Now do 4 DFTs with internal twiddles on the 4*stride - separated data: ***/\
@@ -9756,7 +9751,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	"leaq %c[__o4](%%rax),%%rbx \n\t"/* out0+  [4*ostride] */"	\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"\
 	"leaq %c[__o4](%%rbx),%%rcx \n\t"/* out0+2*[4*ostride] */"	\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
 	"leaq %c[__o4](%%rcx),%%rdx \n\t"/* out0+3*[4*ostride] */"	\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
-		"														\n\t	movq	%[__isrt2],%%rdi	\n\t"\
+		"														\n\t	movq	%[__isrt2],%%rsi	\n\t"\
 		"vmovaps	    (%%rax),%%ymm0							\n\t	vmovaps	    (%%r10),%%ymm8 	\n\t"/* ar */\
 		"vmovaps	0x20(%%rax),%%ymm1							\n\t	vmovaps	0x20(%%r10),%%ymm9 	\n\t"/* ai */\
 		"vmovaps	    (%%rbx),%%ymm2							\n\t	vmovaps	    (%%r11),%%ymm10	\n\t"/* br */\
@@ -9778,18 +9773,18 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"														\n\t		vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
 		"vsubpd	%%ymm5,%%ymm0,%%ymm0							\n\t	vfmadd132pd	(%%r15),%%ymm12,%%ymm14		\n\t"\
 		"vsubpd	%%ymm4,%%ymm1,%%ymm1							\n\t	vfmadd132pd	(%%r15),%%ymm13,%%ymm15		\n\t"\
-		"vsubpd	%%ymm6,%%ymm2,%%ymm2							\n\t	vfnmadd231pd	(%%rdi),%%ymm12,%%ymm11		\n\t"/* x = x - y.isrt2 */\
-		"vsubpd	%%ymm7,%%ymm3,%%ymm3							\n\t	vfnmadd231pd	(%%rdi),%%ymm13,%%ymm9 		\n\t"\
-		"vmovaps	%%ymm0,    (%%rdx)							\n\t	vfnmadd231pd	(%%rdi),%%ymm14,%%ymm10		\n\t"\
-		"vmovaps	%%ymm1,0x20(%%rbx)							\n\t	vfnmadd231pd	(%%rdi),%%ymm15,%%ymm8 		\n\t"\
+		"vsubpd	%%ymm6,%%ymm2,%%ymm2							\n\t	vfnmadd231pd	(%%rsi),%%ymm12,%%ymm11		\n\t"/* x = x - y.isrt2 */\
+		"vsubpd	%%ymm7,%%ymm3,%%ymm3							\n\t	vfnmadd231pd	(%%rsi),%%ymm13,%%ymm9 		\n\t"\
+		"vmovaps	%%ymm0,    (%%rdx)							\n\t	vfnmadd231pd	(%%rsi),%%ymm14,%%ymm10		\n\t"\
+		"vmovaps	%%ymm1,0x20(%%rbx)							\n\t	vfnmadd231pd	(%%rsi),%%ymm15,%%ymm8 		\n\t"\
 		"vmovaps	%%ymm2,    (%%rcx)							\n\t		vmovaps	%%ymm11,    (%%r12)	\n\t"\
 		"vmovaps	%%ymm3,0x20(%%rcx)							\n\t		vmovaps	%%ymm9 ,0x20(%%r12)	\n\t"\
 	"vfmadd132pd	(%%r15),%%ymm0,%%ymm5						\n\t		vmovaps	%%ymm10,0x20(%%r11)	\n\t"\
 	"vfmadd132pd	(%%r15),%%ymm1,%%ymm4						\n\t		vmovaps	%%ymm8 ,    (%%r13)	\n\t"\
-	"vfmadd132pd	(%%r15),%%ymm2,%%ymm6						\n\t	vfmadd132pd	-0x20(%%rdi),%%ymm11,%%ymm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	"vfmadd132pd	(%%r15),%%ymm3,%%ymm7						\n\t	vfmadd132pd	-0x20(%%rdi),%%ymm9 ,%%ymm13	\n\t"\
-		"vmovaps	%%ymm5,    (%%rbx)							\n\t	vfmadd132pd	-0x20(%%rdi),%%ymm10,%%ymm14	\n\t"\
-		"vmovaps	%%ymm4,0x20(%%rdx)							\n\t	vfmadd132pd	-0x20(%%rdi),%%ymm8 ,%%ymm15	\n\t"\
+	"vfmadd132pd	(%%r15),%%ymm2,%%ymm6						\n\t	vfmadd132pd	-0x20(%%rsi),%%ymm11,%%ymm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	"vfmadd132pd	(%%r15),%%ymm3,%%ymm7						\n\t	vfmadd132pd	-0x20(%%rsi),%%ymm9 ,%%ymm13	\n\t"\
+		"vmovaps	%%ymm5,    (%%rbx)							\n\t	vfmadd132pd	-0x20(%%rsi),%%ymm10,%%ymm14	\n\t"\
+		"vmovaps	%%ymm4,0x20(%%rdx)							\n\t	vfmadd132pd	-0x20(%%rsi),%%ymm8 ,%%ymm15	\n\t"\
 		"vmovaps	%%ymm6,    (%%rax)							\n\t		vmovaps	%%ymm12,    (%%r10)	\n\t"\
 		"vmovaps	%%ymm7,0x20(%%rax)							\n\t		vmovaps	%%ymm13,0x20(%%r10)	\n\t"\
 		"														\n\t		vmovaps	%%ymm14,0x20(%%r13)	\n\t"\
@@ -9799,7 +9794,6 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	"addq $%c[__o1],%%rbx\n\t"/* relative to Block 0 */"\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"/* relative to Block 1 */\
 	"addq $%c[__o1],%%rcx								\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
 	"addq $%c[__o1],%%rdx								\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
-		"leaq	0x20(%%rdi),%%rsi	\n\t"/* cc0, from isrt2 [rdi,rsi shared by both cols] */\
 		"vmovaps	    (%%rdx),%%ymm0							\n\t	vmovaps	    (%%r13),%%ymm8 	\n\t"\
 		"vmovaps	0x20(%%rdx),%%ymm1							\n\t	vmovaps	0x20(%%r13),%%ymm9 	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm4							\n\t	vmovaps	    (%%r12),%%ymm12	\n\t"\
@@ -9808,7 +9802,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vmovaps	    %%ymm1 ,%%ymm3							\n\t	vmovaps	    %%ymm9 ,%%ymm11	\n\t"\
 		"vmovaps	    %%ymm4 ,%%ymm6							\n\t	vmovaps	    %%ymm12,%%ymm14	\n\t"\
 	/*	"vmovaps	    %%ymm5 ,%%ymm7							\n\t	vmovaps	    %%ymm13,%%ymm15	\n\t"*/\
-		"vmovaps	0x20(%%rsi),%%ymm7							\n\t	vmovaps	    (%%rsi),%%ymm15	\n\t"/* Instead use these to store [c,s] */\
+		"vmovaps	0x40(%%rsi),%%ymm7							\n\t	vmovaps	0x20(%%rsi),%%ymm15	\n\t"/* Instead use these to store [c,s] */\
 		"vmulpd		    %%ymm7 ,%%ymm0,%%ymm0					\n\t	vmulpd		    %%ymm15,%%ymm8 ,%%ymm8 	\n\t"\
 		"vmulpd		    %%ymm7 ,%%ymm1,%%ymm1					\n\t	vmulpd		    %%ymm15,%%ymm9 ,%%ymm9 	\n\t"\
 		"vmulpd		    %%ymm15,%%ymm4,%%ymm4					\n\t	vmulpd		    %%ymm7 ,%%ymm12,%%ymm12	\n\t"\
@@ -9829,10 +9823,10 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vmovaps	0x20(%%rax),%%ymm1							\n\t	vmovaps	0x20(%%r10),%%ymm9 	\n\t"\
 		"vaddpd	0x20(%%rbx),%%ymm2,%%ymm2						\n\t	vsubpd	0x20(%%r11),%%ymm10,%%ymm10	\n\t"\
 		"vsubpd	    (%%rbx),%%ymm3,%%ymm3						\n\t	vaddpd	    (%%r11),%%ymm11,%%ymm11	\n\t"\
-	"vfnmadd231pd		 (%%rdi),%%ymm2,%%ymm0				\n\t	vfnmadd231pd		 (%%rdi),%%ymm10,%%ymm8 	\n\t"/* x = x - y.isrt2 */\
-	"vfnmadd231pd		 (%%rdi),%%ymm3,%%ymm1				\n\t	vfnmadd231pd		 (%%rdi),%%ymm11,%%ymm9 	\n\t"\
-	" vfmadd132pd	-0x20(%%rdi),%%ymm0,%%ymm2				\n\t	 vfmadd132pd	-0x20(%%rdi),%%ymm8 ,%%ymm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	" vfmadd132pd	-0x20(%%rdi),%%ymm1,%%ymm3				\n\t	 vfmadd132pd	-0x20(%%rdi),%%ymm9 ,%%ymm11	\n\t"\
+	"vfnmadd231pd		 (%%rsi),%%ymm2,%%ymm0				\n\t	vfnmadd231pd		 (%%rsi),%%ymm10,%%ymm8 	\n\t"/* x = x - y.isrt2 */\
+	"vfnmadd231pd		 (%%rsi),%%ymm3,%%ymm1				\n\t	vfnmadd231pd		 (%%rsi),%%ymm11,%%ymm9 	\n\t"\
+	" vfmadd132pd	-0x20(%%rsi),%%ymm0,%%ymm2				\n\t	 vfmadd132pd	-0x20(%%rsi),%%ymm8 ,%%ymm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	" vfmadd132pd	-0x20(%%rsi),%%ymm1,%%ymm3				\n\t	 vfmadd132pd	-0x20(%%rsi),%%ymm9 ,%%ymm11	\n\t"\
 		"vsubpd	%%ymm7,%%ymm0,%%ymm0							\n\t	vsubpd	%%ymm13,%%ymm10,%%ymm10		\n\t"\
 		"vsubpd	%%ymm6,%%ymm1,%%ymm1							\n\t	vsubpd	%%ymm12,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd	%%ymm4,%%ymm2,%%ymm2							\n\t	vsubpd	%%ymm14,%%ymm8 ,%%ymm8 		\n\t"\
@@ -9860,7 +9854,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		,[__o2] "e" (Xo2)\
 		,[__o3] "e" (Xo3)\
 		,[__o4] "e" (Xo4)\
-		: "cc","memory","mm0","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","mm0","rax","rbx","rcx","rdx","rsi","r8","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
