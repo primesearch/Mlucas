@@ -294,7 +294,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy16_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy16_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -3032,8 +3032,8 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy16_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	cy16_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
@@ -3644,7 +3644,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 			thread_arg->maxerr = maxerr;
 		}
 
-		return 0x0;
+		return;
 	}
 #endif
 

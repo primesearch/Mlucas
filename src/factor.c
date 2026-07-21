@@ -583,7 +583,7 @@ int main(int argc, char *argv[])
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)PerPass_tfSieve, NULL, 0x0};
+	static task_control_t   task_control = {NULL, PerPass_tfSieve, NULL, 0x0};
 
   #endif
 
@@ -2609,8 +2609,8 @@ MFACTOR_HELP:
 
   #else
 
-	void*
-	PerPass_tfSieve(void*thread_arg)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	PerPass_tfSieve(void*thread_arg, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct fac_thread_data_t* targ = thread_arg;	// Ref'd as task->data in threadpool.c::worker_thr_routine() caller
 		int    tid          = targ->tid;	// Thread ID (Use the pool-thread ID here rather than the task ID ... there are typically many more tasks than pool threads)
@@ -2695,7 +2695,11 @@ MFACTOR_HELP:
 
 		if(interval_lo == interval_hi) {
 			printf("Thread %u immediate-return (no-op)\n",tid);
+		#ifdef MULTITHREAD
+			return;
+		#else
 			return 0x0;
+		#endif
 		}
 
 	#if 0	/************** disable for now - need to sync with similar code in main() ***************/
@@ -3809,7 +3813,11 @@ MFACTOR_HELP:
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
 									#ifdef QUIT_WHEN_FACTOR_FOUND
+									  #ifdef MULTITHREAD
+										return;
+									  #else
 										return 0;
+									  #endif
 									#endif
 									}	// end(L-loop)
 								#ifdef MULTITHREAD
@@ -3902,7 +3910,11 @@ MFACTOR_HELP:
 							factor_k[(*nfactor)++] = k_to_try[l];
 
 						#ifdef QUIT_WHEN_FACTOR_FOUND
+						  #ifdef MULTITHREAD
+							return;
+						  #else
 							return 0;
+						  #endif
 						#endif
 						}
 					#ifdef MULTITHREAD
@@ -4039,7 +4051,7 @@ MFACTOR_HELP:
 		*(targ->count) += count;
 	//	printf("%" PRIu64 " ... Thread %u done.\n",*(targ->count),tid);
 		pthread_mutex_unlock(&mutex_updatecount);
-		return 0x0;
+		return;
 	  #else
 		return count;
 	  #endif

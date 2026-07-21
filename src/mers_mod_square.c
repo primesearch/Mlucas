@@ -241,7 +241,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)mers_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, mers_process_chunk, NULL, 0x0};
 
 #endif
 
@@ -2165,8 +2165,8 @@ undo_initial_ffft_pass:
 
 #ifdef MULTITHREAD
 
-void*
-mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+void
+mers_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct mers_thread_data_t* thread_arg = targ;
 	int thr_id = thread_arg->tid, ii = thr_id<<1;	// Since mers-mod processes 2 data blocks per thread, ii-value = 2x unique thread identifying number
@@ -2298,10 +2298,8 @@ void mers_process_chunk(
 	if(fwd_fft == 1) {
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
-		return 0x0;
-	#else
-		return;
 	#endif
+		return;
 	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
@@ -2368,7 +2366,6 @@ void mers_process_chunk(
 #ifdef MULTITHREAD
 	*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 //	printf("Return from Thread %d ... ", ii);
-	return 0x0;
 #endif
 }
 
