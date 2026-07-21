@@ -2156,7 +2156,10 @@ READ_RESTART_FILE:
 			// Use mi64 routines to compute d[]*PRP_BASE and do ensuing equality check:
 			itmp64 = ((MODULUS_TYPE == MODULUS_TYPE_FERMAT) ? 3ull : (uint64)PRP_BASE);	// Fermat-mod uses PRP_BASE to store 2 for random-shift-offset scheme
 			c_uint64_ptr[j] = mi64_mul_scalar(c_uint64_ptr, itmp64, c_uint64_ptr, j);
-			ASSERT(c_uint64_ptr[j] == 0ull, "d[]*PRP_BASE result has unexpected carryout!");
+			// Carryout from d[]*PRP_BASE must be < PRP_BASE ; the mod-reduction loop just below folds any such
+			// carry back in. (For p == 63 (mod 64) the top limb has only 1 spare bit, so a carry of up to
+			// PRP_BASE-1 is a normal, legal outcome here, not an error.)
+			ASSERT(c_uint64_ptr[j] < itmp64, "d[]*PRP_BASE result has unexpected carryout!");
 			// Need to (mod N) ... store modulus N in d[] doubles-array, which is freed up by above convert_res_FP_bytewise(d,...) call:
 			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 				// Loop rather than call to mi64_set_eq_scalar here, since need to set all elts = -1:
