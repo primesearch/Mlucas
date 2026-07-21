@@ -345,6 +345,30 @@ me at: heber.tomer@gmail.com
 
 	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 
+	  #if 0
+	  /*
+		// This is the affinity API tied to pthread library ... interestingly, it's less portable than the
+		// Linux system-centric one below; e.g. GCC gives "error: unknown type name ‘cpuset_t’; did you mean ‘cpu_set_t’?" here:
+		int i,errcode;
+		cpuset_t *cset;
+		pthread_t pth;
+
+		cset = cpuset_create();
+		if (cset == NULL) {
+			err(EXIT_FAILURE, "cpuset_create");
+		}
+		i = my_id % pool->num_of_cores;	// get cpu mask using sequential thread ID modulo #available cores
+		cpuset_set((cpuid_t)i, cset);
+
+		pth = pthread_self();
+		errcode = pthread_setaffinity_np(pth, cpuset_size(cset), cset);
+		if (errcode) {
+			perror("pthread_setaffinity_np");
+		}
+		cpuset_destroy(cset);
+	  */
+	  #else
+
 		cpu_set_t cpu_set;
 		int i,errcode;
 		pid_t thread_id = syscall (SYS_gettid);
@@ -369,6 +393,7 @@ me at: heber.tomer@gmail.com
 			perror("sched_setaffinity");
 			fprintf(stderr,"INFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n");
 		}
+	  #endif
 
 	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 
