@@ -235,6 +235,17 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 
 #define ASSERT(expr, assert_string) (void)((expr) || (ABORT(#expr, __FILE__, __LINE__, __func__, assert_string),0))
 
+/* Checked heap-allocation macros: they do the malloc/calloc/realloc inline (no per-call wrapper-
+function overhead on the success path) and, only on failure, call alloc_fail() (defined in util.c) to
+print the file:line:function of the call site plus the requested size and abort - rather than returning
+NULL for the caller to dereference. __func__ names the failing function, as in ASSERT above. These use
+the statement-expression form ({ ...; value; }), a GCC/Clang extension already relied on throughout
+Mlucas, so the macro yields the resulting pointer. The align.h ALLOC_* macros route through REALLOC. */
+__attribute__ ((__noreturn__)) void alloc_fail(const char*what, size_t nbytes, const char*file, int line, const char*func);
+#define MALLOC(n)		({ size_t _mn = (n);               void *_mp = malloc(_mn);       if(!_mp && _mn)          alloc_fail("malloc" , _mn,      __FILE__, __LINE__, __func__); _mp; })
+#define CALLOC(nm,sz)	({ size_t _cn = (nm), _cs = (sz);  void *_cp = calloc(_cn, _cs);  if(!_cp && _cn && _cs)   alloc_fail("calloc" , _cn*_cs,  __FILE__, __LINE__, __func__); _cp; })
+#define REALLOC(p,n)	({ size_t _rn = (n);               void *_rp = realloc((p), _rn); if(!_rp && _rn)          alloc_fail("realloc", _rn,      __FILE__, __LINE__, __func__); _rp; })
+
 void	VAR_WARN(char *typelist, ...);
 
 void	byte_bitstr(const uint8  byte, char*ostr);
