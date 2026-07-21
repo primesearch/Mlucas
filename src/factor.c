@@ -1317,7 +1317,7 @@ exit(0);
 	// Note: return value of read_savefile is signed:
 	itmp = read_savefile(RESTARTFILE, pstring, &bmin_file,&bmax_file, &kmin_file,&know_file,&kmax_file, &passmin_file,&passnow_file,&passmax_file, &count);
 	if(itmp == -1) {
-		sprintf(cbuf,"INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
+		snprintf(cbuf, sizeof(cbuf), "INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
 		fprintf(stderr,"%s",cbuf);
 	#ifndef FACTOR_STANDALONE
 		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
@@ -2761,7 +2761,7 @@ MFACTOR_HELP:
 
 			/* bmin */
 			++curr_line;
-			fgets(cbuf, STR_MAX_LEN*2, fp);
+			fgets(cbuf, sizeof(cbuf), fp);
 			itmp = sscanf(cbuf, "%lf", &bmin_file);
 			if(itmp != 1) {
 				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(0,"0");
@@ -2769,7 +2769,7 @@ MFACTOR_HELP:
 
 			/* bmax */
 			++curr_line;
-			fgets(cbuf, STR_MAX_LEN*2, fp);
+			fgets(cbuf, sizeof(cbuf), fp);
 			itmp = sscanf(cbuf, "%lf", &bmax_file);
 			if(itmp != 1) {
 				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(0,"0");
@@ -3344,14 +3344,14 @@ MFACTOR_HELP:
 							mi64_clear(u64_arr, lenQ);	// Use q2 for quotient [i.e. factor-candidate k] and u64_arr for remainder
 							mi64_div(q,two_p,lenQ,lenQ,q2,u64_arr);
 							if(mi64_getlen(q2, lenQ) != 1) {
-								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: k must be 64-bit!\n",
+								snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: k must be 64-bit!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
 								ASSERT(0, cbuf);
 							}
 							if(!mi64_cmp_eq_scalar(u64_arr, 1ull, lenQ))
 							{
-								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: q mod (2p) = %s != 1!\n",
+								snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: q mod (2p) = %s != 1!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],
 									&cbuf2[convert_mi64_base10_char(cbuf2, u64_arr, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
@@ -3380,7 +3380,7 @@ MFACTOR_HELP:
 										printf("%" PRIu64 " has a small divisor: %u\n",q[0], l);
 										ASSERT(0, "Abort...");
 									#else
-										sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s has a small divisor: %u\n",
+										snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s has a small divisor: %u\n",
 											(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],l);
 										fprintf(fp,"%s", cbuf);
 										ASSERT(0, cbuf);
@@ -3785,16 +3785,16 @@ MFACTOR_HELP:
 										if(mi64_pprimeF(q, 3ull, lenQ)) {
 											factor_k[(*nfactor)++] = k_to_try[l];
 											if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
+												snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
 											else
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
+												snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
 										#ifdef FAC_DEBUG
 											if(TRYQM1 > 1)
 												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 										#endif
 										} else {	// Composite factor; this should only occur in "single-word" (q < 2^96) mode:
 											if(known_factor_div_check_done) {	// Already divided out all pvsly-found factors
-												sprintf(cbuf,"\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
+												snprintf(cbuf, sizeof(cbuf), "\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
 											} else {
 												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
 												for(j = 0; j < *nfactor; j++) {
@@ -4439,7 +4439,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 	if(!fp) {
 		return -1;
 	} else {
-		sprintf(cbuf,"Factoring savefile %s found ... reading ...\n",fname);
+		snprintf(cbuf, sizeof(cbuf), "Factoring savefile %s found ... reading ...\n",fname);
 		fprintf(stderr,"%s",cbuf);
 	#ifndef FACTOR_STANDALONE
 		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
