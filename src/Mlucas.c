@@ -2715,15 +2715,24 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				ierr = pm1_stage2(p, pm1_bigstep, pm1_stage2_mem_multiple,
 					a,mult,arrtmp,	// Pointers stage 1 residue in a[], double** scratch storage 4-vector mult[], arrtmp
 					func_mod_square, n, scrnFlag, &tdiff, gcd_str);
-				if(ierr && (ierr % ERR_ROUNDOFF) == 0) {	// Workaround for pthreaded-run issue where a single ROE sometimes shows up as an integer multiple of ERR_ROUNDOFF
+				// pm1_stage2() returns either a single raw ERR_INTERRUPT code (check that first, via exact match) or
+				// a bitmask in which bit ierr_code is set if modmul-error type ierr_code occurred 1-or-more times
+				// among the batch of stage 2 modmuls done since the last such check - so test for specific error
+				// types via bit tests, not equality or (as used pre-bitmask, to work around distinct hits of the
+				// same error type within one batch summing to an integer multiple of it) modulo tests:
+				if(ierr == ERR_INTERRUPT) {
+					// First print the signal-handler-generated message:
+					mlucas_fprint(cbuf,1);
+					exit(1);
+				} else if(ierr & (1<<ERR_ROUNDOFF)) {	// One or more modmuls hit a roundoff error - bump FFT length and restart
 					n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
 					// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
 					for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }		NRADICES = 0;
 					goto SETUP_FFT;
-				} else if(ierr == ERR_INTERRUPT) {
-					// First print the signal-handler-generated message:
+				} else if(ierr & (1<<ERR_CARRY)) {	// One or more modmuls hit a nonzero-exit-carry (residue-corruption) error
+					snprintf(cbuf,STR_MAX_LEN*2,"p-1 stage 2 hit a carry error, retrying from most-recent savefile in case the issue was due to residue-data corruption.\n");
 					mlucas_fprint(cbuf,1);
-					exit(1);
+					goto READ_RESTART_FILE;
 				} else if(ierr) {
 					sprintf(cbuf,"p-1 stage 2 hit an unhandled error of type[%u] = %s! Aborting.",ierr,returnMlucasErrCode(ierr));
 					ASSERT(0,cbuf);
@@ -4950,7 +4959,12 @@ int	cfgNeedsUpdating(char*in_line)
 
 const char*returnMlucasErrCode(uint32 ierr)
 {
-	ASSERT(ierr < ERR_MAX, "Error code out of range!");
+	// A single well-defined error code is a nonzero value in [1,ERR_MAX]. Anything else - 0 (no error) reaching
+	// here, a value > ERR_MAX, or a bitmask with 2 or more bits set as a result of distinct modmul-error types
+	// having occurred within a single batch of modmuls - is not a simple lookup, so describe it as such rather
+	// than asserting and killing an otherwise-healthy run over a diagnostic-string lookup failure:
+	if(ierr < 1 || ierr > ERR_MAX)
+		return "unknown/composite error code";
 	return err_code[ierr-1];
 }
 
