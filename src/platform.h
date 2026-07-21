@@ -1354,8 +1354,17 @@ extern int NTHREADS;
 
 		...and the "implicit" warnings disppear. Anyway, add that one to the build-related mental "WTF?" bin
 		and just #define __USE_GNU instead.
+
+		2026 update: the same "implicit declaration of CPU_ZERO/CPU_SET/sched_setaffinity" failure
+		recurred on glibc 2.43 / GCC 16.1.1 (some earlier header in the chain now locks in __USE_GNU=0
+		before we get here) - same root cause, same fix Ernst already found above. makemake.sh now passes
+		-D_GNU_SOURCE on the actual compile command line via CPPFLAGS, which is the real fix; the #ifndef
+		guard below just avoids a harmless "_GNU_SOURCE redefined" warning when both are in effect, and
+		keeps this file safe to compile standalone (outside the provided build script) on old-glibc hosts.
 		*/
-		#define _GNU_SOURCE
+		#ifndef _GNU_SOURCE
+			#define _GNU_SOURCE
+		#endif
 		#include <sched.h>
 
 		#include <unistd.h>	// Needed for Posix sleep() command, among other things

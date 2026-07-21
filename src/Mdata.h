@@ -54,6 +54,11 @@ extern "C" {
 	#if HWLOC_API_VERSION < 0x00010000
 		#error Application requires installed hwloc version to be >= 1.0
 	#endif
+	// hwloc v2.0 renamed HWLOC_OBJ_SOCKET to HWLOC_OBJ_PACKAGE; the new name was added as an alias
+	// as of v1.11 to ease the transition, but versions older than that only have the old name:
+	#if HWLOC_API_VERSION < 0x00010b00
+		#define HWLOC_OBJ_PACKAGE HWLOC_OBJ_SOCKET
+	#endif
 
 	extern hwloc_topology_t hw_topology;
 	extern int HWLOC_AFFINITY;	// Is per-thread LPU-binding (affinity) supported?
