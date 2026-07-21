@@ -1,6 +1,6 @@
 [***** This file best-viewed with a 4-column tab setting, with line-wrapping *****]
 
-================= Mlucas v20.1.1 command line options listing =================
+================= Mlucas v21.0.2 command line options listing =================
 
 Note: besides the basic post-build self-test flags covered by the online README page
 ( http://www.mersenneforum.org/mayer/README.html ),
@@ -635,7 +635,7 @@ Once you have identified the desired process IDs:
 	interval completes, i.e. until the latest savefile update occurs.
 
 For the current list of signal types which the program listens for, see the sig_handler() function near
-the top of Mlucas.c . As of this writing (v20.1.1), the program listens for INT,TERM,HUP,ALRM,USR1 and USR2.
+the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2.
 
 ======================
 
