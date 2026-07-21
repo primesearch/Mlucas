@@ -105,6 +105,7 @@ EWM: nvcc gives 'error: invalid redeclaration of type name "int64_t"' for the ty
  */
 typedef union {
   uint64 u64;
+  int64  i64;
   double f64;
 } i64_f64;
 
@@ -126,7 +127,7 @@ static inline int64 f64_to_i64(double u)
 {
   i64_f64 cvt;
   cvt.f64 = u;
-  return cvt.u64;
+  return cvt.i64;
 }
 
 /*******************************************************************************
