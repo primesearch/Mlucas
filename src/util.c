@@ -9390,83 +9390,108 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
-	char *mlucas_path;
-	char *cmdstr;
-	char *expanded_str;
-	int  tmp;
-	FILE *pipe_ptr;
-	size_t bufsize;
+	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
+	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
-
-	mlucas_path = getenv("MLUCAS_PATH");
+	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
-		bufsize = strlen(mlucas_path) + 1;
-		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
 			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
 		strcpy(MLUCAS_PATH, mlucas_path);
-	} else {
-		bufsize = strlen(MLUCAS_PATH) + 1;
 	}
-	bufsize = (bufsize - 1) * 3 + 1;
-	mlucas_path = (char*)malloc(bufsize);
-	if (mlucas_path == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_err_check;
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
+	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
+	   backslash, since both are directory separators on Windows).  */
+	{
+		size_t len = strlen(MLUCAS_PATH);
+		if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+			goto out_err_check;
+		if (len > STR_MAX_LEN) {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
+		if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
 	}
+#else
+	/* POSIX: run MLUCAS_PATH through the shell (via popen "printf") so $HOME-style
+	   variables get expanded, then enforce the length/trailing-slash invariants: */
+	{
+		char *cmdstr;
+		char *expanded_str;
+		int  tmp;
+		FILE *pipe_ptr;
+		size_t bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
+		mlucas_path = (char*)malloc(bufsize);
+		if (mlucas_path == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
 
-	quote_spaces(mlucas_path, MLUCAS_PATH);
-	cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
-	if (cmdstr == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_mlucas_path;
-	}
+		quote_spaces(mlucas_path, MLUCAS_PATH);
+		cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
+		if (cmdstr == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_mlucas_path;
+		}
 
-	strcpy(cmdstr, "printf \"\"");
-	strcat(cmdstr, mlucas_path);
-	pipe_ptr = popen(cmdstr, "r");
-	if (pipe_ptr == NULL) {
-		fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_cmdstr;
-	}
+		strcpy(cmdstr, "printf \"\"");
+		strcat(cmdstr, mlucas_path);
+		pipe_ptr = popen(cmdstr, "r");
+		if (pipe_ptr == NULL) {
+			fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_cmdstr;
+		}
 
-	tmp = getc(pipe_ptr); /* goto out_pipe if shell output nothing  */
-	if (tmp == EOF)
-		goto out_pipe;
-	else
-		ungetc(tmp, pipe_ptr);
+		tmp = getc(pipe_ptr); /* goto out_pipe if shell output nothing  */
+		if (tmp == EOF)
+			goto out_pipe;
+		else
+			ungetc(tmp, pipe_ptr);
 
-	expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
-	if (expanded_str == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr);
-	if (getc(pipe_ptr) != EOF) {
-		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
-		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
+		expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
+		if (expanded_str == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr);
+		if (getc(pipe_ptr) != EOF) {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
 
-	MLUCAS_PATH = expanded_str;
-	out_pipe:
-	pclose(pipe_ptr);
-	out_cmdstr:
-	free(cmdstr);
-	out_mlucas_path:
-	free(mlucas_path);
+		MLUCAS_PATH = expanded_str;
+		out_pipe:
+		pclose(pipe_ptr);
+		out_cmdstr:
+		free(cmdstr);
+		out_mlucas_path:
+		free(mlucas_path);
+	}
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
