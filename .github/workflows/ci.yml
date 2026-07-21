@@ -136,7 +136,6 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    continue-on-error: ${{ (!endsWith(matrix.os, '-arm') && matrix.container == 'ubuntu:16.04') || (endsWith(matrix.os, '-arm') && (matrix.container == 'ubuntu:16.04' || matrix.container == 'ubuntu:18.04') && matrix.cc == 'clang') || (matrix.container == 'alpine:3.8' && (!endsWith(matrix.os, '-arm') || matrix.cc == 'clang')) }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
