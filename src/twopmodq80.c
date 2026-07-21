@@ -2705,8 +2705,8 @@ if(~pshift != p+78) {
 				"movslq	%[__start_index], %%rcx		\n\t"\
 				"subq $2,%%rcx						\n\t"\
 				"test %%rcx, %%rcx					\n\t"\
-				"jl Loop4End		/* Skip if n < 0 */	\n\t"\
-			"Loop4Beg:								\n\t"\
+				"jl Loop4End%=		/* Skip if n < 0 */	\n\t"\
+			"Loop4Beg%=:								\n\t"\
 			/* SQR_LOHI78_3WORD_DOUBLE_q4(fx, flo,fhi). Inputs flo0,1,2 enter in xmm0,2,4 [lcol] and xmm8,10,12 [rcol]: */\
 				"/* SQR_LOHI78_3WORD_DOUBLE_q4(): */\n\t"\
 				"movq	%[__fx0],%%rax				\n\t"\
@@ -2930,8 +2930,8 @@ if(~pshift != p+78) {
 				"movaps	%%xmm1,%%xmm2 /* fx1 */	\n\t	movaps	%%xmm9 ,%%xmm10	/* hx1 */	\n\t"\
 				"subq	$1,%%rcx	/* j-- */		\n\t"\
 				"cmpq	$0,%%rcx	/* j > 0 ?	*/	\n\t"\
-				"jge	Loop4Beg	/* if (j >= 0), loop */	\n\t"\
-			"Loop4End:							\n\t"\
+				"jge	Loop4Beg%=	/* if (j >= 0), loop */	\n\t"\
+			"Loop4End%=:							\n\t"\
 				:					/* outputs: none */\
 				: [__fqinv0] "m" (fqinv0)	/* All inputs from memory addresses here */\
 				 ,[__two26i] "m" (two26i)	\
@@ -4367,8 +4367,8 @@ if(~pshift != p+78) {
 					"movslq	%[__start_index], %%rcx		/* for(j = start_index-2; j >= 0; j--) { */\n\t"\
 					"subq $2,%%rcx						\n\t"\
 					"test %%rcx, %%rcx					\n\t"\
-					"jl Loop8End		/* Skip if n < 0 */	\n\t"\
-				"Loop8Beg:								\n\t"\
+					"jl Loop8End%=		/* Skip if n < 0 */	\n\t"\
+				"Loop8Beg%=:								\n\t"\
 					"movaps	0x200(%%rsi),%%xmm6	/* two13i shared between both columns */	\n\t		/* SQR_LOHI96_q4(x*, lo*, hi*): */	\n\t"\
 					"																						/* Load the x.d0 data: */	\n\t"\
 					"/* SQR_LOHI78_3WORD_DOUBLE_q4(): */\n\t													movq	0x300(%%rsi),%%rax	/* Dereference the x0 pointer... */\n\t"\
@@ -4597,7 +4597,7 @@ if(~pshift != p+78) {
 					"movq	%[__pshift],%%rax					\n\t"\
 					"shrq	%%cl,%%rax	/* j already in c-reg */\n\t"\
 					"andq	$0x1,%%rax							\n\t"\
-				"je	twopmodq96_q4_pshiftjmp						\n\t"\
+				"je	twopmodq96_q4_pshiftjmp%=						\n\t"\
 					"			/* Int64 code: if h<l carryout of low 64 bits gives hi=2^32 = 0x100000000, need to zero upper 32 bits prior to double step: */\n\t"\
 					"																							movq	$-1,%%rdi	\n\t"\
 					"																							shrq	$32,%%rdi	\n\t"\
@@ -4654,7 +4654,7 @@ if(~pshift != p+78) {
 					"	subpd		%%xmm13,%%xmm9	/* x mod q, low 26 bits */				\n\t				andq	%%rdi,%%rdx	\n\t"\
 					"																							addq	%%rax,%%r11	\n\t"\
 					"																							adcq	%%rdx,%%r15	\n\t"\
-				"twopmodq96_q4_pshiftjmp:													\n\t"\
+				"twopmodq96_q4_pshiftjmp%=:													\n\t"\
 					"/* } */																\n\t"\
 					"/* Normalize the result: */											\n\t"\
 					"movaps	0x210(%%rsi),%%xmm4		\n\t	movaps	0x210(%%rsi),%%xmm12	\n\t"\
@@ -4676,8 +4676,8 @@ if(~pshift != p+78) {
 					"movaps	%%xmm1,%%xmm2 /* fx1 */	\n\t	movaps	%%xmm9 ,%%xmm10	/* hx1 */	\n\t			movq	%%r15,0x338(%%rsi)	\n\t"\
 					"subq	$1,%%rcx	/* j-- */		\n\t"\
 					"cmpq	$0,%%rcx	/* j > 0 ?	*/	\n\t"\
-					"jge	Loop8Beg	/* if (j >= 0), loop */	\n\t"\
-				"Loop8End:							\n\t"\
+					"jge	Loop8Beg%=	/* if (j >= 0), loop */	\n\t"\
+				"Loop8End%=:							\n\t"\
 					:					/* outputs: none */\
 					: [__fq0] "m" (fq0)	/* All inputs from memory addresses here */\
 					 ,[__pshift] "m" (pshift)	\
