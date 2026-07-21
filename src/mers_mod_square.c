@@ -275,6 +275,18 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			ASSERT(0, cbuf);
 		}
 		first_entry=FALSE;
+		// On a runlength/radix-set change this init block re-runs (see the first_entry=TRUE resets above),
+		// re-allocating the static per-FFT-length index arrays below. Free any previous allocation first so
+		// those static pointers don't leak it (fixes #96); free(NULL) on the first-ever pass is a no-op:
+		free(block_index);     block_index     = 0x0;
+		free(ws_i);            ws_i            = 0x0;
+		free(ws_j1);           ws_j1           = 0x0;
+		free(ws_j2);           ws_j2           = 0x0;
+		free(ws_j2_start);     ws_j2_start     = 0x0;
+		free(ws_k);            ws_k            = 0x0;
+		free(ws_m);            ws_m            = 0x0;
+		free(ws_blocklen);     ws_blocklen     = 0x0;
+		free(ws_blocklen_sum); ws_blocklen_sum = 0x0;
 		psave = p;
 		nsave = n;
 		N2 =n/2;		/* Complex vector length.	*/
