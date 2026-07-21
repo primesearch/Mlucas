@@ -3156,10 +3156,12 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			  #if 0
 				#error to-do!
 				double r1,r2, lo,hi;
+				uint64 i64r1,i64r2;
 				r1 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				r2 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				mul50x50_debug(r1,r2, &lo,&hi);
-				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",*(uint64*)&r1,*(uint64*)&r2);
+				memcpy(&i64r1,&r1,sizeof(i64r1)); memcpy(&i64r2,&r2,sizeof(i64r2));	// avoid strict-aliasing UB
+				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",i64r1,i64r2);
 				printf("mul50x50_: lo = %16" PRIu64 "\n",*(uint64*)alo);
 				printf("mul50x50_: hi = %16" PRIu64 "\n",*(uint64*)ahi);
 			  #endif
@@ -3283,7 +3285,7 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 	int cmp_fma_lohi_vs_exact(double dx, double dy, double dhi, double dlo, uint64 ix, uint64 iy, uint64 ihi, uint64 ilo)
 	{
 		int retval;
-		uint64 i64, e1,e0, m1,m0;
+		uint64 i64, e1,e0, m1,m0, u_dhi,u_dlo;
 		uint32 s1,s0;
 		const uint64 two52 = 0x0010000000000000ull, mmask = 0x000FFFFFFFFFFFFFull;
 		uint128 exact;
@@ -3299,8 +3301,10 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 				dlo = -dlo;
 		}
 		// Extract exp & mantissa fields of the double outputs and restore hidden bits:
-		i64 = *(uint64*)&dhi; e1 = (i64>>52)&0x7ff; m1 = (i64&mmask) + two52;
-		i64 = *(uint64*)&dlo; e0 = (i64>>52)&0x7ff; m0 = (i64&mmask) +(two52 & (-(dlo != 0.)));
+		memcpy(&i64,&dhi,sizeof(i64));	// avoid strict-aliasing UB
+		e1 = (i64>>52)&0x7ff; m1 = (i64&mmask) + two52;
+		memcpy(&i64,&dlo,sizeof(i64));	// avoid strict-aliasing UB
+		e0 = (i64>>52)&0x7ff; m0 = (i64&mmask) +(two52 & (-(dlo != 0.)));
 		int nsh1 = e1 - 0x433;	// Shift count of hi-double result = exp - 0x3ff - 52
 		int nsh0 = e0 - 0x433;	// Shift count of lo-double result
 		exact.d0 = m1; exact.d1 = 0;	LSHIFT128(exact,nsh1, exact);
@@ -3318,7 +3322,8 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 			printf("In cmp_fma_lohi_vs_exact: FMA-double and pure-int DMUL results differ!\n");
 			printf("dx = %f; dy = %f; hi,lo = %f,%f\n",dx,dy, dhi * (1 - 2*(s1 != 0)), dlo * (1 - 2*(s0 != 0)));
 			printf("ix = %" PRId64 "; iy = %" PRId64 "; ihi,lo = %" PRId64 ",%" PRIu64 "\n",ix,iy, ihi,ilo);
-			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",*(uint64*)&dhi,*(uint64*)&dlo);
+			memcpy(&u_dhi,&dhi,sizeof(u_dhi)); memcpy(&u_dlo,&dlo,sizeof(u_dlo));	// avoid strict-aliasing UB
+			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",u_dhi,u_dlo);
 			printf("nsh1,0 = %d,%d: ehi = %" PRIu64 "; elo = %" PRIu64 " [mlo = %c%" PRIu64 "]\n",nsh1,nsh0,exact.d1,exact.d0, char_sgn[s1 ^ s0],m0);
 		}
 		return retval;
@@ -5336,9 +5341,9 @@ double	convert_base10_char_double (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5416,9 +5421,9 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5484,9 +5489,9 @@ uint128	convert_base10_char_uint128(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5547,9 +5552,9 @@ uint192	convert_base10_char_uint192(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5611,9 +5616,9 @@ uint256	convert_base10_char_uint256(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5725,7 +5730,7 @@ double	finvest(double x, uint32 numbits)
 	}
 
 	/* Unpack double into a uint64: */
-	itmp = *(uint64 *)&x;
+	memcpy(&itmp,&x,sizeof(itmp));	// avoid strict-aliasing UB
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
@@ -5749,7 +5754,7 @@ double	finvest(double x, uint32 numbits)
 	mant = (uint64)byte_lookup_finvest[byteval] << 44;
 
 	itmp = (itmp & MASK_SIGN) + (exp << 52) + mant;
-	ftmp = *(double *)&itmp;
+	memcpy(&ftmp,&itmp,sizeof(ftmp));	// avoid strict-aliasing UB
 
 	/* Do as many Newton iterations as required - number of correct
 	bits approximately doubles each iteration. The iteration we use
@@ -5794,7 +5799,7 @@ double	fisqrtest(double x, uint32 numbits)
 	}
 
 	/* Unpack double into a uint64: */
-	itmp = *(uint64 *)&x;
+	memcpy(&itmp,&x,sizeof(itmp));	// avoid strict-aliasing UB
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
@@ -5852,7 +5857,7 @@ double	fisqrtest(double x, uint32 numbits)
 	mant = (uint64)byte_lookup_fisqrtest[byteval] << 44;
 
 	itmp = (itmp & MASK_SIGN) + (exp << 52) + mant;
-	ftmp = *(double *)&itmp;
+	memcpy(&ftmp,&itmp,sizeof(ftmp));	// avoid strict-aliasing UB
 
 	/* Do as many Newton iterations as required - number of correct
 	bits approximately doubles each iteration. The iteration we use
@@ -9506,7 +9511,7 @@ int mkdir_p(char *path)
 	char *tok;
 	FILE *fp;
 
-	strcpy(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
 	if (mlucas_path[0] == '\0')
 		return 1;
 	else if (mlucas_path[0] == '/')
@@ -9581,13 +9586,13 @@ char *shell_quote(char *dest, char *src)
    which is then passed to fopen()
 
    Since the length of both MLUCAS_PATH and path are at most STR_MAX_LEN,
-   we can use strcpy() and strcat() safely  */
+   mlucas_path is guaranteed large enough, but build it with a bounded
+   snprintf() rather than strcpy()+strcat() as a defensive measure  */
 FILE *mlucas_fopen(const char *path, const char *mode)
 {
 	char mlucas_path[2 * STR_MAX_LEN + 1];
 
-	strcpy(mlucas_path, MLUCAS_PATH);
-	strcat(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s%s", MLUCAS_PATH, path);
 	return fopen(mlucas_path, mode);
 }
 
