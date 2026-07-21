@@ -1331,9 +1331,9 @@ for(i=0; i < NRT; i++) {
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(nchunks, sizeof(int));
-		thread  = (pthread_t *)calloc(nchunks, sizeof(pthread_t));
-		tdat    = (struct mers_thread_data_t *)calloc(nchunks, sizeof(struct mers_thread_data_t));
+		thr_ret = (int *)CALLOC(nchunks, sizeof(int));
+		thread  = (pthread_t *)CALLOC(nchunks, sizeof(pthread_t));
+		tdat    = (struct mers_thread_data_t *)CALLOC(nchunks, sizeof(struct mers_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);

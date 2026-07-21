@@ -35,42 +35,49 @@ pointer is null we exit immediately, thus the resulting memory leak is never an 
 In the Align macros we cast pointers to longto accommodate architectures which use 64-bit address arithmetic.
 Note that rather than simply assuming sizeof(void *) <= sizeof(long), we check this at program invocation, in
 util.c::check_nbits_in_types()>
+
+The ALLOC_* macros route through the REALLOC macro (util.h) rather than calling realloc() directly, so
+a failed allocation prints the file:line:function of the call site and aborts cleanly instead of handing
+back NULL for the caller to blindly dereference. Using REALLOC (rather than open-coding realloc_check +
+__FILE__, __LINE__ in each definition) keeps the call-site capture in one place; it expands at the
+ALLOC_* use site, which every file using these macros reaches only after including util.h (directly or
+via factor.h/Mdata.h/Mlucas.h).
 */
 
-#define ALLOC_INT(_p,_n)	(int           *)realloc(_p,(_n)*sizeof(int           )+256)
+#define ALLOC_INT(_p,_n)	(int           *)REALLOC(_p,(_n)*sizeof(int           )+256)
 #define ALIGN_INT(_p)		(int           *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_UINT(_p,_n)	(uint          *)realloc(_p,(_n)*sizeof(uint          )+256)
+#define ALLOC_UINT(_p,_n)	(uint          *)REALLOC(_p,(_n)*sizeof(uint          )+256)
 #define ALIGN_UINT(_p)		(uint          *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_INT64(_p,_n)	(int64         *)realloc(_p,(_n)*sizeof(int64         )+256)
+#define ALLOC_INT64(_p,_n)	(int64         *)REALLOC(_p,(_n)*sizeof(int64         )+256)
 #define ALIGN_INT64(_p)		(int64         *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_UINT64(_p,_n)	(uint64        *)realloc(_p,(_n)*sizeof(uint64        )+256)
+#define ALLOC_UINT64(_p,_n)	(uint64        *)REALLOC(_p,(_n)*sizeof(uint64        )+256)
 #define ALIGN_UINT64(_p)	(uint64        *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_UINT128(_p,_n)(uint128       *)realloc(_p,(_n+_n)*sizeof(uint64     )+256)
+#define ALLOC_UINT128(_p,_n)(uint128       *)REALLOC(_p,(_n+_n)*sizeof(uint64     )+256)
 #define ALIGN_UINT128(_p)	(uint128       *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_FLOAT(_p,_n)	(float         *)realloc(_p,(_n)*sizeof(float         )+256)
+#define ALLOC_FLOAT(_p,_n)	(float         *)REALLOC(_p,(_n)*sizeof(float         )+256)
 #define ALIGN_FLOAT(_p)		(float         *)(((intptr_t)(_p) | 63)+1)
 
-#define ALLOC_DOUBLE(_p,_n)	(double        *)realloc(_p,(_n)*sizeof(double        )+512)
+#define ALLOC_DOUBLE(_p,_n)	(double        *)REALLOC(_p,(_n)*sizeof(double        )+512)
 #define ALIGN_DOUBLE(_p)	(double        *)(((intptr_t)(_p) | 127)+1)
 
-#define ALLOC_f128(_p,_n)	(__float128    *)realloc(_p,(_n)*sizeof(__float128    )+512)
+#define ALLOC_f128(_p,_n)	(__float128    *)REALLOC(_p,(_n)*sizeof(__float128    )+512)
 #define ALIGN_f128(_p)		(__float128    *)(((intptr_t)(_p) | 127)+1)
 
-#define ALLOC_COMPLEX(_p,_n)(struct complex*)realloc(_p,(_n)*sizeof(struct complex)+512)
+#define ALLOC_COMPLEX(_p,_n)(struct complex*)REALLOC(_p,(_n)*sizeof(struct complex)+512)
 #define ALIGN_COMPLEX(_p)	(struct complex*)(((intptr_t)(_p) | 127)+1)
 
 // Vector-double|uint64-alloc used by SIMD builds; register size difference between YMM and XMM taken care of by def of vec_dbl in types.h:
 #ifdef USE_SSE2
 
-	#define ALLOC_VEC_DBL(_p,_n)(vec_dbl*)realloc(_p,(_n)*sizeof(vec_dbl)+512)
+	#define ALLOC_VEC_DBL(_p,_n)(vec_dbl*)REALLOC(_p,(_n)*sizeof(vec_dbl)+512)
 	#define ALIGN_VEC_DBL(_p)	(vec_dbl*)(((intptr_t)(_p) | 127)+1)
 
-	#define ALLOC_VEC_U64(_p,_n)(vec_u64*)realloc(_p,(_n)*sizeof(vec_u64)+512)
+	#define ALLOC_VEC_U64(_p,_n)(vec_u64*)REALLOC(_p,(_n)*sizeof(vec_u64)+512)
 	#define ALIGN_VEC_U64(_p)	(vec_u64*)(((intptr_t)(_p) | 127)+1)
 
 #else	// In scalar-mode simply use the above double|uint64 macros:
@@ -83,7 +90,7 @@ util.c::check_nbits_in_types()>
 
 #endif
 
-#define ALLOC_POINTER(_p,_ptr_type,_n)(_ptr_type*)realloc(_p,(_n)*sizeof(_ptr_type)+64)
+#define ALLOC_POINTER(_p,_ptr_type,_n)(_ptr_type*)REALLOC(_p,(_n)*sizeof(_ptr_type)+64)
 #define ALIGN_POINTER(_p,_ptr_type)	  (_ptr_type*)(((intptr_t)(_p) | 63)+1)
 
 #define ALLOC_QFLOAT(_p,_n)	ALLOC_UINT128(_p,_n)

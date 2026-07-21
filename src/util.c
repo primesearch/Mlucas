@@ -94,6 +94,20 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 
 #endif	// __CUDA_ARCH__ ?
 
+/**********************************/
+/****** CHECKED ALLOCATION ********/
+/**********************************/
+/* Common failure path for the checked-allocation macros (MALLOC/CALLOC/REALLOC in util.h and the
+ALLOC_* macros in align.h): print the file:line:function of the call site plus the requested size,
+then abort - so an out-of-memory condition yields a clear diagnostic instead of a later SIGSEGV from a
+caller dereferencing a NULL pointer. The success-path malloc/calloc/realloc is done inline in the
+macros; this is only ever reached on failure, so a function call here costs nothing on the hot path. */
+__attribute__ ((__noreturn__)) void alloc_fail(const char*what, size_t nbytes, const char*file, int line, const char*func) {
+	char msg[STR_MAX_LEN];
+	snprintf(msg, sizeof(msg), "%s of %" PRIu64 " bytes failed - out of memory", what, (uint64)nbytes);
+	ABORT("ptr != 0x0", file, line, func, msg);
+}
+
 /***************/
 
 /* ewm: Not sure what I intended this for... */
@@ -189,7 +203,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		// to the same memory, bounce successive-divide results between 2 arrays, x and y:
 		lenX = (p>>6);
 	//	x = (uint64 *)calloc(lenX + 1, sizeof(uint64));
-		x = (uint64 *)calloc(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
+		x = (uint64 *)CALLOC(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
 		memset(x,ONES64,(lenX<<3));	x[lenX++] = (1ull << (p&63)) - 1;
 		nchars = ceil(p * log(2.0)/log(10.));
 		fprintf(stderr,"Generating decimal printout of M(%u), which has [%u] decimal digits; will write results to file '%s'...\n",p,nchars,fname);
@@ -197,12 +211,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		// Until have generic-FFT-based mi64_divrem algo in place, use mod-10^27, the largest power of 10 whose
 		// odd factor (5^27) fits in a uint64, thus allowing the core div-and-mod loops to use 1-word arguments:
 		nc = nchars + (nchars/27) + 1;	// Add newlines to count
-		str = (char *)calloc(nc, sizeof(char));
-		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+		str = (char *)CALLOC(nc, sizeof(char));
+		y = (uint64 *)CALLOC(lenX + 1, sizeof(uint64));
 		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
 		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
 		lenD = 0; ASSERT(0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
-		r = (uint64 *)calloc(lenD, sizeof(uint64));
+		r = (uint64 *)CALLOC(lenD, sizeof(uint64));
 		nc -= 28;		// starting char of first 27-digit chunk
 		for(i = 0; ; i+=2) {	// i = #divides counter; do 2 divs per loop exec in attempt to get some modest pipelining
 			mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
@@ -507,12 +521,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		uint32 curr_p,fbase2psp_idx,i,ihi,itmp32,j,jlo,jhi,k,max_diff,m,nfac,np,pm1;
 		const uint32 pdiff_8[8] = {2,1,2,1,2,3,1,3}, pdsum_8[8] = { 0, 2, 6, 8,12,18,20,26};
 		// Compact table storing the (difference/2) between adjacent odd primes.
-		unsigned char *pdiff = (unsigned char *)calloc(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
+		unsigned char *pdiff = (unsigned char *)CALLOC(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
 		// Struct used for storing smoothness data ... make big enough to store all primes in [p - pm_gap, p + pm_gap] with a safety factor
 		struct psmooth sdat;
 		// .../10 here is an approximation based on prime density for primes > 100000;
 		// note the code uses an interval [p-pm_gap, p+pm_gap], i.e. of length 2*pm_gap, so the calloc needs to be twice pm_gap/10:
-		struct psmooth*psmooth_vec = (struct psmooth *)calloc(2*pm_gap/10, sizeof(struct psmooth));
+		struct psmooth*psmooth_vec = (struct psmooth *)CALLOC(2*pm_gap/10, sizeof(struct psmooth));
 
 		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
 		pdiff[1] = pdiff[2] = 1;
