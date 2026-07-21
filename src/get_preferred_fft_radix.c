@@ -111,9 +111,13 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 			any line not of that form is ignored, thus allowing pretty much any common comment-format: */
 			if(sscanf(in_line, "%d", &i) == 1) {
 				/* Consider any entry with an FFT length >= target, which further contains
-				a per-iteration timing datum in the form 'msec/iter = [float arg]' in non-exponential form:
+				a per-iteration timing datum in the form 'msec/iter = [float arg]' in non-exponential form.
+				Cap the upper end at 2x the target length: the caller (Mlucas.c) refuses to accept any
+				returned length beyond that, so scanning past it can only waste time chasing a cfg entry
+				we'd have to reject anyway - or worse, cause us to skip a usable smaller "better" entry
+				within range in favor of an out-of-range one that later trips the caller's ASSERT:
 				*/
-				if((i >= kblocks) && (char_addr = strstr(in_line, "msec/iter =")) != 0) {
+				if((i >= kblocks) && (i <= (kblocks<<1)) && (char_addr = strstr(in_line, "msec/iter =")) != 0) {
 					/* Stores whether we found an entry for the requested FFT length
 					(whether that proves to have the best timing for lengths >= kblocks or not): */
 					if(i == kblocks) {
