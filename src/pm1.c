@@ -1206,9 +1206,6 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	thr_ret  = (int *)CALLOC(NTHREADS, sizeof(int));
 	thread   = (pthread_t *)CALLOC(NTHREADS, sizeof(pthread_t));
 	tdat     = (struct pm1_thread_data_t *)CALLOC(NTHREADS, sizeof(struct pm1_thread_data_t));
-	// Initialize and set thread detached attribute:
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	const int nbytes_simd_align = (RE_IM_STRIDE*8) - 1;	// And per-thread data chunk addresses with this to check SIMD alignment
 	ASSERT(((intptr_t)mult[0] & nbytes_simd_align) == 0x0,"mult[0] not aligned on 64-byte boundary!");
 	ASSERT(((intptr_t)buf [0] & nbytes_simd_align) == 0x0,"buf [0] not aligned on 64-byte boundary!");	// Since npad a multiple of RE_IM_STRIDE, only need to check buf[0] alignment

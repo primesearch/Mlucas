@@ -71,6 +71,25 @@ me at: heber.tomer@gmail.com
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
+// MacOS has its own versions of these, in /usr/include/X11/Xthreads.h:
+static void * xmalloc(size_t len) {
+	void *ptr = malloc(len);
+	if (ptr == NULL) {
+		printf("failed to allocate %u bytes\n", (uint32)len);
+		exit(-1);
+	}
+	return ptr;
+}
+
+static void * xcalloc(size_t num, size_t len) {
+	void *ptr = calloc(num, len);
+	if (ptr == NULL) {
+		printf("failed to calloc %u bytes\n", (uint32)(num * len));
+		exit(-1);
+	}
+	return ptr;
+}
+
 	#define THREAD_POOL_DEBUG	0
 
 	#if THREAD_POOL_DEBUG
