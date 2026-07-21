@@ -783,7 +783,7 @@
 		 ,[__r1] "m" (Xr1)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__pfetch_dist] "m" (Xpfetch_dist)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	/* Clobbered registers */\
+		: "cc","memory","k1","rax","rbx","rcx","rdx","rdi","rsi","r10","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	/* Clobbered registers */\
 	);\
 	}
 
@@ -1633,7 +1633,7 @@
 		 ,[__r1] "m" (Xr1)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__pfetch_dist] "m" (Xpfetch_dist)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","r10","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","rdi","r10","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 

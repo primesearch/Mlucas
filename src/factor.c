@@ -3189,7 +3189,7 @@ MFACTOR_HELP:
 				 ,[__bit_len] "m" (bit_len)	\
 				 ,[__m] "m" (m)	\
 				 ,[__nprime] "nprime" (nprime-m)	\
-				: "cc","memory","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm30","xmm31"	/* Clobbered registers */\
+				: "cc","memory","k1","k2","k3","k4","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm30","xmm31"	/* Clobbered registers */\
 			);
 		/*	}	*/
 
