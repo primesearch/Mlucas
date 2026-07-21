@@ -200,7 +200,7 @@ struct qfloat qfsn1	(struct qfloat q);
 struct qfloat qfcos_or_sin1(struct qfloat q, int cos_or_sin);
 
 // Utility macros:
-#define QLEADZ(__x)	( leadz64(__x.hi) + ((-(sint32)(__x.hi == 0)) && leadz64(__x.lo)) )
+#define QLEADZ(__x)	( leadz64(__x.hi) + ((-(sint32)(__x.hi == 0)) & leadz64(__x.lo)) )
 
 /* Left-shift: This should move at most a bit into the lowest exp-field, so check that on output: */
 #define QLSHIFT(__x, __n, __y)\
