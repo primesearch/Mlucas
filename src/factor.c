@@ -986,7 +986,12 @@ Others are optional and in some cases mutually exclusive:
 	#ifndef MULTITHREAD
 		#warning Building factor.c in unthreaded (i.e. single-main-thread) mode.
 		ASSERT(NTHREADS == 1, "NTHREADS must == 1 in single-threaded mode!");
-		k_to_try = (uint64 *)CALLOC(TRYQ * NTHREADS, sizeof(uint64));
+		// Size for the widest one-time SIMD modpow init-warmup below: twopmodq78_3WORD_DOUBLE_q8/q16/
+		// q32/q64 each read a full 8/16/32/64-wide k[] batch (widest q64 = 64) regardless of TRYQ, so a
+		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
+		// the warmup reads stay valid. Undersized here => OOB read of uninitialized heap, which trips the
+		// 'Ks must be < 2^52' assertion in q32/q64 on hosts whose heap past the alloc isn't zeroed.
+		k_to_try = (uint64 *)CALLOC(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
 	#else
 		MAX_THREADS = get_num_cores();
 		ASSERT(MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
@@ -1007,7 +1012,12 @@ Others are optional and in some cases mutually exclusive:
 		}
 		sprintf(cbuf,"0:%d",NTHREADS-1);
 		parseAffinityString(cbuf);
-		k_to_try = (uint64 *)CALLOC(TRYQ * NTHREADS, sizeof(uint64));
+		// Size for the widest one-time SIMD modpow init-warmup below: twopmodq78_3WORD_DOUBLE_q8/q16/
+		// q32/q64 each read a full 8/16/32/64-wide k[] batch (widest q64 = 64) regardless of TRYQ, so a
+		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
+		// the warmup reads stay valid. Undersized here => OOB read of uninitialized heap, which trips the
+		// 'Ks must be < 2^52' assertion in q32/q64 on hosts whose heap past the alloc isn't zeroed.
+		k_to_try = (uint64 *)CALLOC(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
 
 		// Up to TF_PASSES work units (perhaps fewer if a restart) get done by a pool of NTHREADS threads.  Yypically have
 		// NTHREADS <= TF_PASSES, i.e. pool threads get reassigned a fresh work unit as they complete their current one.
