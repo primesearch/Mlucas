@@ -4380,6 +4380,30 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	// In fact it eases the logic to explicitly set selfTest = TRUE whenever iters is set (but not nec. the converse), so do that here:
 	if(iters) selfTest = TRUE;
 
+	// A user-specified self-test exponent (-m) or Fermat index (-f) is stored in the empty 0-pad slot of
+	// MvecPtr[]/FermVec[], whose reference residues are 0. The residue-verification path (below) then treats
+	// it as brand-new data (new_data = TRUE) and never checks the computed residues against the built-in
+	// reference table - even when the exponent/index + FFT length exactly match a tabulated entry (the bogus
+	// "Non-default exponent" warning is the symptom). For Fermat numbers, -f is the only way to run the
+	// self-test, so their residues were never verified at all (see #98/#123). If the user-specified
+	// exponent/index and FFT length match a reference-table entry, redirect the self-test to that entry so
+	// the residues are actually verified against the tabulated values.
+	if(selfTest && userSetExponent) {
+		if(modType == MODULUS_TYPE_FERMAT) {
+			for(i = 0; i < numFerm; i++) {
+				if(FermVec[i].Fidx == FermVec[numFerm].Fidx && FermVec[i].fftLength == FermVec[numFerm].fftLength) {
+					start = i; finish = i+1; userSetExponent = 0; break;
+				}
+			}
+		} else {
+			for(i = 0; i < numTest; i++) {
+				if(MvecPtr[i].exponent == MvecPtr[numTest].exponent && MvecPtr[i].fftLength == MvecPtr[numTest].fftLength) {
+					start = i; finish = i+1; userSetExponent = 0; break;
+				}
+			}
+		}
+	}
+
 	if(modType == MODULUS_TYPE_MERSENNE && !selfTest)
 	{
 		if(userSetExponent) {
