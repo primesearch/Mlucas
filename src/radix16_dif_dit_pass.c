@@ -128,7 +128,11 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 #endif
 {
 	const char func[] = "radix16_dif_pass";
-	const int pfetch_dist = PFETCH_DIST;
+	// pfetch_dist feeds the "e" (immediate) asm operand in the SSE2_RADIX16_*_TWIDDLE macros
+	// below, so it must be an integer *constant expression*. A `const int` variable only folds
+	// to an immediate once optimization is on; at -O0 stricter modern compilers (e.g. gcc-16)
+	// reject it with "impossible constraint in 'asm'". An enum makes it a true constant at all -O.
+	enum { pfetch_dist = PFETCH_DIST };
 	int pfetch_addr;	// Since had pre-existing L1-targeting pfetch here, add numerical suffix to differentiate cache levels being targeted by the various types of prefetching
 	static int max_threads = 0;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
@@ -1958,7 +1962,9 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 #endif
 {
 	const char func[] = "radix16_dit_pass";
-	const int pfetch_dist = PFETCH_DIST;
+	// See the matching note in radix16_dif_pass: pfetch_dist feeds an "e" (immediate) asm operand,
+	// so it must be an integer constant expression to compile at -O0 under modern gcc.
+	enum { pfetch_dist = PFETCH_DIST };
 	int pfetch_addr;
 	static int max_threads = 0;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
