@@ -181,6 +181,13 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm]
         container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
         cc: [gcc, clang]
+        exclude:
+          # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
+          # cannot assemble the inline asm in dft_macro.c on ARM ("unknown register name 'v0'").
+          # Its gcc builds fine there, as do both compilers on x86-64, so drop only this one combo.
+          - os: ubuntu-24.04-arm
+            container: "ubuntu:14.04"
+            cc: clang
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
