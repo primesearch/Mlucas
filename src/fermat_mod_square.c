@@ -723,20 +723,25 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 		}
 
-	#ifdef USE_AVX512
-		/* KNOWN-BROKEN: the AVX-512 carry step miscomputes in Fermat-mod for the 63*2^k leading radices -
-		radix63, radix1008 (= 63*16) and radix4032 (= 63*64), which all share the ODD_RADIX = 63 RADIX_63/
-		SSE2_RADIX_63 sub-transform and its carry macro. It produces a nonzero exit carry (corrupted residue)
-		after a couple of iterations - confirmed for F24 @ 1008K FFT (radices 1008,16,32), where the AVX-512
-		build fails while nosimd and AVX2 give the correct residue - and SIGSEGVs outright on real AVX-512
-		hardware. The neighbouring 15*2^k / 7*2^k leading radices are fine (e.g. radix960 @ 960K and the
-		radix-896 set @ 896K both pass for F24), so this is specific to the radix-63-based carry, not to
-		odd-composite radices in general. Until that AVX-512 carry macro is fixed, soft-skip these radix sets
-		- as the self-test/driver then selects a working one - rather than returning wrong residues or crashing.
-		nosimd, AVX2 and SSE2 builds are unaffected and handle these radices correctly. (odd part of leading
-		radix == 63  <=>  radix in {63, 1008, 4032}.) */
+	#if defined(USE_AVX512) || (defined(USE_SSE2) && !defined(MULTITHREAD))
+		/* KNOWN-BROKEN: the SIMD Fermat-mod path is broken for the 63*2^k leading radices - radix63,
+		radix1008 (= 63*16) and radix4032 (= 63*64), which all share the ODD_RADIX = 63 RADIX_63/
+		SSE2_RADIX_63 sub-transform and its carry macro. Two distinct failure modes, both confirmed for
+		F24 @ 1008K FFT (radices 1008,16,32):
+		  - AVX-512 (threaded or not): the carry step miscomputes, producing a nonzero exit carry / corrupted
+		    residue after a couple of iterations, and SIGSEGVs outright on real AVX-512 hardware.
+		  - single-threaded SIMD builds of any tier (SSE2/AVX/AVX2/AVX-512, i.e. -DUSE_SSE2 without
+		    -DUSE_THREADS): SIGSEGV inside SSE2_RADIX_63_DIT (out-of-range index offsets into the DFT
+		    scratch), reproduced on AVX2.
+		By contrast nosimd, and *threaded* SSE2/AVX/AVX2 builds, handle these radices correctly (threaded
+		AVX2 gives the same residue as nosimd). The neighbouring 15*2^k / 7*2^k leading radices are fine in
+		all builds (e.g. radix960 @ 960K and the radix-896 set @ 896K both pass for F24), so this is specific
+		to the radix-63-based sub-transform, not to odd-composite radices in general. Until the RADIX_63 SIMD
+		DFT/carry is fixed, soft-skip these radix sets in the affected build configurations - the self-test/
+		driver then selects a working one - rather than returning wrong residues or crashing. (Odd part of
+		leading radix == 63  <=>  radix in {63, 1008, 4032}.) */
 		if(((uint32)RADIX_VEC[0] >> trailz32((uint32)RADIX_VEC[0])) == 63) {
-			sprintf(cbuf,"radix %u (63*2^k) has a broken AVX-512 Fermat-mod carry step; skipping this radix combo (build nosimd/AVX2, or use a non-63 radix set).\n", (uint32)RADIX_VEC[0]);
+			sprintf(cbuf,"radix %u (63*2^k) has a broken SIMD Fermat-mod carry step in this build config; skipping this radix combo (build nosimd, or a threaded non-AVX-512 SIMD build, or use a non-63 radix set).\n", (uint32)RADIX_VEC[0]);
 			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 		}
 	#endif
