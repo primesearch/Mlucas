@@ -444,13 +444,13 @@ int test_fac()
 	q[1] = mi64_mul_scalar( p, 2*56474845800ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 56474845800ull, q, lenQ, q2) != 1) {
-		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
+		printf("ERROR: res = %s != 1\n", &cbuf0[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
 		ASSERT(0, "MM31 known-factor (k = 56474845800) test failed!");
 	}
 	q[1] = mi64_mul_scalar( p, 2*41448832329225ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 41448832329225ull, q, lenQ, q2) != 1) {
-		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
+		printf("ERROR: res = %s != 1\n", &cbuf0[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
 		ASSERT(0, "MM31 known-factor (k = 41448832329225) test failed!");
 	}
 	free((void*)p);	free((void*)q);	free((void*)q2);	p = q = q2 = 0x0;
@@ -710,8 +710,10 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	for(i = 0; ffac256[i].n != 0; i++)
 	{
 		p64 = ffac256[i].n;	// Fermat index n
-		p256.d2 = p256.d1 = 0ull; p256.d0 = 1ull;	LSHIFT256(p256,p64,p256);	// p256 holds powering exponent 2^n
-		q256.d2 = q256.d1 = 0ull; q256.d0 = ffac256[i].k;	// q256 holds k (As of 2015, no k > 64-bit known)
+		// v21: Must zero .d3 as well - it was left uninitialized here, so LSHIFT256 and twopmodq256
+		// read stack garbage in the top word; benign only on hosts whose stack slot happens to be 0:
+		p256.d3 = p256.d2 = p256.d1 = 0ull; p256.d0 = 1ull;	LSHIFT256(p256,p64,p256);	// p256 holds powering exponent 2^n
+		q256.d3 = q256.d2 = q256.d1 = 0ull; q256.d0 = ffac256[i].k;	// q256 holds k (As of 2015, no k > 64-bit known)
 		LSHIFT256(q256,(p64+2),q256);	q256.d0 += 1ull;	// ...and now q256 holds q = k.2^(n+2) + 1 .
 
 		/* This uses the generic 256-bit mod function to calculate q%(2*p): */
