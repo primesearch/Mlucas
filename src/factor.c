@@ -3132,6 +3132,12 @@ MFACTOR_HELP:
 			// [ = 272272 or 226304, resp., depending on whether TF_CLASSES = 60 or 4620].
 			// We vectorize the 2nd loop, since each prime therein will hit at most one bit of the sievelet,
 			// i.e. we require no while-loop, only an if(curr_p's startval < bit_len or not) conditional.
+			// The vectorized bit-clearing below cannot handle the 0xFFFFFFFF 'p == curr_p' sentinel start-value
+			// get_startval() sets when the exponent p is itself within the sieving-prime range - only reachable
+			// by tiny exponents (e.g. the '-m 127 -bmax 20' self-test). Fall back to the scalar loop for that
+			// case; the AVX-512 path handles all real (large) exponents, where no sieving prime equals p.
+			const uint32 small_p = (lenP == 1) && (p[0] <= MAX_SIEVING_PRIME);
+			if(!small_p) {
 		// Loop #1:
 			curr_p = p_last_small;
 			for(m = nclear; m < nprime; m++)
@@ -3193,7 +3199,9 @@ MFACTOR_HELP:
 			);
 		/*	}	*/
 
-		#else	/******** Non-SIMD (pre-AVX512) **********/
+			} else	// small_p: the vectorized sieve can't handle the p==curr_p sentinel; use the scalar loop below
+		#endif
+			{	/******** Non-SIMD (pre-AVX512) - also the small-exponent fallback from the AVX-512 path above **********/
 
 		  #ifdef USE_NCQ
 			#warning Using 4-way bit-clear in PerPass_tfSieve.
@@ -3239,7 +3247,7 @@ MFACTOR_HELP:
 				}
 			}
 
-		#endif	// USE_AVX512 ?
+			}	// end of the AVX-512-vs-scalar (incl. small_p fallback) bit-clearing block
 
 //	if(pass==4)printf("\nPass %u: word0 after deep-prime clearing = %16" PRIX64 "\n",pass,bit_map2[0]);
 
