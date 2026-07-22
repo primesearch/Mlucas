@@ -98,6 +98,29 @@ if [[ ! $OSTYPE == darwin* ]]; then
 fi
 MAKE_ARGS+=(-j "$CPU_THREADS")
 
+# Windows/MinGW gcc (observed on both 15.2 and 16.1) has a longstanding x86-64 codegen bug: when
+# autovectorization creates 256/512-bit temporaries, gcc spills them with ALIGNED stores (vmovdqa,
+# needing 32/64-byte alignment) into stack frames it never dynamically realigns - but the Win64 ABI
+# only guarantees 16-byte alignment at function entry, and Windows randomizes the initial thread
+# stack phase per run. Result: plain C code (no inline asm involved) faults on ~half of all runs,
+# at a stable instruction but "moving" whenever the code is recompiled - observed as Mfactor's
+# test_fac() SIGSEGVing intermittently in CI (vmovdqa %ymm0,0x170(%rsp) with rsp = 0 mod 32, where
+# gcc assumed 16 mod 32). Linux and Wine always start with the compatible phase, which is why this
+# never reproduced off real Windows. -mstackrealign does NOT help (it realigns only to the 16-byte
+# preferred boundary). Instead, keep compiler-GENERATED vector code to 128 bits so no 32/64-byte-
+# aligned spill slots exist at all; Mlucas's hand-written SIMD asm is unaffected (the assembler
+# needs no -m flags), so AVX2/AVX-512 build modes lose nothing but gcc's autovectorization width:
+if [[ $OSTYPE == msys || $OSTYPE == cygwin ]] && ! "${CC:-gcc}" --version 2>/dev/null | grep -qi clang; then
+	pvw_tmp=$(mktemp -d)
+	printf 'int main(void){return 0;}\n' >"$pvw_tmp/t.c"
+	# Compile a real temp file to a real output: native MinGW gcc misparses '-o /dev/null' as C:\dev\null.
+	if "${CC:-gcc}" -mprefer-vector-width=128 "$pvw_tmp/t.c" -o "$pvw_tmp/t.out" >/dev/null 2>&1; then
+		echo -e "MinGW gcc detected: adding -mprefer-vector-width=128 to work around gcc's unaligned-AVX-spill bug on Windows.\n"
+		ARGS+=(-mprefer-vector-width=128)
+	fi
+	rm -rf "$pvw_tmp"
+fi
+
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
 echo "Total number of input parameters = $#"
 
