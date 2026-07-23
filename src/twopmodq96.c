@@ -1533,6 +1533,14 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 /*** 8-trial-factor version ***/
 /******************************/
 #if 0//YES_ASM	*** Disable until regain GCC 4.6+ functionality ***
+/******************************************************************************************
+ * WARNING: twopmodq96_q8 below remains DEAD and UNTESTED. Its local-store layout
+ * arithmetic was repaired (2026: alloc/stride units reconciled to 0x64 uint64 = 0x32
+ * uint96 slots/thread, x/lo pointer groups de-aliased from qhlf/hi, perm_mask init and
+ * ASSERT fixed) so that it would no longer perform OOB writes if re-enabled, but the
+ * routine has NOT been compiled into a working build or numerically validated. Do not
+ * trust it until it has been exercised end-to-end.
+ ******************************************************************************************/
 
 	// The'init_sse2' arg is ill-named here as it refers to 'init any local-mem needed for inline-asm routines' whether SSE/AVX used or
 	// not - here we use just x86_64 non-vector instructions - but use same name as in vector-radix* code to show analogous mem-handling:
@@ -1562,7 +1570,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			,*perm_mask;
 	#endif
 		 int32 j;
-		uint32 jshift, leadb, start_index, zshift, *ptr32_a, *ptr32_b;
+		uint32 jshift, leadb, start_index, zshift, *ptr32, *ptr32_a, *ptr32_b;
 		uint64 tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, r, pshift;
 		uint96 *ptr96;
 		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
@@ -1580,7 +1588,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			#else
 				max_threads = init_sse2;
 			#endif
-				fprintf(stderr, "twopmodq96_q4: Setting up for as many as %d threads...\n",max_threads);
+				fprintf(stderr, "twopmodq96_q8: Setting up for as many as %d threads...\n",max_threads);
 			#ifndef COMPILER_TYPE_GCC
 				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
@@ -1591,16 +1599,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				free((void *)sm_arr);	sm_arr=0x0;
 			}
 			// Alloc the local-memory block - use uint64 allooc/align macros here, but underlying data are all uint96 = [uint64,uint32] pairs:
-			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x4a*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
+			// Per-thread layout is 0x32 uint96 slots (q..hi = 0x30 slots + a 32-byte permute-index register = 2 more slots) = 0x64 uint64 = 800 bytes:
+			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x64*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
 			sm_ptr = (uint96*)ALIGN_UINT64(sm_arr);	ASSERT(((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
 			ptr32 = (uint32*)(sm_ptr + 0x30);	// perm_mask ptr to permute-index register containing dwords 0-7 = [0,7,1,7,2,7,3,7]
 			for(j = 0; j < max_threads; ++j) {
 				// These data fixed within each thread's local store:
-				*ptr32 = 0;	*(ptr32+1) = 7;	*(ptr32+1) = 1;	*(ptr32+1) = 7;	*(ptr32+1) = 2;	*(ptr32+1) = 7;	*(ptr32+1) = 3;	*(ptr32+1) = 7;
+				*ptr32 = 0;	*(ptr32+1) = 7;	*(ptr32+2) = 1;	*(ptr32+3) = 7;	*(ptr32+4) = 2;	*(ptr32+5) = 7;	*(ptr32+6) = 3;	*(ptr32+7) = 7;
 			//	printf("INIT: Thr %d perm_mask address = %" PRIX64 "; data.d0-7 = %" PRIu64 ",%u\n",thr_id,(uint64)ptr96,((uint96 *)ptr96)->d0,((uint96 *)ptr96)->d1);
-				ptr32 += 3 * 0x4a;	// Move on to next thread's local store; 3x accounts for size differntial between uint32 and uint96
+				ptr32 += 4 * 0x32;	// Move on to next thread's local store; 4x accounts for size differential between uint32 and uint96 (0x32 uint96 = 0xc8 uint32 slots)
 			}
 		#else
 			/*
@@ -1618,10 +1627,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			q0    = sm_ptr + 0x00; q1    = sm_ptr + 0x01; q2    = sm_ptr + 0x02; q3    = sm_ptr + 0x03; q4    = sm_ptr + 0x04; q5    = sm_ptr + 0x05; q6    = sm_ptr + 0x06; q7    = sm_ptr + 0x07;
 			qinv0 = sm_ptr + 0x08; qinv1 = sm_ptr + 0x09; qinv2 = sm_ptr + 0x0a; qinv3 = sm_ptr + 0x0b; qinv4 = sm_ptr + 0x0c; qinv5 = sm_ptr + 0x0d; qinv6 = sm_ptr + 0x0e; qinv7 = sm_ptr + 0x0f;
 			qhlf0 = sm_ptr + 0x10; qhlf1 = sm_ptr + 0x11; qhlf2 = sm_ptr + 0x12; qhlf3 = sm_ptr + 0x13; qhlf4 = sm_ptr + 0x14; qhlf5 = sm_ptr + 0x15; qhlf6 = sm_ptr + 0x16; qhlf7 = sm_ptr + 0x17;
-			x0    = sm_ptr + 0x10; x1    = sm_ptr + 0x11; x2    = sm_ptr + 0x12; x3    = sm_ptr + 0x1b; x4    = sm_ptr + 0x14; x5    = sm_ptr + 0x15; x6    = sm_ptr + 0x16; x7    = sm_ptr + 0x17;
-			lo0   = sm_ptr + 0x28; lo1   = sm_ptr + 0x29; lo2   = sm_ptr + 0x2a; lo3   = sm_ptr + 0x23; lo4   = sm_ptr + 0x2c; lo5   = sm_ptr + 0x2d; lo6   = sm_ptr + 0x2e; lo7   = sm_ptr + 0x2f;
+			x0    = sm_ptr + 0x18; x1    = sm_ptr + 0x19; x2    = sm_ptr + 0x1a; x3    = sm_ptr + 0x1b; x4    = sm_ptr + 0x1c; x5    = sm_ptr + 0x1d; x6    = sm_ptr + 0x1e; x7    = sm_ptr + 0x1f;
+			lo0   = sm_ptr + 0x20; lo1   = sm_ptr + 0x21; lo2   = sm_ptr + 0x22; lo3   = sm_ptr + 0x23; lo4   = sm_ptr + 0x24; lo5   = sm_ptr + 0x25; lo6   = sm_ptr + 0x26; lo7   = sm_ptr + 0x27;
 			hi0   = sm_ptr + 0x28; hi1   = sm_ptr + 0x29; hi2   = sm_ptr + 0x2a; hi3   = sm_ptr + 0x2b; hi4   = sm_ptr + 0x2c; hi5   = sm_ptr + 0x2d; hi6   = sm_ptr + 0x2e; hi7   = sm_ptr + 0x2f;
-			perm_mask = sm_ptr + 0x30;	// (0x30 * 3/2) + 2 gives 0x4a uint64 in above alloc
+			perm_mask = sm_ptr + 0x30;	// perm_mask at uint96-slot 0x30 = uint64 index 0x60; + 4 uint64 for the 32-byte permute register = 0x64 uint64/thread in above alloc
 		#endif
 			if(init_sse2) return 0;
 		}	/* end of inits */
@@ -1629,15 +1638,15 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
 		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-		ptr96 = ((uint64*)__r0) + thr_id*0x4a;
+		ptr96 = __r0 + thr_id*0x32;	// 0x32 uint96 slots/thread (matches the 0x64 uint64/thread alloc)
 		q0    = ptr96 + 0x00; q1    = ptr96 + 0x01; q2    = ptr96 + 0x02; q3    = ptr96 + 0x03; q4    = ptr96 + 0x04; q5    = ptr96 + 0x05; q6    = ptr96 + 0x06; q7    = ptr96 + 0x07;
 		qinv0 = ptr96 + 0x08; qinv1 = ptr96 + 0x09; qinv2 = ptr96 + 0x0a; qinv3 = ptr96 + 0x0b; qinv4 = ptr96 + 0x0c; qinv5 = ptr96 + 0x0d; qinv6 = ptr96 + 0x0e; qinv7 = ptr96 + 0x0f;
 		qhlf0 = ptr96 + 0x10; qhlf1 = ptr96 + 0x11; qhlf2 = ptr96 + 0x12; qhlf3 = ptr96 + 0x13; qhlf4 = ptr96 + 0x14; qhlf5 = ptr96 + 0x15; qhlf6 = ptr96 + 0x16; qhlf7 = ptr96 + 0x17;
-		x0    = ptr96 + 0x10; x1    = ptr96 + 0x11; x2    = ptr96 + 0x12; x3    = ptr96 + 0x1b; x4    = ptr96 + 0x14; x5    = ptr96 + 0x15; x6    = ptr96 + 0x16; x7    = ptr96 + 0x17;
-		lo0   = ptr96 + 0x28; lo1   = ptr96 + 0x29; lo2   = ptr96 + 0x2a; lo3   = ptr96 + 0x23; lo4   = ptr96 + 0x2c; lo5   = ptr96 + 0x2d; lo6   = ptr96 + 0x2e; lo7   = ptr96 + 0x2f;
+		x0    = ptr96 + 0x18; x1    = ptr96 + 0x19; x2    = ptr96 + 0x1a; x3    = ptr96 + 0x1b; x4    = ptr96 + 0x1c; x5    = ptr96 + 0x1d; x6    = ptr96 + 0x1e; x7    = ptr96 + 0x1f;
+		lo0   = ptr96 + 0x20; lo1   = ptr96 + 0x21; lo2   = ptr96 + 0x22; lo3   = ptr96 + 0x23; lo4   = ptr96 + 0x24; lo5   = ptr96 + 0x25; lo6   = ptr96 + 0x26; lo7   = ptr96 + 0x27;
 		hi0   = ptr96 + 0x28; hi1   = ptr96 + 0x29; hi2   = ptr96 + 0x2a; hi3   = ptr96 + 0x2b; hi4   = ptr96 + 0x2c; hi5   = ptr96 + 0x2d; hi6   = ptr96 + 0x2e; hi7   = ptr96 + 0x2f;
-		ptr32 = perm_mask = ptr96 + 0x30;	// (0x30 * 3/2) + 2 gives 0x4a uint64 in above alloc
-		ASSERT((*ptr32 == 0) && (*(ptr32+1) == 7) && (*(ptr32+1) == 1) && (*(ptr32+1) == 7) && (*(ptr32+1) == 2) && (*(ptr32+1) == 7) && (*(ptr32+1) == 3) && (*(ptr32+1) == 7), "Bad data at perm_mask address!");
+		ptr32 = (uint32*)(perm_mask = ptr96 + 0x30);	// perm_mask at uint96-slot 0x30 = uint64 index 0x60; + 4 uint64 for the 32-byte permute register = 0x64 uint64/thread in above alloc
+		ASSERT((*ptr32 == 0) && (*(ptr32+1) == 7) && (*(ptr32+2) == 1) && (*(ptr32+3) == 7) && (*(ptr32+4) == 2) && (*(ptr32+5) == 7) && (*(ptr32+6) == 3) && (*(ptr32+7) == 7), "Bad data at perm_mask address!");
 	#endif
 
 		pshift = p + 96;
@@ -1990,7 +1999,7 @@ start_index = 2;	// debug - just one loop exec
 			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);
 		/* endfor() */
-uint32 *ptr32 = (uint32*)x0;
+ptr32 = (uint32*)x0;
 printf("ax.lo = %10u, %10u, %10u, %10u, %10u, %10u, %10u, %10u\n",*ptr32,*(ptr32+1),*(ptr32+2),*(ptr32+3),*(ptr32+4),*(ptr32+5),*(ptr32+6),*(ptr32+7));	ptr32 += 32;
 printf("ax.hi = %10u, %10u, %10u, %10u, %10u, %10u, %10u, %10u\n",*ptr32,*(ptr32+1),*(ptr32+2),*(ptr32+3),*(ptr32+4),*(ptr32+5),*(ptr32+6),*(ptr32+7));	ptr32 += 32;
 printf("ay.lo = %10u, %10u, %10u, %10u, %10u, %10u, %10u, %10u\n",*ptr32,*(ptr32+1),*(ptr32+2),*(ptr32+3),*(ptr32+4),*(ptr32+5),*(ptr32+6),*(ptr32+7));	ptr32 += 32;
