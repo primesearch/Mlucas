@@ -36,6 +36,20 @@
 	#define YES_ASM
 #endif
 
+/* Work around a GCC 11 register-allocator bug: when AVX-512 is enabled (-mavx512f adds the
+zmm16-31 and k0-7 registers to the allocatable file, changing IRA's decisions), GCC 11.x
+miscompiles the register-pressure-heavy, multi-q GPR-inline-asm routines in this file -
+twopmodq96_q4()/twopmodq96_q8() - returning a wrong result for one or more of the parallel
+q-lanes (lane 0 stays correct; e.g. test_fac's twopmodq96_q4(16446217, k=639280514687, x4)
+returns 0xD instead of 0xF). These routines contain no SIMD, so the AVX-512 register file is
+irrelevant to them: the bug is a GCC 11 regression - it does not occur with -mavx2, nor on
+GCC 10, GCC 12+, or Clang (all verified under Intel SDE). Forcing IRA's older 'priority'
+allocator for this translation unit restores correct codegen; scope to GCC 11 + AVX-512 so no
+other compiler or configuration is affected. */
+#if defined(USE_AVX512) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 11)
+	#pragma GCC optimize ("-fira-algorithm=priority")
+#endif
+
 #ifdef __CUDACC__
 
 	// Simple GPU-ized version of twopmodq96.
