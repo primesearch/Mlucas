@@ -49,6 +49,9 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const char func[] = "radix63_ditN_cy_dif1";
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer;
+	int target_idx = -1, target_set = 0, tidx_mod_stride;	// v21: residue-shift carry-injection support
+	double target_cy = 0;
+	uint64 itmp64;
 
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
 	// In order to ease the ptr-access for the || routine, lump these 4*ODD_RADIX doubles together with copies of
@@ -529,10 +532,28 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			_cy_i[i][ithread] = 0;
 		}
 	}
-	/* If an LL test, init the subtract-2: */
+	// v21: If an LL test, compute the target index for the residue-shift carry injection. This routine
+	// formerly did an unconditional '_cy_r[0][0] = -2' (inject the LL subtract-2 into word 0), silently
+	// ignoring RES_SHIFT - so any nonzero shift (the v20 Fermat/Mersenne default) yielded a wrong residue.
+	// Now we mirror the >= 16 power-of-2 radices' machinery (see e.g. radix60_ditN_cy_dif1.c); the actual
+	// injection lives at the top of the Mersenne branch of radix63_main_carry_loop.h:
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
-		_cy_r[0][0] = -2;
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, pexp, RES_SHIFT, 0.0);	// high 7 bytes = unpadded target word index; low byte = within-word bit-shift
+			target_idx = (int)(itmp64 >> 8);
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// n is 32-bit; use 64-bit only for the intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
+			target_set = target_idx / NDIVR;	// which of the RADIX(=63) independent carry sub-chains holds the target
+			target_idx -= target_set*NDIVR;		// target_idx now = index within that sub-chain
+			tidx_mod_stride = target_idx & (stride-1);	// stride a power of 2, so can use AND-minus-1 for mod
+			target_idx -= tidx_mod_stride;		// stride-align
+			target_set = (target_set << (L2_SZ_VD-2)) + tidx_mod_stride;	// non-SIMD: shift = 1; low bit selects Re/Im part
+			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
 	}
 
 	*fracmax=0;	/* init max. fractional error	*/

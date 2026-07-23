@@ -246,7 +246,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #endif
 
 	radix0 = RADIX_VEC[0];
-	nchunks = radix0>>1;
+	nchunks = (radix0+1)>>1;	// v21 bugfix: for ODD radix0 the number of independent work units is
+			// ceil(radix0/2), not floor: the last unit processes the final pair of data blocks (e.g. blocks
+			// {5,6} of the radix0 = 9 pairing {0,-},{1,2},{3,8},{4,7},{5,6}). The old radix0>>1 value meant
+			// that in threaded builds (task tid -> ii = 2*tid) the ii = radix0-1 chunk-pass simply never ran,
+			// leaving those blocks un-transformed and un-squared every iteration - i.e. all Mersenne runs with
+			// an odd leading radix silently computed garbage. (The serial fallback loop was correct.)
 	ASSERT(TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
 
 /*...initialize things upon first entry */
@@ -2256,6 +2261,13 @@ void mers_process_chunk(
 	for(j = 0; j < jhi; j++)
 	{
 		l = ii + j;
+		// v21 bugfix: for ODD radix0 the last chunk-pass (ii = radix0-1) has jhi = 2 because its DIF/DIT
+		// loops must process both blocks of the final block_index pair, but the wrapper/square step covers
+		// that entire pair via the single call for slot l = radix0-1 (one block via the j1-indices, its
+		// partner via the mirrored j2-indices). There is no state-slot l = radix0 - reading ws_*[radix0]
+		// would run off the end of those arrays - so skip the second wrapper call:
+		if(l >= radix0)
+			continue;
 
 		switch(RADIX_VEC[NRADICES-1])
 		{
