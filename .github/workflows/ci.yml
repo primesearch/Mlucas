@@ -582,7 +582,6 @@ jobs:
 
   TSan-macOS:
     name: ThreadSanitizer macOS
-    if: false # Too slow
 
     runs-on: macos-latest
     steps:
@@ -600,7 +599,10 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
+        # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
+        # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
+        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
       continue-on-error: true
 
   Windows:
