@@ -426,8 +426,8 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $2,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd4			\n\t"/* Skip if n < 0 */\
-	"LoopBeg4:								\n\t"\
+		"jl LoopEnd4%=			\n\t"/* Skip if n < 0 */\
+	"LoopBeg4%=:								\n\t"\
 	/* SQR_LOHI_q4(x*, lo*, hi*): */\
 		"movq	%%r12,%%rax	\n\t"/* x0-3 in r8-11. */\
 		"mulq	%%rax		\n\t"\
@@ -490,7 +490,7 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movq	%[__pshift],%%rax	\n\t"/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
-	"je	twopmodq64_q4_pshiftjmp			\n\t"\
+	"je	twopmodq64_q4_pshiftjmp%=			\n\t"\
 		"\n\t"\
 		"movq	%%r12,%%r8 	\n\t"/* r8  <- Copy of x */\
 		"movq	%%r12,%%rax	\n\t"/* rax <- Copy of x */\
@@ -520,12 +520,12 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"addq	%%rax,%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-	"twopmodq64_q4_pshiftjmp:	\n\t"\
+	"twopmodq64_q4_pshiftjmp%=:	\n\t"\
 		/* } endif((pshift >> j) & (uint64)1) */\
 		"subq	$1,%%rcx	\n\t"/* j-- */\
 		"cmpq	$0,%%rcx	\n\t"/* compare j vs 0 */\
-		"jge	LoopBeg4	\n\t"/* if (j >= 0), Loop */\
-	"LoopEnd4:			\n\t"\
+		"jge	LoopBeg4%=	\n\t"/* if (j >= 0), Loop */\
+	"LoopEnd4%=:			\n\t"\
 		"movq	%%r12,%[__x0]	\n\t"\
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
@@ -697,8 +697,8 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $2,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd8		\n\t"/* Skip if n < 0 */\
-	"LoopBeg8:								\n\t"\
+		"jl LoopEnd8%=		\n\t"/* Skip if n < 0 */\
+	"LoopBeg8%=:								\n\t"\
 	/* SQR_LOHI_q4(x*, lo*, hi*): */\
 		"movq	%%r8 ,%%rax		\n\t"\
 		"mulq	%%rax			\n\t"\
@@ -832,7 +832,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movq	%[__pshift],%%rax	\n\t"/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\
 		"shrq	%%cl,%%rax			\n\t"\
 		"andq	$0x1,%%rax			\n\t"\
-	"je	twopmodq64_q8_pshiftjmp		\n\t"\
+	"je	twopmodq64_q8_pshiftjmp%=		\n\t"\
 		"\n\t"\
 		"movq	%[__q0],%%rax  	\n\t"/* rax <- Copy of q */\
 		"leaq (%%r8 ,%%r8 ),%%rbx	\n\t"/* rbx <- x+x, no CF set, leave r8 (x) intact */\
@@ -882,12 +882,12 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"subq	%%rax,%%r15		\n\t"\
 		"cmovcq %%rbx,%%r15		\n\t"\
 		"\n\t"\
-	"twopmodq64_q8_pshiftjmp:	\n\t"\
+	"twopmodq64_q8_pshiftjmp%=:	\n\t"\
 		/* } endif((pshift >> j) & (uint64)1) */\
 		"subq	$1,%%rcx	\n\t"/* j-- */\
 		"cmpq	$0,%%rcx	\n\t"/* compare j vs 0 */\
-		"jge	LoopBeg8	\n\t"/* if (j >= 0), Loop */\
-	"LoopEnd8:			\n\t"\
+		"jge	LoopBeg8%=	\n\t"/* if (j >= 0), Loop */\
+	"LoopEnd8%=:			\n\t"\
 		"movq	%%r8 ,%[__x0]	\n\t"\
 		"movq	%%r9 ,%[__x1]	\n\t"\
 		"movq	%%r10,%[__x2]	\n\t"\
