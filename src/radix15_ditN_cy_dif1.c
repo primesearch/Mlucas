@@ -715,6 +715,13 @@ for(outer=0; outer <= 1; outer++)
 	/*
 	For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 	*/
+	// v21 bugfix: the wraparound mini-pass must restart the loop indices - every sibling radix resets
+	// jstart/jhi/khi here (cf. radix9_ditN_cy_dif1.c), but this routine only reset jhi. With jstart still
+	// holding its end-of-full-pass value (>> jhi) the mini-pass j-loop never executed, so the radix_inv
+	// pre-scaling of the first few words of each block was never cancelled by the mini-pass's re-DIF -
+	// every iteration silently multiplied those words by 1/RADIX, corrupting both Mers- and Fermat-mod.
+	jstart = 0;
+	khi = 1;
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
 		jhi =15;
