@@ -3206,7 +3206,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					 ,[__binv] "m" (dptr2)\
 					 ,[__crnd50] "m" (dptr3)\
 					 ,[__prod1_adj] "m" (dptr4)\
-					: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+					: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 				);
 			//	printf("i = %u: x0 = %1.0f; x1 = %1.0f; p0-3 = %1.0f,%1.0f,%1.0f,%1.0f\n",i,*ax,*ay,*alo,*ahi);
 				// Update log2-range-bounds-storing vars:
@@ -6125,7 +6125,7 @@ ftmp0 = ftmp;
 			"valignq			$4,%%zmm2,%%zmm2,%%zmm2	\n\t"/* 04 05 06 07 00 01 02 03 */\
 			:						// outputs: none
 			: [__data] "m" (data)	// All inputs from memory addresses here
-			: "cc","memory","rax","xmm0"
+			: "cc","memory","rax","xmm0","xmm1","xmm2"
 		);
 		// Test out side-by-side 4x4 transpose algorithm - On KNL 15 cycles/loop,
 		// drops to 12 cycles when pull inits of index-registers zmm30,zmm31 out into 1-pass init step:
@@ -9259,7 +9259,10 @@ exit(0);
 			// CPU set encoded by integer-triplet argument corresponds to values of integer loop
 			// index i in the C-loop for(i = lo; i < hi; i += incr), excluding loop-exit value of i:
 			for(i = lo; i <= hi; i += incr, ncpu++) {
-				word = i>>6; bit = i & 63;	ASSERT(word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
+				// CORE_SET is declared uint64 CORE_SET[MAX_CORES>>6], i.e. MAX_CORES/64 words; the old
+				// bound-check here used MAX_CORES itself, permitting an out-of-bounds global write for
+				// -cpu indices >= 1024:
+				word = i>>6; bit = i & 63;	ASSERT(word < (MAX_CORES>>6), "Bitmap word exceeds MAX_CORES!");
 				if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(0, cbuf); }
 				else { CORE_SET[word] |= 1ull<<bit; }
 			}
