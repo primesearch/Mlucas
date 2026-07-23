@@ -403,6 +403,7 @@ uint32	ernstMain
 #endif
 	double tests_saved = 0.0;	// v21: make this a dfloat to allow fractional-parts
 	uint32 pm1_done = FALSE, split_curr_assignment = FALSE, s2_continuation = FALSE, s2_partial = FALSE;
+	uint32 curr_assignment_found = FALSE;	// v21: TRUE once the just-completed assignment line is located in the workfile (issue #121)
 	uint32 pm1_bigstep = 0, pm1_stage2_mem_multiple = 0, psmall = 0;
 /*...allocatable data arrays and associated params: */
 	static uint64 nbytes = 0, nalloc = 0, arrtmp_alloc = 0, s1p_alloc = 0;
@@ -2807,24 +2808,34 @@ GET_NEXT_ASSIGNMENT:
 		}
 
 	GET_NEXT:
-		/* Delete or suitably modify current-assignment line (line 1) of worktodo file: */
-		i = 0;	// This counter tells how many *additional* assignments exist in worktodo
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			sprintf(cbuf, "ERROR: %s file not found at end of current-assignment processing\n", WORKFILE);
-			ASSERT(0,cbuf);
-		}
-		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic;
-		char_addr = in_line;	j = 0;
-		while(isspace(in_line[j])) { ++j; }
-		char_addr += j;
-		if(!isalpha(in_line[j]))
-			goto GET_NEXT;
-
-		// Look for m in first eligible assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
-		if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: Current exponent %s not found in line 1 of %s file - quitting.\n", ESTRING, WORKFILE);
-			ASSERT(0,cbuf);
-		} else {
+		/* Delete or suitably modify the just-completed-assignment line of the worktodo file.
+		v21 (issue #121): Do NOT assume the completed assignment is line 1 of the workfile - a user may have
+		inserted other assignments above it while the (possibly months-long) run was in progress. Scan the
+		workfile for the line matching the just-completed exponent, delete/modify only THAT line, and copy all
+		other lines - comment/blank lines and unrelated (e.g. user-inserted) assignments alike - verbatim, in
+		order. If no matching line is found (e.g. the user hand-edited it away mid-run), warn but do not abort:
+		the result has already been written to the results file and must never be lost to a mangled workfile. */
+		i = 0;	// This counter tells how many assignment lines remain in worktodo after the completed one is removed
+		curr_assignment_found = FALSE;
+		while(fgets(in_line, STR_MAX_LEN, fp)) {
+			// v20.1.1: An eligible assignment line has an alphabetic 1st non-WS char:
+			char_addr = in_line;	j = 0;
+			while(isspace(in_line[j])) { ++j; }
+			char_addr += j;
+			// Preserve comment/blank lines verbatim; likewise, once the completed assignment has been found and
+			// processed, preserve every subsequent line verbatim:
+			if(curr_assignment_found || !isalpha(in_line[j])) {
+				fputs(in_line, fq);	++i;
+				continue;
+			}
+			// Look for m in this assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format.
+			// A line not matching the completed exponent is an unrelated (e.g. user-inserted) assignment - preserve it:
+			if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
+				fputs(in_line, fq);	++i;
+				continue;
+			}
+			// This is the just-completed assignment:
+			curr_assignment_found = TRUE;
 			/* If we just finished the TF or p-1 preprocessing step of an LL or PRP test,
 			update the current-assignment line to reflect that and write it out: */
 			if(strstr(in_line, "PRP") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck")) {
@@ -2834,15 +2845,14 @@ GET_NEXT_ASSIGNMENT:
 					char_addr = strstr(char_addr, ",");
 					ASSERT(char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "%u", TF_BITS);
-					fputs(in_line, fq);
+					fputs(in_line, fq);	++i;
 				}
 			#endif
 				// This imples TEST_TYPE == TEST_TYPE_PM1; note that this flag gets cleared on cycling back to RANGE_BEG:
 				if(split_curr_assignment) {
 					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in in_line: */
-					fputs(cbuf, fq);	// The Pminus1 assignment
-					fputs(cstr, fq);	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
-					i = 2;	// And reset remaining-assignments counter
+					fputs(cbuf, fq);	++i;	// The Pminus1 assignment
+					fputs(cstr, fq);	++i;	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
 				}
 			} else if(stristr(in_line, "pminus1")) {
 				// If current p-1 assignment found a factor and resulted from splitting of a PRP/LL assignment -
@@ -2870,17 +2880,16 @@ GET_NEXT_ASSIGNMENT:
 						{
 							/* Lose the assignment (by way of no-op) */
 						} else {
-							fputs(in_line, fq); i = 1;	// Copy PRP/LL assignment and reset remaining-assignments counter
+							fputs(in_line, fq);	++i;	// Copy PRP/LL assignment
 						}
 					}
 				}
 			}
 			/* Otherwise lose the current line (by way of no-op) */
 		}
-		/* Copy the remaining ones; */
-		while(fgets(in_line, STR_MAX_LEN, fp))
-		{
-			fputs(in_line, fq);	++i;
+		if(!curr_assignment_found) {
+			snprintf(cbuf,STR_MAX_LEN*2, "WARNING: Just-completed exponent %s not found in %s file (edited away mid-run?) - result has been saved; leaving remaining workfile entries intact.\n", ESTRING, WORKFILE);
+			mlucas_fprint(cbuf,1);
 		}
 		fclose(fp); fp = 0x0;
 		fclose(fq); fq = 0x0;
@@ -6164,27 +6173,35 @@ void generate_JSON_report(
 	const char prp_status[2] = {'C','P'};
 	const char*pm1_status[2] = {"NF","F"};
 	const char*false_or_true[2] = {"false","true"};
-	// Attempt to read 32-hex-char Primenet assignment ID for current assignment (first line of WORKFILE):
-	ASSERT((fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
-	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
+	// Attempt to read the 32-hex-char Primenet assignment ID for the just-completed assignment from WORKFILE.
+	// v21 (issue #121): The completed assignment need not be the FIRST line of the workfile - the user may have
+	// inserted other assignments above it while the (possibly months-long) run was in progress - so scan for the
+	// line matching ESTRING rather than assuming line 1. If the workfile, or a matching line, is absent (e.g. the
+	// user edited it away mid-run), proceed with an empty AID rather than aborting: the result MUST be reported
+	// to the results file regardless of the workfile's state, else a months-long computation would be lost.
 	char_addr = 0x0;
-	while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
-		char_addr = in_line; while(isspace(*char_addr)) { ++char_addr; }
-		if(isalpha(*char_addr)) break;
+	if((fp = mlucas_fopen(WORKFILE, "r")) != 0x0) {
+		// v20.1.1: consider only lines whose leading non-WS char is alphabetic; find the one matching the exponent:
+		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
+			char_addr = in_line; while(isspace(*char_addr)) { ++char_addr; }
+			if( isalpha(*char_addr) && (strstr(in_line, ESTRING) || (MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP))) )
+				break;	// Found the just-completed assignment
+			char_addr = 0x0;	// Not a match - keep looking (char_addr stays 0x0 if we exit the loop empty-handed)
+		}
+		fclose(fp); fp = 0x0;
 	}
-	fclose(fp); fp = 0x0;
-	ASSERT(strlen(char_addr) != 0 && isalpha(*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
-	if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
-		snprintf(cbuf,STR_MAX_LEN*2, "ERROR: Current exponent %s not found in %s file!\n",ESTRING,WORKFILE);
-		ASSERT(0,cbuf);
-	}
-	// Is there a Primenet-server 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
-	char_addr = strstr(in_line, "=");
-	if(char_addr) {
-		char_addr++;
-		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
-			strncpy(aid,char_addr,32);
+	if(!char_addr) {
+		snprintf(cbuf,STR_MAX_LEN*2, "WARNING: Just-completed exponent %s not found in %s file (edited away mid-run?) - reporting result without an assignment ID.\n",ESTRING,WORKFILE);
+		mlucas_fprint(cbuf,1);
+	} else {
+		// Is there a Primenet-server 32-hexit assignment ID in the matching assignment line? If so, include it in the JSON output:
+		char_addr = strstr(in_line, "=");
+		if(char_addr) {
+			char_addr++;
+			while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+			if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
+				strncpy(aid,char_addr,32);
+		}
 	}
 	const uint32 error_code = (MIN(NERR_ROE, 0x3F) << 8) | (MIN(NERR_GCHECK, 0xF) << 20);
 	// Write the result line. The 2 nested conditionals here are LL-or-PRP and has-AID-or-not:
