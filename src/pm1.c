@@ -857,7 +857,7 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 #endif
 	if(!isPow2_64(pow)) {
 		memcpy(b,a,nbytes);	// b = a           vvvv + 4 to effect "Do in-place forward FFT only; low bit = 0 here implies pure-int input"
-		ierr = func_mod_square(b, 0x0, n, 0,1, 4ull + (uint64)(!input_is_int), p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; nerr += ierr;
+		ierr = func_mod_square(b, 0x0, n, 0,1, 4ull + (uint64)(!input_is_int), p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -886,7 +886,7 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 		else		// i != 1: bit 0 = 1
 			mode_flag = 3;
 		// y *= y:
-		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; nerr += ierr;
+		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -894,7 +894,7 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 		dsum = 0; for(j = 0; j < npad; j++) { dsum += fabs(a[j]); }; fprintf(stderr,"a^2: MME = %8.6f, a[0] = %20.8f, a[1] = %20.8f, L1(a) = %20.8f\n",MME,a[0],a[1],dsum/n); MME = 0;
 	#endif
 	  if(pow&1)	{	// y *= a; mode_flag for this fixed = 3:
-		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)b +  3ull, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; nerr += ierr;
+		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)b +  3ull, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -1387,14 +1387,14 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	memcpy(mult[1],pow,nbytes);	// A third copy of A^1 into mult[1][] - this will end up holding A^8 in fwd-FFTed form:
 	mode_flag = 2;	// bit 1 of mode_flag = 1 since all FFT-mul outputs will be getting re-used as inputs
 	// 3 mod-squares in-place to get A^8:
-	ierr = func_mod_square(mult[1], 0x0, n, 0,3,        (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	ierr = func_mod_square(mult[1], 0x0, n, 0,3,        (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 	if(ierr == ERR_INTERRUPT) {
 		return ierr;
 	}
 	mode_flag |= 1;	// Only 1st fft-mul of A and its copies need low bit of mode_flag = 0!
 	memcpy(mult[2] ,mult[1],nbytes);	// mult[2][] holds ascending A^8,16,24,..., in *non*-fwd-FFTed form (that is, fwd-FFT-pass-1-done form)
 	// mult[1] = fwdFFT(A^8):					  vvvv + 4 to effect "Do in-place forward FFT only" of pow^8:
-	ierr = func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	ierr = func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 	// And now the big loop to compute the remaining pow^(b[i]^2) terms, each of which goes into buf[i++] in fwd-FFTed form.
 	// Each pass through the loop costs 2.5 modsqr and 1 memcpy, with a 2nd memcpy whenever we hit a b[i] and write a buf[] entry:
 	i = 1;
@@ -1404,11 +1404,11 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	for(j = 3; j < m*(bigstep>>1); j += 2) {
 		memcpy(a,mult[2],nbytes);	// a[] = Copy of fwd-FFT-pass-1-done(A^8,16,24,...) to be fwd-FFTed
 		// a[] = FFT(A^8,16,24,...):
-		ierr = func_mod_square(      a, 0x0, n, 0,1,         4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		ierr = func_mod_square(      a, 0x0, n, 0,1,         4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 		// mult[0] *= a[]: mult[0] holds result, thus is not fwd-FFTed (that is, in fwd-FFT-pass-1-done form) on entry;
 		// Since mult[0] holds pure-int copy of stage 1 residue A on loop entry, bit 0 of mode_flag = 0 for just its first use:
 		//                                                                                vvvvvvvv
-		ierr = func_mod_square(mult[0], 0x0, n, 0,1, (uint64)a + (uint64)(mode_flag - (j==3)), p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		ierr = func_mod_square(mult[0], 0x0, n, 0,1, (uint64)a + (uint64)(mode_flag - (j==3)), p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -1422,7 +1422,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		}
 		// Up-multiply the fwd-FFT-pass-1-done(A^8,16,24,...) by fixed multiplier fwd-FFT(A^8):
 		// mult[2] = A^16,24,... :
-		ierr = func_mod_square(mult[2], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		ierr = func_mod_square(mult[2], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -1700,7 +1700,7 @@ MME = 0;
 	for(i = 0; i < m*num_b; i++) {
 		// Since buf[0] holds pure-int copy of stage 1 residue A on loop entry, bit 0 of mode_flag = 0 for just it:
 		//                                                                    vvvvvvvv
-		ierr = func_mod_square(buf[i], 0x0, n, 0,1, 4ull + (uint64)(mode_flag - (i==0)), p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		ierr = func_mod_square(buf[i], 0x0, n, 0,1, 4ull + (uint64)(mode_flag - (i==0)), p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 	}	ASSERT(nerr == 0, "fwdFFT of buf[] entries returns error!");
 
 	// Accumulate the cycle count in a floating double on each pass to avoid problems
@@ -2017,11 +2017,11 @@ MME = 0;
 	}
 	nerr = 0;
 	// mult0-2 need to be fwdFFTed ... if using (p+1)-style multiplier scheme, mult[1] is already so:
-	ierr = func_mod_square(mult[0], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);	nerr += ierr;
+	ierr = func_mod_square(mult[0], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);	if(ierr) nerr |= 1<<ierr;
   #if !USE_PP1_MULTS
-	ierr = func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	ierr = func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
   #endif
-	ierr = func_mod_square(mult[2], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	ierr = func_mod_square(mult[2], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 	if(nerr != 0) {
 		sprintf(cbuf,"Stage 2 loop-multipliers computation hit one or more fatal errors! Aborting.");
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
@@ -2112,9 +2112,9 @@ MME = 0;
 				vec_double_sub(mult[0],buf[i],a,npad);	// a[] = (mult[0][] - buf[i][])
 			  #endif
 				// pow = pow*(mult[0] - buf[i]) % n: Don't increment nmodmul until after call due to ambiguity in eval order of func(i,++i):
-				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,    0x0);	nerr += ierr;
+				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,    0x0);	if(ierr) nerr |= 1<<ierr;
 			 #else
-				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[i]); nerr += ierr;
+				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[i]); if(ierr) nerr |= 1<<ierr;
 			 #endif
 				if(ierr == ERR_INTERRUPT) {
 					return ierr;
@@ -2165,9 +2165,9 @@ MME = 0;
 						vec_double_sub(mult[0],buf[tmp+j],a,npad);
 					  #endif
 						// pow = pow*(mult[0] - buf[tmp+j]) % n;
-						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); nerr += ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); if(ierr) nerr |= 1<<ierr;
 					 #else
-						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+j]); nerr += ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+j]); if(ierr) nerr |= 1<<ierr;
 					 #endif
 						if(ierr == ERR_INTERRUPT) {
 							return ierr;
@@ -2207,9 +2207,9 @@ MME = 0;
 						vec_double_sub(mult[0],buf[tmp+i],a,npad);
 					  #endif
 						// pow = pow*(mult[0] - buf[tmp+i]) % n:
-						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); nerr += ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); if(ierr) nerr |= 1<<ierr;
 					 #else
-						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+i]); nerr += ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+i]); if(ierr) nerr |= 1<<ierr;
 					 #endif
 						if(ierr == ERR_INTERRUPT) {
 							return ierr;
@@ -2366,16 +2366,16 @@ MME = 0;
 		Since mult[0-2] all fwd-FFTed, this costs 2 x [dyadic-mul, inv-FFT, carry, fwd-FFT] = equivalent of 2 mod-squares.
 		*/
 			// Only increment nmodmul every 2nd call here, since each call is 1-FFT:
-/* [1a]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[1] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+/* [1a]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[1] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			if(ierr == ERR_INTERRUPT) {
 				return ierr;
 			}
-/* [1b]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
-/* [2a]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+/* [1b]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
+/* [2a]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			if(ierr == ERR_INTERRUPT) {
 				return ierr;
 			}
-/* [2b]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+/* [2b]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			nmodmul += 2;
 
 		  #else	// USE_PP1_MULTS = True, needs just 1 modmul per D-loop:
@@ -2398,11 +2398,11 @@ MME = 0;
 			/******** For initial impl, use the sequence: ********/
 			memcpy(a,mult[0],nbytes);	// Save copy of V[n] = A^(k*D) + A^-(k*D) in a[];
 				// V[n] *= V[j] overwrites mult[0]:
-			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			if(ierr == ERR_INTERRUPT) {
 				return ierr;
 			}
-			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			++nmodmul;
 				// Subtract mult[0] -= V[n-1], yielding V[n+1] = V[n]*V[j] - V[n-1];
 		  #ifdef MULTITHREAD
@@ -2426,8 +2426,10 @@ MME = 0;
 		clock2 = clock();	*tdiff += (double)(clock2 - clock1);	clock1 = clock2;
 	  #endif
 		// Only handle errs of type ROE in p-1 stage 2 - we prefer to handle such before doing any savefile-updating.
-		/*** If multiple errs/types per bigstep-loop ever become an issue, change modmul-retval handling to 'nerr |= 1<<ierr;'
-		and in stage-2-return-value-handling code check for various errtypes via e.g. 'if(ierr | (1<<ERR_ROUNDOFF))' ***/
+		/*** nerr is a bitmask, not a sum: each modmul call above sets bit ierr of nerr (via 'nerr |= 1<<ierr') rather
+		than adding ierr, so that 2 or more distinct error types (or repeats of the same type) hitting within a single
+		bigstep-loop pass cannot combine into an out-of-range composite value. Caller must decode the returned code by
+		testing individual bits, e.g. 'if(ierr & (1<<ERR_ROUNDOFF))', not via equality or modulo tests. ***/
 		if(nerr) {
 			retval = nerr; goto ERR_RETURN;
 		}
