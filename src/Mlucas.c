@@ -2592,12 +2592,18 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				#else
 					printf("INFO: %u MB of available system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
 				#endif
-					// Assume 5 of those n-double chunks are already used for Stage 1 residue and other stuff
-					PM1_S2_NBUF = (uint32)(j*1024./(n>>7)) - 5;
+					// Assume 5 of those n-double chunks are already used for Stage 1 residue and other stuff.
+					// Guard the '- 5' against unsigned wraparound when fewer than 5 residue-sized buffers fit
+					// in the available RAM (e.g. a large Fermat whose residue is several GB): without this the
+					// uint32 subtraction underflows to ~2^32, the 'need >= 24 buffers' assert below is fooled
+					// into passing, and Stage 2 then aborts trying to allocate billions of buffers (see #120).
+					PM1_S2_NBUF = (uint32)(j*1024./(n>>7));
+					PM1_S2_NBUF = (PM1_S2_NBUF > 5) ? (PM1_S2_NBUF - 5) : 0;
 					fprintf(stderr,"Available memory allows up to %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
 				} else {
 					fprintf(stderr,"User specified a maximum of %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
-					if( PM1_S2_NBUF > ((uint32)(j*1024./(n>>7)) - 5) )
+					// '+ 5' on the left rather than '- 5' on the right, to avoid the same unsigned underflow (see #120):
+					if( PM1_S2_NBUF + 5 > (uint32)(j*1024./(n>>7)) )
 						fprintf(stderr,"WARNING: User-specified maximum number of Stage 2 buffers may exceed %u MB of available RAM.\n",j);
 				}
 				ASSERT(PM1_S2_NBUF >= 24,"p-1 Stage 2 requires at least 24 residue-sized memory buffers!\n");
