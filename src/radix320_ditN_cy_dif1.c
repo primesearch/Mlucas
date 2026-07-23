@@ -23,6 +23,23 @@
 #include "Mlucas.h"
 #include "radix64.h"
 
+/* Work around a GCC 11 auto-vectorizer bug: in AVX-512 builds at -O3 (where GCC 11 enables the
+tree vectorizers), GCC 11.x miscompiles this translation unit - the compiler-vectorized code in
+cy320_process_chunk() dereferences a NULL-based address (observed on the ubuntu-22.04/gcc-11.4 CI
+runners and reproduced under Intel SDE with the same toolchain: SIGSEGV on a compiler-generated
+`vmovaps zmm0,[rax]` with rax = 0x7d80, i.e. a struct offset with its base pointer lost, at the
+very first multithreaded carry step of a leading-radix-320 run, e.g. M12628613 @ 640K FFT with
+radices {320,32,32}). The same build at -O2 - or with the tree vectorizers disabled at -O3, as
+done here - produces correct code (verified: 100-iteration Res64 matches the good-compiler
+reference). GCC 12+ (13/15/16 verified) and Clang are unaffected, as is the AVX2 build; note this
+is a different GCC 11 bug than the register-allocator one worked around in twopmodq96.c - forcing
+-fira-algorithm=priority does NOT fix this one. Only compiler-autovectorized glue code is
+affected; the hand-written AVX-512 asm macros which do the heavy lifting are untouched, so the
+performance impact is negligible. */
+#if defined(USE_AVX512) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 11)
+	#pragma GCC optimize ("no-tree-vectorize","no-tree-slp-vectorize")
+#endif
+
 #define RADIX 320	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 5	// ODD_RADIX = [radix >> trailz(radix)]
 
