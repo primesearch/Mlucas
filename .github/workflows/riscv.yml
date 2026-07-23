@@ -1,0 +1,65 @@
+name: RISC-V (experimental)
+
+# Exploratory: RISC-V has never been built/tested before, and the org's riscv64 runners were only
+# just enabled. Mlucas has no RISC-V SIMD kernels, so this builds the portable scalar-double
+# ("nosimd") mode and runs the standard self-test to see whether the C code base works at all on
+# riscv64. Kept in its own workflow so it neither gates nor is gated by the main CI matrix.
+on:
+  push:
+    branches:
+      - main
+      - ci-riscv-experimental
+  pull_request:
+    paths:
+      - '.github/workflows/riscv.yml'
+      - 'src/**'
+      - 'makemake.sh'
+  workflow_dispatch:
+
+jobs:
+  RISC-V:
+    name: RISC-V nosimd
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04-riscv, ubuntu-26.04-riscv]
+        cc: [gcc, clang]
+      fail-fast: false   # let every os/cc combination report independently
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        # gmp is a default build dependency (Mlucas.h includes gmp.h unless -DINCLUDE_GMP=0); pull the
+        # matching compiler + make. hwloc is optional and omitted here to keep the first attempt lean.
+        sudo apt-get install -y "${{ matrix.cc }}" make libgmp-dev
+    - name: Toolchain info
+      run: |
+        uname -mrs
+        $CC --version
+        # Show what the C preprocessor thinks the target is (useful if the build/arch detection misfires):
+        $CC -dM -E - </dev/null | grep -iE 'riscv|__ATOMIC|__SIZEOF_LONG__|LP64' | head
+    - name: Build (scalar-double / nosimd)
+      run: |
+        set -x
+        # nosimd is the only mode with no arch-specific asm; makemake adds no -march flag for it.
+        bash -e -o pipefail -- makemake.sh nosimd
+        ls -l obj_nosimd/Mlucas
+    - name: Self-test
+      run: |
+        set -x
+        cd obj_nosimd
+        # Canonical known-answer check: FFT length 192 must give this exact Res64 on any correct build.
+        ./Mlucas -fftlen 192 -iters 100 -radset 0 | tee run.log
+        grep -q 'Res64: 71E61322CCFB396C' run.log
+        # And the built-in tiny self-test tier as a broader smoke test:
+        ./Mlucas -s tt
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: riscv-${{ matrix.os }}-${{ matrix.cc }}
+        path: |
+          obj_nosimd/build.log
+          obj_nosimd/run.log
