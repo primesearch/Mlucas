@@ -2740,7 +2740,7 @@ MFACTOR_HELP:
 				fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);		ASSERT(0,"0");
 			}
 			/* Strip the expected newline char from in_line: */
-			char_addr = strstr(in_line, "\n");
+			char_addr = strchr(in_line, '\n');
 			if(char_addr)
 				*char_addr = '\0';
 			/* Make sure restart-file and current-run pstring match: */
@@ -2785,7 +2785,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				goto GET_LINE4;
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -2802,7 +2802,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				fprintf(stderr,"ERROR: 'KNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -2819,7 +2819,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				fprintf(stderr,"ERROR: 'KMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -2836,7 +2836,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				fprintf(stderr,"ERROR: 'PassMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -2854,7 +2854,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				fprintf(stderr,"ERROR: 'PassNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -2873,7 +2873,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				fprintf(stderr,"ERROR: 'PassMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -2892,7 +2892,7 @@ MFACTOR_HELP:
 			if(!char_addr) {
 				fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 			} else {
-				char_addr = strstr(in_line, "=");
+				char_addr = strchr(in_line, '=');
 				if(!char_addr) {
 					fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(0,"0");
 				}
@@ -4416,7 +4416,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
 		}
 		/* Strip the expected newline char from in_line: */
-		char_addr = strstr(in_line, "\n");
+		char_addr = strchr(in_line, '\n');
 		if(char_addr)
 			*char_addr = '\0';
 		/* Make sure restart-file and current-run pstring match: */
@@ -4433,7 +4433,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'tf_passes' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4451,7 +4451,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'bmin' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4468,7 +4468,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'bmax' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4492,7 +4492,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'kmin' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4507,7 +4507,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'know' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4522,7 +4522,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'kmax' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4539,7 +4539,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'passmin' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4557,7 +4557,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'passnow' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4576,7 +4576,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'passmax' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4595,7 +4595,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4708,7 +4708,7 @@ int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 
 			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
 		}
 		/* Strip the expected newline char from in_line: */
-		char_addr = strstr(in_line, "\n");
+		char_addr = strchr(in_line, '\n');
 		if(char_addr)
 			*char_addr = '\0';
 		/* Make sure restart-file and current-run pstring match: */
@@ -4730,7 +4730,7 @@ int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'know' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4756,7 +4756,7 @@ int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: 'passnow' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
@@ -4789,7 +4789,7 @@ int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 
 		if(!char_addr) {
 			++nerr; fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
 		} else {
-			char_addr = strstr(in_line, "=");
+			char_addr = strchr(in_line, '=');
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
