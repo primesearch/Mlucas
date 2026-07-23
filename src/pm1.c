@@ -69,7 +69,7 @@ Then to run, e.g.
 	};
 	// Stick protos fo these SIMD utility functions used by the stage 2 loop here:
 	void vec_double_sub(struct threadpool *tpool, struct pm1_thread_data_t *tdat, double c[]);
-	void*vec_double_sub_loop(void*targ);
+	void vec_double_sub_loop(void*targ, int thread_num);
   #else
 	#define CTIME	// In single-thread mode, prefer cycle-based time because of its finer granularity
 	void vec_double_sub(double a[], double b[], double c[], uint32 n);
@@ -2556,7 +2556,7 @@ ERR_RETURN:
 		// Threadpool-based dispatch:
 		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited with fixed data
 		// (mult[0] + offset, per-thread chunksize) here, variable ones (subtrahend buf[i] + offset) at thread dispatch:
-		static task_control_t task_control = {NULL, (void*)vec_double_sub_loop, NULL, 0x0};
+		static task_control_t task_control = {NULL, vec_double_sub_loop, NULL, 0x0};
 		static int task_is_blocking = TRUE;
 		uint32 i;
 		for(i = 0; i < NTHREADS; ++i) {
@@ -2594,7 +2594,7 @@ ERR_RETURN:
   #endif
 
   #ifdef MULTITHREAD
-	void*vec_double_sub_loop(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void vec_double_sub_loop(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct pm1_thread_data_t* thread_arg = targ;
 		int thr_id = thread_arg->tid;
@@ -2739,7 +2739,6 @@ ERR_RETURN:
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 	//	printf("Return from Thread %d ... ",thr_id);
-		return 0x0;
 	#endif
 	}
 #endif	// defined(PM1_STANDALONE)?
