@@ -67,8 +67,7 @@ int radix26_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		bq1B = -.14126899798441247840;
 	double rt,it,r1,i1,r2,i2,r3,i3,r4,i4
 	,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25
-	,aj1p00r,aj1p01r,aj1p02r,aj1p03r,aj1p04r,aj1p05r,aj1p06r,aj1p07r,aj1p08r,aj1p09r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r,aj1p16r,aj1p17r,aj1p18r,aj1p19r,aj1p20r,aj1p21r,aj1p22r,aj1p23r,aj1p24r,aj1p25r
-	,aj1p00i,aj1p01i,aj1p02i,aj1p03i,aj1p04i,aj1p05i,aj1p06i,aj1p07i,aj1p08i,aj1p09i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i,aj1p16i,aj1p17i,aj1p18i,aj1p19i,aj1p20i,aj1p21i,aj1p22i,aj1p23i,aj1p24i,aj1p25i
+	,u01,u02,u03,u04,u05,u06,u07,u08,u09,u10,u11,u12,u13,u14,u15,u16,u17,u18,u19,u20,u21,u22,u23,u24,u25,u26,u27,u28,u29,u30,u31,u32,u33,u34,u35,u36,u37,u38,u39,u40,u41,u42,u43,u44,u45,u46,u47,u48,u49,u50,u51,u52	// v21: natural-order snapshot temps for the in-a[] radix-2 stages
 	,cy00,cy01,cy02,cy03,cy04,cy05,cy06,cy07,cy08,cy09,cy10,cy11,cy12,cy13,cy14,cy15,cy16,cy17,cy18,cy19,cy20,cy21,cy22,cy23,cy24,cy25,temp,frac,scale;
 	double maxerr = 0.0;
 #if PFETCH
@@ -293,91 +292,120 @@ for(outer=0; outer <= 1; outer++)
 		/*
 		!...gather the needed data (26 64-bit complex, i.e. 52 64-bit reals) and do 13 radix-2 transforms...
 		*/
-			aj1p00r = a[j1      ];		aj1p00i = a[j2    ];	/* x0a,b */
-			rt      = a[j1  +p01];		it      = a[j2+p01];
-			aj1p01r = aj1p00r-rt;		aj1p01i = aj1p00i-it;
-			aj1p00r = aj1p00r+rt;		aj1p00i = aj1p00i+it;
+		// v21: the 13 radix-2 butterflies below now write their outputs into a[] (whose pre-DIT contents
+		// they also read, via a permuted index pattern), so snapshot the 52 inputs into the u-temps first:
+			u01 = a[j1    ];	u02 = a[j2    ];
+			u03 = a[j1+p01];	u04 = a[j2+p01];
+			u05 = a[j1+p02];	u06 = a[j2+p02];
+			u07 = a[j1+p03];	u08 = a[j2+p03];
+			u09 = a[j1+p04];	u10 = a[j2+p04];
+			u11 = a[j1+p05];	u12 = a[j2+p05];
+			u13 = a[j1+p06];	u14 = a[j2+p06];
+			u15 = a[j1+p07];	u16 = a[j2+p07];
+			u17 = a[j1+p08];	u18 = a[j2+p08];
+			u19 = a[j1+p09];	u20 = a[j2+p09];
+			u21 = a[j1+p10];	u22 = a[j2+p10];
+			u23 = a[j1+p11];	u24 = a[j2+p11];
+			u25 = a[j1+p12];	u26 = a[j2+p12];
+			u27 = a[j1+p13];	u28 = a[j2+p13];
+			u29 = a[j1+p14];	u30 = a[j2+p14];
+			u31 = a[j1+p15];	u32 = a[j2+p15];
+			u33 = a[j1+p16];	u34 = a[j2+p16];
+			u35 = a[j1+p17];	u36 = a[j2+p17];
+			u37 = a[j1+p18];	u38 = a[j2+p18];
+			u39 = a[j1+p19];	u40 = a[j2+p19];
+			u41 = a[j1+p20];	u42 = a[j2+p20];
+			u43 = a[j1+p21];	u44 = a[j2+p21];
+			u45 = a[j1+p22];	u46 = a[j2+p22];
+			u47 = a[j1+p23];	u48 = a[j2+p23];
+			u49 = a[j1+p24];	u50 = a[j2+p24];
+			u51 = a[j1+p25];	u52 = a[j2+p25];
 
-			aj1p02r = a[j1  +p23];		aj1p02i = a[j2+p23];	/* x1a,b */
-			rt      = a[j1  +p22];		it      = a[j2+p22];
-			aj1p03r = aj1p02r-rt;		aj1p03i = aj1p02i-it;
-			aj1p02r = aj1p02r+rt;		aj1p02i = aj1p02i+it;
+			a[j1] = u01;		a[j2] = u02;	/* x0a,b */
+			rt      = u03;		it      = u04;
+			a[j1+p01] = a[j1]-rt;		a[j2+p01] = a[j2]-it;
+			a[j1] = a[j1]+rt;		a[j2] = a[j2]+it;
 
-			aj1p04r = a[j1  +p19];		aj1p04i = a[j2+p19];	/* x2a,b */
-			rt      = a[j1  +p18];		it      = a[j2+p18];
-			aj1p05r = aj1p04r-rt;		aj1p05i = aj1p04i-it;
-			aj1p04r = aj1p04r+rt;		aj1p04i = aj1p04i+it;
+			a[j1+p02] = u47;		a[j2+p02] = u48;	/* x1a,b */
+			rt      = u45;		it      = u46;
+			a[j1+p03] = a[j1+p02]-rt;		a[j2+p03] = a[j2+p02]-it;
+			a[j1+p02] = a[j1+p02]+rt;		a[j2+p02] = a[j2+p02]+it;
 
-			aj1p06r = a[j1  +p15];		aj1p06i = a[j2+p15];	/* x3a,b */
-			rt      = a[j1  +p14];		it      = a[j2+p14];
-			aj1p07r = aj1p06r-rt;		aj1p07i = aj1p06i-it;
-			aj1p06r = aj1p06r+rt;		aj1p06i = aj1p06i+it;
+			a[j1+p04] = u39;		a[j2+p04] = u40;	/* x2a,b */
+			rt      = u37;		it      = u38;
+			a[j1+p05] = a[j1+p04]-rt;		a[j2+p05] = a[j2+p04]-it;
+			a[j1+p04] = a[j1+p04]+rt;		a[j2+p04] = a[j2+p04]+it;
 
-			aj1p08r = a[j1  +p11];		aj1p08i = a[j2+p11];	/* x4a,b */
-			rt      = a[j1  +p10];		it      = a[j2+p10];
-			aj1p09r = aj1p08r-rt;		aj1p09i = aj1p08i-it;
-			aj1p08r = aj1p08r+rt;		aj1p08i = aj1p08i+it;
+			a[j1+p06] = u31;		a[j2+p06] = u32;	/* x3a,b */
+			rt      = u29;		it      = u30;
+			a[j1+p07] = a[j1+p06]-rt;		a[j2+p07] = a[j2+p06]-it;
+			a[j1+p06] = a[j1+p06]+rt;		a[j2+p06] = a[j2+p06]+it;
 
-			aj1p10r = a[j1  +p07];		aj1p10i = a[j2+p07];	/* x5a,b */
-			rt      = a[j1  +p06];		it      = a[j2+p06];
-			aj1p11r = aj1p10r-rt;		aj1p11i = aj1p10i-it;
-			aj1p10r = aj1p10r+rt;		aj1p10i = aj1p10i+it;
+			a[j1+p08] = u23;		a[j2+p08] = u24;	/* x4a,b */
+			rt      = u21;		it      = u22;
+			a[j1+p09] = a[j1+p08]-rt;		a[j2+p09] = a[j2+p08]-it;
+			a[j1+p08] = a[j1+p08]+rt;		a[j2+p08] = a[j2+p08]+it;
 
-			aj1p12r = a[j1  +p03];		aj1p12i = a[j2+p03];	/* x6a,b */
-			rt      = a[j1  +p02];		it      = a[j2+p02];
-			aj1p13r = aj1p12r-rt;		aj1p13i = aj1p12i-it;
-			aj1p12r = aj1p12r+rt;		aj1p12i = aj1p12i+it;
+			a[j1+p10] = u15;		a[j2+p10] = u16;	/* x5a,b */
+			rt      = u13;		it      = u14;
+			a[j1+p11] = a[j1+p10]-rt;		a[j2+p11] = a[j2+p10]-it;
+			a[j1+p10] = a[j1+p10]+rt;		a[j2+p10] = a[j2+p10]+it;
 
-			aj1p14r = a[j1  +p24];		aj1p14i = a[j2+p24];	/* x7a,b */
-			rt      = a[j1  +p25];		it      = a[j2+p25];
-			aj1p15r = aj1p14r-rt;		aj1p15i = aj1p14i-it;
-			aj1p14r = aj1p14r+rt;		aj1p14i = aj1p14i+it;
+			a[j1+p12] = u07;		a[j2+p12] = u08;	/* x6a,b */
+			rt      = u05;		it      = u06;
+			a[j1+p13] = a[j1+p12]-rt;		a[j2+p13] = a[j2+p12]-it;
+			a[j1+p12] = a[j1+p12]+rt;		a[j2+p12] = a[j2+p12]+it;
 
-			aj1p16r = a[j1  +p20];		aj1p16i = a[j2+p20];	/* x8a,b */
-			rt      = a[j1  +p21];		it      = a[j2+p21];
-			aj1p17r = aj1p16r-rt;		aj1p17i = aj1p16i-it;
-			aj1p16r = aj1p16r+rt;		aj1p16i = aj1p16i+it;
+			a[j1+p14] = u49;		a[j2+p14] = u50;	/* x7a,b */
+			rt      = u51;		it      = u52;
+			a[j1+p15] = a[j1+p14]-rt;		a[j2+p15] = a[j2+p14]-it;
+			a[j1+p14] = a[j1+p14]+rt;		a[j2+p14] = a[j2+p14]+it;
 
-			aj1p18r = a[j1  +p16];		aj1p18i = a[j2+p16];	/* x9a,b */
-			rt      = a[j1  +p17];		it      = a[j2+p17];
-			aj1p19r = aj1p18r-rt;		aj1p19i = aj1p18i-it;
-			aj1p18r = aj1p18r+rt;		aj1p18i = aj1p18i+it;
+			a[j1+p16] = u41;		a[j2+p16] = u42;	/* x8a,b */
+			rt      = u43;		it      = u44;
+			a[j1+p17] = a[j1+p16]-rt;		a[j2+p17] = a[j2+p16]-it;
+			a[j1+p16] = a[j1+p16]+rt;		a[j2+p16] = a[j2+p16]+it;
 
-			aj1p20r = a[j1  +p12];		aj1p20i = a[j2+p12];	/* x10a,b */
-			rt      = a[j1  +p13];		it      = a[j2+p13];
-			aj1p21r = aj1p20r-rt;		aj1p21i = aj1p20i-it;
-			aj1p20r = aj1p20r+rt;		aj1p20i = aj1p20i+it;
+			a[j1+p18] = u33;		a[j2+p18] = u34;	/* x9a,b */
+			rt      = u35;		it      = u36;
+			a[j1+p19] = a[j1+p18]-rt;		a[j2+p19] = a[j2+p18]-it;
+			a[j1+p18] = a[j1+p18]+rt;		a[j2+p18] = a[j2+p18]+it;
 
-			aj1p22r = a[j1  +p08];		aj1p22i = a[j2+p08];	/* x11a,b */
-			rt      = a[j1  +p09];		it      = a[j2+p09];
-			aj1p23r = aj1p22r-rt;		aj1p23i = aj1p22i-it;
-			aj1p22r = aj1p22r+rt;		aj1p22i = aj1p22i+it;
+			a[j1+p20] = u25;		a[j2+p20] = u26;	/* x10a,b */
+			rt      = u27;		it      = u28;
+			a[j1+p21] = a[j1+p20]-rt;		a[j2+p21] = a[j2+p20]-it;
+			a[j1+p20] = a[j1+p20]+rt;		a[j2+p20] = a[j2+p20]+it;
 
-			aj1p24r = a[j1  +p04];		aj1p24i = a[j2+p04];	/* x12a,b */
-			rt      = a[j1  +p05];		it      = a[j2+p05];
-			aj1p25r = aj1p24r-rt;		aj1p25i = aj1p24i-it;
-			aj1p24r = aj1p24r+rt;		aj1p24i = aj1p24i+it;
+			a[j1+p22] = u17;		a[j2+p22] = u18;	/* x11a,b */
+			rt      = u19;		it      = u20;
+			a[j1+p23] = a[j1+p22]-rt;		a[j2+p23] = a[j2+p22]-it;
+			a[j1+p22] = a[j1+p22]+rt;		a[j2+p22] = a[j2+p22]+it;
+
+			a[j1+p24] = u09;		a[j2+p24] = u10;	/* x12a,b */
+			rt      = u11;		it      = u12;
+			a[j1+p25] = a[j1+p24]-rt;		a[j2+p25] = a[j2+p24]-it;
+			a[j1+p24] = a[j1+p24]+rt;		a[j2+p24] = a[j2+p24]+it;
 
 	/*      ..and now do two radix-13 transforms.	*/
 
 		/*    gather the needed data (13 64-bit complex, i.e. 26 64-bit reals) and get needed xi+-xj combos:	*/
-			t02=aj1p02r+aj1p24r;	t03=aj1p02i+aj1p24i;
-			t14=aj1p02r-aj1p24r;	t15=aj1p02i-aj1p24i;
+			t02=a[j1+p02]+a[j1+p24];	t03=a[j2+p02]+a[j2+p24];
+			t14=a[j1+p02]-a[j1+p24];	t15=a[j2+p02]-a[j2+p24];
 
-			t04=aj1p04r+aj1p22r;	t05=aj1p04i+aj1p22i;
-			t16=aj1p04r-aj1p22r;	t17=aj1p04i-aj1p22i;
+			t04=a[j1+p04]+a[j1+p22];	t05=a[j2+p04]+a[j2+p22];
+			t16=a[j1+p04]-a[j1+p22];	t17=a[j2+p04]-a[j2+p22];
 
-			t10=aj1p06r+aj1p20r;	t11=aj1p06i+aj1p20i;
-			t22=aj1p06r-aj1p20r;	t23=aj1p06i-aj1p20i;
+			t10=a[j1+p06]+a[j1+p20];	t11=a[j2+p06]+a[j2+p20];
+			t22=a[j1+p06]-a[j1+p20];	t23=a[j2+p06]-a[j2+p20];
 
-			t06=aj1p08r+aj1p18r;	t07=aj1p08i+aj1p18i;
-			t18=aj1p08r-aj1p18r;	t19=aj1p08i-aj1p18i;
+			t06=a[j1+p08]+a[j1+p18];	t07=a[j2+p08]+a[j2+p18];
+			t18=a[j1+p08]-a[j1+p18];	t19=a[j2+p08]-a[j2+p18];
 
-			t08=aj1p10r+aj1p16r;	t09=aj1p10i+aj1p16i;
-			t20=aj1p16r-aj1p10r;	t21=aj1p16i-aj1p10i;		/* flip signs on as3 */
+			t08=a[j1+p10]+a[j1+p16];	t09=a[j2+p10]+a[j2+p16];
+			t20=a[j1+p16]-a[j1+p10];	t21=a[j2+p16]-a[j2+p10];		/* flip signs on as3 */
 
-			t12=aj1p12r+aj1p14r;	t13=aj1p12i+aj1p14i;
-			t24=aj1p12r-aj1p14r;	t25=aj1p12i-aj1p14i;
+			t12=a[j1+p12]+a[j1+p14];	t13=a[j2+p12]+a[j2+p14];
+			t24=a[j1+p12]-a[j1+p14];	t25=a[j2+p12]-a[j2+p14];
 
 		/*** COSINE TERMS ***/
 
@@ -397,12 +425,12 @@ for(outer=0; outer <= 1; outer++)
 			t06 = t04-t06;		t07 = t05-t07;
 
 			/* polypro(A,B) mod P0 + x0 */
-			r1 = t10*bp0 + aj1p00r;	i1 = t11*bp0 + aj1p00i;
+			r1 = t10*bp0 + a[j1];	i1 = t11*bp0 + a[j2];
 
 			/* polypro(A,B) mod P1      */
 			t00= t00*bp1;		t01= t01*bp1;
 
-			aj1p00r += t10;		aj1p00i += t11;
+			a[j1] += t10;		a[j2] += t11;
 
 			/* polypro(A,B) mod P2 = x^2-x+1: */
 			t04 =(t12+t08)*bp2B;	t05 =(t13+t09)*bp2B;
@@ -502,18 +530,18 @@ for(outer=0; outer <= 1; outer++)
 		/*...Inline multiply of sine parts by +-I into finishing phase, remembering that the acyclic
 				 convo algorithm used above returns -s1 and -s5. 	*/
 
-			aj1p12r=t12-t17;	aj1p12i=t13+t16;	/* C1 - S1 */
-			aj1p24r=t10+t23;	aj1p24i=t11-t22;	/* C2 - S2 */
-			aj1p10r=t02+t21;	aj1p10i=t03-t20;	/* C3 - S3 */
-			aj1p22r=t04+t25;	aj1p22i=t05-t24;	/* C4 - S4 */
-			aj1p08r=t08-t15;	aj1p08i=t09+t14;	/* C5 - S5 */
-			aj1p20r=t06+t19;	aj1p20i=t07-t18;	/* C6 - S6 */
-			aj1p06r=t06-t19;	aj1p06i=t07+t18;	/* C6 + S6 */
-			aj1p18r=t08+t15;	aj1p18i=t09-t14;	/* C5 + S5 */
-			aj1p04r=t04-t25;	aj1p04i=t05+t24;	/* C4 + S4 */
-			aj1p16r=t02-t21;	aj1p16i=t03+t20;	/* C3 + S3 */
-			aj1p02r=t10-t23;	aj1p02i=t11+t22;	/* C2 + S2 */
-			aj1p14r=t12+t17;	aj1p14i=t13-t16;	/* C1 + S1 */
+			a[j1+p12]=t12-t17;	a[j2+p12]=t13+t16;	/* C1 - S1 */
+			a[j1+p24]=t10+t23;	a[j2+p24]=t11-t22;	/* C2 - S2 */
+			a[j1+p10]=t02+t21;	a[j2+p10]=t03-t20;	/* C3 - S3 */
+			a[j1+p22]=t04+t25;	a[j2+p22]=t05-t24;	/* C4 - S4 */
+			a[j1+p08]=t08-t15;	a[j2+p08]=t09+t14;	/* C5 - S5 */
+			a[j1+p20]=t06+t19;	a[j2+p20]=t07-t18;	/* C6 - S6 */
+			a[j1+p06]=t06-t19;	a[j2+p06]=t07+t18;	/* C6 + S6 */
+			a[j1+p18]=t08+t15;	a[j2+p18]=t09-t14;	/* C5 + S5 */
+			a[j1+p04]=t04-t25;	a[j2+p04]=t05+t24;	/* C4 + S4 */
+			a[j1+p16]=t02-t21;	a[j2+p16]=t03+t20;	/* C3 + S3 */
+			a[j1+p02]=t10-t23;	a[j2+p02]=t11+t22;	/* C2 + S2 */
+			a[j1+p14]=t12+t17;	a[j2+p14]=t13-t16;	/* C1 + S1 */
 	#else
 			r1  = t24+t16;		i1  = t25+t17;
 			t24 = t24-t16;		t25 = t25-t17;
@@ -532,38 +560,38 @@ for(outer=0; outer <= 1; outer++)
 		/*...Inline multiply of sine parts by +-I ]nto finishing phase, remembering that the acyclic
 				 convo algorithm used above returns -s1 and -s5. 	*/
 
-			aj1p12r=t12-t15;	aj1p12i=t13+t14;	/* C1 - S1 */
-			aj1p24r=t06+t23;	aj1p24i=t07-t22;	/* C2 - S2 */
-			aj1p10r=t02+t17;	aj1p10i=t03-t16;	/* C3 - S3 */
-			aj1p22r=t04+t25;	aj1p22i=t05-t24;	/* C4 - S4 */
-			aj1p08r=t10-t19;	aj1p08i=t11+t18;	/* C5 - S5 */
-			aj1p20r=t08+t21;	aj1p20i=t09-t20;	/* C6 - S6 */
-			aj1p06r=t08-t21;	aj1p06i=t09+t20;	/* C6 + S6 */
-			aj1p18r=t10+t19;	aj1p18i=t11-t18;	/* C5 + S5 */
-			aj1p04r=t04-t25;	aj1p04i=t05+t24;	/* C4 + S4 */
-			aj1p16r=t02-t17;	aj1p16i=t03+t16;	/* C3 + S3 */
-			aj1p02r=t06-t23;	aj1p02i=t07+t22;	/* C2 + S2 */
-			aj1p14r=t12+t15;	aj1p14i=t13-t14;	/* C1 + S1 */
+			a[j1+p12]=t12-t15;	a[j2+p12]=t13+t14;	/* C1 - S1 */
+			a[j1+p24]=t06+t23;	a[j2+p24]=t07-t22;	/* C2 - S2 */
+			a[j1+p10]=t02+t17;	a[j2+p10]=t03-t16;	/* C3 - S3 */
+			a[j1+p22]=t04+t25;	a[j2+p22]=t05-t24;	/* C4 - S4 */
+			a[j1+p08]=t10-t19;	a[j2+p08]=t11+t18;	/* C5 - S5 */
+			a[j1+p20]=t08+t21;	a[j2+p20]=t09-t20;	/* C6 - S6 */
+			a[j1+p06]=t08-t21;	a[j2+p06]=t09+t20;	/* C6 + S6 */
+			a[j1+p18]=t10+t19;	a[j2+p18]=t11-t18;	/* C5 + S5 */
+			a[j1+p04]=t04-t25;	a[j2+p04]=t05+t24;	/* C4 + S4 */
+			a[j1+p16]=t02-t17;	a[j2+p16]=t03+t16;	/* C3 + S3 */
+			a[j1+p02]=t06-t23;	a[j2+p02]=t07+t22;	/* C2 + S2 */
+			a[j1+p14]=t12+t15;	a[j2+p14]=t13-t14;	/* C1 + S1 */
 	#endif
 
 		/*    gather the needed data (13 64-bit complex, i.e. 26 64-bit reals) and get needed xi+-xj combos:	*/
-			t02=aj1p03r+aj1p25r;	t03=aj1p03i+aj1p25i;
-			t14=aj1p03r-aj1p25r;	t15=aj1p03i-aj1p25i;
+			t02=a[j1+p03]+a[j1+p25];	t03=a[j2+p03]+a[j2+p25];
+			t14=a[j1+p03]-a[j1+p25];	t15=a[j2+p03]-a[j2+p25];
 
-			t04=aj1p05r+aj1p23r;	t05=aj1p05i+aj1p23i;
-			t16=aj1p05r-aj1p23r;	t17=aj1p05i-aj1p23i;
+			t04=a[j1+p05]+a[j1+p23];	t05=a[j2+p05]+a[j2+p23];
+			t16=a[j1+p05]-a[j1+p23];	t17=a[j2+p05]-a[j2+p23];
 
-			t10=aj1p07r+aj1p21r;	t11=aj1p07i+aj1p21i;
-			t22=aj1p07r-aj1p21r;	t23=aj1p07i-aj1p21i;
+			t10=a[j1+p07]+a[j1+p21];	t11=a[j2+p07]+a[j2+p21];
+			t22=a[j1+p07]-a[j1+p21];	t23=a[j2+p07]-a[j2+p21];
 
-			t06=aj1p09r+aj1p19r;	t07=aj1p09i+aj1p19i;
-			t18=aj1p09r-aj1p19r;	t19=aj1p09i-aj1p19i;
+			t06=a[j1+p09]+a[j1+p19];	t07=a[j2+p09]+a[j2+p19];
+			t18=a[j1+p09]-a[j1+p19];	t19=a[j2+p09]-a[j2+p19];
 
-			t08=aj1p11r+aj1p17r;	t09=aj1p11i+aj1p17i;
-			t20=aj1p17r-aj1p11r;	t21=aj1p17i-aj1p11i;		/* flip signs on as3 */
+			t08=a[j1+p11]+a[j1+p17];	t09=a[j2+p11]+a[j2+p17];
+			t20=a[j1+p17]-a[j1+p11];	t21=a[j2+p17]-a[j2+p11];		/* flip signs on as3 */
 
-			t12=aj1p13r+aj1p15r;	t13=aj1p13i+aj1p15i;
-			t24=aj1p13r-aj1p15r;	t25=aj1p13i-aj1p15i;
+			t12=a[j1+p13]+a[j1+p15];	t13=a[j2+p13]+a[j2+p15];
+			t24=a[j1+p13]-a[j1+p15];	t25=a[j2+p13]-a[j2+p15];
 
 		/*** COSINE TERMS ***/
 
@@ -583,13 +611,13 @@ for(outer=0; outer <= 1; outer++)
 			t06 = t04-t06;		t07 = t05-t07;
 
 			/* polypro(A,B) mod P0 + x0 */
-			r1 = t10*bp0 + aj1p01r;	i1 = t11*bp0 + aj1p01i;
+			r1 = t10*bp0 + a[j1+p01];	i1 = t11*bp0 + a[j2+p01];
 
 			/* polypro(A,B) mod P1      */
 			t00= t00*bp1;		t01= t01*bp1;
 
-			aj1p01r += t10;		aj1p01i += t11;
-			aj1p13r = aj1p01r;	aj1p13i = aj1p01i;
+			a[j1+p01] += t10;		a[j2+p01] += t11;
+			a[j1+p13] = a[j1+p01];	a[j2+p13] = a[j2+p01];
 
 			/* polypro(A,B) mod P2 = x^2-x+1: */
 			t04 =(t12+t08)*bp2B;	t05 =(t13+t09)*bp2B;
@@ -689,18 +717,18 @@ for(outer=0; outer <= 1; outer++)
 		/*...Inline multiply of sine parts by +-I into finishing phase, remembering that the acyclic
 				 convo algorithm used above returns -s1 and -s5. 	*/
 
-			aj1p25r=t12-t17;	aj1p25i=t13+t16;	/* C1 - S1 */
-			aj1p11r=t10+t23;	aj1p11i=t11-t22;	/* C2 - S2 */
-			aj1p23r=t02+t21;	aj1p23i=t03-t20;	/* C3 - S3 */
-			aj1p09r=t04+t25;	aj1p09i=t05-t24;	/* C4 - S4 */
-			aj1p21r=t08-t15;	aj1p21i=t09+t14;	/* C5 - S5 */
-			aj1p07r=t06+t19;	aj1p07i=t07-t18;	/* C6 - S6 */
-			aj1p19r=t06-t19;	aj1p19i=t07+t18;	/* C6 + S6 */
-			aj1p05r=t08+t15;	aj1p05i=t09-t14;	/* C5 + S5 */
-			aj1p17r=t04-t25;	aj1p17i=t05+t24;	/* C4 + S4 */
-			aj1p03r=t02-t21;	aj1p03i=t03+t20;	/* C3 + S3 */
-			aj1p15r=t10-t23;	aj1p15i=t11+t22;	/* C2 + S2 */
-			aj1p01r=t12+t17;	aj1p01i=t13-t16;	/* C1 + S1 */
+			a[j1+p25]=t12-t17;	a[j2+p25]=t13+t16;	/* C1 - S1 */
+			a[j1+p11]=t10+t23;	a[j2+p11]=t11-t22;	/* C2 - S2 */
+			a[j1+p23]=t02+t21;	a[j2+p23]=t03-t20;	/* C3 - S3 */
+			a[j1+p09]=t04+t25;	a[j2+p09]=t05-t24;	/* C4 - S4 */
+			a[j1+p21]=t08-t15;	a[j2+p21]=t09+t14;	/* C5 - S5 */
+			a[j1+p07]=t06+t19;	a[j2+p07]=t07-t18;	/* C6 - S6 */
+			a[j1+p19]=t06-t19;	a[j2+p19]=t07+t18;	/* C6 + S6 */
+			a[j1+p05]=t08+t15;	a[j2+p05]=t09-t14;	/* C5 + S5 */
+			a[j1+p17]=t04-t25;	a[j2+p17]=t05+t24;	/* C4 + S4 */
+			a[j1+p03]=t02-t21;	a[j2+p03]=t03+t20;	/* C3 + S3 */
+			a[j1+p15]=t10-t23;	a[j2+p15]=t11+t22;	/* C2 + S2 */
+			a[j1+p01]=t12+t17;	a[j2+p01]=t13-t16;	/* C1 + S1 */
 	#else
 			r1  = t24+t16;		i1  = t25+t17;
 			t24 = t24-t16;		t25 = t25-t17;
@@ -719,18 +747,18 @@ for(outer=0; outer <= 1; outer++)
 		/*...Inline multiply of sine parts by +-I ]nto finishing phase, remembering that the acyclic
 				 convo algorithm used above returns -s1 and -s5. 	*/
 
-			aj1p25r=t12-t15;	aj1p25i=t13+t14;	/* C1 - S1 */
-			aj1p11r=t06+t23;	aj1p11i=t07-t22;	/* C2 - S2 */
-			aj1p23r=t02+t17;	aj1p23i=t03-t16;	/* C3 - S3 */
-			aj1p09r=t04+t25;	aj1p09i=t05-t24;	/* C4 - S4 */
-			aj1p21r=t10-t19;	aj1p21i=t11+t18;	/* C5 - S5 */
-			aj1p07r=t08+t21;	aj1p07i=t09-t20;	/* C6 - S6 */
-			aj1p19r=t08-t21;	aj1p19i=t09+t20;	/* C6 + S6 */
-			aj1p05r=t10+t19;	aj1p05i=t11-t18;	/* C5 + S5 */
-			aj1p17r=t04-t25;	aj1p17i=t05+t24;	/* C4 + S4 */
-			aj1p03r=t02-t17;	aj1p03i=t03+t16;	/* C3 + S3 */
-			aj1p15r=t06-t23;	aj1p15i=t07+t22;	/* C2 + S2 */
-			aj1p01r=t12+t15;	aj1p01i=t13-t14;	/* C1 + S1 */
+			a[j1+p25]=t12-t15;	a[j2+p25]=t13+t14;	/* C1 - S1 */
+			a[j1+p11]=t06+t23;	a[j2+p11]=t07-t22;	/* C2 - S2 */
+			a[j1+p23]=t02+t17;	a[j2+p23]=t03-t16;	/* C3 - S3 */
+			a[j1+p09]=t04+t25;	a[j2+p09]=t05-t24;	/* C4 - S4 */
+			a[j1+p21]=t10-t19;	a[j2+p21]=t11+t18;	/* C5 - S5 */
+			a[j1+p07]=t08+t21;	a[j2+p07]=t09-t20;	/* C6 - S6 */
+			a[j1+p19]=t08-t21;	a[j2+p19]=t09+t20;	/* C6 + S6 */
+			a[j1+p05]=t10+t19;	a[j2+p05]=t11-t18;	/* C5 + S5 */
+			a[j1+p17]=t04-t25;	a[j2+p17]=t05+t24;	/* C4 + S4 */
+			a[j1+p03]=t02-t17;	a[j2+p03]=t03+t16;	/* C3 + S3 */
+			a[j1+p15]=t06-t23;	a[j2+p15]=t07+t22;	/* C2 + S2 */
+			a[j1+p01]=t12+t15;	a[j2+p01]=t13-t14;	/* C1 + S1 */
 	#endif
 /*...Now do the carries. Since the outputs would
     normally be getting dispatched to 26 separate blocks of the A-array, we need 26 separate carries.	*/
@@ -749,41 +777,40 @@ for(outer=0; outer <= 1; outer++)
 			// v21: inject the LL residue-shift target carry when the main-loop reaches the target word
 			// (replaces the old unconditional 'cy00 = -2'); fires exactly once, then target_idx = -1.
 			if(target_idx == j) {
-				double *tgt_re[26] = {&aj1p00r,&aj1p01r,&aj1p02r,&aj1p03r,&aj1p04r,&aj1p05r,&aj1p06r,&aj1p07r,&aj1p08r,&aj1p09r,&aj1p10r,&aj1p11r,&aj1p12r,&aj1p13r,&aj1p14r,&aj1p15r,&aj1p16r,&aj1p17r,&aj1p18r,&aj1p19r,&aj1p20r,&aj1p21r,&aj1p22r,&aj1p23r,&aj1p24r,&aj1p25r};
-				double *tgt_im[26] = {&aj1p00i,&aj1p01i,&aj1p02i,&aj1p03i,&aj1p04i,&aj1p05i,&aj1p06i,&aj1p07i,&aj1p08i,&aj1p09i,&aj1p10i,&aj1p11i,&aj1p12i,&aj1p13i,&aj1p14i,&aj1p15i,&aj1p16i,&aj1p17i,&aj1p18i,&aj1p19i,&aj1p20i,&aj1p21i,&aj1p22i,&aj1p23i,&aj1p24i,&aj1p25i};
-				int tset = target_set >> 1;
-				if(target_set & 1) *tgt_im[tset] += target_cy*(n>>1);
-				else               *tgt_re[tset] += target_cy*(n>>1);
+				const int poff26[26] = {0,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25};
+				int tset = target_set >> 1;	// which of the RADIX DIT-output complex data holds the target
+				if(target_set & 1) a[j2 + poff26[tset]] += target_cy*(n>>1);	// Im part
+				else               a[j1 + poff26[tset]] += target_cy*(n>>1);	// Re part
 				target_idx = -1;
 			}
 
 /*...set0 is slightly different from others:	*/
-		   cmplx_carry_norm_errcheck0(aj1p00r,aj1p00i,cy00,bjmodn00,0 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p01r,aj1p01i,cy01,bjmodn01,1 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p02r,aj1p02i,cy02,bjmodn02,2 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p03r,aj1p03i,cy03,bjmodn03,3 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p04r,aj1p04i,cy04,bjmodn04,4 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p05r,aj1p05i,cy05,bjmodn05,5 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p06r,aj1p06i,cy06,bjmodn06,6 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p07r,aj1p07i,cy07,bjmodn07,7 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p08r,aj1p08i,cy08,bjmodn08,8 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p09r,aj1p09i,cy09,bjmodn09,9 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy10,bjmodn10,10,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy11,bjmodn11,11,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy12,bjmodn12,12,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy13,bjmodn13,13,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy14,bjmodn14,14,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p15r,aj1p15i,cy15,bjmodn15,15,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p16r,aj1p16i,cy16,bjmodn16,16,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p17r,aj1p17i,cy17,bjmodn17,17,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p18r,aj1p18i,cy18,bjmodn18,18,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p19r,aj1p19i,cy19,bjmodn19,19,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p20r,aj1p20i,cy20,bjmodn20,20,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p21r,aj1p21i,cy21,bjmodn21,21,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p22r,aj1p22i,cy22,bjmodn22,22,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p23r,aj1p23i,cy23,bjmodn23,23,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p24r,aj1p24i,cy24,bjmodn24,24,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p25r,aj1p25i,cy25,bjmodn25,25,prp_mult);
+		   cmplx_carry_norm_errcheck0(a[j1],a[j2],cy00,bjmodn00,0 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p01],a[j2+p01],cy01,bjmodn01,1 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p02],a[j2+p02],cy02,bjmodn02,2 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p03],a[j2+p03],cy03,bjmodn03,3 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p04],a[j2+p04],cy04,bjmodn04,4 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p05],a[j2+p05],cy05,bjmodn05,5 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p06],a[j2+p06],cy06,bjmodn06,6 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p07],a[j2+p07],cy07,bjmodn07,7 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p08],a[j2+p08],cy08,bjmodn08,8 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p09],a[j2+p09],cy09,bjmodn09,9 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p10],a[j2+p10],cy10,bjmodn10,10,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p11],a[j2+p11],cy11,bjmodn11,11,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p12],a[j2+p12],cy12,bjmodn12,12,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p13],a[j2+p13],cy13,bjmodn13,13,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p14],a[j2+p14],cy14,bjmodn14,14,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p15],a[j2+p15],cy15,bjmodn15,15,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p16],a[j2+p16],cy16,bjmodn16,16,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p17],a[j2+p17],cy17,bjmodn17,17,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p18],a[j2+p18],cy18,bjmodn18,18,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p19],a[j2+p19],cy19,bjmodn19,19,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p20],a[j2+p20],cy20,bjmodn20,20,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p21],a[j2+p21],cy21,bjmodn21,21,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p22],a[j2+p22],cy22,bjmodn22,22,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p23],a[j2+p23],cy23,bjmodn23,23,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p24],a[j2+p24],cy24,bjmodn24,24,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p25],a[j2+p25],cy25,bjmodn25,25,prp_mult);
 
 			i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -796,36 +823,36 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 		/*...First radix-13 block uses aj1p[0:24:2] as inputs:	*/
 
-			t02 =aj1p24r;		t03 =aj1p24i;
-			r1  =aj1p02r;		i1  =aj1p02i;
+			t02 =a[j1+p24];		t03 =a[j2+p24];
+			r1  =a[j1+p02];		i1  =a[j2+p02];
 			t14 =t02 -r1;		t15 =t03 -i1;
 			t02 =t02 +r1;		t03 =t03 +i1;
 
-			t04 =aj1p22r;		t05 =aj1p22i;
-			r1  =aj1p04r;		i1  =aj1p04i;
+			t04 =a[j1+p22];		t05 =a[j2+p22];
+			r1  =a[j1+p04];		i1  =a[j2+p04];
 			t16 =t04 -r1;		t17 =t05 -i1;
 			t04 =t04 +r1;		t05 =t05 +i1;
 
-			t10 =aj1p20r;		t11 =aj1p20i;
-			r1  =aj1p06r;		i1  =aj1p06i;
+			t10 =a[j1+p20];		t11 =a[j2+p20];
+			r1  =a[j1+p06];		i1  =a[j2+p06];
 			t22 =t10 -r1;		t23 =t11 -i1;
 			t10 =t10 +r1;		t11 =t11 +i1;
 	#if PFETCH
 	addr = add0+p01;
 	prefetch_p_doubles(addr);
 	#endif
-			t06 =aj1p18r;		t07 =aj1p18i;
-			r1  =aj1p08r;		i1  =aj1p08i;
+			t06 =a[j1+p18];		t07 =a[j2+p18];
+			r1  =a[j1+p08];		i1  =a[j2+p08];
 			t18 =t06 -r1;		t19 =t07 -i1;
 			t06 =t06 +r1;		t07 =t07 +i1;
 
-			t08 =aj1p16r;		t09 =aj1p16i;
-			r1  =aj1p10r;		i1  =aj1p10i;
+			t08 =a[j1+p16];		t09 =a[j2+p16];
+			r1  =a[j1+p10];		i1  =a[j2+p10];
 			t20 =r1 - t08;		t21 =i1 - t09;		/* flip signs on as3 */
 			t08 =t08 +r1;		t09 =t09 +i1;
 
-			t12 =aj1p14r;		t13 =aj1p14i;
-			r1  =aj1p12r;		i1  =aj1p12i;
+			t12 =a[j1+p14];		t13 =a[j2+p14];
+			r1  =a[j1+p12];		i1  =a[j2+p12];
 			t24 =t12 -r1;		t25 =t13 -i1;
 			t12 =t12 +r1;		t13 =t13 +i1;
 	#if PFETCH
@@ -851,12 +878,12 @@ for(outer=0; outer <= 1; outer++)
 			t06 = t04-t06;		t07 = t05-t07;
 
 			/* polypro(A,B) mod P0 + x0 */
-			r1 = t10*bp0 + aj1p00r;	i1 = t11*bp0 + aj1p00i;
+			r1 = t10*bp0 + a[j1];	i1 = t11*bp0 + a[j2];
 
 			/* polypro(A,B) mod P1      */
 			t00= t00*bp1;		t01= t01*bp1;
 
-			aj1p00r += t10;		aj1p00i += t11;
+			a[j1] += t10;		a[j2] += t11;
 	#if PFETCH
 	addr = add0+p03;
 	prefetch_p_doubles(addr);
@@ -979,18 +1006,18 @@ for(outer=0; outer <= 1; outer++)
 	addr = add0+p09;
 	prefetch_p_doubles(addr);
 	#endif
-			aj1p02r=t12-t17;	aj1p02i=t13+t16;	/* C1 - S1 */
-			aj1p04r=t10+t23;	aj1p04i=t11-t22;	/* C2 - S2 */
-			aj1p06r=t02+t21;	aj1p06i=t03-t20;	/* C3 - S3 */
-			aj1p08r=t04+t25;	aj1p08i=t05-t24;	/* C4 - S4 */
-			aj1p10r=t08-t15;	aj1p10i=t09+t14;	/* C5 - S5 */
-			aj1p12r=t06+t19;	aj1p12i=t07-t18;	/* C6 - S6 */
-			aj1p14r=t06-t19;	aj1p14i=t07+t18;	/* C6 + S6 */
-			aj1p16r=t08+t15;	aj1p16i=t09-t14;	/* C5 + S5 */
-			aj1p18r=t04-t25;	aj1p18i=t05+t24;	/* C4 + S4 */
-			aj1p20r=t02-t21;	aj1p20i=t03+t20;	/* C3 + S3 */
-			aj1p22r=t10-t23;	aj1p22i=t11+t22;	/* C2 + S2 */
-			aj1p24r=t12+t17;	aj1p24i=t13-t16;	/* C1 + S1 */
+			a[j1+p02]=t12-t17;	a[j2+p02]=t13+t16;	/* C1 - S1 */
+			a[j1+p04]=t10+t23;	a[j2+p04]=t11-t22;	/* C2 - S2 */
+			a[j1+p06]=t02+t21;	a[j2+p06]=t03-t20;	/* C3 - S3 */
+			a[j1+p08]=t04+t25;	a[j2+p08]=t05-t24;	/* C4 - S4 */
+			a[j1+p10]=t08-t15;	a[j2+p10]=t09+t14;	/* C5 - S5 */
+			a[j1+p12]=t06+t19;	a[j2+p12]=t07-t18;	/* C6 - S6 */
+			a[j1+p14]=t06-t19;	a[j2+p14]=t07+t18;	/* C6 + S6 */
+			a[j1+p16]=t08+t15;	a[j2+p16]=t09-t14;	/* C5 + S5 */
+			a[j1+p18]=t04-t25;	a[j2+p18]=t05+t24;	/* C4 + S4 */
+			a[j1+p20]=t02-t21;	a[j2+p20]=t03+t20;	/* C3 + S3 */
+			a[j1+p22]=t10-t23;	a[j2+p22]=t11+t22;	/* C2 + S2 */
+			a[j1+p24]=t12+t17;	a[j2+p24]=t13-t16;	/* C1 + S1 */
 	#else
 			r1  = t24+t16;		i1  = t25+t17;
 			t24 = t24-t16;		t25 = t25-t17;
@@ -1012,18 +1039,18 @@ for(outer=0; outer <= 1; outer++)
 	addr = add0+p09;
 	prefetch_p_doubles(addr);
 	#endif
-			aj1p02r=t12-t15;	aj1p02i=t13+t14;	/* C1 - S1 */
-			aj1p04r=t06+t23;	aj1p04i=t07-t22;	/* C2 - S2 */
-			aj1p06r=t02+t17;	aj1p06i=t03-t16;	/* C3 - S3 */
-			aj1p08r=t04+t25;	aj1p08i=t05-t24;	/* C4 - S4 */
-			aj1p10r=t10-t19;	aj1p10i=t11+t18;	/* C5 - S5 */
-			aj1p12r=t08+t21;	aj1p12i=t09-t20;	/* C6 - S6 */
-			aj1p14r=t08-t21;	aj1p14i=t09+t20;	/* C6 + S6 */
-			aj1p16r=t10+t19;	aj1p16i=t11-t18;	/* C5 + S5 */
-			aj1p18r=t04-t25;	aj1p18i=t05+t24;	/* C4 + S4 */
-			aj1p20r=t02-t17;	aj1p20i=t03+t16;	/* C3 + S3 */
-			aj1p22r=t06-t23;	aj1p22i=t07+t22;	/* C2 + S2 */
-			aj1p24r=t12+t15;	aj1p24i=t13-t14;	/* C1 + S1 */
+			a[j1+p02]=t12-t15;	a[j2+p02]=t13+t14;	/* C1 - S1 */
+			a[j1+p04]=t06+t23;	a[j2+p04]=t07-t22;	/* C2 - S2 */
+			a[j1+p06]=t02+t17;	a[j2+p06]=t03-t16;	/* C3 - S3 */
+			a[j1+p08]=t04+t25;	a[j2+p08]=t05-t24;	/* C4 - S4 */
+			a[j1+p10]=t10-t19;	a[j2+p10]=t11+t18;	/* C5 - S5 */
+			a[j1+p12]=t08+t21;	a[j2+p12]=t09-t20;	/* C6 - S6 */
+			a[j1+p14]=t08-t21;	a[j2+p14]=t09+t20;	/* C6 + S6 */
+			a[j1+p16]=t10+t19;	a[j2+p16]=t11-t18;	/* C5 + S5 */
+			a[j1+p18]=t04-t25;	a[j2+p18]=t05+t24;	/* C4 + S4 */
+			a[j1+p20]=t02-t17;	a[j2+p20]=t03+t16;	/* C3 + S3 */
+			a[j1+p22]=t06-t23;	a[j2+p22]=t07+t22;	/* C2 + S2 */
+			a[j1+p24]=t12+t15;	a[j2+p24]=t13-t14;	/* C1 + S1 */
 	#endif
 
 		/*...Second radix-13 block uses aj1p[1:25:2] as inputs:	*/
@@ -1031,43 +1058,43 @@ for(outer=0; outer <= 1; outer++)
 	addr = add0+p10;
 	prefetch_p_doubles(addr);
 	#endif
-			t02 =aj1p11r;		t03 =aj1p11i;
-			r1  =aj1p15r;		i1  =aj1p15i;
+			t02 =a[j1+p11];		t03 =a[j2+p11];
+			r1  =a[j1+p15];		i1  =a[j2+p15];
 			t14 =t02 -r1;		t15 =t03 -i1;
 			t02 =t02 +r1;		t03 =t03 +i1;
 
-			t04 =aj1p09r;		t05 =aj1p09i;
-			r1  =aj1p17r;		i1  =aj1p17i;
+			t04 =a[j1+p09];		t05 =a[j2+p09];
+			r1  =a[j1+p17];		i1  =a[j2+p17];
 			t16 =t04 -r1;		t17 =t05 -i1;
 			t04 =t04 +r1;		t05 =t05 +i1;
 
-			t10 =aj1p07r;		t11 =aj1p07i;
-			r1  =aj1p19r;		i1  =aj1p19i;
+			t10 =a[j1+p07];		t11 =a[j2+p07];
+			r1  =a[j1+p19];		i1  =a[j2+p19];
 			t22 =t10 -r1;		t23 =t11 -i1;
 			t10 =t10 +r1;		t11 =t11 +i1;
 	#if PFETCH
 	addr = add0+p11;
 	prefetch_p_doubles(addr);
 	#endif
-			t06 =aj1p05r;		t07 =aj1p05i;
-			r1  =aj1p21r;		i1  =aj1p21i;
+			t06 =a[j1+p05];		t07 =a[j2+p05];
+			r1  =a[j1+p21];		i1  =a[j2+p21];
 			t18 =t06 -r1;		t19 =t07 -i1;
 			t06 =t06 +r1;		t07 =t07 +i1;
 
-			t08 =aj1p03r;		t09 =aj1p03i;
-			r1  =aj1p23r;		i1  =aj1p23i;
+			t08 =a[j1+p03];		t09 =a[j2+p03];
+			r1  =a[j1+p23];		i1  =a[j2+p23];
 			t20 =r1 - t08;		t21 =i1 - t09;		/* flip signs on as3 */
 			t08 =t08 +r1;		t09 =t09 +i1;
 
-			t12 =aj1p01r;		t13 =aj1p01i;
-			r1  =aj1p25r;		i1  =aj1p25i;
+			t12 =a[j1+p01];		t13 =a[j2+p01];
+			r1  =a[j1+p25];		i1  =a[j2+p25];
 			t24 =t12 -r1;		t25 =t13 -i1;
 			t12 =t12 +r1;		t13 =t13 +i1;
 	#if PFETCH
 	addr = add0+p12;
 	prefetch_p_doubles(addr);
 	#endif
-			aj1p01r = aj1p13r;	aj1p01i = aj1p13i;
+			a[j1+p01] = a[j1+p13];	a[j2+p01] = a[j2+p13];
 
 		/*** COSINE TERMS ***/
 
@@ -1087,12 +1114,12 @@ for(outer=0; outer <= 1; outer++)
 			t06 = t04-t06;		t07 = t05-t07;
 
 			/* polypro(A,B) mod P0 + x0 */
-			r1 = t10*bp0 + aj1p01r;	i1 = t11*bp0 + aj1p01i;
+			r1 = t10*bp0 + a[j1+p01];	i1 = t11*bp0 + a[j2+p01];
 
 			/* polypro(A,B) mod P1      */
 			t00= t00*bp1;		t01= t01*bp1;
 
-			aj1p01r += t10;		aj1p01i += t11;
+			a[j1+p01] += t10;		a[j2+p01] += t11;
 	#if PFETCH
 	addr = add0+p13;
 	prefetch_p_doubles(addr);
@@ -1215,18 +1242,18 @@ for(outer=0; outer <= 1; outer++)
 	addr = add0+p19;
 	prefetch_p_doubles(addr);
 	#endif
-			aj1p03r=t12-t17;	aj1p03i=t13+t16;	/* C1 - S1 */
-			aj1p05r=t10+t23;	aj1p05i=t11-t22;	/* C2 - S2 */
-			aj1p07r=t02+t21;	aj1p07i=t03-t20;	/* C3 - S3 */
-			aj1p09r=t04+t25;	aj1p09i=t05-t24;	/* C4 - S4 */
-			aj1p11r=t08-t15;	aj1p11i=t09+t14;	/* C5 - S5 */
-			aj1p13r=t06+t19;	aj1p13i=t07-t18;	/* C6 - S6 */
-			aj1p15r=t06-t19;	aj1p15i=t07+t18;	/* C6 + S6 */
-			aj1p17r=t08+t15;	aj1p17i=t09-t14;	/* C5 + S5 */
-			aj1p19r=t04-t25;	aj1p19i=t05+t24;	/* C4 + S4 */
-			aj1p21r=t02-t21;	aj1p21i=t03+t20;	/* C3 + S3 */
-			aj1p23r=t10-t23;	aj1p23i=t11+t22;	/* C2 + S2 */
-			aj1p25r=t12+t17;	aj1p25i=t13-t16;	/* C1 + S1 */
+			a[j1+p03]=t12-t17;	a[j2+p03]=t13+t16;	/* C1 - S1 */
+			a[j1+p05]=t10+t23;	a[j2+p05]=t11-t22;	/* C2 - S2 */
+			a[j1+p07]=t02+t21;	a[j2+p07]=t03-t20;	/* C3 - S3 */
+			a[j1+p09]=t04+t25;	a[j2+p09]=t05-t24;	/* C4 - S4 */
+			a[j1+p11]=t08-t15;	a[j2+p11]=t09+t14;	/* C5 - S5 */
+			a[j1+p13]=t06+t19;	a[j2+p13]=t07-t18;	/* C6 - S6 */
+			a[j1+p15]=t06-t19;	a[j2+p15]=t07+t18;	/* C6 + S6 */
+			a[j1+p17]=t08+t15;	a[j2+p17]=t09-t14;	/* C5 + S5 */
+			a[j1+p19]=t04-t25;	a[j2+p19]=t05+t24;	/* C4 + S4 */
+			a[j1+p21]=t02-t21;	a[j2+p21]=t03+t20;	/* C3 + S3 */
+			a[j1+p23]=t10-t23;	a[j2+p23]=t11+t22;	/* C2 + S2 */
+			a[j1+p25]=t12+t17;	a[j2+p25]=t13-t16;	/* C1 + S1 */
 	#else
 			r1  = t24+t16;		i1  = t25+t17;
 			t24 = t24-t16;		t25 = t25-t17;
@@ -1248,84 +1275,114 @@ for(outer=0; outer <= 1; outer++)
 	addr = add0+p19;
 	prefetch_p_doubles(addr);
 	#endif
-			aj1p03r=t12-t15;	aj1p03i=t13+t14;	/* C1 - S1 */
-			aj1p05r=t06+t23;	aj1p05i=t07-t22;	/* C2 - S2 */
-			aj1p07r=t02+t17;	aj1p07i=t03-t16;	/* C3 - S3 */
-			aj1p09r=t04+t25;	aj1p09i=t05-t24;	/* C4 - S4 */
-			aj1p11r=t10-t19;	aj1p11i=t11+t18;	/* C5 - S5 */
-			aj1p13r=t08+t21;	aj1p13i=t09-t20;	/* C6 - S6 */
-			aj1p15r=t08-t21;	aj1p15i=t09+t20;	/* C6 + S6 */
-			aj1p17r=t10+t19;	aj1p17i=t11-t18;	/* C5 + S5 */
-			aj1p19r=t04-t25;	aj1p19i=t05+t24;	/* C4 + S4 */
-			aj1p21r=t02-t17;	aj1p21i=t03+t16;	/* C3 + S3 */
-			aj1p23r=t06-t23;	aj1p23i=t07+t22;	/* C2 + S2 */
-			aj1p25r=t12+t15;	aj1p25i=t13-t14;	/* C1 + S1 */
+			a[j1+p03]=t12-t15;	a[j2+p03]=t13+t14;	/* C1 - S1 */
+			a[j1+p05]=t06+t23;	a[j2+p05]=t07-t22;	/* C2 - S2 */
+			a[j1+p07]=t02+t17;	a[j2+p07]=t03-t16;	/* C3 - S3 */
+			a[j1+p09]=t04+t25;	a[j2+p09]=t05-t24;	/* C4 - S4 */
+			a[j1+p11]=t10-t19;	a[j2+p11]=t11+t18;	/* C5 - S5 */
+			a[j1+p13]=t08+t21;	a[j2+p13]=t09-t20;	/* C6 - S6 */
+			a[j1+p15]=t08-t21;	a[j2+p15]=t09+t20;	/* C6 + S6 */
+			a[j1+p17]=t10+t19;	a[j2+p17]=t11-t18;	/* C5 + S5 */
+			a[j1+p19]=t04-t25;	a[j2+p19]=t05+t24;	/* C4 + S4 */
+			a[j1+p21]=t02-t17;	a[j2+p21]=t03+t16;	/* C3 + S3 */
+			a[j1+p23]=t06-t23;	a[j2+p23]=t07+t22;	/* C2 + S2 */
+			a[j1+p25]=t12+t15;	a[j2+p25]=t13-t14;	/* C1 + S1 */
 	#endif
 
 	/*...and now do 13 radix-2 transforms:	*/
+
+			// v21: DFT outputs now live in a[]; the 13 radix-2 butterflies below write each pair of slots
+			// they also read, so snapshot the 52 values into the (dead-again) u-temps and butterfly from those:
+			u01 = a[j1    ];	u02 = a[j2    ];
+			u03 = a[j1+p01];	u04 = a[j2+p01];
+			u05 = a[j1+p02];	u06 = a[j2+p02];
+			u07 = a[j1+p03];	u08 = a[j2+p03];
+			u09 = a[j1+p04];	u10 = a[j2+p04];
+			u11 = a[j1+p05];	u12 = a[j2+p05];
+			u13 = a[j1+p06];	u14 = a[j2+p06];
+			u15 = a[j1+p07];	u16 = a[j2+p07];
+			u17 = a[j1+p08];	u18 = a[j2+p08];
+			u19 = a[j1+p09];	u20 = a[j2+p09];
+			u21 = a[j1+p10];	u22 = a[j2+p10];
+			u23 = a[j1+p11];	u24 = a[j2+p11];
+			u25 = a[j1+p12];	u26 = a[j2+p12];
+			u27 = a[j1+p13];	u28 = a[j2+p13];
+			u29 = a[j1+p14];	u30 = a[j2+p14];
+			u31 = a[j1+p15];	u32 = a[j2+p15];
+			u33 = a[j1+p16];	u34 = a[j2+p16];
+			u35 = a[j1+p17];	u36 = a[j2+p17];
+			u37 = a[j1+p18];	u38 = a[j2+p18];
+			u39 = a[j1+p19];	u40 = a[j2+p19];
+			u41 = a[j1+p20];	u42 = a[j2+p20];
+			u43 = a[j1+p21];	u44 = a[j2+p21];
+			u45 = a[j1+p22];	u46 = a[j2+p22];
+			u47 = a[j1+p23];	u48 = a[j2+p23];
+			u49 = a[j1+p24];	u50 = a[j2+p24];
+			u51 = a[j1+p25];	u52 = a[j2+p25];
+
 
 	#if PFETCH
 	addr = add0+p20;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1    ]=aj1p00r+aj1p01r;	a[j2    ]=aj1p00i+aj1p01i;
-			a[j1+p01]=aj1p00r-aj1p01r;	a[j2+p01]=aj1p00i-aj1p01i;
+			a[j1    ]=u01+u03;	a[j2    ]=u02+u04;
+			a[j1+p01]=u01-u03;	a[j2+p01]=u02-u04;
 
-			a[j1+p03]=aj1p02r+aj1p03r;	a[j2+p03]=aj1p02i+aj1p03i;
-			a[j1+p02]=aj1p02r-aj1p03r;	a[j2+p02]=aj1p02i-aj1p03i;
+			a[j1+p03]=u05+u07;	a[j2+p03]=u06+u08;
+			a[j1+p02]=u05-u07;	a[j2+p02]=u06-u08;
 
 	#if PFETCH
 	addr = add0+p21;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1+p04]=aj1p04r+aj1p05r;	a[j2+p04]=aj1p04i+aj1p05i;
-			a[j1+p05]=aj1p04r-aj1p05r;	a[j2+p05]=aj1p04i-aj1p05i;
+			a[j1+p04]=u09+u11;	a[j2+p04]=u10+u12;
+			a[j1+p05]=u09-u11;	a[j2+p05]=u10-u12;
 
-			a[j1+p07]=aj1p06r+aj1p07r;	a[j2+p07]=aj1p06i+aj1p07i;
-			a[j1+p06]=aj1p06r-aj1p07r;	a[j2+p06]=aj1p06i-aj1p07i;
+			a[j1+p07]=u13+u15;	a[j2+p07]=u14+u16;
+			a[j1+p06]=u13-u15;	a[j2+p06]=u14-u16;
 
 	#if PFETCH
 	addr = add0+p22;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1+p08]=aj1p08r+aj1p09r;	a[j2+p08]=aj1p08i+aj1p09i;
-			a[j1+p09]=aj1p08r-aj1p09r;	a[j2+p09]=aj1p08i-aj1p09i;
+			a[j1+p08]=u17+u19;	a[j2+p08]=u18+u20;
+			a[j1+p09]=u17-u19;	a[j2+p09]=u18-u20;
 
-			a[j1+p11]=aj1p10r+aj1p11r;	a[j2+p11]=aj1p10i+aj1p11i;
-			a[j1+p10]=aj1p10r-aj1p11r;	a[j2+p10]=aj1p10i-aj1p11i;
+			a[j1+p11]=u21+u23;	a[j2+p11]=u22+u24;
+			a[j1+p10]=u21-u23;	a[j2+p10]=u22-u24;
 
 	#if PFETCH
 	addr = add0+p23;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1+p12]=aj1p12r+aj1p13r;	a[j2+p12]=aj1p12i+aj1p13i;
-			a[j1+p13]=aj1p12r-aj1p13r;	a[j2+p13]=aj1p12i-aj1p13i;
+			a[j1+p12]=u25+u27;	a[j2+p12]=u26+u28;
+			a[j1+p13]=u25-u27;	a[j2+p13]=u26-u28;
 
-			a[j1+p15]=aj1p14r+aj1p15r;	a[j2+p15]=aj1p14i+aj1p15i;
-			a[j1+p14]=aj1p14r-aj1p15r;	a[j2+p14]=aj1p14i-aj1p15i;
+			a[j1+p15]=u29+u31;	a[j2+p15]=u30+u32;
+			a[j1+p14]=u29-u31;	a[j2+p14]=u30-u32;
 
 	#if PFETCH
 	addr = add0+p24;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1+p16]=aj1p16r+aj1p17r;	a[j2+p16]=aj1p16i+aj1p17i;
-			a[j1+p17]=aj1p16r-aj1p17r;	a[j2+p17]=aj1p16i-aj1p17i;
+			a[j1+p16]=u33+u35;	a[j2+p16]=u34+u36;
+			a[j1+p17]=u33-u35;	a[j2+p17]=u34-u36;
 
-			a[j1+p19]=aj1p18r+aj1p19r;	a[j2+p19]=aj1p18i+aj1p19i;
-			a[j1+p18]=aj1p18r-aj1p19r;	a[j2+p18]=aj1p18i-aj1p19i;
+			a[j1+p19]=u37+u39;	a[j2+p19]=u38+u40;
+			a[j1+p18]=u37-u39;	a[j2+p18]=u38-u40;
 
 	#if PFETCH
 	addr = add0+p25;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1+p20]=aj1p20r+aj1p21r;	a[j2+p20]=aj1p20i+aj1p21i;
-			a[j1+p21]=aj1p20r-aj1p21r;	a[j2+p21]=aj1p20i-aj1p21i;
+			a[j1+p20]=u41+u43;	a[j2+p20]=u42+u44;
+			a[j1+p21]=u41-u43;	a[j2+p21]=u42-u44;
 
-			a[j1+p23]=aj1p22r+aj1p23r;	a[j2+p23]=aj1p22i+aj1p23i;
-			a[j1+p22]=aj1p22r-aj1p23r;	a[j2+p22]=aj1p22i-aj1p23i;
+			a[j1+p23]=u45+u47;	a[j2+p23]=u46+u48;
+			a[j1+p22]=u45-u47;	a[j2+p22]=u46-u48;
 
-			a[j1+p24]=aj1p24r+aj1p25r;	a[j2+p24]=aj1p24i+aj1p25i;
-			a[j1+p25]=aj1p24r-aj1p25r;	a[j2+p25]=aj1p24i-aj1p25i;
+			a[j1+p24]=u49+u51;	a[j2+p24]=u50+u52;
+			a[j1+p25]=u49-u51;	a[j2+p25]=u50-u52;
 
 			iroot += root_incr;		/* increment sincos index.	*/
 
