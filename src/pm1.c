@@ -30,6 +30,12 @@ Then to run, e.g.
 #include "Mlucas.h"
 #define STR_MAX_LEN 1024
 
+// P-1 Stage 1 B1 bounds. The Stage 1 prime-powers product has ~1.5*B1 bits and its bitlength is stored
+// as a uint32, so B1 must satisfy 1.5*B1 <= 2^32, i.e. B1 <= 2^33/3 = 2863311530. Lower bound of 10^4
+// avoids a large-buffer-count underflow of qlo in Stage 2 (see pm1_set_bounds()):
+#define PM1_B1_MIN         10000u
+#define PM1_B1_MAX    2863311530u	// = 2^33/3
+
 #ifdef PM1_STANDALONE
 	#warning Building pm1.c in PM1_STANDALONE mode.
 	char STATFILE[] = "pm1_debug.txt";
@@ -199,11 +205,11 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 			PM1_S2_NBUF = (uint32)dtmp - 5;
 		}
 	}
-	// Force B1 >= 10^4 to avoid possible large-buffer-count underflow of qlo in stage 2.
-	// Conservatively use (#bits in Stage 1 prime-powers product ~= 1.5*B1), must fit into a uint32, thus B1_max = 2^33/3 = 2863311530:
+	// PM1_B1_MIN/PM1_B1_MAX (defined at top of file) bound B1: lower to avoid a Stage 2 qlo underflow,
+	// upper (2^33/3) so the ~1.5*B1-bit Stage 1 prime-powers product's bitlength fits a uint32:
 	i64 = p>>7;
-	ASSERT(i64 <= 2863311530ull, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
-	B1 = MAX((uint32)i64,10000);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
+	ASSERT(i64 <= PM1_B1_MAX, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
+	B1 = MAX((uint32)i64,PM1_B1_MIN);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
 	B1 = (B1 + 99999)*inv100k;	B1 *= 100000;	ASSERT(B1 >= 100000, "B1 unacceptably small!");	// Round up to nearest 100k:
 	if(PM1_S2_NBUF < 24) {
 		sprintf(cbuf,"pm1_set_bounds: Insufficient free memory for Stage 2 ... will run only Stage 1.\n");
@@ -334,29 +340,41 @@ global would be needed to store that - and remultiply by the appropriate one for
 uint32 compute_pm1_s1_product(const uint64 p) {
 	const double A = 1.1;
 	ASSERT(B1 > 0, "Call to compute_pm1_s1_product needs Stage 1 bound global B1 to be set!");
-	double ln = log(B1), lg = ln*ILG2;
-	uint32 i,len = 0,nmul,nbits,ebits = (uint32)((lg-A)*B1/(ln-A));
+	uint32 i,len = 0,nmul,nbits,ebits,s1p_alloc;
 	uint64 iseed,maxmult;
+	double ln,lg;
 	char savefile[STR_MAX_LEN];
 
-	// Compute Stage 1 prime-powers product, starting with alloc of needed memory:
-	uint32 s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
-	PM1_S1_PRODUCT = ALLOC_UINT64(PM1_S1_PRODUCT, s1p_alloc);
-	if(!PM1_S1_PRODUCT ){
-		sprintf(cbuf, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
-		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
-	}
-
-	// (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product for this p and B1 exists:
   #ifndef PM1_STANDALONE
+	// Build the ".s1_prod" precomputed-product savefile name:
 	strcpy(savefile, RESTARTFILE);
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s1_prod");
-	if((len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, PM1_S1_PRODUCT, &PM1_S1_PROD_RES64)) != 0) {
+	/* (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product exists. read_pm1_s1_prod()
+	adopts the savefile's B1 if it differs from the current run's, and allocates PM1_S1_PRODUCT to fit, so it must be
+	called *before* we size the buffer from B1 below. Rationale: pm1_set_bounds() auto-sizes B1 from available RAM (a
+	low-memory run bumps B1 up ~25% to run a deeper Stage 1), so a restart under a different memory budget can pick a
+	different B1 than the Stage 1 already in progress. The in-progress powering (and the residue restart-file's iteration
+	count) belong to the B1 recorded in this savefile, and a partial powering to one B1 is not interchangeable with any
+	other, so we resume that exact Stage 1 rather than silently recomputing at a different B1. To instead start a fresh
+	run at a different B1, delete this exponent's p-1 savefiles first. */
+	len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, &PM1_S1_PRODUCT, &PM1_S1_PROD_RES64);
+  #endif
+	// Estimated #bits in the product, from the (possibly-just-adopted) B1; also the from-scratch alloc size below:
+	ln = log(B1); lg = ln*ILG2;	ebits = (uint32)((lg-A)*B1/(ln-A));
+  #ifndef PM1_STANDALONE
+	if(len != 0) {
+		PM1_S1_PROD_B1 = B1;	// The stored product corresponds to (the possibly-just-adopted) B1
 		sprintf(cbuf, "INFO: Successfully read precomputed/bit-reversed Stage 1 prime-powers product savefile for this modulus and B1 = %u.\n",B1);
 		mlucas_fprint(cbuf,pm1_standlone+1);
-	} else {	// Compute product from scratch:
+	} else {	// Compute product from scratch, starting with alloc of needed memory:
   #endif
+		s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
+		PM1_S1_PRODUCT = ALLOC_UINT64(PM1_S1_PRODUCT, s1p_alloc);
+		if(!PM1_S1_PRODUCT ){
+			snprintf(cbuf, STR_MAX_LEN*2, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
+			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
+		}
 		// For M(p) want to seed the S1 prime-powers product with 2*p; for F(m) we want seed = 2^(m+2). Since in the latter
 		// case our input p contains 2^m, can handle both cases via iseed = 4*p, giving an extra *2 in the Mersenne case:
 		iseed = p<<2;	ASSERT((iseed>>2) == p,"Binary exponent overflows (uint64)4*p in compute_pm1_s1_product!");
@@ -398,7 +416,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		}
 	} 	// endif(read_pm1_s1_prod)
   #endif
-	sprintf(cbuf,"Product of Stage 1 prime powers with b1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
+	snprintf(cbuf,STR_MAX_LEN*2,"Product of Stage 1 prime powers with B1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	PRP_BASE = 3;
 	sprintf(cbuf,"BRed (PM1_S1_PRODUCT sans leading bit) has %u limbs, Res64 = %" PRIu64 "\n",len,PM1_S1_PROD_RES64);
@@ -450,7 +468,7 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 }
 
 // Returns 1 on successful read, 0 otherwise:
-int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64)
+int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uint64*sum64)
 {
 	const char func[] = "read_pm1_s1_prod";
 	int retval = 0;
@@ -483,8 +501,20 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uin
 		i = fgetc(fptr);	b1 += (uint64)i << j;
 	}
 	if(B1 != b1) {
-		sprintf(cbuf, "INFO: %s: B1 of current run[%u] mismatches one[%u] of savefile data.\n",func,B1,b1);
-		goto PM1_S1P_READ_RETURN;
+		/* The savefile's Stage 1 was run to a different B1 than the current run's (pm1_set_bounds() auto-sizes B1 from
+		available RAM, so a restart under a different memory budget can pick a different B1). A partial powering to one
+		B1 is not interchangeable with any other, so adopt the savefile's B1 and resume that exact Stage 1 rather than
+		recomputing at a different B1. Only adopt a sane value; an out-of-range b1 (or the type-tag mismatches above)
+		means a truncated/foreign file, so bail and recompute at the current B1. */
+		if(b1 >= PM1_B1_MIN && b1 <= PM1_B1_MAX) {
+			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
+			mlucas_fprint(cbuf,pm1_standlone+1);
+			if(B2_start) B2_start = b1;	// keep the Stage 2 start-bound tracking the adopted Stage 1 bound (Stage 2 begins where Stage 1 ends)
+			B1 = b1;
+		} else {
+			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: savefile B1 [%u] is out of range; treating as corrupt/foreign and recomputing.\n",func,b1);
+			goto PM1_S1P_READ_RETURN;
+		}
 	}
 	// Read bitlength of precomputed/bit-reversed product:
 	*nbits = 0;
@@ -492,20 +522,26 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uin
 		i = fgetc(fptr);	*nbits += i << j;
 	}
 
-	// Set the number of product bytes and zero the corr. target-array limbs:
+	// Set the number of product bytes, (re)allocate the target array to fit (its size follows the just-read - and
+	// possibly-just-adopted-B1 - product, which the caller cannot size in advance), and zero its limbs:
 	nbytes = (*nbits + 7)/8; nlimbs = (nbytes + 7)/8;
-	for(i = 0; i < nlimbs; i++) { arr[i] = 0ull; }
+	*arr = ALLOC_UINT64(*arr, nlimbs);
+	if(!*arr) {
+		snprintf(cbuf, STR_MAX_LEN*2, "ERROR: %s: unable to allocate array PM1_S1_PRODUCT with %u limbs.\n",func,nlimbs);
+		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
+	}
+	for(i = 0; i < nlimbs; i++) { (*arr)[i] = 0ull; }
 
 	// Read the bytewise product into our array of 64-bit limbs:
 	// j holds index of current byte of limb, (j>>3) = index of current limb of target
 	for(j = 0; j < nbytes; j++) {				//vvvvvvvvv = 8*j (mod 64)
-		c = fgetc(fptr);	arr[j>>3] += ((uint64)c << ((j<<3)&63));
+		c = fgetc(fptr);	(*arr)[j>>3] += ((uint64)c << ((j<<3)&63));
 	}
 	// Read 8 bytes of simple (sum of limbs, mod 2^64) checksum, compare to one computed from read data:
 	for(j = 0; j < 64; j += 8) {
 		i = fgetc(fptr);	isum64 += (uint64)i << j;
 	}
-	for(i = 0; i < nlimbs; i++) { itmp64 += arr[i]; }
+	for(i = 0; i < nlimbs; i++) { itmp64 += (*arr)[i]; }
 	if(itmp64 != isum64) {
 		sprintf(cbuf, "INFO: %s: Computed checksum[%" PRIX64 "] mismatches one[%" PRIX64 "] appended to savefile data.\n",func,itmp64,isum64);
 		*sum64 = 0ull;

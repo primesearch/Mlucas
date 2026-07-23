@@ -117,7 +117,7 @@ uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 uint32	pm1_check_bounds();
 uint32	compute_pm1_s1_product(const uint64 p);
 uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
-int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64);
+int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uint64*sum64);
 int		write_pm1_s1_prod(const char*fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
 void	pm1_bigstep_size(uint32 *nbuf, uint32*bigstep, uint32*m, const uint32 psmall);
 int		modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
