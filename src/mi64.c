@@ -614,11 +614,19 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	So allow output_len to be 1 limb smaller than 17 as a fudge factor to handle arbitrary in-word copy-bit boundaries:
 	*/
 	ASSERT(output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
+	/* v21: the "fudge factor" case output_len == (len-nwshift)-1 permitted by the above assert was
+	documented ("only copy that many and exit") but never implemented: every write path below wrote
+	the full (len-nwshift) result words, i.e. one word past the caller's buffer. All writes are now
+	clamped to output_len. */
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) {
-			mi64_set_eq(y, x, len);				// Set y = x...
-			mi64_clear(y+len, output_len - len);// ...and 0 any excess high limbs in y.
+			i = MIN(len, output_len);
+			mi64_set_eq(y, x, i);				// Set y = x...
+			if(output_len > len)
+				mi64_clear(y+len, output_len - len);// ...and 0 any excess high limbs in y.
+				// (Note the guard: the old unguarded form passed a huge unsigned count if
+				// output_len < len, wiping (2^32 - small) words beyond the buffer.)
 		}
 		return 0ull;
 	}
@@ -638,18 +646,19 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 		hi64 = x[nwshift-1];
 	}
 	if(!rembits) {	// Whole-word shift:
-		for(i = 0; i < len-nwshift; i++) {
+		for(i = 0; i < len-nwshift && i < (int)output_len; i++) {	// v21: clamp to output_len (fudge-factor case)
 			y[i] = x[i+nwshift];
 		}
 	} else {	// nshift not an exact multiple of the wordlength:
 		m64bits = (64-rembits);
 		if(nwshift)
 			hi64 = (hi64 >> rembits) + (x[nwshift] << m64bits);
-		for(i = 0; i < len-nwshift-1; i++) {
+		for(i = 0; i < len-nwshift-1 && i < (int)output_len; i++) {	// v21: clamp to output_len (fudge-factor case)
 			y[i] = (x[i+nwshift] >> rembits) + (x[i+nwshift+1] << m64bits);	// Ex: on exit have just finished y[37] = x[1130]>>48 + x[1131]<<16
 		}																	// thus 2432 of our 2448 target bits
 		// Most-significant element gets zeros shifted in from the left:
-		y[i] = (x[i+nwshift] >> rembits);									// Ex: y[len-nwshift-1] = y[38] = x[1131]>>48
+		if(i < (int)output_len)	// v21: in the fudge-factor case the caller asked for one fewer word - skip it
+			y[i] = (x[i+nwshift] >> rembits);								// Ex: y[len-nwshift-1] = y[38] = x[1131]>>48
 		for(i = len-nwshift; i < output_len; i++) {
 			y[i] = 0ull;
 		}
@@ -2240,6 +2249,9 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 
 	uint64	mi64_add(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 	{
+		// v21: the C implementation asserts len != 0; the ASM path must do the same, since its loop
+		// counter setup ("decq" before the first termination check) would treat len == 0 as 2^64:
+		ASSERT(len != 0, "mi64_add: zero-length array!");
 	#if 0//def USE_AVX
 		#error experimental-only code ... still needs debugging! [Jul 2016 - carry into topmost word missing]
 		// Hybrid int64 / sse2 -based impl of ?-folded adc loop
@@ -4188,7 +4200,8 @@ void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 #if defined(USE_AVX512) && !defined(USE_IMCI512)
 	__asm__ volatile (\
 		"movq	%[__a],%%rax				\n\t	vpxorq	%%zmm30,%%zmm30,%%zmm30	\n\t"/* 0.0 */\
-		"movq	%[__b],%%rbx				\n\t	vmovaps		(%%rax),%%zmm0 	\n\t"/* Load uint64 inputs */\
+		"movq	%[__b],%%rbx				\n\t	vmovups		(%%rax),%%zmm0 	\n\t"/* Load uint64 inputs - v21: unaligned
+											load, the caller's uint64[] carries no 64-byte alignment guarantee */\
 		"vpcmpuq $0,%%zmm30,%%zmm0,%%k1		\n\t"/* 0-Inputs need 0-masking of result of code below */\
 		"vplzcntq	%%zmm0,%%zmm1			\n\t"/* #leading zeros in inputs */\
 		/* IEEE64 exp-fields for 1,2[lz=63,62] = 0x3ff,0x400, so offset we add to shift-aligned data is 62-1 (the -1 accounts for the unhidden-bit becoming hidden) higher than 0x400 = 0x43D0...0 - #lz: */\
@@ -4199,7 +4212,7 @@ void mi64_vcvtuqq2pd(const uint64 a[], double b[])
 		"vpsrlq		$11,%%zmm0,%%zmm0		\n\t"/* == inputs >> (11-lz) bits, leftmost set bit at low bit of DP-exponent field */\
 		"vpaddq		%%zmm1,%%zmm0,%%zmm0	\n\t"/* Note above rshift truncates any off-shifted low bits; results now in DP form. */
 	"vpandq	%%zmm30,%%zmm0,%%zmm0%{%%k1%}	\n\t"/* 0-Inputs need 0-masking of result */\
-		"vmovaps	%%zmm0,(%%rbx) 	\n\t"/* uint64 inputs */\
+		"vmovups	%%zmm0,(%%rbx) 	\n\t"/* v21: unaligned store, ditto for the output double[] */\
 		:					/* outputs: none */\
 		: [__a] "m" (a)	/* All inputs from memory addresses here */\
 		 ,[__b] "m" (b)\
@@ -5104,12 +5117,15 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			free((void *)scratch);	scratch = yinv = cy = tmp = itmp = lo = hi = w = rem_save = 0x0;
 		}
 		/* (re)Allocate the needed auxiliary storage: */
-		scratch = (uint64 *)calloc((lenD*8), sizeof(uint64));	ASSERT(scratch != 0x0, "alloc fail!");
+		// v21: +1 pad word: the in-place (r == 0x0) restore of a single-word remainder below writes
+		// rem_save[nws], and nws can equal lenD (e.g. divisor 3*2^65: lenD = 2, nshift = 65, nws = 2),
+		// so the last (rem_save) section needs lenD+1 words:
+		scratch = (uint64 *)calloc((lenD*8 + 1), sizeof(uint64));	ASSERT(scratch != 0x0, "alloc fail!");
 	}
 	// These ptrs just point to various disjoint length-lenD sections of the shared local-storage chunk;
 	// since some of them are treated as vars, reset 'em all on each entry, as well as re-zeroing the whole memblock:
-	memset(scratch, 0ull, 8*(lenD<<3));	// (8*lenD) words of 8 bytes each
-	// The 10-multiplier in the preceding calloc & memset corr. to number of pointers inited here:
+	memset(scratch, 0ull, (lenD<<3)*8 + 8);	// (8*lenD + 1) words of 8 bytes each
+	// The 8-multiplier in the preceding calloc & memset corr. to number of pointers inited here:
 	yinv         = scratch;
 	cy           = scratch +   lenD;
 	tmp          = scratch + 2*lenD;
@@ -5191,7 +5207,9 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		nbs = nshift&63;
 		// Save the bottom nshift bits of x (we work with copy of x saved in v) prior to right-shifting:
 		mi64_set_eq(rem_save, x, nws);
-		mask = ((uint64)-1 >> (64 - nbs));
+		// v21: guard the nbs == 0 case (nshift an exact multiple of 64): the previous unguarded
+		// (uint64)-1 >> 64 is UB in C (x86 happens to give the intended all-ones, but only by luck):
+		mask = nbs ? ((uint64)-1 >> (64 - nbs)) : (uint64)-1;
 		rem_save[nws-1] &= mask;
 		mi64_shrl(x,v,nshift,lenX,lenX);
 		mi64_shrl(y,w,nshift,lenD,lenD);
@@ -6123,11 +6141,10 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 			"cmovcq %%rbx,%%rax	\n\t"/* if CF = 1 (CMPSD = true), overwrite dest (rax = itmp64-q) with source (rbx = itmp64+q), else leave dest = itmp64-q. */\
 		"rad_pow64_end: 	\n\t"\
 			"movq	%%rax,%[__itmp64]	\n\t"\
-		:	/* outputs: none */\
+		: [__itmp64] "+m" (itmp64)	/* output: itmp64 (asm stores through it) */\
 		: [__fquo] "m" (fquo)	/* All inputs from memory addresses here */\
 		 ,[__rnd] "m" (rnd)	\
 		 ,[__q] "m" (q)	\
-		 ,[__itmp64] "m" (itmp64)	\
 		: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1"	/* Clobbered registers */\
 		);
 
@@ -6288,11 +6305,10 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy] "+m" (cy)	/* output: cy (asm stores through it) */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy] "m" (cy)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10"	/* Clobbered registers */\
 		);
@@ -6318,11 +6334,10 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy] "+m" (cy)	/* output: cy (asm stores through it) */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy] "m" (cy)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10"	/* Clobbered registers */\
 		);
@@ -6347,7 +6362,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	uint32 nshift0,nshift1,nshift2,nshift3;
 	uint64 qinv0,qinv1,qinv2,qinv3,cy0,cy1,cy2,cy3;
 
-	ASSERT((len == 0), "0 length!");
+	ASSERT((len != 0), "0 length!");	// v21: condition was inverted (== 0), aborting on every legitimate call
 	trailx = trailz64(x[0]);
 	ASSERT(trailx < 64, "0 low word!");
 
@@ -6425,7 +6440,10 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	"jnz loop4x 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
+	 ,[__cy1] "+m" (cy1)	\
+	 ,[__cy2] "+m" (cy2)	\
+	 ,[__cy3] "+m" (cy3)	\
 	: [__q0] "m" (q0)	/* All inputs from memory addresses here */\
 	 ,[__q1] "m" (q1)	\
 	 ,[__q2] "m" (q2)	\
@@ -6435,10 +6453,6 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	 ,[__qinv2] "m" (qinv2)	\
 	 ,[__qinv3] "m" (qinv3)	\
 	 ,[__x] "m" (x)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -6528,12 +6542,11 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 	"jnz loop2a 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12"		/* Clobbered registers */\
 		);
@@ -6660,14 +6673,13 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
+	 ,[__cy1] "+m" (cy1)	\
+	 ,[__cy2] "+m" (cy2)	\
+	 ,[__cy3] "+m" (cy3)	\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (x)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -6708,14 +6720,13 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
+	 ,[__cy1] "+m" (cy1)	\
+	 ,[__cy2] "+m" (cy2)	\
+	 ,[__cy3] "+m" (cy3)	\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (x)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -7018,15 +7029,18 @@ printf("\n");
 #endif
 uint64 mi64_div_by_scalar64_u2(uint64 x[], uint64 q, uint32 lenu, uint64 y[])	// x declared non-const in folded versions to permit 0-padding
 {														// lenu = unpadded length
-	if(lenu < 2) return mi64_div_by_scalar64(x,q,lenu,y);
+	/* v21: Odd lengths formerly zero-padded x in place (temporarily writing x[lenu] - one past the
+	end of a caller's exactly-sized array - and writing the quotient with the padded length). Route
+	odd lengths to the scalar variant instead and keep this routine strictly within [0, lenu): */
+	if(lenu < 2 || (lenu&1)) return mi64_div_by_scalar64(x,q,lenu,y);
 #ifndef YES_ASM
 	uint64 tmp0,tmp1,bw0,bw1;
 #endif
 #if MI64_DIV_MONT64_U2
 	int dbg = 0;
 #endif
-	int i,j,npad = (lenu&1),len = lenu + npad,len2 = (len>>1),nshift,lshift = -1;	// Pad to even length
-	uint64 qinv,cy0,cy1,rpow,rem_save = 0,xsave,itmp64,mask,*iptr0,*iptr1,ptr_incr;
+	int i,j,len = lenu,len2 = (len>>1),nshift,lshift = -1;	// lenu is even here (see dispatch above)
+	uint64 qinv,cy0,cy1,rpow,rem_save = 0,itmp64,mask,*iptr0,*iptr1,ptr_incr;
 	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
 	ASSERT(q > 0, "0 modulus!");
 	// Unit modulus needs special handling to return proper 0 remainder rather than 1:
@@ -7034,8 +7048,6 @@ uint64 mi64_div_by_scalar64_u2(uint64 x[], uint64 q, uint32 lenu, uint64 y[])	//
 		if(y) mi64_set_eq(y,x,len);
 		return 0ull;
 	}
-	xsave = x[lenu];	x[lenu] = 0ull;	// Zero-pad one-beyond element to remove even-length restriction
-										// Will restore input value of x[lenu] just prior to returning.
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift = trailz64(q);
 	if(nshift) {
@@ -7125,12 +7137,11 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop2b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12"		/* Clobbered registers */\
 		);
@@ -7187,12 +7198,11 @@ See similar behavior for 4-way-split version of the algorithm.
 		"andq	%%rsi,%%rdi			\n\t	andq	%%rsi,%%rdx		\n\t"/* q & (-cy0|1) */\
 		"addq	%%rdi,%%rax			\n\t	addq	%%rdx,%%r12		\n\t"/* cy0|1 = tmp0|1 + ((-cy0|1)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r12,%[__cy1]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		 ,[__n] "m" (nshift)	\
 		 ,[__iptr0] "m" (iptr0)	/* Output pointers (will both point to itmp64 if no quotient desired.) */\
@@ -7288,14 +7298,13 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx	\n\t"\
 	"jnz loop2d			\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm reads and stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
 		 ,[__iptr1] "m" (iptr1)	\
 		 ,[__y] "m" (y)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14"		/* Clobbered registers */\
 		);
@@ -7326,14 +7335,13 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx	\n\t"\
 	"jnz loop2d			\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"							\n\t	movq	%%rdx,%[__cy1]	"/* Only useful carryout is cy1, check-equal-to-zero */\
-		:	/* outputs: none */\
+		: [__cy1] "+m" (cy1)	/* output: cy1 (asm stores through it); cy0 is read-only below */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
 		 ,[__iptr1] "m" (iptr1)	\
 		 ,[__y] "m" (y)	\
 		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","r14"		/* Clobbered registers */\
 		);
@@ -7341,7 +7349,6 @@ See similar behavior for 4-way-split version of the algorithm.
 #endif
 
 	ASSERT(cy1 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
-	x[lenu] = xsave;	// Restore input value of zero-padding one-beyond element x[lenu] prior to return
 	return rpow;
 }
 
@@ -7359,7 +7366,13 @@ kinds of unique-in-this-sourcefile named labels to local labels inside the ASM:
 // x declared non-const in folded versions to permit 0-padding:
 uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 {														// lenu = unpadded length
-	if(lenu < 4) return mi64_div_by_scalar64(x,q,lenu,y);
+	/* v21: Lengths which are not a multiple of 4 formerly zero-padded x in place (temporarily
+	writing x[lenu .. lenu+2]) and wrote the quotient with the padded length - i.e. up to 3 words
+	past the end of a caller's exactly-sized x and y arrays. All in-tree callers pass exactly-
+	lenu-word arrays, so route non-multiple-of-4 lengths to the 2-folded/scalar variants instead
+	and keep this routine strictly within [0, lenu): */
+	if(lenu < 4 || (lenu&1)) return mi64_div_by_scalar64(x,q,lenu,y);
+	if(lenu&2) return mi64_div_by_scalar64_u2(x,q,lenu,y);
 #ifndef YES_ASM
 	uint32 i0,i1,i2,i3;
 	uint64 tmp0,tmp1,tmp2,tmp3,bw0,bw1,bw2,bw3;
@@ -7367,9 +7380,9 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 #if MI64_DIV_MONT64_U4
 	int dbg = 0;
 #endif
-	int i,j,len = (lenu+3) & ~0x3,len2 = (len>>1),len4 = (len>>2),npad = len-lenu,nshift,lshift = -1;	// Pad to multiple-of-4 length
+	int i,j,len = lenu,len2 = (len>>1),len4 = (len>>2),nshift,lshift = -1;	// lenu is a multiple of 4 here (see dispatch above)
 	uint64 qinv,cy0,cy1,cy2,cy3,rpow,rem_save = 0,itmp64,mask,*iptr0,*iptr1,*iptr2,*iptr3, ptr_incr,ptr_inc2;
-	uint64 *xy_ptr_diff, pads[3];
+	uint64 *xy_ptr_diff;
 	// Local-alloc-related statics - these should only ever be updated in single-thread mode:
 	static int first_entry = TRUE;
 	static uint32 len_save = 10;	// Initial-alloc values
@@ -7389,12 +7402,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	if(q == 1ull) {
 		if(y) mi64_set_eq(y,x,len);
 		return 0ull;
-	}
-
-	// Zero-pad to next-higher multiple of 4 to remove length == 0 (mod 4) restriction.
-	// Will restore input values of the 0-pad elements just prior to returning:
-	for(i = 0; i < npad; i++) {
-		pads[i] = x[lenu+i];	x[lenu+i] = 0ull;
 	}
 
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
@@ -7560,14 +7567,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz 0b \n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
+	 ,[__cy1] "+m" (cy1)	\
+	 ,[__cy2] "+m" (cy2)	\
+	 ,[__cy3] "+m" (cy3)	\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (iptr0)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -7612,14 +7618,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz 0b	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
+		 ,[__cy2] "+m" (cy2)	\
+		 ,[__cy3] "+m" (cy3)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
-		 ,[__cy2] "m" (cy2)	\
-		 ,[__cy3] "m" (cy3)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 		);
@@ -7689,14 +7694,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		"addq	%%r9 ,%%r12			\n\t	addq	%%rdx,%%r13		\n\t"/* cy2|3 = tmp2|3 + ((-cy2|3)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r11,%[__cy1]	\n\t"\
 		"movq	%%r12,%[__cy2]		\n\t	movq	%%r13,%[__cy3]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm reads and stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
+		 ,[__cy2] "+m" (cy2)	\
+		 ,[__cy3] "+m" (cy3)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
-		 ,[__cy2] "m" (cy2)	\
-		 ,[__cy3] "m" (cy3)	\
 		 ,[__len4] "m" (len4)	\
 		 ,[__n] "m" (nshift)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
@@ -7776,14 +7780,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		"addq	%%r9 ,%%r12			\n\t	addq	%%rdx,%%r13		\n\t"/* cy2|3 = tmp2|3 + ((-cy2|3)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r11,%[__cy1]	\n\t"\
 		"movq	%%r12,%[__cy2]		\n\t	movq	%%r13,%[__cy3]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm reads and stores through them) */\
+		 ,[__cy1] "+m" (cy1)	\
+		 ,[__cy2] "+m" (cy2)	\
+		 ,[__cy3] "+m" (cy3)	\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
-		 ,[__cy2] "m" (cy2)	\
-		 ,[__cy3] "m" (cy3)	\
 		 ,[__len4] "m" (len4)	\
 		 ,[__n] "m" (nshift)	\
 		 ,[__iptr0] "m" (iptr0)	/* Output base-pointer */\
@@ -7921,7 +7924,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rax,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy3] "+m" (cy3)	/* output: cy3 (asm stores through it); cy0-2 are read-only above */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (iptr0)	\
@@ -7929,7 +7932,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	 ,[__cy0] "m" (cy0)	\
 	 ,[__cy1] "m" (cy1)	\
 	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -7976,7 +7978,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdx,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy3] "+m" (cy3)	/* output: cy3 (asm stores through it); cy0-2 are read-only above */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
@@ -7985,7 +7987,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	 ,[__cy0] "m" (cy0)	\
 	 ,[__cy1] "m" (cy1)	\
 	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len4] "m" (len4)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -7994,10 +7995,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 
 #endif
 	ASSERT(cy3 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
-	// Restore input values of 0-pad elements prior to return:
-	for(i = 0; i < npad; i++) {
-		x[lenu+i] = pads[i];
-	}
 	return rpow;
 }
 
@@ -8328,13 +8325,19 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		lenp_save = len_p;
 		pshift = (uint64 *)realloc(pshift, (len_p+1)*sizeof(uint64));
 	}
+	/* v21: Two latent traps fixed here: (a) the q-buffer reallocs were sized by lenQ (the effective
+	length of the current q) but the skip-gate records len - a later call with the same nominal len
+	but a larger effective lenQ would skip the realloc and overrun the smaller buffers, so size by
+	len (>= lenQ) to match the gate; (b) the old code also re-realloc'ed pshift here with the
+	CURRENT call's len_p without updating lenp_save, which could silently SHRINK pshift (large-len
+	call with small len_p) while lenp_save still recorded the larger value - the block above already
+	handles pshift growth correctly, so drop that realloc entirely: */
 	if(len > lenq_save) {
 		lenq_save = len;
-		pshift = (uint64 *)realloc(pshift, (len_p+1)*sizeof(uint64));
-		qhalf  = (uint64 *)realloc(qhalf , (lenQ   )*sizeof(uint64));
-		qinv   = (uint64 *)realloc(qinv  , (lenQ   )*sizeof(uint64));
-		x      = (uint64 *)realloc(x     , (lenQ   )*sizeof(uint64));
-		lo     = (uint64 *)realloc(lo    , (2*lenQ )*sizeof(uint64));
+		qhalf  = (uint64 *)realloc(qhalf , (len    )*sizeof(uint64));
+		qinv   = (uint64 *)realloc(qinv  , (len    )*sizeof(uint64));
+		x      = (uint64 *)realloc(x     , (len    )*sizeof(uint64));
+		lo     = (uint64 *)realloc(lo    , (2*len  )*sizeof(uint64));
 	}
 	ASSERT(pshift != 0x0 && qhalf != 0x0 && qinv != 0x0 && x != 0x0 && lo != 0x0, "alloc failed!");
 	hi = lo + lenQ;	// Pointer to high half of double-wide product
@@ -8369,7 +8372,11 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	Every little bit counts (literally in this case :), right?
 	*/
 	/* Extract leftmost log2_numbits bits of pshift (if >= qbits, use the leftmost log2_numbits-1) and subtract from qbits: */
-	pbits = mi64_extract_lead64(pshift,len_p,&lo64);
+	// v21: extract over the effective length lenP, not the nominal len_p: pshift words above lenP
+	// are stale after a realloc (and semantically not part of the value), so reading them here could
+	// yield garbage lead bits and hence a wrong start_index/zshift (cf. the qmmp variant, which
+	// already passes lenP):
+	pbits = mi64_extract_lead64(pshift,lenP,&lo64);
 	ASSERT(pbits >= log2_numbits, "leadz64!");
 //	if(pbits >= 64)
 		lead_chunk = lo64>>(64-log2_numbits);
