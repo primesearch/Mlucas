@@ -177,10 +177,6 @@ jobs:
       run: |
         $CC --version
         ldd --version || true
-    - name: Fix
-      if: ${{ (matrix.container == 'ubuntu:16.04' || matrix.container == 'alpine:3.8' || matrix.container == 'alpine:3.12' || matrix.container == 'alpine:3.16') && matrix.cc == 'clang' }}
-      run: |
-        sed -i 's/ -flto//' makemake.sh
     - name: Script
       shell: bash
       run: |
@@ -224,7 +220,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
+        echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=address,undefined" >> "$GITHUB_ENV"
         $CC --version
     - name: Script
       run: |
@@ -256,7 +252,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/-O3 -flto/-Og -fsanitize=thread/' makemake.sh
+        echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=thread" >> "$GITHUB_ENV"
         $CC --version
     - name: Script
       run: |
@@ -455,7 +451,7 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
+        echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=address,undefined" >> "$GITHUB_ENV"
         clang --version
     - name: Script
       run: |
@@ -481,7 +477,7 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/-O3 -flto/-Og -fsanitize=thread/' makemake.sh
+        echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=thread" >> "$GITHUB_ENV"
         clang --version
     - name: Script
       run: |
@@ -525,7 +521,6 @@ jobs:
       if: ${{ matrix.cc == 'clang' }}
       run: |
         pacman -S --noconfirm "${env:PACKAGE_PREFIX}clang"
-        (Get-Content makemake.sh) -replace ' -flto', '' | Set-Content makemake.sh
     - name: Before script
       shell: bash
       run: |
@@ -595,7 +590,7 @@ jobs:
     - name: Before script
       shell: bash
       run: |
-        sed -i 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
+        echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=address,undefined" >> "$GITHUB_ENV"
         $CC --version
     - name: Script
       shell: bash
