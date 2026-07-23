@@ -236,9 +236,14 @@ int full_pass = (root_incr!=0);
 
 	bjmodn[0] = 0;
 	bjmodn[1] = bjmodnini;
-	j = bjmodnini-n;	// Const addend
+	// v21 bugfix: MOD_ADD32 requires both addends normalized to [0,n); the previous code passed the
+	// *negative* addend (bjmodnini-n) - the old explicit-renormalize idiom's constant - which made
+	// every bjmodn[l], l >= 2 come out congruent mod n but negative (off by -2n). The carry macros
+	// compute their big/smallword flags i,m,m2 from bjmodn via (uint32)(...)>>31 sign tricks, so those
+	// flags were wrong for the first few j-iterations of every carry sub-chain >= 2, silently corrupting
+	// any residue word landing there (all sibling radices pass the positive bjmodnini increment):
 	for(l = 2; l < RADIX; l++) {
-		MOD_ADD32(bjmodn[l-1], j, n, bjmodn[l]);
+		MOD_ADD32(bjmodn[l-1], bjmodnini, n, bjmodn[l]);
 	}
 
 	/* For Fermat-mod, IBDWT access patterns repeat with period NWT = {odd part of radix0},
