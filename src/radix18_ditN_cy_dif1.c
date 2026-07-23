@@ -39,6 +39,9 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 */
 	int n18,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17
 		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
+	int target_idx = -1, target_set = 0, tidx_mod_stride;	// v21: residue-shift carry-injection support
+	double target_cy = 0;
+	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17, nsave = 0;
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -174,10 +177,27 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	cy16= 0;
 	cy17= 0;
 
-	/* If an LL test, init the subtract-2: */
+	// v21: If an LL test, compute the target index for the residue-shift carry injection. This routine
+	// formerly did an unconditional 'cy0 = -2' (inject the LL subtract-2 into word 0), silently ignoring
+	// RES_SHIFT - so any nonzero shift (the v20 Fermat/Mersenne default) yielded a wrong residue. Now we
+	// mirror the >= 16 power-of-2 radices' target_idx/target_set/target_cy machinery (see radixNN_main_carry_loop.h).
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
-		cy0 = -2;
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// high 7 bytes = unpadded target word index; low byte = within-word bit-shift
+			target_idx = (int)(itmp64 >> 8);
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// n is 32-bit; use 64-bit only for the intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
+			target_set = target_idx / n18;		// which of the RADIX(=18) independent carry sub-chains holds the target
+			target_idx -= target_set*n18;		// target_idx now = index within that sub-chain
+			tidx_mod_stride = target_idx & 1;	// non-SIMD: main-loop stride = 2*RE_IM_STRIDE = 2, so mask = stride-1 = 1
+			target_idx -= tidx_mod_stride;		// stride-align (loop var j steps by 2)
+			target_set = (target_set << 1) + tidx_mod_stride;	// non-SIMD: L2_SZ_VD-2 = 1; low bit selects Re/Im part
+			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
 	}
 
 	*fracmax=0;	/* init max. fractional error	*/
@@ -412,6 +432,19 @@ for(outer=0; outer <= 1; outer++)
 			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
 			wtlp1   =wt0[    l+1];
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+
+			// v21: inject the LL residue-shift target carry when the main-loop reaches the target word.
+			// (target_idx was set to -1 for a zero shift's word-0 case handled by cy0=-2 below? No: for the
+			// zero-shift case target_idx==0 and target_set==0, so this fires at j==0 into aj1p0r, exactly
+			// replacing the old 'cy0 = -2'. Set target_idx = -1 after firing so it happens exactly once.)
+			if(target_idx == j) {
+				double *tgt_re[18] = {&aj1p0r,&aj1p1r,&aj1p2r,&aj1p3r,&aj1p4r,&aj1p5r,&aj1p6r,&aj1p7r,&aj1p8r,&aj1p9r,&aj1p10r,&aj1p11r,&aj1p12r,&aj1p13r,&aj1p14r,&aj1p15r,&aj1p16r,&aj1p17r};
+				double *tgt_im[18] = {&aj1p0i,&aj1p1i,&aj1p2i,&aj1p3i,&aj1p4i,&aj1p5i,&aj1p6i,&aj1p7i,&aj1p8i,&aj1p9i,&aj1p10i,&aj1p11i,&aj1p12i,&aj1p13i,&aj1p14i,&aj1p15i,&aj1p16i,&aj1p17i};
+				int tset = target_set >> 1;
+				if(target_set & 1) *tgt_im[tset] += target_cy*(n>>1);
+				else               *tgt_re[tset] += target_cy*(n>>1);
+				target_idx = -1;
+			}
 
 /*...set0 is slightly different from others:	*/
 		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 ,prp_mult);
