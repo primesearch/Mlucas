@@ -1815,7 +1815,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__c03] "m" (Xc03)\
 		 ,[__c05] "m" (Xc05)\
 		 ,[__c07] "m" (Xc07)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","k1","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2398,7 +2398,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__c03] "m" (Xc03)\
 		 ,[__c05] "m" (Xc05)\
 		 ,[__c07] "m" (Xc07)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2961,7 +2961,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__c03] "m" (Xc03)\
 		 ,[__c05] "m" (Xc05)\
 		 ,[__c07] "m" (Xc07)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -3800,7 +3800,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__c10] "m" (Xc10)\
 		 ,[__c12] "m" (Xc12)\
 		 ,[__c1A] "m" (Xc1A)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
+		: "cc","memory","k1","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"		/* Clobbered registers */\
 	);\
 	}
 
@@ -4583,7 +4583,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__c10] "m" (Xc10)\
 		 ,[__c12] "m" (Xc12)\
 		 ,[__c1A] "m" (Xc1A)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -5343,7 +5343,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__c10] "m" (Xc10)\
 		 ,[__c12] "m" (Xc12)\
 		 ,[__c1A] "m" (Xc1A)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","rax","rbx","rcx","rdx","rdi","rsi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 

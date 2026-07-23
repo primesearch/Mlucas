@@ -220,9 +220,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 			ii = loop << 3;	// Reflects 8 independent carry chains being done in each AVX_cmplx_carry_fast_pow2_errcheck_X8 call
-			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
-			add2 = &wt1[co2-1-ii];
-			add3 = &wt1[co3-1-ii];
+			add1 = &wt1[col  +(int)ii];	/* Don't use add0 here, to avoid need to reload main-array address */
+			add2 = &wt1[co2-1-(int)ii];
+			add3 = &wt1[co3-1-(int)ii];
+			ASSERT(col+(int)ii >= 0 && co2-1-(int)ii >= 0 && co3-1-(int)ii >= 0, "wt1[] carry-weight index underflow - carry-chain state corrupted");
 
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -313,9 +314,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
 
-			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
-			add2 = &wt1[co2-1-ii];
-			add3 = &wt1[co3-1-ii];
+			add1 = &wt1[col  +(int)ii];	/* Don't use add0 here, to avoid need to reload main-array address */
+			add2 = &wt1[co2-1-(int)ii];
+			add3 = &wt1[co3-1-(int)ii];
+			ASSERT(col+(int)ii >= 0 && co2-1-(int)ii >= 0 && co3-1-(int)ii >= 0, "wt1[] carry-weight index underflow - carry-chain state corrupted");
 
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done

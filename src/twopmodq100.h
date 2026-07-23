@@ -217,7 +217,7 @@ extern "C" {
 		 ,[__crnd] "m" (Xcrnd)\
 		 ,[__pshift] "m" (Xpshift)	\
 		 ,[__j]		 "m" (Xj)		\
-		: "cc","memory","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15", "xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15", "xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -404,7 +404,7 @@ extern "C" {
 		 ,[__crnd] "m" (Xcrnd)\
 		 ,[__pshift] "m" (Xpshift)	\
 		 ,[__j]		 "m" (Xj)		\
-		: "cc","memory","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15", "xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+		: "cc","memory","k1","k2","k3","k4","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15", "xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
