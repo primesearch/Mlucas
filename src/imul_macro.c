@@ -80,10 +80,13 @@ that don't correctly inline the macro form of these.
 	{
 		uint64 t;
 
-	/*	*lo = ((uint32)(x & 0x00000000ffffffff)) * y;*/	/* a*c, v1 */
-	/* try this 32x64-bit form in hopes compiler can optimize it better than 64x64-bit: */
-		*lo =  (uint32)(x) * y;							/* a*c, v2 */
-		 t  = ((uint32)(x >> 32)) * y;					/* b*c */
+		DBG_ASSERT((y >> 32) == 0,"MUL64x32: (y >> 32) == 0");
+	/* v21: use only the low 32 bits of y (this routine's contract is y < 2^32), and cast one factor of
+	each partial product to uint64 so the product is 64-bit, matching the macro form in imul_macro0.h.
+	The previous `(uint32)(x) * y` used the full 64-bit y, so a caller passing stray high bits in y got a
+	wrong result. */
+		*lo =  (uint64)(uint32)(x)        * (uint32)(y);	/* a*c */
+		 t  =  (uint64)(uint32)(x >> 32)  * (uint32)(y);	/* b*c */
 		*hi = (t >> 32);
 		 t <<= 32;
 		*lo +=  t;

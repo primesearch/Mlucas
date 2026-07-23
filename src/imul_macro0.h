@@ -1369,31 +1369,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 	Even though the high output for 64x32-bit is always < 2^32,
 	assume _y and _hi here are 64-bit ints to allow flexibility for caller.
 	*/
-   #if EWM_DEBUG
-	#define  MUL64x32(_x, _y,_lo,_hi)\
-	{\
-		char s0[21],s1[21];\
-		uint64 _t,_a,_b;\
-		\
-		ASSERT(((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
-		MUL_LOHI64((_x), (uint64)(_y), _a, _b);\
-		\
-		_lo = (uint64)((uint32)(_x)) * (uint32)(_y);			/* a*c */\
-		_t  = (uint64)((uint32)((_x) >> 32)) * (uint32)(_y);	/* b*c */\
-		_hi = (_t >> 32);\
-		_t <<= 32;\
-		_lo +=  _t;\
-		_hi += (_lo < _t);\
-		\
-		if(_a != _lo || _b != _hi)\
-		{\
-			printf("x = %s, y = %s\n", s0[convert_uint64_base10_char(s0,_x )], s1[convert_uint64_base10_char(s1,_y)]);\
-			printf("LO= %s, A = %s\n", s0[convert_uint64_base10_char(s0,_lo)], s1[convert_uint64_base10_char(s1,_a)]);\
-			printf("HI= %s, B = %s\n", s0[convert_uint64_base10_char(s0,_hi)], s1[convert_uint64_base10_char(s0,_b)]);\
-			ASSERT(0,"0");\
-		}\
-	}
-   #else
 	#define  MUL64x32(_x, _y,_lo,_hi)\
 	{\
 		uint64 _t;\
@@ -1401,7 +1376,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 		even when _y is a 32-bit type. The old (uint32)*(_y) form truncated a*c and b*c to 32 bits\
 		whenever the caller passed a uint32 _y (e.g. SQR_LOHI96's `uint32 __tt`), producing wrong\
 		96-bit squares - and hence wrong twopmodq96 results - on every platform that uses this generic\
-		macro (ARM, generic C). x86_64/PPC never hit it because their MUL64x32 is MUL_LOHI64(_x,(uint64)_y,...). */\
+		macro (ARM, generic C). x86_64/PPC never hit it because their MUL64x32 is MUL_LOHI64(_x,(uint64)_y,...).\
+		(v21: former separate EWM_DEBUG variant, which recomputed a MUL_LOHI64 reference to catch exactly\
+		this bug, merged in - its only remaining check, y < 2^32, is kept below as a DBG_ASSERT.) */\
+		DBG_ASSERT(((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
 		_lo = (uint64)((uint32)(_x)) * (uint32)(_y);			/* a*c */\
 		_t  = (uint64)((uint32)((_x) >> 32)) * (uint32)(_y);	/* b*c */\
 		_hi = (_t >> 32);\
@@ -1409,7 +1387,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 		_lo +=  _t;\
 		_hi += (_lo < _t);\
 	}
-   #endif
 
 	/* Generic 128-bit product macros: represent the inputs as
 	x = a + b*2^32, y = c + d*2^32, and then do 4 MULs and a bunch of
