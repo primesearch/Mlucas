@@ -110,7 +110,8 @@ if(dbg)printf("twopmodq160:\n");
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift (if > 159, use the leftmost 7) and subtract from 160: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			/* j==0 => shift-by-64 UB; guard the cross-word term: */
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 159)
 			{
 				lead8 >>= 1;
