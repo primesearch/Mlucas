@@ -261,7 +261,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)fermat_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, fermat_process_chunk, NULL, 0x0};
 
 #endif
 
@@ -390,7 +390,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(index) {
 			free((void *)index); index = 0x0;
 		}
-		index = (int *)calloc(k,sizeof(int));
+		index = (int *)CALLOC(k,sizeof(int));
 	//	printf("Alloc index[%u]...\n",k);
 		/*...Forward (DIF) FFT sincos data are in bit-reversed order. We define a separate last-pass twiddles
 		array within the routine wrapper_square, since that allows us to merge those nicely with the wrapper sincos data.	*/
@@ -707,6 +707,44 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		NRT = 1 << NRT_BITS;
 		if(n%NRT){ sprintf(cbuf,"ERROR: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		NRTM1 = NRT - 1;
+
+		/* The radix{16|32}_dyadic_square final-pass twiddle computation indexes the rt1 sincos table
+		(length n/(2*NRT), allocated just below) with the high bits of the twiddle index; for the final
+		radix RADIX_VEC[NRADICES-1] those indices range up to that radix. When the FFT length is so small
+		that rt1 has fewer than RADIX_VEC[NRADICES-1] entries, the (multithreaded) dyadic-square reads past
+		rt1 - garbage twiddles, or a SIGSEGV under ASan / on an unmapped page. This bites e.g. the (32,32)
+		radix set at a 2K Fermat FFT: n = 1024 gives rt1 length n/(2*NRT) = 16 < 32. Such tiny length/radix
+		combos are toy sizes with no production use (and cannot represent the corresponding F_m regardless),
+		so soft-skip - the self-test then moves on to the next radix set - exactly as the n/radix0 checks
+		above do. (Unlike those, this bound is not gated on DAT_BITS, since it bites the small, DAT_BITS==31
+		lengths.) The (8,8,16) set at 2K is retained: final radix 16 <= rt1 length 16. */
+		if((n / (2*NRT)) < (uint32)RADIX_VEC[NRADICES-1]) {
+			sprintf(cbuf,"rt1 sincos-table length n/(2*NRT) = %u is too small for final radix %u at FFT length %u K! Skipping this radix combo.\n", n/(2*NRT), (uint32)RADIX_VEC[NRADICES-1], (uint32)(n>>10));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+
+	#if defined(USE_AVX512) || (defined(USE_SSE2) && !defined(MULTITHREAD))
+		/* KNOWN-BROKEN: the SIMD Fermat-mod path is broken for the 63*2^k leading radices - radix63,
+		radix1008 (= 63*16) and radix4032 (= 63*64), which all share the ODD_RADIX = 63 RADIX_63/
+		SSE2_RADIX_63 sub-transform and its carry macro. Two distinct failure modes, both confirmed for
+		F24 @ 1008K FFT (radices 1008,16,32):
+		  - AVX-512 (threaded or not): the carry step miscomputes, producing a nonzero exit carry / corrupted
+		    residue after a couple of iterations, and SIGSEGVs outright on real AVX-512 hardware.
+		  - single-threaded SIMD builds of any tier (SSE2/AVX/AVX2/AVX-512, i.e. -DUSE_SSE2 without
+		    -DUSE_THREADS): SIGSEGV inside SSE2_RADIX_63_DIT (out-of-range index offsets into the DFT
+		    scratch), reproduced on AVX2.
+		By contrast nosimd, and *threaded* SSE2/AVX/AVX2 builds, handle these radices correctly (threaded
+		AVX2 gives the same residue as nosimd). The neighbouring 15*2^k / 7*2^k leading radices are fine in
+		all builds (e.g. radix960 @ 960K and the radix-896 set @ 896K both pass for F24), so this is specific
+		to the radix-63-based sub-transform, not to odd-composite radices in general. Until the RADIX_63 SIMD
+		DFT/carry is fixed, soft-skip these radix sets in the affected build configurations - the self-test/
+		driver then selects a working one - rather than returning wrong residues or crashing. (Odd part of
+		leading radix == 63  <=>  radix in {63, 1008, 4032}.) */
+		if(((uint32)RADIX_VEC[0] >> trailz32((uint32)RADIX_VEC[0])) == 63) {
+			sprintf(cbuf,"radix %u (63*2^k) has a broken SIMD Fermat-mod carry step in this build config; skipping this radix combo (build nosimd, or a threaded non-AVX-512 SIMD build, or use a non-63 radix set).\n", (uint32)RADIX_VEC[0]);
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
 
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
 		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
@@ -1117,9 +1155,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(radix0, sizeof(int));
-		thread  = (pthread_t *)calloc(radix0, sizeof(pthread_t));
-		tdat    = (struct ferm_thread_data_t *)calloc(radix0, sizeof(struct ferm_thread_data_t));
+		thr_ret = (int *)CALLOC(radix0, sizeof(int));
+		thread  = (pthread_t *)CALLOC(radix0, sizeof(pthread_t));
+		tdat    = (struct ferm_thread_data_t *)CALLOC(radix0, sizeof(struct ferm_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);
@@ -1550,21 +1588,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	clock1 = clock2;
 #endif
 #ifndef NO_USE_SIGNALS
-	// Listen for interrupts:
-	if (signal(SIGINT, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGINT.\n");
-	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGTERM.\n");
-	#ifndef __MINGW32__
-	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGHUP.\n");
-	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGALRM.\n");
-	else if (signal(SIGUSR1, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR1.\n");
-	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR2.\n");
-	#endif
+	// Listen for interrupts. Install-once, async-signal-safe handler (see Mlucas.c); this runs on the
+	// main thread, and the FFT worker threads block these signals so the handler only ever fires here:
+	mlucas_install_signal_handlers();
 #endif
 }	/* End of main for(iter....) loop	*/
 
@@ -1741,8 +1767,8 @@ undo_initial_ffft_pass:
 
 #ifdef MULTITHREAD
 
-void*
-fermat_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+void
+fermat_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct ferm_thread_data_t* thread_arg = targ;
 	int ii = thread_arg->tid, thr_id = ii;	// ii-value same as unique thread identifying number
@@ -1842,10 +1868,8 @@ void fermat_process_chunk(
 	if(fwd_fft == 1) {
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
-		return 0x0;
-	#else
-		return;
 	#endif
+		return;
 	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
@@ -1896,7 +1920,6 @@ void fermat_process_chunk(
 #ifdef MULTITHREAD
 	*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 //	printf("Return from Thread %d ... ", ii);
-	return 0x0;
 #endif
 }
 

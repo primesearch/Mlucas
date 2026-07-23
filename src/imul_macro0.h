@@ -1378,8 +1378,8 @@ or the with functions using them (if we declare no _-prepended variables local t
 		ASSERT(((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
 		MUL_LOHI64((_x), (uint64)(_y), _a, _b);\
 		\
-		_lo = ((uint32)((_x) & 0x00000000ffffffff)) * (_y);	/* a*c */\
-		_t  = ((uint32)((_x) >> 32)) * (_y);				/* b*c */\
+		_lo = (uint64)((uint32)(_x)) * (uint32)(_y);			/* a*c */\
+		_t  = (uint64)((uint32)((_x) >> 32)) * (uint32)(_y);	/* b*c */\
 		_hi = (_t >> 32);\
 		_t <<= 32;\
 		_lo +=  _t;\
@@ -1397,9 +1397,13 @@ or the with functions using them (if we declare no _-prepended variables local t
 	#define  MUL64x32(_x, _y,_lo,_hi)\
 	{\
 		uint64 _t;\
-		\
-		_lo = ((uint32)((_x) & 0x00000000ffffffff)) * (_y);	/* a*c */\
-		_t  = ((uint32)((_x) >> 32)) * (_y);					/* b*c */\
+		/* v21: cast one factor of each partial product to uint64 so the multiply is done in 64-bit\
+		even when _y is a 32-bit type. The old (uint32)*(_y) form truncated a*c and b*c to 32 bits\
+		whenever the caller passed a uint32 _y (e.g. SQR_LOHI96's `uint32 __tt`), producing wrong\
+		96-bit squares - and hence wrong twopmodq96 results - on every platform that uses this generic\
+		macro (ARM, generic C). x86_64/PPC never hit it because their MUL64x32 is MUL_LOHI64(_x,(uint64)_y,...). */\
+		_lo = (uint64)((uint32)(_x)) * (uint32)(_y);			/* a*c */\
+		_t  = (uint64)((uint32)((_x) >> 32)) * (uint32)(_y);	/* b*c */\
 		_hi = (_t >> 32);\
 		_t <<= 32;\
 		_lo +=  _t;\

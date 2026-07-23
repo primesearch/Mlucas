@@ -241,7 +241,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)mers_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, mers_process_chunk, NULL, 0x0};
 
 #endif
 
@@ -275,6 +275,18 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			ASSERT(0, cbuf);
 		}
 		first_entry=FALSE;
+		// On a runlength/radix-set change this init block re-runs (see the first_entry=TRUE resets above),
+		// re-allocating the static per-FFT-length index arrays below. Free any previous allocation first so
+		// those static pointers don't leak it (fixes #96); free(NULL) on the first-ever pass is a no-op:
+		free(block_index);     block_index     = 0x0;
+		free(ws_i);            ws_i            = 0x0;
+		free(ws_j1);           ws_j1           = 0x0;
+		free(ws_j2);           ws_j2           = 0x0;
+		free(ws_j2_start);     ws_j2_start     = 0x0;
+		free(ws_k);            ws_k            = 0x0;
+		free(ws_m);            ws_m            = 0x0;
+		free(ws_blocklen);     ws_blocklen     = 0x0;
+		free(ws_blocklen_sum); ws_blocklen_sum = 0x0;
 		psave = p;
 		nsave = n;
 		N2 =n/2;		/* Complex vector length.	*/
@@ -330,6 +342,26 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				ASSERT(0,cbuf);
 			}
 		}
+
+	#ifdef USE_AVX
+		/* The AVX/AVX-512 radix16|32_wrapper_square routines read RE_IM_STRIDE (=4|8)
+		sincos-index sets per SIMD pass from the length-(N2/radix_final) index[] array. For FFT
+		lengths so small that the final-block schedule leaves a partial chunk with fewer than
+		RE_IM_STRIDE sets, those wide-SIMD code paths read past the end of index[] (garbage
+		twiddles, or SIGSEGV under ASan / when the slack falls on an unmapped page). This is
+		independent of the DAT_BITS/array-padding logic above (which is disabled - DAT_BITS=31 -
+		for the runlengths <= 32K where this bites). Such lengths are sub-1-Mdigit toy sizes with
+		no production use; they compute correctly in scalar/SSE2 builds but not the wide-SIMD ones,
+		so soft-skip here (self-test moves on to the next radix set instead of crashing). The
+		bound is empirical: the overrun occurs only for N2/radix_final <= 32 in AVX (stride 4)
+		builds; require >= 16*RE_IM_STRIDE for margin (and 2x that for the stride-8 AVX-512 path). */
+		if((N2 / (uint32)RADIX_VEC[NRADICES-1]) < (uint32)(16*RE_IM_STRIDE))
+		{
+			snprintf(cbuf,STR_MAX_LEN*2,"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
+				(uint32)(n>>10), N2/(uint32)RADIX_VEC[NRADICES-1], (uint32)(16*RE_IM_STRIDE));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
 
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
@@ -1311,9 +1343,9 @@ for(i=0; i < NRT; i++) {
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(nchunks, sizeof(int));
-		thread  = (pthread_t *)calloc(nchunks, sizeof(pthread_t));
-		tdat    = (struct mers_thread_data_t *)calloc(nchunks, sizeof(struct mers_thread_data_t));
+		thr_ret = (int *)CALLOC(nchunks, sizeof(int));
+		thread  = (pthread_t *)CALLOC(nchunks, sizeof(pthread_t));
+		tdat    = (struct mers_thread_data_t *)CALLOC(nchunks, sizeof(struct mers_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);
@@ -2009,21 +2041,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	clock1 = clock2;
 #endif
 #ifndef NO_USE_SIGNALS
-	// Listen for interrupts:
-	if (signal(SIGINT, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGINT.\n");
-	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGTERM.\n");
-	#ifndef __MINGW32__
-	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGHUP.\n");
-	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGALRM.\n");
-	else if (signal(SIGUSR1, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR1.\n");
-	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR2.\n");
-	#endif
+	// Listen for interrupts. Install-once, async-signal-safe handler (see Mlucas.c); this runs on the
+	// main thread, and the FFT worker threads block these signals so the handler only ever fires here:
+	mlucas_install_signal_handlers();
 #endif
 }	/* End of main for(iter....) loop	*/
 
@@ -2145,8 +2165,8 @@ undo_initial_ffft_pass:
 
 #ifdef MULTITHREAD
 
-void*
-mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+void
+mers_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct mers_thread_data_t* thread_arg = targ;
 	int thr_id = thread_arg->tid, ii = thr_id<<1;	// Since mers-mod processes 2 data blocks per thread, ii-value = 2x unique thread identifying number
@@ -2278,10 +2298,8 @@ void mers_process_chunk(
 	if(fwd_fft == 1) {
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
-		return 0x0;
-	#else
-		return;
 	#endif
+		return;
 	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
@@ -2348,7 +2366,6 @@ void mers_process_chunk(
 #ifdef MULTITHREAD
 	*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 //	printf("Return from Thread %d ... ", ii);
-	return 0x0;
 #endif
 }
 

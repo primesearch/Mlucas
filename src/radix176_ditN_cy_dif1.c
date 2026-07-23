@@ -132,7 +132,7 @@
 
 /****************/
 
-int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
+ATTR_NO_ASAN int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -342,7 +342,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy176_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy176_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -397,7 +397,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 						// was not threadsafe since FFT-length-raising causes wt0,wt1 arrays to be realloc'ed and reinited.
 						// The realloc will generally leave the wt0 small-table the same size, but the pointer to wt1 will
 						// change. If that's the case, we need it to trigger a fully thread-data reinit:
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+						// Jul 2025: In some cases (always on x86-64 Windows, one report on ARM Linux) the pointers to
+						// wt0 and/or si (rn0 for Fermat numbers) change while the pointer to wt1 doesn't. We need to check all of them.
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
@@ -471,7 +473,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #ifdef USE_PTHREAD
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
-			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -2032,8 +2034,8 @@ void radix176_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy176_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+ATTR_NO_ASAN cy176_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
@@ -2493,7 +2495,7 @@ void radix176_dit_pass1(double a[], int n)
 			thread_arg->maxerr = maxerr;
 		}
 
-		return 0x0;
+		return;
 	}
 #endif
 

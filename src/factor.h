@@ -100,15 +100,14 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#error USE_FMADD option requires TRYQ = 1, 2 or 4
   #endif
 
-	/* FMADD-based modmul currently only supported for one-word p's: */
-	#ifdef P2WORD
-		#error P2WORD may not be used together with USE_FMADD!
-	#endif
-	#ifdef P3WORD
-		#error P3WORD may not be used together with USE_FMADD!
-	#endif
-	#ifdef P4WORD
-		#error P4WORD may not be used together with USE_FMADD!
+	/* FMADD-based modmul is implemented only for one-word p. For multiword p, quietly fall back to the
+	standard (non-FMADD) modmul instead of erroring out, so multiword factoring builds succeed on
+	FMA-capable targets (where USE_FMADD is auto-defined per-platform, e.g. every FMA-x86 Mfactor build).
+	The enclosing '#ifdef USE_FMADD' block only validates - it defines nothing the rest of the file needs -
+	so undefining USE_FMADD here cleanly routes multiword builds down the standard modmul path below: */
+	#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
+		#warning USE_FMADD is not implemented for multiword p; falling back to the standard (non-FMADD) modmul, so this build gets no FMADD speedup.
+		#undef USE_FMADD
 	#endif
 
 	#ifdef USE_FLOAT
@@ -315,8 +314,8 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 	// Top-level routines for CPU-parallel and GPU-side sieving and testing of resulting factor candidates:
 #ifdef MULTITHREAD
 
-	void*				// Thread-arg pointer *must* be cast to void and specialized inside the function
-	PerPass_tfSieve(void*thread_arg);
+	void				// Thread-arg pointer *must* be cast to void and specialized inside the function
+	PerPass_tfSieve(void*thread_arg, int thread_num);
 
 #else
 
@@ -352,6 +351,9 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 		const int MODULUS_TYPE,
 		const char*VERSION,
 		const char*OFILE
+	#ifdef USE_AVX512
+		, uint32*psmall	// Small-primes table for the AVX-512 gather/scatter bit-clear asm (see factor.c)
+	#endif
 	);
 
 #endif

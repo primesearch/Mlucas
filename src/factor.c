@@ -583,7 +583,7 @@ int main(int argc, char *argv[])
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)PerPass_tfSieve, NULL, 0x0};
+	static task_control_t   task_control = {NULL, PerPass_tfSieve, NULL, 0x0};
 
   #endif
 
@@ -986,7 +986,12 @@ Others are optional and in some cases mutually exclusive:
 	#ifndef MULTITHREAD
 		#warning Building factor.c in unthreaded (i.e. single-main-thread) mode.
 		ASSERT(NTHREADS == 1, "NTHREADS must == 1 in single-threaded mode!");
-		k_to_try = (uint64 *)calloc(TRYQ * NTHREADS, sizeof(uint64));
+		// Size for the widest one-time SIMD modpow init-warmup below: twopmodq78_3WORD_DOUBLE_q8/q16/
+		// q32/q64 each read a full 8/16/32/64-wide k[] batch (widest q64 = 64) regardless of TRYQ, so a
+		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
+		// the warmup reads stay valid. Undersized here => OOB read of uninitialized heap, which trips the
+		// 'Ks must be < 2^52' assertion in q32/q64 on hosts whose heap past the alloc isn't zeroed.
+		k_to_try = (uint64 *)CALLOC(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
 	#else
 		MAX_THREADS = get_num_cores();
 		ASSERT(MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
@@ -1007,7 +1012,12 @@ Others are optional and in some cases mutually exclusive:
 		}
 		sprintf(cbuf,"0:%d",NTHREADS-1);
 		parseAffinityString(cbuf);
-		k_to_try = (uint64 *)calloc(TRYQ * NTHREADS, sizeof(uint64));
+		// Size for the widest one-time SIMD modpow init-warmup below: twopmodq78_3WORD_DOUBLE_q8/q16/
+		// q32/q64 each read a full 8/16/32/64-wide k[] batch (widest q64 = 64) regardless of TRYQ, so a
+		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
+		// the warmup reads stay valid. Undersized here => OOB read of uninitialized heap, which trips the
+		// 'Ks must be < 2^52' assertion in q32/q64 on hosts whose heap past the alloc isn't zeroed.
+		k_to_try = (uint64 *)CALLOC(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
 
 		// Up to TF_PASSES work units (perhaps fewer if a restart) get done by a pool of NTHREADS threads.  Yypically have
 		// NTHREADS <= TF_PASSES, i.e. pool threads get reassigned a fresh work unit as they complete their current one.
@@ -1015,7 +1025,7 @@ Others are optional and in some cases mutually exclusive:
 		if(tdat) {
 			free((void *)tdat); tdat = 0x0;	// Not sure if we might ever have occasion to realloc here, but easy enough to set up for it
 		}
-		tdat = (struct fac_thread_data_t *)calloc(NTHREADS, sizeof(struct fac_thread_data_t));
+		tdat = (struct fac_thread_data_t *)CALLOC(NTHREADS, sizeof(struct fac_thread_data_t));
 
 		// Alloc threadpool of NTHREADS threads, which will concurrently/asynchronally
 		// do TF_PASSES 'work units' (factoring passes for various (k mod TF_CLASSES) k-classes:
@@ -1110,7 +1120,7 @@ exit(0);
 		findex = convert_base10_char_uint64(pstring);
 		nbits_in_p = findex+1;
 		lenP = (nbits_in_p + 63)>>6;
-		p     = (uint64 *)calloc( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
+		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
 		p[0] = 1;	mi64_shl(p,p,findex,lenP);	// p = (uint64)1 << findex;
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
@@ -1118,11 +1128,11 @@ exit(0);
 		findex = convert_base10_char_uint64(pstring);	// This var was really named as abbreviation of "Fermat index", but re-use for MMp
 		nbits_in_p = findex;
 		if(findex > 1000) {	// Large MMp need deeper sieving on each k passing the default sieve
-			kdeep = (uint32 *)calloc( 1024, sizeof(uint32));
+			kdeep = (uint32 *)CALLOC( 1024, sizeof(uint32));
 			ASSERT(kdeep != 0x0, "Calloc of kdeep[] failed!");
 		}
 		lenP = (nbits_in_p + 63)>>6;
-		p     = (uint64 *)calloc( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
+		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
 		p[0] = 1;	mi64_shl(p,p,findex,lenP);
 		mi64_sub_scalar(p,1,p,lenP);	// p = 2^findex - 1;
 	#ifdef FAC_DEBUG
@@ -1136,11 +1146,11 @@ exit(0);
 	}
 
 	// Allocate the other modulus-dependent vectors:
-	two_p   = (uint64 *)calloc(lenQ, sizeof(uint64));
-	p2NC    = (uint64 *)calloc(lenQ, sizeof(uint64));
-	q       = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
-	q2      = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
-	u64_arr = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
+	two_p   = (uint64 *)CALLOC(lenQ, sizeof(uint64));
+	p2NC    = (uint64 *)CALLOC(lenQ, sizeof(uint64));
+	q       = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
+	q2      = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
+	u64_arr = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
 
 	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
 	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
@@ -1317,7 +1327,7 @@ exit(0);
 	// Note: return value of read_savefile is signed:
 	itmp = read_savefile(RESTARTFILE, pstring, &bmin_file,&bmax_file, &kmin_file,&know_file,&kmax_file, &passmin_file,&passnow_file,&passmax_file, &count);
 	if(itmp == -1) {
-		sprintf(cbuf,"INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
+		snprintf(cbuf, sizeof(cbuf), "INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
 		fprintf(stderr,"%s",cbuf);
 	#ifndef FACTOR_STANDALONE
 		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
@@ -1486,7 +1496,7 @@ ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passm
 	ASSERT(NUM_SIEVING_PRIME > 0, "factor.c : NUM_SIEVING_PRIME > 0");
 
 /*   allocate the arrays and initialize the array of sieving primes	*/
-	temp_late = (uint64 *)calloc(len, sizeof(uint64));
+	temp_late = (uint64 *)CALLOC(len, sizeof(uint64));
 
   #if TF_CLASSES == 60
 	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
@@ -2432,6 +2442,9 @@ candidate factors that survive sieving.	*/
 			MODULUS_TYPE,
 			VERSION,
 			OFILE
+		#ifdef USE_AVX512
+			, psmall
+		#endif
 		);
 
 	#ifdef USE_GPU
@@ -2604,13 +2617,17 @@ MFACTOR_HELP:
 		const int MODULUS_TYPE,
 		const char*VERSION,
 		const char*OFILE
+	#ifdef USE_AVX512
+		, uint32*psmall	// Small-primes table; the multithreaded build gets this from targ->psmall, but the
+				// single-threaded build must receive it explicitly for the AVX-512 gather/scatter bit-clear asm
+	#endif
 	) {
 		int    tid = 0;
 
   #else
 
-	void*
-	PerPass_tfSieve(void*thread_arg)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	PerPass_tfSieve(void*thread_arg, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct fac_thread_data_t* targ = thread_arg;	// Ref'd as task->data in threadpool.c::worker_thr_routine() caller
 		int    tid          = targ->tid;	// Thread ID (Use the pool-thread ID here rather than the task ID ... there are typically many more tasks than pool threads)
@@ -2695,7 +2712,11 @@ MFACTOR_HELP:
 
 		if(interval_lo == interval_hi) {
 			printf("Thread %u immediate-return (no-op)\n",tid);
+		#ifdef MULTITHREAD
+			return;
+		#else
 			return 0x0;
+		#endif
 		}
 
 	#if 0	/************** disable for now - need to sync with similar code in main() ***************/
@@ -2750,7 +2771,7 @@ MFACTOR_HELP:
 
 			/* bmin */
 			++curr_line;
-			fgets(cbuf, STR_MAX_LEN*2, fp);
+			fgets(cbuf, sizeof(cbuf), fp);
 			itmp = sscanf(cbuf, "%lf", &bmin_file);
 			if(itmp != 1) {
 				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(0,"0");
@@ -2758,7 +2779,7 @@ MFACTOR_HELP:
 
 			/* bmax */
 			++curr_line;
-			fgets(cbuf, STR_MAX_LEN*2, fp);
+			fgets(cbuf, sizeof(cbuf), fp);
 			itmp = sscanf(cbuf, "%lf", &bmax_file);
 			if(itmp != 1) {
 				fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(0,"0");
@@ -3132,6 +3153,12 @@ MFACTOR_HELP:
 			// [ = 272272 or 226304, resp., depending on whether TF_CLASSES = 60 or 4620].
 			// We vectorize the 2nd loop, since each prime therein will hit at most one bit of the sievelet,
 			// i.e. we require no while-loop, only an if(curr_p's startval < bit_len or not) conditional.
+			// The vectorized bit-clearing below cannot handle the 0xFFFFFFFF 'p == curr_p' sentinel start-value
+			// get_startval() sets when the exponent p is itself within the sieving-prime range - only reachable
+			// by tiny exponents (e.g. the '-m 127 -bmax 20' self-test). Fall back to the scalar loop for that
+			// case; the AVX-512 path handles all real (large) exponents, where no sieving prime equals p.
+			const uint32 small_p = (lenP == 1) && (p[0] <= MAX_SIEVING_PRIME);
+			if(!small_p) {
 		// Loop #1:
 			curr_p = p_last_small;
 			for(m = nclear; m < nprime; m++)
@@ -3189,11 +3216,13 @@ MFACTOR_HELP:
 				 ,[__bit_len] "m" (bit_len)	\
 				 ,[__m] "m" (m)	\
 				 ,[__nprime] "nprime" (nprime-m)	\
-				: "cc","memory","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm30","xmm31"	/* Clobbered registers */\
+				: "cc","memory","k1","k2","k3","k4","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm30","xmm31"	/* Clobbered registers */\
 			);
 		/*	}	*/
 
-		#else	/******** Non-SIMD (pre-AVX512) **********/
+			} else	// small_p: the vectorized sieve can't handle the p==curr_p sentinel; use the scalar loop below
+		#endif
+			{	/******** Non-SIMD (pre-AVX512) - also the small-exponent fallback from the AVX-512 path above **********/
 
 		  #ifdef USE_NCQ
 			#warning Using 4-way bit-clear in PerPass_tfSieve.
@@ -3239,7 +3268,7 @@ MFACTOR_HELP:
 				}
 			}
 
-		#endif	// USE_AVX512 ?
+			}	// end of the AVX-512-vs-scalar (incl. small_p fallback) bit-clearing block
 
 //	if(pass==4)printf("\nPass %u: word0 after deep-prime clearing = %16" PRIX64 "\n",pass,bit_map2[0]);
 
@@ -3333,14 +3362,14 @@ MFACTOR_HELP:
 							mi64_clear(u64_arr, lenQ);	// Use q2 for quotient [i.e. factor-candidate k] and u64_arr for remainder
 							mi64_div(q,two_p,lenQ,lenQ,q2,u64_arr);
 							if(mi64_getlen(q2, lenQ) != 1) {
-								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: k must be 64-bit!\n",
+								snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: k must be 64-bit!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
 								ASSERT(0, cbuf);
 							}
 							if(!mi64_cmp_eq_scalar(u64_arr, 1ull, lenQ))
 							{
-								sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: q mod (2p) = %s != 1!\n",
+								snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: q mod (2p) = %s != 1!\n",
 									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],
 									&cbuf2[convert_mi64_base10_char(cbuf2, u64_arr, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
@@ -3369,7 +3398,7 @@ MFACTOR_HELP:
 										printf("%" PRIu64 " has a small divisor: %u\n",q[0], l);
 										ASSERT(0, "Abort...");
 									#else
-										sprintf(cbuf, "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s has a small divisor: %u\n",
+										snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s has a small divisor: %u\n",
 											(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],l);
 										fprintf(fp,"%s", cbuf);
 										ASSERT(0, cbuf);
@@ -3482,8 +3511,12 @@ MFACTOR_HELP:
 
 						  #else
 
-							#ifdef USE_FMADD
-								/* Use 50x50-bit FMADD-based modmul routines, if def'd: */
+							#if defined(USE_FMADD) && 0	/* USE_FMADD has no single-candidate twopmodq100_2WORD_DOUBLE
+									variant - the only FMADD-based 100-bit modpow ever implemented is the
+									AVX-512-only, 32-way twopmodq100_2WORD_DOUBLE_q32 in twopmodq100.c (unused
+									by this TRYQ==1 code path, and in any case unreachable here since factor.h
+									restricts USE_FMADD builds to TRYQ = 1, 2 or 4). Fall through to the
+									already-correct paths below instead of calling a nonexistent function. */
 								res = twopmodq100_2WORD_DOUBLE(p[0],k);
 							#elif(defined(USE_FLOAT))
 								/* Otherwise use 78-bit floating-double-based modmul: */
@@ -3536,14 +3569,19 @@ MFACTOR_HELP:
 
 						  #elif(defined(P1WORD))
 
-							#ifdef USE_FMADD
-								/* Use 50x50-bit FMADD-based modmul routines, if def'd: */
+							#if defined(USE_FMADD) && 0	/* USE_FMADD has no 2-way twopmodq100_2WORD_DOUBLE_q2
+									variant - see the longer note at the TRYQ==1 case above. There is no
+									integer-based q2 batch routine either, so unlike TRYQ==1/4 there is no
+									fallback to fall through to; if this is ever hit for real (it currently
+									is not - factor.h's default TRYQ under USE_FMADD is 2, but makemake.sh's
+									'mfac' target always overrides to TRYQ=4), build with TRYQ=1 or TRYQ=4
+									instead, or use USE_FLOAT instead of USE_FMADD. */
 								res = twopmodq100_2WORD_DOUBLE_q2(p[0],k_to_try[0],k_to_try[1]);
 							#elif(defined(USE_FLOAT))
 								/* Otherwise use 78-bit floating-double-based modmul: */
 								res = twopmodq78_3WORD_DOUBLE_q2(p[0],k_to_try[0],k_to_try[1], 0,tid);
 							#else
-								#error	TRYQ = 2 / P1WORD only allowed if USE_FLOAT or USE_FMADD is defined!
+								#error	TRYQ = 2 / P1WORD requires USE_FLOAT (USE_FMADD's 2-way 100-bit modpow, twopmodq100_2WORD_DOUBLE_q2, was never implemented - use TRYQ=1 or TRYQ=4 with USE_FMADD instead)!
 							#endif	/* #ifdef USE_FMADD */
 
 						  #else
@@ -3580,8 +3618,14 @@ MFACTOR_HELP:
 
 						  #else	// Default single-word-p mode:
 
-							#ifdef USE_FMADD
-								/* Use 50x50-bit FMADD-based modmul routines, if def'd: */
+							#if defined(USE_FMADD) && 0	/* USE_FMADD has no 4-way twopmodq100_2WORD_DOUBLE_q4
+									variant - see the longer note at the TRYQ==1 case above (only a
+									never-called, AVX-512-only 32-way _q32 routine was ever completed for
+									this 100-bit FMADD family). This #if 0 previously read '#ifdef USE_FMADD'
+									and called the nonexistent _q4 function, which is an implicit-declaration
+									hard error on GCC 14+/C23 (was a mere warning on older compilers) - this is
+									what broke the standalone Mfactor build (which always builds with TRYQ=4).
+									Fall through to the already-correct 78-bit/integer paths below instead. */
 								res = twopmodq100_2WORD_DOUBLE_q4(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 
 							#elif(defined(USE_FLOAT))
@@ -3733,6 +3777,11 @@ MFACTOR_HELP:
 							{
 								if((res >> l) & 1)	/* If Lth bit = 1, Lth candidate of the inputs is a factor */
 								{
+									// k = 0 yields the trivial "factor" q = 2.k.p+1 = 1, which divides everything. It can
+									// be sieved when the lower factor-bound admits it (e.g. -bmin 0 => kmin 0); skip it, since
+									// 1 is not a factor and PRP-testing it would violate mi64_pprimeF's base-<-modulus
+									// precondition and abort the run (seen with tiny exponents such as -m 23 -bmin 0):
+									if(k_to_try[l] == 0) continue;
 								#ifdef MULTITHREAD
 									pthread_mutex_lock(&mutex_mi64);
 								//	printf("Found Factor: Thread %u locked mutex_mi64 ... ",tid);
@@ -3759,16 +3808,16 @@ MFACTOR_HELP:
 										if(mi64_pprimeF(q, 3ull, lenQ)) {
 											factor_k[(*nfactor)++] = k_to_try[l];
 											if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
+												snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
 											else
-												sprintf(cbuf,"\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
+												snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)],k_to_try[l]);
 										#ifdef FAC_DEBUG
 											if(TRYQM1 > 1)
 												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 										#endif
 										} else {	// Composite factor; this should only occur in "single-word" (q < 2^96) mode:
 											if(known_factor_div_check_done) {	// Already divided out all pvsly-found factors
-												sprintf(cbuf,"\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
+												snprintf(cbuf, sizeof(cbuf), "\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
 											} else {
 												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&cstr[convert_mi64_base10_char(cstr, q, lenQ, 0)]);
 												for(j = 0; j < *nfactor; j++) {
@@ -3809,7 +3858,11 @@ MFACTOR_HELP:
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
 									#ifdef QUIT_WHEN_FACTOR_FOUND
+									  #ifdef MULTITHREAD
+										return;
+									  #else
 										return 0;
+									  #endif
 									#endif
 									}	// end(L-loop)
 								#ifdef MULTITHREAD
@@ -3902,7 +3955,11 @@ MFACTOR_HELP:
 							factor_k[(*nfactor)++] = k_to_try[l];
 
 						#ifdef QUIT_WHEN_FACTOR_FOUND
+						  #ifdef MULTITHREAD
+							return;
+						  #else
 							return 0;
+						  #endif
 						#endif
 						}
 					#ifdef MULTITHREAD
@@ -4039,7 +4096,7 @@ MFACTOR_HELP:
 		*(targ->count) += count;
 	//	printf("%" PRIu64 " ... Thread %u done.\n",*(targ->count),tid);
 		pthread_mutex_unlock(&mutex_updatecount);
-		return 0x0;
+		return;
 	  #else
 		return count;
 	  #endif
@@ -4405,7 +4462,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 	if(!fp) {
 		return -1;
 	} else {
-		sprintf(cbuf,"Factoring savefile %s found ... reading ...\n",fname);
+		snprintf(cbuf, sizeof(cbuf), "Factoring savefile %s found ... reading ...\n",fname);
 		fprintf(stderr,"%s",cbuf);
 	#ifndef FACTOR_STANDALONE
 		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
@@ -4454,11 +4511,13 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 			char_addr = strstr(in_line, "=");
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			} else {
+				++char_addr;	// Skip past the '=' before parsing the value; sscanf("%lf") chokes on a leading '='
+				itmp = sscanf(char_addr, "%lf",bmin);
+				if(itmp != 1) {
+					++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
+				}
 			}
-		}
-		itmp = sscanf(char_addr, "%lf",bmin);
-		if(itmp != 1) {
-			++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
 		}
 
 		/* Line 4: bmax */
@@ -4471,11 +4530,13 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 			char_addr = strstr(in_line, "=");
 			if(!char_addr) {
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
+			} else {
+				++char_addr;	// Skip past the '=' before parsing the value; sscanf("%lf") chokes on a leading '='
+				itmp = sscanf(char_addr, "%lf",bmax);
+				if(itmp != 1) {
+					++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmax) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
+				}
 			}
-		}
-		itmp = sscanf(char_addr, "%lf",bmax);
-		if(itmp != 1) {
-			++nerr; fprintf(stderr,"ERROR: unable to parse Line %d (bmax) of factoring restart file %s. Offending input = %s\n",curr_line,fname, in_line);
 		}
 
 	/************************************
@@ -4684,125 +4745,36 @@ uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 pa
 	}
 }
 
-// Only overwrite passnow, know and count fields of savefile:
+// Overwrite the passnow, know and count fields of the savefile. We rewrite the entire file (via
+// init_savefile) rather than patching those fields in place, for two reasons:
+//   (1) The fields are variable-length decimal text (e.g. 'know' grows from "0" to a many-digit value
+//       between checkpoints), so an in-place overwrite would run past the field it means to replace.
+//   (2) Interleaving fgets reads and fprintf writes on a single "r+" (update-mode) stream without an
+//       intervening fseek/fflush is undefined behavior (C11 7.21.5.3p7); in practice it wrote the
+//       updated fields at the wrong offsets, corrupting the savefile and aborting the run at the first
+//       checkpoint. Reading the run-invariant fields back and re-emitting the whole file is both correct
+//       and simpler.
 int write_savefile(const char*fname, const char*pstring, uint32 passnow, uint64 know, uint64 count)
 {
-	 int itmp;
-	uint32 curr_line = 0, nerr = 0, passnow_file;
-	uint64 know_file, count_file;
-	char *char_addr;
-	/* TF restart files are in HRF, not binary: */
-	fp = mlucas_fopen(fname,"r+");	// Open in update ("read plus") mode
-	if(!fp) {
-	#ifndef FACTOR_STANDALONE
-		fp = mlucas_fopen(STATFILE,"a");
-		fprintf(	fp,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
-		fclose(fp); fp = 0x0;
-	#endif
-		fprintf(stderr,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",fname);
-		return -1;
-	} else {
-		/* Line 1: pstring */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n",curr_line,fname);
-		}
-		/* Strip the expected newline char from in_line: */
-		char_addr = strstr(in_line, "\n");
-		if(char_addr)
-			*char_addr = '\0';
-		/* Make sure restart-file and current-run pstring match: */
-		if(STRNEQ(in_line, pstring)) {
-			++nerr; fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring,curr_line,fname);
-		}
-
-		/* Line 6: know */
-		while(++curr_line < 6) {
-			if(!fgets(in_line, STR_MAX_LEN, fp)) {
-				++nerr; fprintf(stderr,"ERROR: unable to read Line %d of factoring restart file %s!\n",curr_line,fname);
-			}
-		}
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (know) of factoring restart file %s!\n",curr_line,fname);
-		}
-		char_addr = strstr(in_line, "know");
-		if(!char_addr) {
-			++nerr; fprintf(stderr,"ERROR: 'know' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
-			}
-			char_addr++;
-			know_file = convert_base10_char_uint64(char_addr);
-		}
-		itmp = fprintf(fp,"know = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, know)]);
-		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (know) of factoring restart file %s!\n",curr_line,fname);
-		}
-
-		/* Line 7: kmax: */
-		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
-		/* Line 8: passmin: */
-		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
-
-		/* Line 9: passnow: */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
-		}
-		char_addr = strstr(in_line, "passnow");
-		if(!char_addr) {
-			++nerr; fprintf(stderr,"ERROR: 'passnow' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
-			}
-			char_addr++;
-			passnow_file = convert_base10_char_uint64(char_addr);
-		}
-		itmp = fprintf(fp,"passnow = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, passnow)]);
-		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (passnow) of factoring restart file %s!\n",curr_line,fname);
-		}
-
-		// Check progress: compared to previous checkpoint, passnow should be same and know greater, or passnow should be greater:
-		if(passnow == passnow_file && know > know_file) {
-			/* No-op */
-		} else if(passnow > passnow_file) {
-			/* No-op */
-		} else {
-			++nerr; fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, passnow[%u] should be same as file[%u] and know[%" PRIu64 "] greater than file[%" PRIu64 "], or passnow should be greater!\n",fname,passnow,passnow_file,know,know_file);
-		}
-
-		/* Line 10: passmax: */
-		++curr_line; fgets(in_line, STR_MAX_LEN, fp);
-
-		/* Line 11: Number of q's tried: */
-		++curr_line;
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			++nerr; fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
-		}
-		char_addr = strstr(in_line, "#Q tried");
-		if(!char_addr) {
-			++nerr; fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n",curr_line,fname);
-		} else {
-			char_addr = strstr(in_line, "=");
-			if(!char_addr) {
-				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
-			}
-			char_addr++;
-			count_file = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
-		}
-		++curr_line; itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
-		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
-		}
-		fclose(fp); fp = 0x0;
-		return (int)nerr;
+	int itmp;
+	double bmin = 0, bmax = 0;
+	uint64 kmin = 0, know_file = 0, kmax = 0, count_file = 0;
+	uint32 passmin = 0, passnow_file = 0, passmax = 0;
+	/* Recover the run-invariant fields (bmin/bmax/kmin/kmax/passmin/passmax) and the previous
+	checkpoint's know/passnow/count from the existing savefile: */
+	itmp = read_savefile(fname, pstring, &bmin,&bmax, &kmin,&know_file,&kmax, &passmin,&passnow_file,&passmax, &count_file);
+	if(itmp) {
+		fprintf(stderr,"ERROR: write_savefile: unable to read savefile %s prior to updating it.\n",fname);
+		return (itmp < 0) ? 1 : itmp;	// Normalize read_savefile's -1 ("no file") to a positive error count
 	}
+	/* Sanity-check forward progress vs the previous checkpoint: either the pass is unchanged and we
+	advanced within it (know increased), or we moved on to a later pass: */
+	if(!((passnow == passnow_file && know > know_file) || (passnow > passnow_file))) {
+		fprintf(stderr,"ERROR: In factoring restart file %s: compared to previous checkpoint, either passnow[%u] must equal file[%u] with know[%" PRIu64 "] > file[%" PRIu64 "], or passnow must exceed file[%u]!\n",fname,passnow,passnow_file,know,know_file,passnow_file);
+		return 1;
+	}
+	/* Rewrite the whole file, preserving the invariants and updating know/passnow/count: */
+	return init_savefile(fname, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count);
 }
 
 /* This is actually an auxiliary source file, but give it a .h extension to allow wildcarded project builds of form 'gcc -c *.c' */

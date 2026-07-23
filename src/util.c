@@ -94,6 +94,20 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 
 #endif	// __CUDA_ARCH__ ?
 
+/**********************************/
+/****** CHECKED ALLOCATION ********/
+/**********************************/
+/* Common failure path for the checked-allocation macros (MALLOC/CALLOC/REALLOC in util.h and the
+ALLOC_* macros in align.h): print the file:line:function of the call site plus the requested size,
+then abort - so an out-of-memory condition yields a clear diagnostic instead of a later SIGSEGV from a
+caller dereferencing a NULL pointer. The success-path malloc/calloc/realloc is done inline in the
+macros; this is only ever reached on failure, so a function call here costs nothing on the hot path. */
+__attribute__ ((__noreturn__)) void alloc_fail(const char*what, size_t nbytes, const char*file, int line, const char*func) {
+	char msg[STR_MAX_LEN];
+	snprintf(msg, sizeof(msg), "%s of %" PRIu64 " bytes failed - out of memory", what, (uint64)nbytes);
+	ABORT("ptr != 0x0", file, line, func, msg);
+}
+
 /***************/
 
 /* ewm: Not sure what I intended this for... */
@@ -189,7 +203,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		// to the same memory, bounce successive-divide results between 2 arrays, x and y:
 		lenX = (p>>6);
 	//	x = (uint64 *)calloc(lenX + 1, sizeof(uint64));
-		x = (uint64 *)calloc(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
+		x = (uint64 *)CALLOC(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
 		memset(x,ONES64,(lenX<<3));	x[lenX++] = (1ull << (p&63)) - 1;
 		nchars = ceil(p * log(2.0)/log(10.));
 		fprintf(stderr,"Generating decimal printout of M(%u), which has [%u] decimal digits; will write results to file '%s'...\n",p,nchars,fname);
@@ -197,12 +211,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		// Until have generic-FFT-based mi64_divrem algo in place, use mod-10^27, the largest power of 10 whose
 		// odd factor (5^27) fits in a uint64, thus allowing the core div-and-mod loops to use 1-word arguments:
 		nc = nchars + (nchars/27) + 1;	// Add newlines to count
-		str = (char *)calloc(nc, sizeof(char));
-		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+		str = (char *)CALLOC(nc, sizeof(char));
+		y = (uint64 *)CALLOC(lenX + 1, sizeof(uint64));
 		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
 		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
 		lenD = 0; ASSERT(0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
-		r = (uint64 *)calloc(lenD, sizeof(uint64));
+		r = (uint64 *)CALLOC(lenD, sizeof(uint64));
 		nc -= 28;		// starting char of first 27-digit chunk
 		for(i = 0; ; i+=2) {	// i = #divides counter; do 2 divs per loop exec in attempt to get some modest pipelining
 			mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
@@ -507,12 +521,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		uint32 curr_p,fbase2psp_idx,i,ihi,itmp32,j,jlo,jhi,k,max_diff,m,nfac,np,pm1;
 		const uint32 pdiff_8[8] = {2,1,2,1,2,3,1,3}, pdsum_8[8] = { 0, 2, 6, 8,12,18,20,26};
 		// Compact table storing the (difference/2) between adjacent odd primes.
-		unsigned char *pdiff = (unsigned char *)calloc(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
+		unsigned char *pdiff = (unsigned char *)CALLOC(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
 		// Struct used for storing smoothness data ... make big enough to store all primes in [p - pm_gap, p + pm_gap] with a safety factor
 		struct psmooth sdat;
 		// .../10 here is an approximation based on prime density for primes > 100000;
 		// note the code uses an interval [p-pm_gap, p+pm_gap], i.e. of length 2*pm_gap, so the calloc needs to be twice pm_gap/10:
-		struct psmooth*psmooth_vec = (struct psmooth *)calloc(2*pm_gap/10, sizeof(struct psmooth));
+		struct psmooth*psmooth_vec = (struct psmooth *)CALLOC(2*pm_gap/10, sizeof(struct psmooth));
 
 		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
 		pdiff[1] = pdiff[2] = 1;
@@ -3142,10 +3156,12 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			  #if 0
 				#error to-do!
 				double r1,r2, lo,hi;
+				uint64 i64r1,i64r2;
 				r1 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				r2 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				mul50x50_debug(r1,r2, &lo,&hi);
-				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",*(uint64*)&r1,*(uint64*)&r2);
+				memcpy(&i64r1,&r1,sizeof(i64r1)); memcpy(&i64r2,&r2,sizeof(i64r2));	// avoid strict-aliasing UB
+				printf("mul50x50_: a,b = %" PRIu64 ", %" PRIu64 "\n",i64r1,i64r2);
 				printf("mul50x50_: lo = %16" PRIu64 "\n",*(uint64*)alo);
 				printf("mul50x50_: hi = %16" PRIu64 "\n",*(uint64*)ahi);
 			  #endif
@@ -3206,7 +3222,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					 ,[__binv] "m" (dptr2)\
 					 ,[__crnd50] "m" (dptr3)\
 					 ,[__prod1_adj] "m" (dptr4)\
-					: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+					: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 				);
 			//	printf("i = %u: x0 = %1.0f; x1 = %1.0f; p0-3 = %1.0f,%1.0f,%1.0f,%1.0f\n",i,*ax,*ay,*alo,*ahi);
 				// Update log2-range-bounds-storing vars:
@@ -3269,7 +3285,7 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 	int cmp_fma_lohi_vs_exact(double dx, double dy, double dhi, double dlo, uint64 ix, uint64 iy, uint64 ihi, uint64 ilo)
 	{
 		int retval;
-		uint64 i64, e1,e0, m1,m0;
+		uint64 i64, e1,e0, m1,m0, u_dhi,u_dlo;
 		uint32 s1,s0;
 		const uint64 two52 = 0x0010000000000000ull, mmask = 0x000FFFFFFFFFFFFFull;
 		uint128 exact;
@@ -3285,8 +3301,10 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 				dlo = -dlo;
 		}
 		// Extract exp & mantissa fields of the double outputs and restore hidden bits:
-		i64 = *(uint64*)&dhi; e1 = (i64>>52)&0x7ff; m1 = (i64&mmask) + two52;
-		i64 = *(uint64*)&dlo; e0 = (i64>>52)&0x7ff; m0 = (i64&mmask) +(two52 & (-(dlo != 0.)));
+		memcpy(&i64,&dhi,sizeof(i64));	// avoid strict-aliasing UB
+		e1 = (i64>>52)&0x7ff; m1 = (i64&mmask) + two52;
+		memcpy(&i64,&dlo,sizeof(i64));	// avoid strict-aliasing UB
+		e0 = (i64>>52)&0x7ff; m0 = (i64&mmask) +(two52 & (-(dlo != 0.)));
 		int nsh1 = e1 - 0x433;	// Shift count of hi-double result = exp - 0x3ff - 52
 		int nsh0 = e0 - 0x433;	// Shift count of lo-double result
 		exact.d0 = m1; exact.d1 = 0;	LSHIFT128(exact,nsh1, exact);
@@ -3304,7 +3322,8 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 			printf("In cmp_fma_lohi_vs_exact: FMA-double and pure-int DMUL results differ!\n");
 			printf("dx = %f; dy = %f; hi,lo = %f,%f\n",dx,dy, dhi * (1 - 2*(s1 != 0)), dlo * (1 - 2*(s0 != 0)));
 			printf("ix = %" PRId64 "; iy = %" PRId64 "; ihi,lo = %" PRId64 ",%" PRIu64 "\n",ix,iy, ihi,ilo);
-			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",*(uint64*)&dhi,*(uint64*)&dlo);
+			memcpy(&u_dhi,&dhi,sizeof(u_dhi)); memcpy(&u_dlo,&dlo,sizeof(u_dlo));	// avoid strict-aliasing UB
+			printf("Unsigned FMA result: ihi = %" PRIX64 "; ilo = %" PRIX64 "\n",u_dhi,u_dlo);
 			printf("nsh1,0 = %d,%d: ehi = %" PRIu64 "; elo = %" PRIu64 " [mlo = %c%" PRIu64 "]\n",nsh1,nsh0,exact.d1,exact.d0, char_sgn[s1 ^ s0],m0);
 		}
 		return retval;
@@ -5322,9 +5341,9 @@ double	convert_base10_char_double (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5402,9 +5421,9 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5470,9 +5489,9 @@ uint128	convert_base10_char_uint128(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5533,9 +5552,9 @@ uint192	convert_base10_char_uint192(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5597,9 +5616,9 @@ uint256	convert_base10_char_uint256(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5711,7 +5730,7 @@ double	finvest(double x, uint32 numbits)
 	}
 
 	/* Unpack double into a uint64: */
-	itmp = *(uint64 *)&x;
+	memcpy(&itmp,&x,sizeof(itmp));	// avoid strict-aliasing UB
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
@@ -5735,7 +5754,7 @@ double	finvest(double x, uint32 numbits)
 	mant = (uint64)byte_lookup_finvest[byteval] << 44;
 
 	itmp = (itmp & MASK_SIGN) + (exp << 52) + mant;
-	ftmp = *(double *)&itmp;
+	memcpy(&ftmp,&itmp,sizeof(ftmp));	// avoid strict-aliasing UB
 
 	/* Do as many Newton iterations as required - number of correct
 	bits approximately doubles each iteration. The iteration we use
@@ -5780,7 +5799,7 @@ double	fisqrtest(double x, uint32 numbits)
 	}
 
 	/* Unpack double into a uint64: */
-	itmp = *(uint64 *)&x;
+	memcpy(&itmp,&x,sizeof(itmp));	// avoid strict-aliasing UB
 	/* Separate upper part of the significand from the sign/exponent fields: */
 	exp  = (itmp >> 52) & MASK_EXP;
 	mant =  itmp        & MASK_MANT;
@@ -5838,7 +5857,7 @@ double	fisqrtest(double x, uint32 numbits)
 	mant = (uint64)byte_lookup_fisqrtest[byteval] << 44;
 
 	itmp = (itmp & MASK_SIGN) + (exp << 52) + mant;
-	ftmp = *(double *)&itmp;
+	memcpy(&ftmp,&itmp,sizeof(ftmp));	// avoid strict-aliasing UB
 
 	/* Do as many Newton iterations as required - number of correct
 	bits approximately doubles each iteration. The iteration we use
@@ -5963,7 +5982,7 @@ ftmp0 = ftmp;
 		__asm__ volatile (\
 			"movl	$0xaaaa,%%eax	\n\t	kmov	%%eax,%%k1	\n\t"/* k1 = 0b1010101010101010 */\
 			: :
-			: "cc","memory","rax"
+			: "cc","memory","k1","rax"
 		);
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
@@ -5984,7 +6003,7 @@ ftmp0 = ftmp;
 				:	// outputs: none
 				: [__dhalf] "m" (*i64ptr)
 				 ,[__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
+				: "cc","memory","k1","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
 			);
 		}
 		clock2 = getRealTime();
@@ -6017,7 +6036,7 @@ ftmp0 = ftmp;
 			/* No write-back-to-memory - just want to be able to examine contents of zmm2,4,0,3 in debugger. */\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
+				: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
 			);
 		}
 		clock2 = getRealTime();
@@ -6095,7 +6114,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:				// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+				: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
 			);
 		}
 		clock2 = getRealTime();
@@ -6125,7 +6144,7 @@ ftmp0 = ftmp;
 			"valignq			$4,%%zmm2,%%zmm2,%%zmm2	\n\t"/* 04 05 06 07 00 01 02 03 */\
 			:						// outputs: none
 			: [__data] "m" (data)	// All inputs from memory addresses here
-			: "cc","memory","rax","xmm0"
+			: "cc","memory","rax","xmm0","xmm1","xmm2"
 		);
 		// Test out side-by-side 4x4 transpose algorithm - On KNL 15 cycles/loop,
 		// drops to 12 cycles when pull inits of index-registers zmm30,zmm31 out into 1-pass init step:
@@ -6329,7 +6348,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm3,0x1c0(%%rax)	\n\t"\
 				:				// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+				: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
 			);
 		}
 		clock2 = getRealTime();
@@ -6497,7 +6516,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm7,0x1c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","k2","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6570,7 +6589,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm4, 0x1c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6699,7 +6718,7 @@ ftmp0 = ftmp;
 				:						// outputs: none
 				: [__data] "m" (data)	/* All inputs from memory addresses here */\
 				 ,[__gatherindex] "m" (gatherindex)
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6758,7 +6777,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6842,7 +6861,7 @@ ftmp0 = ftmp;
 				:						// outputs: none
 				: [__data] "m" (data)	/* All inputs from memory addresses here */\
 				 ,[__gatherindex] "m" (gatherindex)
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","k2","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6934,7 +6953,7 @@ ftmp0 = ftmp;
 																"vmovaps	%%zmm17,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -7028,7 +7047,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm4, 0x1c0(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -9158,14 +9177,14 @@ exit(0);
 		nobjs1 = hwloc_get_nbobjs_by_type (topology, HWLOC_OBJ_CORE);
 		nobjs2 = hwloc_get_nbobjs_by_depth(topology, depth);
 		if(nobjs1 != nobjs2) {
-			snprintf(cbuf,STR_MAX_LEN*2,"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
+			snprintf(cbuf, sizeof(cbuf),"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
 			ASSERT(0,cbuf);
 		}
 		// Loop over HWLOC_OBJ_CORE objects corr. to index range:
 		for (i = lidx_lo; i <= lidx_hi; i++) {
 			hwloc_obj_t obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_CORE, i);
 			if (!obj) {
-				snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
+				snprintf(cbuf, sizeof(cbuf),"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
 			}
 			ASSERT(obj->type == HWLOC_OBJ_CORE, "[hwloc] Error: Object not of expected type CORE.");
 			while(obj && (obj->type != HWLOC_OBJ_PACKAGE)) {
@@ -9227,7 +9246,7 @@ exit(0);
 				hwloc_obj_t obj_core, obj_pu;
 				obj_core = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CORE, i);
 				if (!obj_core) {
-					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
+					snprintf(cbuf, sizeof(cbuf),"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
 				}
 				// 2. for each HWLOC_OBJ_CORE object in the above set, verify that it has at least (n) children
 				/*
@@ -9238,7 +9257,7 @@ exit(0);
 					'-cpu 0:11', or even more simply '-nthread 12') to use all 12 threads.
 				*/
 				if (obj_core->arity < incr) {
-					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(0,cbuf);
+					snprintf(cbuf, sizeof(cbuf),"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(0,cbuf);
 				}
 				for (j = 0; j < incr; j++) {
 					obj_pu = obj_core->children[j];
@@ -9259,7 +9278,10 @@ exit(0);
 			// CPU set encoded by integer-triplet argument corresponds to values of integer loop
 			// index i in the C-loop for(i = lo; i < hi; i += incr), excluding loop-exit value of i:
 			for(i = lo; i <= hi; i += incr, ncpu++) {
-				word = i>>6; bit = i & 63;	ASSERT(word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
+				// CORE_SET is declared uint64 CORE_SET[MAX_CORES>>6], i.e. MAX_CORES/64 words; the old
+				// bound-check here used MAX_CORES itself, permitting an out-of-bounds global write for
+				// -cpu indices >= 1024:
+				word = i>>6; bit = i & 63;	ASSERT(word < (MAX_CORES>>6), "Bitmap word exceeds MAX_CORES!");
 				if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(0, cbuf); }
 				else { CORE_SET[word] |= 1ull<<bit; }
 			}
@@ -9371,83 +9393,108 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
-	char *mlucas_path;
-	char *cmdstr;
-	char *expanded_str;
-	int  tmp;
-	FILE *pipe_ptr;
-	size_t bufsize;
+	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
+	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
-
-	mlucas_path = getenv("MLUCAS_PATH");
+	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
-		bufsize = strlen(mlucas_path) + 1;
-		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
 			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
 		strcpy(MLUCAS_PATH, mlucas_path);
-	} else {
-		bufsize = strlen(MLUCAS_PATH) + 1;
 	}
-	bufsize = (bufsize - 1) * 3 + 1;
-	mlucas_path = (char*)malloc(bufsize);
-	if (mlucas_path == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_err_check;
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
+	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
+	   backslash, since both are directory separators on Windows).  */
+	{
+		size_t len = strlen(MLUCAS_PATH);
+		if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+			goto out_err_check;
+		if (len > STR_MAX_LEN) {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
+		if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
 	}
+#else
+	/* POSIX: run MLUCAS_PATH through the shell (via popen "printf") so $HOME-style
+	   variables get expanded, then enforce the length/trailing-slash invariants: */
+	{
+		char *cmdstr;
+		char *expanded_str;
+		int  tmp;
+		FILE *pipe_ptr;
+		size_t bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
+		mlucas_path = (char*)malloc(bufsize);
+		if (mlucas_path == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
 
-	quote_spaces(mlucas_path, MLUCAS_PATH);
-	cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
-	if (cmdstr == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_mlucas_path;
-	}
+		quote_spaces(mlucas_path, MLUCAS_PATH);
+		cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
+		if (cmdstr == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_mlucas_path;
+		}
 
-	strcpy(cmdstr, "printf \"\"");
-	strcat(cmdstr, mlucas_path);
-	pipe_ptr = popen(cmdstr, "r");
-	if (pipe_ptr == NULL) {
-		fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_cmdstr;
-	}
+		strcpy(cmdstr, "printf \"\"");
+		strcat(cmdstr, mlucas_path);
+		pipe_ptr = popen(cmdstr, "r");
+		if (pipe_ptr == NULL) {
+			fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_cmdstr;
+		}
 
-	tmp = getc(pipe_ptr); /* goto out_pipe if shell output nothing  */
-	if (tmp == EOF)
-		goto out_pipe;
-	else
-		ungetc(tmp, pipe_ptr);
+		tmp = getc(pipe_ptr); /* goto out_pipe if shell output nothing  */
+		if (tmp == EOF)
+			goto out_pipe;
+		else
+			ungetc(tmp, pipe_ptr);
 
-	expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
-	if (expanded_str == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr);
-	if (getc(pipe_ptr) != EOF) {
-		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
-		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
+		expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
+		if (expanded_str == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr);
+		if (getc(pipe_ptr) != EOF) {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
 
-	MLUCAS_PATH = expanded_str;
-	out_pipe:
-	pclose(pipe_ptr);
-	out_cmdstr:
-	free(cmdstr);
-	out_mlucas_path:
-	free(mlucas_path);
+		MLUCAS_PATH = expanded_str;
+		out_pipe:
+		pclose(pipe_ptr);
+		out_cmdstr:
+		free(cmdstr);
+		out_mlucas_path:
+		free(mlucas_path);
+	}
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
@@ -9492,7 +9539,7 @@ int mkdir_p(char *path)
 	char *tok;
 	FILE *fp;
 
-	strcpy(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
 	if (mlucas_path[0] == '\0')
 		return 1;
 	else if (mlucas_path[0] == '/')
@@ -9567,13 +9614,13 @@ char *shell_quote(char *dest, char *src)
    which is then passed to fopen()
 
    Since the length of both MLUCAS_PATH and path are at most STR_MAX_LEN,
-   we can use strcpy() and strcat() safely  */
+   mlucas_path is guaranteed large enough, but build it with a bounded
+   snprintf() rather than strcpy()+strcat() as a defensive measure  */
 FILE *mlucas_fopen(const char *path, const char *mode)
 {
 	char mlucas_path[2 * STR_MAX_LEN + 1];
 
-	strcpy(mlucas_path, MLUCAS_PATH);
-	strcat(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s%s", MLUCAS_PATH, path);
 	return fopen(mlucas_path, mode);
 }
 

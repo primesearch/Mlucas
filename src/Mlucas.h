@@ -58,6 +58,9 @@
 
 /* Mlucas.c: */
 void	sig_handler(int signo);
+#ifndef NO_USE_SIGNALS
+void	mlucas_install_signal_handlers(void);
+#endif
 void	Mlucas_init(void);
 uint32	ernstMain
 (
@@ -117,7 +120,7 @@ uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 uint32	pm1_check_bounds();
 uint32	compute_pm1_s1_product(const uint64 p);
 uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
-int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64);
+int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uint64*sum64);
 int		write_pm1_s1_prod(const char*fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
 void	pm1_bigstep_size(uint32 *nbuf, uint32*bigstep, uint32*m, const uint32 psmall);
 int		modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
@@ -369,60 +372,60 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 
 #ifdef MULTITHREAD
 	/* Multithreaded version must be in form of 1-arg functor */
-	void *mers_process_chunk  (void*targ);
-	void *fermat_process_chunk(void*targ);
+	void mers_process_chunk(void*targ, int thread_num);
+	void fermat_process_chunk(void*targ, int thread_num);
 	// These are shared by both mers and fermat-mod, although the code contains switches to invoke the corr. carry macros:
-	void *cy12_process_chunk(void*targ);
-	void *cy16_process_chunk(void*targ);
-	void *cy20_process_chunk(void*targ);
-	void *cy24_process_chunk(void*targ);
-	void *cy28_process_chunk(void*targ);
-	void *cy32_process_chunk(void*targ);
-	void *cy36_process_chunk(void*targ);
-	void *cy40_process_chunk(void*targ);
-	void *cy44_process_chunk(void*targ);
-	void *cy48_process_chunk(void*targ);
-	void *cy52_process_chunk(void*targ);
-	void *cy56_process_chunk(void*targ);
-	void *cy60_process_chunk(void*targ);
-	void *cy63_process_chunk(void*targ);
-	void *cy64_process_chunk(void*targ);
-	void *cy72_process_chunk(void*targ);
-	void *cy80_process_chunk(void*targ);
-	void *cy88_process_chunk(void*targ);
-	void *cy96_process_chunk(void*targ);
-	void *cy104_process_chunk(void*targ);
-	void *cy112_process_chunk(void*targ);
-	void *cy120_process_chunk(void*targ);
-	void *cy128_process_chunk(void*targ);
-	void *cy144_process_chunk(void*targ);
-	void *cy160_process_chunk(void*targ);
-	void *cy176_process_chunk(void*targ);
-	void *cy192_process_chunk(void*targ);
-	void *cy208_process_chunk(void*targ);
-	void *cy224_process_chunk(void*targ);
-	void *cy240_process_chunk(void*targ);
-	void *cy256_process_chunk(void*targ);
-	void *cy288_process_chunk(void*targ);
-	void *cy320_process_chunk(void*targ);
-	void *cy352_process_chunk(void*targ);
-	void *cy384_process_chunk(void*targ);
-	void *cy416_process_chunk(void*targ);
-	void *cy448_process_chunk(void*targ);
-	void *cy480_process_chunk(void*targ);
-	void *cy512_process_chunk(void*targ);
-	void *cy576_process_chunk(void*targ);
-	void *cy640_process_chunk(void*targ);
-	void *cy704_process_chunk(void*targ);
-	void *cy768_process_chunk(void*targ);
-	void *cy832_process_chunk(void*targ);
-	void *cy896_process_chunk(void*targ);
-	void *cy960_process_chunk(void*targ);
-	void *cy992_process_chunk(void*targ);
-	void *cy1008_process_chunk(void*targ);
-	void *cy1024_process_chunk(void*targ);
-	void *cy4032_process_chunk(void*targ);
-	void *cy4096_process_chunk(void*targ);
+	void cy12_process_chunk(void*targ, int thread_num);
+	void cy16_process_chunk(void*targ, int thread_num);
+	void cy20_process_chunk(void*targ, int thread_num);
+	void cy24_process_chunk(void*targ, int thread_num);
+	void cy28_process_chunk(void*targ, int thread_num);
+	void cy32_process_chunk(void*targ, int thread_num);
+	void cy36_process_chunk(void*targ, int thread_num);
+	void cy40_process_chunk(void*targ, int thread_num);
+	void cy44_process_chunk(void*targ, int thread_num);
+	void cy48_process_chunk(void*targ, int thread_num);
+	void cy52_process_chunk(void*targ, int thread_num);
+	void cy56_process_chunk(void*targ, int thread_num);
+	void cy60_process_chunk(void*targ, int thread_num);
+	void cy63_process_chunk(void*targ, int thread_num);
+	void cy64_process_chunk(void*targ, int thread_num);
+	void cy72_process_chunk(void*targ, int thread_num);
+	void cy80_process_chunk(void*targ, int thread_num);
+	void cy88_process_chunk(void*targ, int thread_num);
+	void cy96_process_chunk(void*targ, int thread_num);
+	void cy104_process_chunk(void*targ, int thread_num);
+	void cy112_process_chunk(void*targ, int thread_num);
+	void cy120_process_chunk(void*targ, int thread_num);
+	void cy128_process_chunk(void*targ, int thread_num);
+	void cy144_process_chunk(void*targ, int thread_num);
+	void cy160_process_chunk(void*targ, int thread_num);
+	void cy176_process_chunk(void*targ, int thread_num);
+	void cy192_process_chunk(void*targ, int thread_num);
+	void cy208_process_chunk(void*targ, int thread_num);
+	void cy224_process_chunk(void*targ, int thread_num);
+	void cy240_process_chunk(void*targ, int thread_num);
+	void cy256_process_chunk(void*targ, int thread_num);
+	void cy288_process_chunk(void*targ, int thread_num);
+	void cy320_process_chunk(void*targ, int thread_num);
+	void cy352_process_chunk(void*targ, int thread_num);
+	void cy384_process_chunk(void*targ, int thread_num);
+	void cy416_process_chunk(void*targ, int thread_num);
+	void cy448_process_chunk(void*targ, int thread_num);
+	void cy480_process_chunk(void*targ, int thread_num);
+	void cy512_process_chunk(void*targ, int thread_num);
+	void cy576_process_chunk(void*targ, int thread_num);
+	void cy640_process_chunk(void*targ, int thread_num);
+	void cy704_process_chunk(void*targ, int thread_num);
+	void cy768_process_chunk(void*targ, int thread_num);
+	void cy832_process_chunk(void*targ, int thread_num);
+	void cy896_process_chunk(void*targ, int thread_num);
+	void cy960_process_chunk(void*targ, int thread_num);
+	void cy992_process_chunk(void*targ, int thread_num);
+	void cy1008_process_chunk(void*targ, int thread_num);
+	void cy1024_process_chunk(void*targ, int thread_num);
+	void cy4032_process_chunk(void*targ, int thread_num);
+	void cy4096_process_chunk(void*targ, int thread_num);
 #else
   #ifdef USE_FGT61
 	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft_only);

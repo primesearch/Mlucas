@@ -58,8 +58,11 @@ uint32 SYSTEM_RAM = 0;	// Total usable main memory size in MB, and max. % of tha
 
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 int REINIT_LOCAL_DATA_TABLES = 0;
-// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
-int MLUCAS_KEEP_RUNNING = 1;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action.
+// volatile sig_atomic_t: written by the async signal handler, polled by the main control loop (see Mdata.h note).
+volatile sig_atomic_t MLUCAS_KEEP_RUNNING = 1;
+// Signal number of a received graceful-quit signal, so the main thread can report it safely (0 = none):
+volatile sig_atomic_t MLUCAS_INTERRUPT_SIGNO = 0;
 // v18: Enable savefile-on-interrupt-signal, access to argc/argv outside main():
 char **global_argv;
 
@@ -225,27 +228,83 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 /****** END(Allocate storage for Globals (externs)). ******/
 
 #ifndef NO_USE_SIGNALS
+	/*
+	Async-signal-safe graceful-quit handler.
+
+	ROOT CAUSE of the Dec-2021 "runs that have been underway for a day or more refuse to quit"
+	instability (which led to this savefile-on-interrupt feature being disabled): a signal handler
+	runs on whatever thread the kernel happens to deliver the signal to, asynchronously interrupting
+	whatever that thread was doing at that instant. POSIX permits a handler to call ONLY async-signal-safe
+	functions (see signal-safety(7)). The old handler violated this badly - it called fprintf() and
+	sprintf() (into the shared global cbuf) and then exit(). All three are unsafe:
+	  - fprintf/sprintf take the stdio lock and can call malloc();
+	  - exit() flushes all stdio streams and runs atexit() handlers.
+	If the signal was delivered to an FFT worker thread (all threads had these signals unblocked) that
+	happened to already hold the malloc arena lock or a stdio lock - very likely, since the workers are
+	the threads doing nearly all the CPU work - the handler would deadlock on that non-recursive lock and
+	the entire process would hang forever. Because *which* thread receives the signal is nondeterministic,
+	the hang was intermittent: exactly the "run-to-run inconsistency" that was reported. sprintf() into the
+	shared cbuf also races the main thread's concurrent use of that same buffer.
+
+	The fix has three parts:
+	  (1) This handler now does NOTHING but store the signal number and clear the keep-running flag - both
+	      volatile sig_atomic_t, the only data the C standard lets a handler safely touch. No stdio, no
+	      malloc, no exit(): nothing that can take a lock, so it cannot deadlock no matter which thread or
+	      instruction it interrupts.
+	  (2) All user messaging and the (consistent, last-completed-iteration) savefile write are deferred to
+	      the main-thread control loop, which polls MLUCAS_KEEP_RUNNING at a safe point between mod-squaring
+	      iterations.
+	  (3) The FFT worker threads block these signals (see threadpool.c::worker_thr_routine), so the handler
+	      only ever runs on the main thread - making delivery deterministic and keeping the workers, which
+	      hold the shared locks, out of signal context entirely.
+	*/
 	void sig_handler(int signo)
 	{
-		if (signo == SIGINT) {
-			fprintf(stderr,"received SIGINT signal.\n");	sprintf(cbuf,"received SIGINT signal.\n");
-		} else if(signo == SIGTERM) {
-			fprintf(stderr,"received SIGTERM signal.\n");	sprintf(cbuf,"received SIGTERM signal.\n");
-	#ifndef __MINGW32__
-		} else if(signo == SIGHUP) {
-			fprintf(stderr,"received SIGHUP signal.\n");	sprintf(cbuf,"received SIGHUP signal.\n");
-		} else if(signo == SIGALRM) {
-			fprintf(stderr,"received SIGALRM signal.\n");	sprintf(cbuf,"received SIGALRM signal.\n");
-		} else if(signo == SIGUSR1) {
-			fprintf(stderr,"received SIGUSR1 signal.\n");	sprintf(cbuf,"received SIGUSR1 signal.\n");
-		} else if(signo == SIGUSR2) {
-			fprintf(stderr,"received SIGUSR2 signal.\n");	sprintf(cbuf,"received SIGUSR2 signal.\n");
-	#endif
-		}
-	// Dec 2021: Until resolve run-to-run inconsistencies in signal handling, kill it with fire:
-	exit(1);
-		// Toggle a global to allow desired code sections to detect signal-received and take appropriate action:
-		MLUCAS_KEEP_RUNNING = 0;
+		MLUCAS_INTERRUPT_SIGNO = signo;	// Record which signal, for the main thread to report safely later
+		MLUCAS_KEEP_RUNNING = 0;		// The main control loop polls this between iterations and quits gracefully
+	}
+
+	/*
+	Install sig_handler for the graceful-quit signals. Called from the mod-squaring functions; the static
+	'installed' guard makes it a no-op after the first call, so it runs exactly once, on the main thread.
+
+	We use sigaction() rather than signal() for deterministic, portable semantics:
+	  - sa_mask blocks the other quit-signals while the handler runs, so two signals racing in can't
+	    interleave the (trivial) flag stores;
+	  - SA_RESTART makes interrupted library calls auto-resume instead of failing with EINTR;
+	  - the handler stays installed after firing (signal() gives this on glibc but not on strict SysV).
+	Because the FFT worker threads block these signals (threadpool.c), the handler set here only ever
+	runs on the main thread.
+	*/
+	void mlucas_install_signal_handlers(void)
+	{
+		static int installed = 0;
+		if(installed) return;
+		installed = 1;
+
+	#ifdef __MINGW32__
+		// Windows/MinGW has no sigaction(); fall back to signal() for the signals it supports:
+		if(signal(SIGINT , sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGINT.\n");
+		if(signal(SIGTERM, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGTERM.\n");
+	#else
+		struct sigaction sa;
+		memset(&sa, 0, sizeof sa);
+		sa.sa_handler = sig_handler;
+		sa.sa_flags = SA_RESTART;
+		sigemptyset(&sa.sa_mask);
+		sigaddset(&sa.sa_mask, SIGINT);
+		sigaddset(&sa.sa_mask, SIGTERM);
+		sigaddset(&sa.sa_mask, SIGHUP);
+		sigaddset(&sa.sa_mask, SIGALRM);
+		sigaddset(&sa.sa_mask, SIGUSR1);
+		sigaddset(&sa.sa_mask, SIGUSR2);
+		if(sigaction(SIGINT , &sa, 0x0)) fprintf(stderr,"Can't catch SIGINT.\n");
+		if(sigaction(SIGTERM, &sa, 0x0)) fprintf(stderr,"Can't catch SIGTERM.\n");
+		if(sigaction(SIGHUP , &sa, 0x0)) fprintf(stderr,"Can't catch SIGHUP.\n");
+		if(sigaction(SIGALRM, &sa, 0x0)) fprintf(stderr,"Can't catch SIGALRM.\n");
+		if(sigaction(SIGUSR1, &sa, 0x0)) fprintf(stderr,"Can't catch SIGUSR1.\n");
+		if(sigaction(SIGUSR2, &sa, 0x0)) fprintf(stderr,"Can't catch SIGUSR2.\n");
+	#endif	// __MINGW32__ ? signal() : sigaction()
 	}
 #endif
 
@@ -374,13 +433,16 @@ uint32	ernstMain
 	uint32 i,j,k = 0;
 	/* TODO: some of these need to become 64-bit: */
 	uint32 dum = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
+#if USE_FFTLEN_REVERSION
+	uint32 fft_reversion_kblocks = 0;	// in-use FFT length saved before a per-checkpoint FFT-length-reversion attempt (0 = none in progress)
+#endif
 	uint64 itmp64,cy, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
 	uint32 mode_flag = 0, first_sub, last_sub;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
 	form in the factoring module. For all other types of assignments uint64 should suffice: */
 	uint64 p = 0, i1,i2,i3, rmodb,mmodb;
-	uint32 nbits_in_p = 0, nfac;
+	uint32 nbits_in_p = 0, nfac, nfld = 0, residue_type = 0;
 	/* Res64 and Selfridge-Hurwitz residues: */
 	uint64 Res64, Res35m1, Res36m1;
 /*...Known Mersenne prime exponents. This array must be null-terminated.	*/
@@ -392,6 +454,8 @@ uint32	ernstMain
 
 /*...What a bunch of characters...	*/
 	char *cptr = 0x0, *endp, gcd_str[STR_MAX_LEN], aid[33] = "\0";	// 32-hexit Primenet assignment id needs 33rd char for \0
+	// Used to bound optional-numeric-field parsing in PRP|Pminus1 assignment lines to precede any trailing known-factors list:
+	char *num_end = 0x0, *kf_start = 0x0, *tsv_ptr = 0x0;
 /*...initialize logicals and factoring parameters...	*/
 	int restart = FALSE, use_lowmem = 0, check_interval = 0;
 
@@ -403,6 +467,7 @@ uint32	ernstMain
 #endif
 	double tests_saved = 0.0;	// v21: make this a dfloat to allow fractional-parts
 	uint32 pm1_done = FALSE, split_curr_assignment = FALSE, s2_continuation = FALSE, s2_partial = FALSE;
+	uint32 curr_assignment_found = FALSE;	// v21: TRUE once the just-completed assignment line is located in the workfile (issue #121)
 	uint32 pm1_bigstep = 0, pm1_stage2_mem_multiple = 0, psmall = 0;
 /*...allocatable data arrays and associated params: */
 	static uint64 nbytes = 0, nalloc = 0, arrtmp_alloc = 0, s1p_alloc = 0;
@@ -569,12 +634,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		fprintf(stderr," %s entry: %s\n",WORKFILE,in_line);
 		/* Skip any whitespace at beginning of the line: */
 		char_addr = in_line;
-		while(isspace(*char_addr)) {
+		while(isspace((unsigned char)*char_addr)) {
 			++char_addr;
 		}
 		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic; print "Ignoring (copy of workfile line)" for all entries not so.
 		// NB: Discontinue support for numeric leading char, i.e. Mersenne-exponent-only legacy format:
-		if(!isalpha(*char_addr)) {
+		if(!isalpha((unsigned char)*char_addr)) {
 			fprintf(stderr," Leading non-WS char of %s entry is not alphabetic ... skipping to next entry.\n",WORKFILE);
 			goto read_next_assignment;
 		}
@@ -582,7 +647,25 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		// Otherwise assume Prime95-style ini file format, with a possible modulus-specific leading keyword;
 		// Default "Test=" means Mersenne, unless "Test" preceded by an explicit modulus-type string:
 		MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
-		/* Re. the recently-added-to-Primenet PRP assignment type, On Dec 19, 2017, at 5:07 PM, George Woltman wrote:
+		/* Syntax accepted for PRP|PRPDC assignment lines, per Prime95/PrimeNet (cf. commonc.c parseLine()
+		at https://github.com/primesearch/Prime95 ):
+
+			{PRP|PRPDC}=[AID,]k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]
+
+		[AID,] is an optional 32-hexit assignment ID (or the literal string "n/a"); k,b,n,c are always
+		present. After that, PrimeNet may abbreviate the line by omitting the how_far_factored,tests_saved
+		pair (and, with it, the base,residue_type pair) entirely: only 0, 2, or 4 of those four numeric
+		fields may be present, never 1 or 3. Missing fields default to how_far_factored = unknown,
+		tests_saved = 0, base = 3, and residue_type = 5 if a known_factors list is supplied, else 1.
+		Finally, an optional known_factors list, a comma-separated list of factors bracketed in double
+		quotes, may follow, e.g.:
+
+			PRP=<AID>,1,2,16582879,-1,"1628121653153521"
+
+		is a legal abbreviated-form PRP-CF assignment with how_far_factored, tests_saved, base and
+		residue_type all defaulted.
+
+		Re. the recently-added-to-Primenet PRP assignment type, On Dec 19, 2017, at 5:07 PM, George Woltman wrote:
 
 		In "PRP=[aid],1,2,75869377,-1,75,0,3,4"		([aid] stands for an optional 32-hexit assignment ID)
 			The first four (numeric) values are k,b,n,c as in modulus = k*b^n + c
@@ -649,39 +732,54 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			// Next 2 entries in in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
-			TF_BITS = 0xffffffff; tests_saved = 0.0;
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
-				cptr++;
-				// Only check if there's an appropriate TF_BITS entry in the input line
-				TF_BITS = strtoul(++char_addr, &endp, 10);
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
-				tests_saved = strtod(++char_addr, &endp);
+			// The optional known-factors list, if present, is always introduced by a double-quote; since the
+			// numeric fields never contain one, strchr() locates it directly. Finding it up front keeps a
+			// comma embedded in "factor1,factor2,..." from being mistaken for a numeric-field separator below.
+			// num_end marks the end of the numeric region: the ',' that introduces the factors list (so that
+			// separating comma is itself excluded), or the end of the line if there is no factors list:
+			kf_start = strchr(cptr, '\"');
+			num_end = kf_start ? kf_start-1 : cptr + strlen(cptr);
+			// Count the optional numeric fields between [k,b,n,c] and any known-factors list - PrimeNet's
+			// abbreviated PRP format allows exactly 0, 2 (how_far_factored,tests_saved), or 4 of these
+			// (adding base,residue_type), never 1 or 3. Each field is comma-introduced and lies before num_end:
+			nfld = 0;
+			for(char_addr = cptr; (char_addr = strchr(char_addr, ',')) != 0x0 && char_addr < num_end; ++char_addr) { ++nfld; }
+			if(nfld != 0 && nfld != 2 && nfld != 4) {
+				snprintf(cbuf,STR_MAX_LEN*2,"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
+				ASSERT(0,cbuf);
+			}
+			// Defaults for the fields PrimeNet is allowed to omit:
+			TF_BITS = 0xffffffff; tests_saved = 0.0; PRP_BASE = 3; residue_type = kf_start ? 5 : 1;
+			// nfld (validated above) guarantees the counted fields precede any factors list, so the plain
+			// strchr()s below only ever land on numeric-field separators, never a factors-list comma:
+			if(nfld >= 2) {
+				// how_far_factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0, "Expected ',' not found before TF_BITS field!");
+				TF_BITS = strtoul(char_addr+1, &cptr, 10);
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0, "Expected ',' not found after TF_BITS field in assignment-specifying line!");
+				tsv_ptr = char_addr+1;	// leftmost char of tests_saved field, which we will overwrite with 0 if a p-1 assignment is split off
+				tests_saved = strtod(tsv_ptr, &cptr);	endp = cptr;	// endp: to-be-appended leftover portion, if we split off a p-1 assignment below
 				if(tests_saved < 0 || tests_saved > 2) {
 					sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
 				}
-				// char_addr now points to leftmost char of tests_saved field, which we will overwrite with 0;
-				// endp points to to-be-appended leftover portion
 			}
 			pm1_done = (tests_saved == 0);
 			// If there is still factoring remaining to be done, modify the assignment type appropriately.
-			if(pm1_done) {	// pm1_done == TRUE is more or less a no-op, translating to "proceed with primality test"
-				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved char-block
-			} else {
+			if(!pm1_done) {
 				// Create p-1 assignment, then edit original assignment line appropriately
 				TEST_TYPE = TEST_TYPE_PM1;
 				kblocks = get_default_fft_length(p);
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
-				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
+				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of tsv_ptr:
 				cptr = strstr(in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
-				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
+				cptr++;	while(isspace((unsigned char)*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
 					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 				} else
 					sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
 				// Copy up to the final (tests_saved) char of the assignment into cstr and append tests_saved = 0;
-				// A properly formatted tests_saved field is 1 char wide and begins at the current value of char_addr:
-				i = char_addr - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
+				// A properly formatted tests_saved field is 1 char wide and begins at the current value of tsv_ptr:
+				i = tsv_ptr - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
 				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy:
 				strcat(cstr,endp);
 				if(cstr[strlen(cstr)-1] != '\n') {
@@ -689,25 +787,27 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				}
 				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 				goto GET_NEXT_ASSIGNMENT;
-			}	// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
-			if(!cptr || (char_addr = strstr(cptr, ",")) == 0x0) {
-				PRP_BASE = 3;
-				TEST_TYPE = TEST_TYPE_PRP;
-			} else {	// PRP double-check:
+			}
+			// First-time-or-double-check PRP test, p-1 (if any) already done. base,residue_type fields,
+			// if present, come next; any known-factors list is unaffected by whether they were given:
+			if(nfld == 4) {
 				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0, "Expected ',' not found before PRP base field!");
 				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(i == 3,"PRP-test base must be 3!");
 				PRP_BASE = i;
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
-				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
-				// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-				if(*cptr == ',')						//vv--- Pass in unused file-ptr fq here in case function emits any messages:
-					nfac = extract_known_factors(p,cptr+1);
-				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
-				if(KNOWN_FACTORS[0] != 0ull) {
-					ASSERT(i == 5,"Only PRP-CF tests of type 5 supported!");
-					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
-				}
+				char_addr = strchr(cptr, ',');	ASSERT(char_addr != 0x0,"Expected ',' not found in assignment-specifying line!");
+				i = (int)strtol(char_addr+1, &cptr, 10);	residue_type = i;
+				ASSERT(residue_type == 1 || residue_type == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
 			}
+			// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
+			if(kf_start)
+				nfac = extract_known_factors(p,kf_start);
+			// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
+			if(KNOWN_FACTORS[0] != 0ull) {
+				ASSERT(residue_type == 5,"Only PRP-CF tests of type 5 supported!");
+				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
+			}
+			TEST_TYPE = TEST_TYPE_PRP;
 			goto GET_EXPO;
 		}
 		else if((char_addr = strstr(in_line, "Fermat")) != 0)
@@ -783,19 +883,24 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			input was in fact == ULONG_LONG_MAX? We assume here that nobody will use a p-1 stage bound so large:
 			*/
 			B2 = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
-			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present:
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
+			// Locate any trailing known-factors list (always introduced by a double-quote) before parsing the
+			// optional TF_BITS,B2_start fields, so a comma embedded in "factor1,factor2,..." can never be
+			// mistaken for one of their separators. num_end marks the end of the numeric region (the ',' that
+			// introduces the factors list, itself excluded), or the end of the line if there is no such list:
+			kf_start = strchr(cptr, '\"');
+			num_end = kf_start ? kf_start-1 : cptr + strlen(cptr);
+			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present.
+			// Either (or both) may be absent even when a known-factors list follows directly after B1,B2 - the num_end bound keeps that list's ',' out:
+			if((char_addr = strchr(cptr, ',')) != 0x0 && char_addr < num_end) {
 				TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);	ASSERT(TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
-				if((char_addr = strstr(cptr, ",")) != 0x0) {
+				if((char_addr = strchr(cptr, ',')) != 0x0 && char_addr < num_end) {
 					B2_start = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
 					if(B2_start > B1)	// It's a stage 2 continuation run
 						s2_continuation = TRUE;
-					// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-					if(*cptr == ',') nfac = extract_known_factors(p,cptr+1);
-				} else if((char_addr = strstr(cptr, "\"")) != 0x0) {	// Known-factors list need not be preceded by TF_BITS or B2_start
-					nfac = extract_known_factors(p,cptr);	// cptr, not cptr+1 here, since need to preserve leading " bracketing factors-list
 				}
 			}
+			// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
+			if(kf_start) nfac = extract_known_factors(p,kf_start);
 		}
 		else if((char_addr = stristr(in_line, "pfactor")) != 0)	// Caseless substring-match as with pminus 1
 		{
@@ -823,7 +928,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	#endif
 		else
 		{
-			snprintf(cbuf,STR_MAX_LEN*2,"WARN: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n",in_line);
+			snprintf(cbuf, sizeof(cbuf),"WARN: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n",in_line);
 			fprintf(stderr,"%s",cbuf);
 			goto read_next_assignment;
 		}
@@ -881,7 +986,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(TEST_TYPE == TEST_TYPE_TF) {
 			/* Currently TF only supported for Mersennes: */
 			if(MODULUS_TYPE != MODULUS_TYPE_MERSENNE) {
-				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",in_line);
+				snprintf(cbuf, sizeof(cbuf), "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",in_line);
 				fprintf(stderr,"%s",cbuf);
 				goto GET_NEXT_ASSIGNMENT;
 			}
@@ -912,12 +1017,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(char_addr++) {
 				bit_depth_todo = strtoul(char_addr, &endp, 10);
 				if(bit_depth_todo > MAX_FACT_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,in_line);
+					snprintf(cbuf, sizeof(cbuf), "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo <= TF_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,in_line);
+					snprintf(cbuf, sizeof(cbuf), "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
@@ -931,7 +1036,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 		else if(nbits_in_p > MAX_PRIMALITY_TEST_BITS)
 		{
-			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",in_line);
+			snprintf(cbuf, sizeof(cbuf), "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",in_line);
 			fprintf(stderr,"%s",cbuf);
 			goto GET_NEXT_ASSIGNMENT;
 		}
@@ -951,7 +1056,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				TF_BITS = strtoul(char_addr, &endp, 10);
 			#if INCLUDE_TF
 				if(TF_BITS > MAX_FACT_BITS) {
-					snprintf(cbuf,STR_MAX_LEN*2,"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
+					snprintf(cbuf, sizeof(cbuf),"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
@@ -1094,7 +1199,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	// If production run (not self-test), echo assignment to per-exponent logfile:
 	if(!INTERACT) {
-		snprintf(cbuf,STR_MAX_LEN*2," %s entry: %s\n",WORKFILE,in_line);
+		snprintf(cbuf, sizeof(cbuf)," %s entry: %s\n",WORKFILE,in_line);
 		mlucas_fprint(cbuf,0);
 	}
 
@@ -1319,8 +1424,15 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			/* Only allow lengths that are <= 2x default */
 			if( !(i >= kblocks && i <= (kblocks<<1) ) )
 			{
-				sprintf(cbuf,"Call to get_preferred_fft_radix returns out-of-range FFT length: asked for %u, returned %u, packed value= %#8X\n", kblocks, i, dum);
-				ASSERT(0, cbuf);
+				/* Should be unreachable now that get_preferred_fft_radix() itself bounds its
+				cfg-file scan to i <= 2*kblocks, but guard defensively rather than asserting/
+				crashing on a stale or hand-edited cfg file: warn and treat this the same as
+				a "not found" (dum == 0) result above, i.e. request a fresh timing self-test
+				for the requested length rather than trusting the out-of-range entry.
+				*/
+				snprintf(cbuf,STR_MAX_LEN*2,"WARN: get_preferred_fft_radix returned out-of-range FFT length: asked for %u, returned %u, packed value= %#8X -- ignoring and treating as 'not found' in '%s'; please rerun the self-test for this length.\n", kblocks, i, dum, CONFIGFILE);
+				fprintf(stderr, "%s", cbuf);
+				if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 			}
 			else	/* If length acceptable, extract the FFT-radix data encoded and populate the NRADICES and RADIX_VEC[] globals */
 			{
@@ -1343,6 +1455,23 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		fprintf(stderr, "ERROR: length %d K overflows N = 1024*K.\n",kblocks);
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
+
+  #if USE_FFTLEN_REVERSION
+	/* If we reached SETUP_FFT from the per-checkpoint FFT-length-reversion attempt (below), decide whether
+	get_preferred_fft_radix() actually reduced the FFT length. If it re-selected the same length we were already
+	running (e.g. the .cfg file's fastest entry for this exponent is larger than the default length), the reversion is
+	a no-op: the residue array and FFT-radix data remain valid for the current length, so resume the iteration loop in
+	place instead of falling through into a needless (and error-prone) savefile re-read - this is what breaks the
+	restart-every-checkpoint livelock. If the length did change, this is a genuine reversion to a smaller
+	FFT (less roundoff headroom), so switch to the max-accuracy carry chain and fall through to the usual
+	re-alloc + savefile-reread. */
+	if(fft_reversion_kblocks) {
+		uint32 fft_reversion_pvs = fft_reversion_kblocks;	fft_reversion_kblocks = 0;
+		if(kblocks == fft_reversion_pvs)
+			goto FFT_REVERSION_NOOP;
+		USE_SHORT_CY_CHAIN = USE_SHORT_CY_CHAIN_MAX;
+	}
+  #endif
 
 	/* If specified FFT length smaller than default for this exponent [only an issue for user-specified FFT length],
 	print a warning if the p/pmax ratio > 1 to an acceptably small degree; error out if the ratio is unreasonably > 1:
@@ -1427,11 +1556,18 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			b_uint64_ptr = (uint64*)b; c_uint64_ptr = (uint64*)c; d_uint64_ptr = (uint64*)d; e_uint64_ptr = (uint64*)e;
 		}
 
-		// For this residue (and scratch) byte-array, conservatively figure at least 4 bits per float-double residue word.
-		// For multi-FFT-length self-tests, conservatively figure as many as 20 bits (2.5 bytes) per float-double residue word:
-		// v20: for largest currently supported FFT of 512Mdoubles, i still -barely - fits in a uint32, but 2.5*i does not:
-		arrtmp_alloc = i; arrtmp_alloc = MAX((p+63)>>2, (uint64)(arrtmp_alloc*2.5)) >> 3;	// #limb needed to store p bits = (p+63)>>6, so alloc at least 2x this
-		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "ERROR: unable to allocate array ARRTMP with %u bytes in main.\n",i); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		// This residue/scratch byte-array is allocated once and reused for every exponent in the run. In a
+		// multi-FFT-length self-test the arrays are sized for the largest FFT length used (maxFFT), and the
+		// largest exponent processed can be as high as pmax(maxFFT) - not the current (first, smallest) p. The
+		// old "2.5 bytes per float-double word" heuristic underestimated the storage: max bits/word is ~21
+		// (~2.6 bytes) at these lengths, so a large exponent near pmax overran arrtmp (heap-buffer-overflow
+		// writing e.g. M320851's 40107-byte residue into a 38400-byte arrtmp sized for a 15K FFT). Size for 2x
+		// the limb-count [ #limbs for x bits = (x+63)>>6, doubled => (x+63)>>5 ] of the largest exponent that can
+		// run against these arrays: pmax at the allocated (max) FFT length, or the current p if the warn-path
+		// above admitted a p slightly above that pmax:
+		// Size for the largest exponent supported at the largest FFT length these arrays will serve:
+		arrtmp_alloc = (MAX((uint64)p, given_N_get_maxP(maxFFT > kblocks ? maxFFT << 10 : n)) + 63) >> 5;
+		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "ERROR: unable to allocate array ARRTMP with %" PRIu64 " limbs in main.\n",arrtmp_alloc); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 
 		// For an n-word main-array, BIGWORD_BITMAP and BIGWORD_NBITS have (n/64) elts each, thus need 1/64 + 1/32 the total
 		// storage of the main-array. Use uint64 alloc-macro for both, so halve the num-elts arg for the BIGWORD_NBITS alloc.
@@ -1495,7 +1631,7 @@ READ_RESTART_FILE:
 				if(strstr(cbuf, "read_ppm1_savefiles"))
 					mlucas_fprint(cbuf,1);
 				/* And now for the official spokesmessage: */
-				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: read_ppm1_savefiles Failed on savefile %s!\n",cstr);
+				snprintf(cbuf, sizeof(cbuf), "ERROR: read_ppm1_savefiles Failed on savefile %s!\n",cstr);
 				mlucas_fprint(cbuf,1);
 
 				if(ierr == ERR_GERBICZ_CHECK) {
@@ -1546,14 +1682,14 @@ READ_RESTART_FILE:
 			*/
 			if(ierr == ERR_GERBICZ_CHECK) {
 				MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
-				snprintf(cbuf,STR_MAX_LEN*2, "Gerbicz-check-error restart: Mod-doubling residue shift to avoid repeating any possible fractional-error aliasing in retry, new shift = %" PRIu64 "\n",RES_SHIFT);
+				snprintf(cbuf, sizeof(cbuf), "Gerbicz-check-error restart: Mod-doubling residue shift to avoid repeating any possible fractional-error aliasing in retry, new shift = %" PRIu64 "\n",RES_SHIFT);
 				mlucas_fprint(cbuf,1);
 			}
 			/* Allocate floating-point residue array and convert savefile bytewise residue to floating-point form, after
 			first applying required circular shift read into the global RES_SHIFT during the above bytewise-savefile read.
 			*/
 			if(!convert_res_bytewise_FP((uint8*)arrtmp, a, n, p)) {
-				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",cstr);
+				snprintf(cbuf, sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",cstr);
 				mlucas_fprint(cbuf,0);
 				if(cstr[0] != 'q' && !(ierr == ERR_GERBICZ_CHECK)) {	// Secondary savefile only exists for regular checkpoint files
 					cstr[0] = 'q';
@@ -1565,7 +1701,7 @@ READ_RESTART_FILE:
 			// v19: G-check residue - we only create savefile for PRP-phase of any PRP-CF run, i.e. always expect a G-check residue:
 		  if(DO_GCHECK) {
 			if(!convert_res_bytewise_FP((uint8*)e_uint64_ptr, b, n, p)) {
-				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: convert_res_bytewise_FP Failed on Gerbicz-check residue read from savefile %s!\n",cstr);
+				snprintf(cbuf, sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on Gerbicz-check residue read from savefile %s!\n",cstr);
 				mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 			} else {
 				ierr = 0;
@@ -1584,11 +1720,11 @@ READ_RESTART_FILE:
 		{
 			/* If we're on the primary restart file, set up for secondary: */
 			if(ierr == ERR_GERBICZ_CHECK || s2_continuation) {	// Secondary savefile only exists for regular checkpoint files
-				snprintf(cbuf,STR_MAX_LEN*2, "INFO: Needed restart file %s not found...moving on to next assignment in %s.\n",cstr,WORKFILE);
+				snprintf(cbuf, sizeof(cbuf), "INFO: Needed restart file %s not found...moving on to next assignment in %s.\n",cstr,WORKFILE);
 				mlucas_fprint(cbuf,1);
 				goto GET_NEXT_ASSIGNMENT;
 			} else if(cstr[0] != 'q') {
-				snprintf(cbuf,STR_MAX_LEN*2, "INFO: primary restart file %s not found...looking for secondary...\n",cstr);
+				snprintf(cbuf, sizeof(cbuf), "INFO: primary restart file %s not found...looking for secondary...\n",cstr);
 				mlucas_fprint(cbuf,1);
 				cstr[0] = 'q';
 				goto READ_RESTART_FILE;
@@ -1640,6 +1776,30 @@ READ_RESTART_FILE:
 		if(TEST_TYPE == TEST_TYPE_PM1) {
 			ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for p-1!\n");
 			RES_SHIFT = 0ull; a[0] = iseed;
+		} else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && DO_GCHECK && !INTERACT) {
+			// A Pépin test with Gerbicz check does not support shifted residues (the random-shift
+			// error-detection scheme is incompatible with the G-check residue-product scheme), and the
+			// resume path below asserts RES_SHIFT==0. Randomizing the shift here (as done for the other
+			// primality tests) would leave a nonzero shift in the savefile and make the run un-resumable
+			// from its own checkpoint (see #99). So force shift 0 for the non-interactive Pépin+G-check
+			// case; as in the p-1 branch above, a zero shift just means the seed goes straight into a[0]
+			// (no need for the random-shift selection or shift_word() carry-in of the else-branch below):
+			RES_SHIFT = 0ull; a[0] = iseed;
+		} else if(RADIX_VEC[0] < 16) {
+			// v21 (#119): The CY (carry) routines for a leading FFT radix < 16 do not support nonzero
+			// residue shifts - they WARN + return ERR_ASSERT on RES_SHIFT != 0 (see e.g. the guard at the
+			// top of radix8_ditN_cy_dif1.c). Fermat-mod, however, applies a random default shift whenever
+			// the user specifies none, so a leading-radix-<16 radix set (e.g. the 2K {8,8,16} set) would
+			// abort mid-carry-step even for an otherwise-valid production invocation, and even an explicit
+			// '-shift 0' does not help in the cases where the shift is (re)randomized below. So for a leading
+			// radix < 16, force shift 0 - as in the p-1 branch above, a zero shift simply routes the initial
+			// seed straight into a[0] - and if a nonzero shift was requested (explicitly via -shift, or
+			// implicitly via the Fermat-mod random default), emit an informational note rather than aborting:
+			if(parse_cmd_args_get_shift_value() != 0ull) {	// != 0 catches both an explicit nonzero -shift and -1 = "-shift unspecified" (=> would-be random)
+				snprintf(cbuf,STR_MAX_LEN*2, "INFO: Leading FFT radix %u is < 16, which does not support shifted residues; setting residue shift = 0.\n", RADIX_VEC[0]);
+				mlucas_fprint(cbuf,-INTERACT);
+			}
+			RES_SHIFT = 0ull; a[0] = iseed;
 		} else {
 			// Apply initial-residue shift - if user has not set one via cmd-line or current value >= p, randomly choose a value in [0,p).
 			// [Note that the RNG is inited as part of the standard program-start-sequence, via function host_init().]
@@ -1670,13 +1830,13 @@ READ_RESTART_FILE:
 	}
 
 	if(restart) {
-		if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf(cbuf,STR_MAX_LEN*2, "Restarting %s at iteration = %u, residue shift count = %" PRIu64 ".\nRes64,Res35m1,Res36m1: %016" PRIX64 ",%" PRIu64 ",%" PRIu64 "\n",PSTRING,ilo,RES_SHIFT,Res64,Res35m1,Res36m1);
-		else snprintf(cbuf,STR_MAX_LEN*2, "Restarting %s at iteration = %u. Res64: %016" PRIX64 ", residue shift count = %" PRIu64 "\n",PSTRING,ilo,Res64,RES_SHIFT);
+		if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf(cbuf, sizeof(cbuf), "Restarting %s at iteration = %u, residue shift count = %" PRIu64 ".\nRes64,Res35m1,Res36m1: %016" PRIX64 ",%" PRIu64 ",%" PRIu64 "\n",PSTRING,ilo,RES_SHIFT,Res64,Res35m1,Res36m1);
+		else snprintf(cbuf, sizeof(cbuf), "Restarting %s at iteration = %u. Res64: %016" PRIX64 ", residue shift count = %" PRIu64 "\n",PSTRING,ilo,Res64,RES_SHIFT);
 		mlucas_fprint(cbuf,0);
 	}
 
 	/*...Restart and FFT info.	*/
-	snprintf(cbuf,STR_MAX_LEN*2,"%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %" PRIu64 "\n",PSTRING,kblocks,n,RES_SHIFT);
+	snprintf(cbuf, sizeof(cbuf),"%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %" PRIu64 "\n",PSTRING,kblocks,n,RES_SHIFT);
 	sprintf(cstr,"This gives an average %20.15f bits per digit\n",1.0*p/n);	strcat(cbuf,cstr);
 	if(TEST_TYPE == TEST_TYPE_PRP) {
 		sprintf(cstr,"The test will be done in form of a %u-PRP test.\n",PRP_BASE);	strcat(cbuf,cstr);
@@ -1775,8 +1935,18 @@ READ_RESTART_FILE:
 	int update_shift = (RES_SHIFT != 0ull);	// If shift = 0 at outset, don't update (only need for Fermat-mod, due to the random-bit aspect there)
 
 	if(TEST_TYPE == TEST_TYPE_PM1 && ilo >= maxiter) {
-		ASSERT(ilo == maxiter && ilo == PM1_S1_PROD_BITS,"For completed S1 expect ilo == maxiter == PM1_S1_PROD_BITS!");
-		snprintf(cbuf,STR_MAX_LEN*2, "%s: p-1 stage 1 to b1 = %u already done -- proceeding to stage 2.\n",PSTRING,B1);
+		// For a genuinely-completed Stage 1 we expect ilo == maxiter == PM1_S1_PROD_BITS. If instead
+		// ilo *exceeds* the current-B1 product length, the savefile was produced with a larger B1 (e.g. a low-memory
+		// run bumps B1 up ~25%) and its '.s1_prod' product-savefile is missing, so compute_pm1_s1_product() could not
+		// recover/adopt the original B1. Do NOT proceed to Stage 2 - a partial powering to the larger B1 is not a
+		// completed Stage 1 at this B1, and treating it as such silently loses factors. Fail with actionable guidance.
+		if(ilo != maxiter || ilo != PM1_S1_PROD_BITS) {
+			snprintf(cbuf,sizeof(cbuf), "ERROR: %s P-1 restart-file Stage 1 iteration count [%u] exceeds the Stage 1 prime-powers-product length [%u] for the current B1 = %u.\n"
+				"The savefile was written with a larger B1 and its '.s1_prod' product-savefile is missing, so the original B1 cannot be recovered automatically.\n"
+				"Re-run with the original (larger) '-b1 <N>', or delete this exponent's P-1 savefiles to start a fresh run.\n", PSTRING, ilo, PM1_S1_PROD_BITS, B1);
+			mlucas_fprint(cbuf,1);	ASSERT(0, "P-1 Stage 1 restart B1-mismatch: see preceding message.");
+		}
+		snprintf(cbuf,sizeof(cbuf), "%s: P-1 Stage 1 to B1 = %u already done -- proceeding to Stage 2.\n",PSTRING,B1);
 		fprintf(stderr,"%s",cbuf);
 		ilo = ihi;		// Need this to differentiate between just-completed S1 and S1 residue read from restart file,
 		goto PM1_STAGE2;// in terms of whether we need to do a GCD before proceeding to S2
@@ -1807,7 +1977,7 @@ READ_RESTART_FILE:
 			itmp64 = ~(-1ull << j); BASE_MULTIPLIER_BITS[i-1] &= itmp64;// ...and zero any excess bits at the high end.
 			for(i = 0, itmp64 = 0ull; i < s1p_alloc; i++) { itmp64 += PM1_S1_PRODUCT[i]; }
 			if(itmp64 != PM1_S1_PROD_RES64) {
-				snprintf(cbuf,STR_MAX_LEN*2,"PM1_S1_PRODUCT (mod 2^64_ checksum mismatch! (Current[%" PRIu64 "] != Reference[%" PRIu64 "]). Aborting due to suspected data corruption.\n",itmp64,PM1_S1_PROD_RES64);
+				snprintf(cbuf, sizeof(cbuf),"PM1_S1_PRODUCT (mod 2^64_ checksum mismatch! (Current[%" PRIu64 "] != Reference[%" PRIu64 "]). Aborting due to suspected data corruption.\n",itmp64,PM1_S1_PROD_RES64);
 				mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 			}
 		}
@@ -1851,8 +2021,12 @@ READ_RESTART_FILE:
 					/* If interrupt *and* we're past the first subinterval, need to undo initial-fwd-FFT-pass and DWT-weighting on b[],
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
+					// This b[]-undo is only to make b[] savefile-consistent for the ensuing interrupt
+					// checkpoint-write; it must NOT clobber ierr, which has to stay ERR_INTERRUPT so the
+					// downstream savefile-write-and-exit handling fires (else the interrupt is lost and the
+					// PRP test spins to maxiter and aborts in the post-test residue step). Discard its return:
 					if(ierr == ERR_INTERRUPT && !first_sub)
-						ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+						(void)func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
 					break;
 				}
 				/* At end of each subinterval, do a single modmul of current residue a[] with Gerbicz-checkproduct to update the latter:
@@ -1878,7 +2052,7 @@ READ_RESTART_FILE:
 						fprintf(stderr,"Caught interrupt in fFFT(c) step.\n");
 						break;
 					} else {
-						snprintf(cbuf,STR_MAX_LEN*2,"Unhandled Error of type[%u] = %s in fFFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
+						snprintf(cbuf, sizeof(cbuf),"Unhandled Error of type[%u] = %s in fFFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
 						mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 					//	goto GET_NEXT_ASSIGNMENT;
 					}
@@ -1908,7 +2082,7 @@ READ_RESTART_FILE:
 						fprintf(stderr,"Caught interrupt in FFT(b)*FFT(c) step.\n");
 						break;
 					} else {
-						snprintf(cbuf,STR_MAX_LEN*2,"Unhandled Error of type[%u] = %s in FFT(b)*FFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
+						snprintf(cbuf, sizeof(cbuf),"Unhandled Error of type[%u] = %s in FFT(b)*FFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
 						mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 					//	goto GET_NEXT_ASSIGNMENT;
 					}
@@ -2031,15 +2205,30 @@ READ_RESTART_FILE:
 		if(INTERACT && (ierr == ERR_INTERRUPT))
 			exit(0);
 
-		// In non-interactive (production-run) mode, write savefiles and exit gracefully on signal:
+		// In non-interactive (production-run) mode, write a consistent savefile and exit gracefully on signal.
+		// This block runs on the main thread at a safe point: the inner mod-squaring loop exited cleanly
+		// *between* squarings (it polls MLUCAS_KEEP_RUNNING every iteration), so the residue just converted
+		// into arrtmp[] above is the exact last-completed-iteration residue - nothing is torn or in-flight.
+		// We do NOT exit here: we fall through to the normal checkpoint-write code below (which then does
+		// 'if(ierr == ERR_INTERRUPT) exit(0);' after the savefile has been safely written and fclosed).
 		if(ierr == ERR_INTERRUPT) {
-			// First print the signal-handler-generated message:
+			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here; savefile is written for this iter
+			// Report the signal safely here on the main thread (the async handler only recorded the number):
+			const char *signame;
+			switch(MLUCAS_INTERRUPT_SIGNO) {
+				case SIGINT:  signame = "SIGINT";  break;
+				case SIGTERM: signame = "SIGTERM"; break;
+			#ifndef __MINGW32__
+				case SIGHUP:  signame = "SIGHUP";  break;
+				case SIGALRM: signame = "SIGALRM"; break;
+				case SIGUSR1: signame = "SIGUSR1"; break;
+				case SIGUSR2: signame = "SIGUSR2"; break;
+			#endif
+				default:      signame = "unknown"; break;
+			}
+			snprintf(cbuf,sizeof(cbuf),"Received %s signal: writing savefile at Iter = %u and exiting.\n",signame,ihi);
 			mlucas_fprint(cbuf,1);
-			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here
-		/*** Nov 2021: interrupt-handling still not stable ... runs that have been underway for a day or more refuse to quit. Just clean-exit w/o savefile write for now: ***/
-		//	sprintf(cbuf,"Iter = %u: Writing savefiles and exiting.\n",ihi);
-			sprintf(cbuf,"Exiting at Iter = %u.\n",ihi); mlucas_fprint(cbuf,1);
-			exit(1);
+			// Fall through to the checkpoint-write path below.
 		}
 
 		/*...Done?	*/
@@ -2050,7 +2239,7 @@ READ_RESTART_FILE:
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",local_time);
 			const char*iter_or_stage[] = {"Iter#","S1 bit"};	// Tag indicates Primality/PRP-test or p-1 S1 iteration
 			/*...print [date in hh:mm:ss | p | iter-count-or-stage progress | %-complete | time | per-iter time | Res64 | max ROE | residue-shift] */
-			snprintf(cbuf,STR_MAX_LEN*2, "[%s] %s %s = %u [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016" PRIX64 ". AvgMaxErr = %10.9f. MaxErr = %10.9f. Residue shift count = %" PRIu64 ".\n"
+			snprintf(cbuf, sizeof(cbuf), "[%s] %s %s = %u [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016" PRIX64 ". AvgMaxErr = %10.9f. MaxErr = %10.9f. Residue shift count = %" PRIu64 ".\n"
 				, timebuffer, PSTRING, iter_or_stage[TEST_TYPE == TEST_TYPE_PM1], ihi, (float)ihi / (float)maxiter * 100,get_time_str(tdiff)
 				, 1000*get_time(tdiff)/(ihi - ilo), Res64, AME, MME, RES_SHIFT);
 			mlucas_fprint(cbuf,scrnFlag);
@@ -2090,7 +2279,7 @@ READ_RESTART_FILE:
 					fprintf(stderr,"Caught interrupt in Gerbicz-checkproduct mod-squaring update ... skipping G-check and savefile-update and performing immediate-exit.\n");
 					exit(1);
 				} else {
-					snprintf(cbuf,STR_MAX_LEN*2,"Unhandled Error of type[%u] = %s in Gerbicz-checkproduct mod-squaring update - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
+					snprintf(cbuf, sizeof(cbuf),"Unhandled Error of type[%u] = %s in Gerbicz-checkproduct mod-squaring update - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 				//	goto GET_NEXT_ASSIGNMENT;
 				}
@@ -2218,7 +2407,7 @@ READ_RESTART_FILE:
 			strcpy(cstr, RESTARTFILE);
 			strcat(cstr, cbuf);
 			if(rename(RESTARTFILE, cstr)) {
-				snprintf(cbuf,STR_MAX_LEN*2,"ERROR: unable to rename %s restart file ==> %s ... skipping every-10M-iteration restart file archiving\n",WORKFILE,cstr);
+				snprintf(cbuf, sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping every-10M-iteration restart file archiving\n",WORKFILE,cstr);
 				fprintf(stderr,"%s",cbuf);
 			}
 		}	// ilo a multiple of 10 million?
@@ -2239,7 +2428,7 @@ READ_RESTART_FILE:
 				RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 			}
 		} else {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",RESTARTFILE);
+			snprintf(cbuf, sizeof(cbuf), "ERROR: unable to open restart file %s for write of checkpoint data.\n",RESTARTFILE);
 			mlucas_fprint(cbuf,1);
 			/*
 			Don't want to assert here - asllow processing to continue, in case this is a transient failure-to-open.
@@ -2259,7 +2448,7 @@ READ_RESTART_FILE:
 					write_ppm1_savefiles(cstr,p,n,fp, itmp64, (uint8*)arrtmp,Res64,Res35m1,Res36m1, (uint8*)e_uint64_ptr,i1,i2,i3);
 					fclose(fp); fp = 0x0;
 				} else {
-					snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open Gerbicz-check savefile %s for write of checkpoint data.\n",cstr);
+					snprintf(cbuf, sizeof(cbuf), "ERROR: unable to open Gerbicz-check savefile %s for write of checkpoint data.\n",cstr);
 					mlucas_fprint(cbuf,1);
 				}
 			}	// ihi a multiple of ITERS_BETWEEN_GCHECKS?
@@ -2277,16 +2466,24 @@ READ_RESTART_FILE:
 
 	  #if USE_FFTLEN_REVERSION
 		/* If FFTlen was pvsly auto-increased due to ROE but latest interval clean and err-freq sufficiently low, revert
-		FFTlen to default. 2nd clause in the if() guards against doing this if the user has forced the larger FFT.
-		Our criterion for such FFT-length reversion is
-			(64 * NERR_ROE)*ITERS_BETWEEN_CHECKPOINTS <= ihi ==> NERR_ROE <= ihi/ITERS_BETWEEN_CHECKPOINTS/64 ,
-		or in words "if cumulative count of worrisome ROEs <= 1 every 64th iteration interval, on average, revert".
+		FFTlen to default. Gating clauses in the if():
+			- NERR_ROE > 0     : only attempt reversion if a roundoff error actually drove an FFT-length increase.
+			                     Without this clause, a run whose in-use FFT exceeds the default purely because the .cfg
+			                     file's fastest entry for this exponent is larger (i.e. not due to any ROE) reverted at
+			                     *every* checkpoint; get_preferred_fft_radix() then immediately re-selected the same
+			                     larger length and control fell through into the restart-file read path -> the
+			                     restart-every-checkpoint livelock.
+			- kblocks > default: only revert a larger-than-default in-use length.
+			- kblocks > fft_length : don't revert below a user-forced FFT length.
+			- (64*NERR_ROE)*ITERS_BETWEEN_CHECKPOINTS <= ihi ==> NERR_ROE <= ihi/ITERS_BETWEEN_CHECKPOINTS/64 , i.e.
+			  "if cumulative count of worrisome ROEs <= 1 every 64th iteration interval, on average, revert".
+		The SETUP_FFT path below completes the reversion: should get_preferred_fft_radix() re-select the same length we
+		are already running (making this attempt a no-op), it resumes the loop in place rather than needlessly re-reading
+		the savefile - see the fft_reversion_kblocks handling just after SETUP_FFT.
 		*/
-		if(kblocks > get_default_fft_length(p) && kblocks > fft_length && (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS <= ihi) {
+		if(NERR_ROE > 0 && kblocks > get_default_fft_length(p) && kblocks > fft_length && (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS <= ihi) {
+			fft_reversion_kblocks = kblocks;	// remember in-use length so SETUP_FFT can detect a no-op reversion
 			kblocks = get_default_fft_length(p);	// Default FFT length in Kdoubles for this exponent
-			if(n > (kblocks << 10))		// We are already running at a larger-than-default FFT length
-				n = kblocks << 10;
-			USE_SHORT_CY_CHAIN = USE_SHORT_CY_CHAIN_MAX;
 			// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
 			for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
 			NRADICES = 0;
@@ -2294,6 +2491,9 @@ READ_RESTART_FILE:
 		}
 	  #endif
 		/*...reset loop parameters and begin next iteration cycle...	*/
+	  #if USE_FFTLEN_REVERSION
+	FFT_REVERSION_NOOP:	// a no-op FFT-length-reversion attempt resumes here, skipping the needless savefile re-read
+	  #endif
 		ilo = ihi;
 		ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
 		// If Fermat-mod-with-residue-shift, re-init the random-offset-bit array:
@@ -2495,7 +2695,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			if(isprime) {
 				if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
 					/*... this gets written both to file and to stdout, the latter irrespective of whether the run is in interactive mode...	*/
-					snprintf(cbuf,STR_MAX_LEN*2, "%s is a new FERMAT PRIME!!!\nPlease send e-mail to ewmayer@aol.com.\n",PSTRING);
+					snprintf(cbuf, sizeof(cbuf), "%s is a new FERMAT PRIME!!!\nPlease send e-mail to ewmayer@aol.com.\n",PSTRING);
 					mlucas_fprint(cbuf,1);
 				}
 				else if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -2505,11 +2705,11 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 							break;
 					}
 					if(knowns[i] != 0) {
-						snprintf(cbuf,STR_MAX_LEN*2, "%s is a known MERSENNE PRIME.\n",PSTRING);
+						snprintf(cbuf, sizeof(cbuf), "%s is a known MERSENNE PRIME.\n",PSTRING);
 						mlucas_fprint(cbuf,(INTERACT || scrnFlag));	// Latter clause == "Echo output to stderr?"
 					} else {
 						// This gets written both to file and to stderr, the latter irrespective of whether the run is in interactive mode:
-						snprintf(cbuf,STR_MAX_LEN*2, "%s is a (probable) new MERSENNE PRIME!!!\nPlease send e-mail to ewmayer@aol.com and woltman@alum.mit.edu.\n",PSTRING);
+						snprintf(cbuf, sizeof(cbuf), "%s is a (probable) new MERSENNE PRIME!!!\nPlease send e-mail to ewmayer@aol.com and woltman@alum.mit.edu.\n",PSTRING);
 						mlucas_fprint(cbuf,1);
 					}
 				}
@@ -2524,11 +2724,11 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// Otherwise, write the 64-bit hex residue. As of v19, we write the old-style HRF-formatted result
 				// just to the exponent-specific logfile, and the server-expected JSON-formatted result to the results file:
 				// Note that Fermat primality tests are not submitted to server, so accordingly we slightly modify the output. More info: https://github.com/primesearch/Mlucas/pull/11
-				snprintf(cbuf,STR_MAX_LEN*2, "%s is not prime. Program: E%s. Final residue shift count = %" PRIu64 ".\n",PSTRING,VERSION,RES_SHIFT);
+				snprintf(cbuf, sizeof(cbuf), "%s is not prime. Program: E%s. Final residue shift count = %" PRIu64 ".\n",PSTRING,VERSION,RES_SHIFT);
 				mlucas_fprint(cbuf,1);
-				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf(cbuf,STR_MAX_LEN*2, "Selfridge-Hurwitz residues Res64,Res35m1,Res36m1 = %016" PRIX64 ",%11" PRIu64 ",%11" PRIu64 ".\n",Res64,Res35m1,Res36m1);
+				if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) snprintf(cbuf, sizeof(cbuf), "Selfridge-Hurwitz residues Res64,Res35m1,Res36m1 = %016" PRIX64 ",%11" PRIu64 ",%11" PRIu64 ".\n",Res64,Res35m1,Res36m1);
 				else {
-					snprintf(cbuf,STR_MAX_LEN*2, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+					snprintf(cbuf, sizeof(cbuf), "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 					// v19: Finish with the JSON-formatted result line:
 					fp = mlucas_fopen(OFILE,"a");
 					if(fp) {
@@ -2538,7 +2738,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				mlucas_fprint(cbuf,1);
 			}
 		} else if (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {	// Cofactor-PRP run:
-			snprintf(cbuf,STR_MAX_LEN*2,"If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+			snprintf(cbuf, sizeof(cbuf),"If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 			mlucas_fprint(cbuf,1);
 			// Write JSON-formatted result line to results file:
 			fp = mlucas_fopen(OFILE,"a");
@@ -2566,7 +2766,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					gm_time = localtime(&calendar_time);
 				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 				generate_JSON_report(0,p,n,0ull,NULL,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
-				snprintf(cbuf,STR_MAX_LEN*2, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+				snprintf(cbuf, sizeof(cbuf), "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 				mlucas_fprint(cbuf,0);
 				fp = mlucas_fopen(OFILE,"a");
 				if(fp) {
@@ -2612,10 +2812,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 						// This snip reads the relocation-prime from the high byte of the nsquares field, byte 10 of the S2 savefile:
 						i = fgetc(fp);
 						if(!test_types_compatible(i, TEST_TYPE)) {
-							snprintf(cbuf,STR_MAX_LEN*2, "%s: TEST_TYPE != fgetc(fp)\n",cstr); ASSERT(0,cbuf);
+							snprintf(cbuf, sizeof(cbuf), "%s: TEST_TYPE != fgetc(fp)\n",cstr); ASSERT(0,cbuf);
 						}
 						if((i = fgetc(fp)) != MODULUS_TYPE) {
-							snprintf(cbuf,STR_MAX_LEN*2, "ERROR: %s: MODULUS_TYPE != fgetc(fp)\n",cstr); ASSERT(0,cbuf);
+							snprintf(cbuf, sizeof(cbuf), "ERROR: %s: MODULUS_TYPE != fgetc(fp)\n",cstr); ASSERT(0,cbuf);
 						}
 						itmp64 = 0ull; 	for(j = 0; j < 8; j++) { i = fgetc(fp);	itmp64 += (uint64)i << (8*j); }
 						fclose(fp); fp = 0x0;
@@ -2667,15 +2867,27 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				ierr = pm1_stage2(p, pm1_bigstep, pm1_stage2_mem_multiple,
 					a,mult,arrtmp,	// Pointers stage 1 residue in a[], double** scratch storage 4-vector mult[], arrtmp
 					func_mod_square, n, scrnFlag, &tdiff, gcd_str);
-				if(ierr && (ierr % ERR_ROUNDOFF) == 0) {	// Workaround for pthreaded-run issue where a single ROE sometimes shows up as an integer multiple of ERR_ROUNDOFF
+				// pm1_stage2() returns either a single raw ERR_INTERRUPT code (check that first, via exact match) or
+				// a bitmask in which bit ierr_code is set if modmul-error type ierr_code occurred 1-or-more times
+				// among the batch of stage 2 modmuls done since the last such check - so test for specific error
+				// types via bit tests, not equality or (as used pre-bitmask, to work around distinct hits of the
+				// same error type within one batch summing to an integer multiple of it) modulo tests:
+				if(ierr == ERR_INTERRUPT) {
+					// p-1 stage 2 does its own interior checkpointing (see pm1.c); on interrupt we resume
+					// from the last stage-2 checkpoint, so just report and exit. The async handler only
+					// recorded the signal number, so build the message here on the main thread:
+					snprintf(cbuf,sizeof(cbuf),"Received quit signal (%d) in p-1 stage 2: exiting; will resume from last stage-2 checkpoint.\n",(int)MLUCAS_INTERRUPT_SIGNO);
+					mlucas_fprint(cbuf,1);
+					exit(1);
+				} else if(ierr & (1<<ERR_ROUNDOFF)) {	// One or more modmuls hit a roundoff error - bump FFT length and restart
 					n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
 					// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
 					for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }		NRADICES = 0;
 					goto SETUP_FFT;
-				} else if(ierr == ERR_INTERRUPT) {
-					// First print the signal-handler-generated message:
+				} else if(ierr & (1<<ERR_CARRY)) {	// One or more modmuls hit a nonzero-exit-carry (residue-corruption) error
+					snprintf(cbuf,STR_MAX_LEN*2,"p-1 stage 2 hit a carry error, retrying from most-recent savefile in case the issue was due to residue-data corruption.\n");
 					mlucas_fprint(cbuf,1);
-					exit(1);
+					goto READ_RESTART_FILE;
 				} else if(ierr) {
 					sprintf(cbuf,"p-1 stage 2 hit an unhandled error of type[%u] = %s! Aborting.",ierr,returnMlucasErrCode(ierr));
 					ASSERT(0,cbuf);
@@ -2698,7 +2910,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					gm_time = localtime(&calendar_time);
 				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 				generate_JSON_report(0,p,n,0ull,NULL,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
-				snprintf(cbuf,STR_MAX_LEN*2, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+				snprintf(cbuf, sizeof(cbuf), "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
 				mlucas_fprint(cbuf,0);
 				fp = mlucas_fopen(OFILE,"a");
 				if(fp){
@@ -2732,7 +2944,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		*/
 		strcpy(cstr, RESTARTFILE); strcat(cstr, ".s2");
 		if(remove(cstr)) {
-			snprintf(cbuf,STR_MAX_LEN*2,"INFO: Unable to remove stage 2 savefile %s.\n",cstr);
+			snprintf(cbuf, sizeof(cbuf),"INFO: Unable to remove stage 2 savefile %s.\n",cstr);
 			mlucas_fprint(cbuf,1);
 		}
 		if(!s2_continuation) {
@@ -2747,7 +2959,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			// if primary missing/corrupt, rename secondary q[expo] ==> [p|f][expo].s1:
 			if(TEST_TYPE == TEST_TYPE_PM1 && !s2_continuation) {
 				if(rename(RESTARTFILE, cstr)) {
-					snprintf(cbuf,STR_MAX_LEN*2,"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
+					snprintf(cbuf, sizeof(cbuf),"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
 					mlucas_fprint(cbuf,1);
 				}
 			} else if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
@@ -2755,7 +2967,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				if(RESTARTFILE[0] == 'q') {
 					RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 					if(rename(cstr, RESTARTFILE)) {
-						snprintf(cbuf,STR_MAX_LEN*2,"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
+						snprintf(cbuf, sizeof(cbuf),"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
 						mlucas_fprint(cbuf,1);
 					}
 				} else if(remove(cstr))	// ...otherwise delete the secondary
@@ -2807,24 +3019,34 @@ GET_NEXT_ASSIGNMENT:
 		}
 
 	GET_NEXT:
-		/* Delete or suitably modify current-assignment line (line 1) of worktodo file: */
-		i = 0;	// This counter tells how many *additional* assignments exist in worktodo
-		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			sprintf(cbuf, "ERROR: %s file not found at end of current-assignment processing\n", WORKFILE);
-			ASSERT(0,cbuf);
-		}
-		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic;
-		char_addr = in_line;	j = 0;
-		while(isspace(in_line[j])) { ++j; }
-		char_addr += j;
-		if(!isalpha(in_line[j]))
-			goto GET_NEXT;
-
-		// Look for m in first eligible assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
-		if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: Current exponent %s not found in line 1 of %s file - quitting.\n", ESTRING, WORKFILE);
-			ASSERT(0,cbuf);
-		} else {
+		/* Delete or suitably modify the just-completed-assignment line of the worktodo file.
+		v21 (issue #121): Do NOT assume the completed assignment is line 1 of the workfile - a user may have
+		inserted other assignments above it while the (possibly months-long) run was in progress. Scan the
+		workfile for the line matching the just-completed exponent, delete/modify only THAT line, and copy all
+		other lines - comment/blank lines and unrelated (e.g. user-inserted) assignments alike - verbatim, in
+		order. If no matching line is found (e.g. the user hand-edited it away mid-run), warn but do not abort:
+		the result has already been written to the results file and must never be lost to a mangled workfile. */
+		i = 0;	// This counter tells how many assignment lines remain in worktodo after the completed one is removed
+		curr_assignment_found = FALSE;
+		while(fgets(in_line, STR_MAX_LEN, fp)) {
+			// v20.1.1: An eligible assignment line has an alphabetic 1st non-WS char:
+			char_addr = in_line;	j = 0;
+			while(isspace(in_line[j])) { ++j; }
+			char_addr += j;
+			// Preserve comment/blank lines verbatim; likewise, once the completed assignment has been found and
+			// processed, preserve every subsequent line verbatim:
+			if(curr_assignment_found || !isalpha(in_line[j])) {
+				fputs(in_line, fq);	++i;
+				continue;
+			}
+			// Look for m in this assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format.
+			// A line not matching the completed exponent is an unrelated (e.g. user-inserted) assignment - preserve it:
+			if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
+				fputs(in_line, fq);	++i;
+				continue;
+			}
+			// This is the just-completed assignment:
+			curr_assignment_found = TRUE;
 			/* If we just finished the TF or p-1 preprocessing step of an LL or PRP test,
 			update the current-assignment line to reflect that and write it out: */
 			if(strstr(in_line, "PRP") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck")) {
@@ -2834,15 +3056,14 @@ GET_NEXT_ASSIGNMENT:
 					char_addr = strstr(char_addr, ",");
 					ASSERT(char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "%u", TF_BITS);
-					fputs(in_line, fq);
+					fputs(in_line, fq);	++i;
 				}
 			#endif
 				// This imples TEST_TYPE == TEST_TYPE_PM1; note that this flag gets cleared on cycling back to RANGE_BEG:
 				if(split_curr_assignment) {
 					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in in_line: */
-					fputs(cbuf, fq);	// The Pminus1 assignment
-					fputs(cstr, fq);	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
-					i = 2;	// And reset remaining-assignments counter
+					fputs(cbuf, fq);	++i;	// The Pminus1 assignment
+					fputs(cstr, fq);	++i;	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
 				}
 			} else if(stristr(in_line, "pminus1")) {
 				// If current p-1 assignment found a factor and resulted from splitting of a PRP/LL assignment -
@@ -2856,7 +3077,7 @@ GET_NEXT_ASSIGNMENT:
 					} else if(STREQN_NOCASE(char_addr,"n/a",3)) {
 						strncpy(aid,char_addr, 3);
 					} else {
-						snprintf(cbuf,STR_MAX_LEN*2,"INFO: Assignment \"%s\" lacks a valid assignment ID ... proceeding anyway.\n",in_line);
+						snprintf(cbuf, sizeof(cbuf),"INFO: Assignment \"%s\" lacks a valid assignment ID ... proceeding anyway.\n",in_line);
 						mlucas_fprint(cbuf,1);
 						aid[0] = '\0';	// This guarantees that the strstr(in_line,aid) part of on the next-assignment search below succeeds.
 					}
@@ -2870,17 +3091,16 @@ GET_NEXT_ASSIGNMENT:
 						{
 							/* Lose the assignment (by way of no-op) */
 						} else {
-							fputs(in_line, fq); i = 1;	// Copy PRP/LL assignment and reset remaining-assignments counter
+							fputs(in_line, fq);	++i;	// Copy PRP/LL assignment
 						}
 					}
 				}
 			}
 			/* Otherwise lose the current line (by way of no-op) */
 		}
-		/* Copy the remaining ones; */
-		while(fgets(in_line, STR_MAX_LEN, fp))
-		{
-			fputs(in_line, fq);	++i;
+		if(!curr_assignment_found) {
+			snprintf(cbuf,STR_MAX_LEN*2, "WARNING: Just-completed exponent %s not found in %s file (edited away mid-run?) - result has been saved; leaving remaining workfile entries intact.\n", ESTRING, WORKFILE);
+			mlucas_fprint(cbuf,1);
 		}
 		fclose(fp); fp = 0x0;
 		fclose(fq); fq = 0x0;
@@ -3082,9 +3302,8 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 		// Then exactly compute the bitcount at the resulting word, by adding the BIGWORD_NBITS-array-stored exact
 		// total bitcount at the next-lower index-multiple-of-64 to the number of bits in the next (mod64) words,
 		// not including the current word, hence (64-mod64) rather than (63-mod64) as the BIGWORD_BITMAP[w64] shift count.
-		// NOTE: That (64 - ...) shiftcount also necessitates an added AND-mask to zero the result in the mod64 == 0 case:
 		itmp64 = BIGWORD_BITMAP[w64];	i = (int)bits_per_word;
-		ii = BIGWORD_NBITS[w64] + i*mod64 + popcount64( (itmp64<<(64-mod64)) & -(mod64 != 0) );
+		ii = BIGWORD_NBITS[w64] + i*mod64 + (mod64 ? popcount64( itmp64<<(64-mod64) ) : 0);
 		// Loop up or down (should be by at most 1 word in either direction) if the resulting #bits is such that RES_SHIFT maps to a <> word:
 		curr_wd_bits = i + ( (int64)(itmp64<<(63-mod64)) < 0 );
 		// Can gain a few % speed by commenting out this correction-step code, but even though I've encountered
@@ -3302,16 +3521,17 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 	uint64 *ai = (uint64 *)a, *bi = (uint64 *)b;	// Handy 'precast' pointers
 	uint32 i,j,k, isprime, ierr = 0, ihi, fbits,lenf;
 	uint32 kblocks = n>>10, npad = n + ( (n >> DAT_BITS) << PAD_BITS );	// npad = length of padded data array
-	uint64 itmp64, Res35m1, Res36m1;	// Res64 from original PRP passed in via pointer; these are locally-def'd
+	uint64 itmp64 = 0, Res35m1 = 0, Res36m1 = 0;	// Res64 from original PRP passed in via pointer; these are locally-def'd
+	// (init to 0 so the diagnostic prints below are well-defined even if the modulus type matches neither branch)
 	cbuf[0] = '\0';
-	snprintf(cbuf,STR_MAX_LEN*2,"Suyama-PRP on cofactors of %s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);//	strcat(cbuf,cstr);
+	snprintf(cbuf, sizeof(cbuf),"Suyama-PRP on cofactors of %s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);//	strcat(cbuf,cstr);
 	// sprintf(cstr, " this gives an average %20.15f bits per digit\n",1.0*p/n);	strcat(cbuf,cstr);
 	mlucas_fprint(cbuf,1);
 	// Pepin-test output = P, vs Mersenne-PRP (type 1) residue = A; thus only need an initial mod-squaring for:
 	// the former. Compute Fermat-PRP residue [A] from Euler-PRP (= Pepin-test) residue via a single mod-squaring:
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
 		ASSERT(ilo == p-1, "Fermat-mod cofactor-PRP test requires p-1 mod-squarings!");
-		snprintf(cbuf,STR_MAX_LEN*2,"Doing one mod-%s squaring of iteration-%u residue [Res64 = %016" PRIX64 "] to get Fermat-PRP residue\n",PSTRING,ilo,*Res64);
+		snprintf(cbuf, sizeof(cbuf),"Doing one mod-%s squaring of iteration-%u residue [Res64 = %016" PRIX64 "] to get Fermat-PRP residue\n",PSTRING,ilo,*Res64);
 		mlucas_fprint(cbuf,1);
 		ilo = 0;	ihi = ilo+1;	// Have checked that savefile residue is for a complete PRP test, so reset iteration counter
 		BASE_MULTIPLIER_BITS[0] = 0ull;
@@ -3322,7 +3542,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		res_SH(ci,n,&itmp64,&Res35m1,&Res36m1);			// so we refresh these; see https://github.com/primesearch/Mlucas/issues/27
 	}
 	if(ierr) {
-		snprintf(cbuf,STR_MAX_LEN*2,"Error of type[%u] = %s in mod-squaring ... aborting\n",ierr,returnMlucasErrCode(ierr));
+		snprintf(cbuf, sizeof(cbuf),"Error of type[%u] = %s in mod-squaring ... aborting\n",ierr,returnMlucasErrCode(ierr));
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 	}
 	sprintf(cbuf, "Fermat-PRP residue (A)     = %#016" PRIX64 ",%11" PRIu64 ",%11" PRIu64 "\n",*Res64,Res35m1,Res36m1);
@@ -3359,7 +3579,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 	mi64_brev(BASE_MULTIPLIER_BITS,ihi);	// bit-reverse low [ihi] bits of BASE_MULTIPLIER_BITS:
 /*B*/	ierr = func_mod_square(b, (int*)ci, n, ilo,ihi, 0ull, p, scrnFlag, tdiff, TRUE, 0x0);
 	if(ierr) {
-		snprintf(cbuf,STR_MAX_LEN*2,"Error of type[%u] = %s on iteration %u of mod-squaring chain ... aborting\n",ierr,returnMlucasErrCode(ierr),ROE_ITER);
+		snprintf(cbuf, sizeof(cbuf),"Error of type[%u] = %s on iteration %u of mod-squaring chain ... aborting\n",ierr,returnMlucasErrCode(ierr),ROE_ITER);
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 	}
 	sprintf(cbuf,"Processed %u bits in binary modpow; MaxErr = %10.9f\n",ihi,MME);
@@ -3405,7 +3625,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 	sprintf(cbuf,"(A - B) Res64 = %#016" PRIX64 ", C Res64 = %#016" PRIX64 "\n",ai[0],ci[0]);
 	mlucas_fprint(cbuf,1);
 	mi64_div_binary(ai,ci, i,j, curr_fac,(uint32 *)&k, bi);	// On return, k has quotient length; curr_fac[] = quo, bi[] = rem
-	snprintf(cbuf,STR_MAX_LEN*2,"(A - B)/C: Quotient = %s, Remainder Res64 = %#016" PRIX64 "\n",&cstr[convert_mi64_base10_char(cstr,curr_fac,k,0)],bi[0]);
+	snprintf(cbuf, sizeof(cbuf),"(A - B)/C: Quotient = %s, Remainder Res64 = %#016" PRIX64 "\n",&cstr[convert_mi64_base10_char(cstr,curr_fac,k,0)],bi[0]);
 	mlucas_fprint(cbuf,1);
 	// For 1-word quotient q, double-check binary-div result by computing (q*denominator + r) and comparing vs numerator:
   #if 0	/*** May 2022: This overwrites ci[], which hoses the is-cofactor-a-prime-power GCD() below ***/
@@ -3414,7 +3634,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		ASSERT(1 == mi64_cmp_eq(ai,ci,i), "Q*C + R = (A - B) check fails!");
 	}
   #endif
-	snprintf(cbuf,STR_MAX_LEN*2,"Suyama Cofactor-PRP test of %s",PSTRING);
+	snprintf(cbuf, sizeof(cbuf),"Suyama Cofactor-PRP test of %s",PSTRING);
 	// Base-2 log of cofactor = lg(Fm/F) = lg(Fm) - lg(F) ~= 2^m - lg(F). 2^m stored in p, sub lg(F) in loop below:
 	double lg_cof = p,lg_fac,log10_2 = 0.30102999566398119521;	// Use lg_fac to store log2 of each factor as we recompute it
 	for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
@@ -3441,7 +3661,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64*Res64, uint32 nfac, double a[], double b[]
 		sprintf(cbuf,"This cofactor is COMPOSITE [C%u]. Checking prime-power-ness via GCD(A - B,C) ... \n",i); mlucas_fprint(cbuf,1);
 		i = gcd(0,0ull,ai,ci,j,gcd_str);	// 1st arg = stage of (p-1 or ecm) just completed, does not apply here
 		if(i)
-			sprintf(cbuf,"Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
+			snprintf(cbuf, sizeof(cbuf), "Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
 		else
 			sprintf(cbuf,"Cofactor is not a prime power.\n");
 		mlucas_fprint(cbuf,1);
@@ -3983,7 +4203,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	nargs = 1;
 	while(argv[nargs])
 	{
-		strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+		snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 		if(nargs > argc) {	// == no longer applies since e.g. -prp requires no numeric arg and can come last:
 			fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
 			print_help();
@@ -4000,7 +4220,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		if(STREQ(stFlag, "-s"))
 		{
 			selfTest = TRUE;
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			for(;;) {
 				if(STREQ(stFlag, "a") || STREQ(stFlag, "all")) {	/* all, which really means all the non-Huge-and-larger sets */
 					start = 0; finish = numTeensy + numTiny + numSmall + numMedium + numLarge;
@@ -4046,7 +4266,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-maxalloc"))	// maxalloc arg is max %-of-available-mem to use
 		{
 			ASSERT(nbufSet == FALSE, "Only one of -maxalloc and -pm1_s2_buf flags may be used!");
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			darg = strtod(stFlag,&cptr);
 			// Must be > 0:
 			ASSERT((darg > 0), "maxalloc (%%-of-available-mem to use) argument must be > 0 ... halting.");
@@ -4059,7 +4279,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-pm1_s2_nbuf"))	// pm1_s2_nbuf arg is max %-of-available-mem to use
 		{
 			ASSERT(maxAllocSet == FALSE, "Only one of -maxalloc and -pm1_s2_buf flags may be used!");
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			darg = strtod(stFlag,&cptr);
 			// Must be > 0:
 			ASSERT((darg > 0), "pm1_s2_nbuf argument must be integer ... halting.");
@@ -4071,7 +4291,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-iters"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			i64arg = atol(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "#iters argument must be < 2^32 ... halting.");
@@ -4080,7 +4300,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-fft") || STREQ(stFlag, "-fftlen"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			// v20: default is still integer-FFT-length in Kdoubles, but add support for [float]M,
 			// where floating-point arg must be exactly representable, such that [float]*2^10 is integer:
 			i64arg = -1ull;
@@ -4115,7 +4335,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		set is supported and if so, set radset to the corresponding table-index numeric value: */
 		else if(STREQ(stFlag, "-radset"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 
 			// Check if it's a comma-separated actual set of complex-FFT radices:
 			char_addr = stFlag;
@@ -4173,7 +4393,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-shift"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			i64arg = atol(stFlag);
 			// Must be < 2^32, though store in a uint64 for later bignum-upgrades:
 			ASSERT(!(i64arg>>32), "shift argument must be < 2^32 ... halting.");
@@ -4183,7 +4403,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		// v20: Add p-1 support:
 		else if(STREQ(stFlag, "-b1"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			i64arg = atol(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "P-1 Stage 1 bound must be < 2^32 ... halting.");
@@ -4192,14 +4412,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			testType = TEST_TYPE_PM1;
 		}
 		else if(STREQ(stFlag, "-b2")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			// Allow Stage 2 bounds to be > 2^32:
 			B2 = atol(stFlag);
 			ASSERT(testType != TEST_TYPE_PRP, "b2-argument implies P-1 factoring; that and PRP-test types not simultaneously specifiable.");
 			testType = TEST_TYPE_PM1;
 		}
 		else if(STREQ(stFlag, "-b2_start")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			// Allow Stage 2 bounds to be > 2^32:
 			B2_start = atol(stFlag);
 			ASSERT(testType != TEST_TYPE_PRP, "b2_start-argument implies P-1 factoring; that and PRP-test types not simultaneously specifiable.");
@@ -4212,7 +4432,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(0,"Multithreading must be enabled in build to permit -nthread argument!");
 		#else
 			ASSERT(cpu == FALSE && core == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			i64arg = atol(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "nthread argument must be < 2^32 ... halting.");
@@ -4230,7 +4450,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(0,"Multithreading must be enabled in build to permit -cpu argument!");
 		#else
 			ASSERT(nthread == FALSE && core == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			parseAffinityString(stFlag);
 			cpu = TRUE;
 		#endif
@@ -4243,7 +4463,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(0,"Multithreading must be enabled in build to permit -core argument!");
 		#else
 			ASSERT(cpu == FALSE && nthread == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			NTHREADS = parseAffinityTriplet(stFlag,TRUE);	// 2nd-arg = TRUE: Use hwloc-generated topology, via '-core lo:hi[:threads_per_core]'
 			if(NTHREADS > MAX_THREADS) {
 				fprintf(stderr,"ERROR: NTHREADS [ = %d] must not exceed those of available logical cores = 0-%d!\n",NTHREADS,MAX_THREADS-1);
@@ -4260,7 +4480,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-m") || STREQ(stFlag, "-mersenne"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			expo = atol(stFlag);
 			userSetExponent = 1;
 			// Use 0-pad slot in MvecPtr[] to store user-set-exponent data - that can point to either MersVec
@@ -4274,11 +4494,11 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-prp"))	// This flag optionally takes a numeric base arg, and trips us into PRP-test mode
 		{
 			if(nargs < argc) {
-				strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+				snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 				if(isdigit(stFlag[0])) {
 					PRP_BASE = atol(stFlag);
 					if(PRP_BASE+1 == 0) {
-						snprintf(cbuf,STR_MAX_LEN*2, "*** ERROR: Numeric arg to -prp flag, '%s', overflows uint32 field.\n", stFlag);
+						snprintf(cbuf, sizeof(cbuf), "*** ERROR: Numeric arg to -prp flag, '%s', overflows uint32 field.\n", stFlag);
 						ASSERT(0,cbuf);
 					}
 				}
@@ -4300,14 +4520,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-base"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			i64arg = atol(stFlag);
 			PRP_BASE = (uint32)i64arg;
 		}
 
 		else if(STREQ(stFlag, "-f") || STREQ(stFlag, "-fermat"))
 		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			i64arg = atol(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "Fermat-number-index argument must be < 2^32 ... halting.");
@@ -4651,6 +4871,11 @@ TIMING_TEST_LOOP:
 		else if(modType == MODULUS_TYPE_FERMAT)
 			iarg = FermVec[xNum].fftLength;
 
+		// Skip any reference-table entry for an unsupported sub-minimum FFT length (e.g. the retired 1K,
+		// see issue #101) so the self-test doesn't try - and then loudly "fail" - a length we've disabled:
+		if(iarg < MIN_FFT_LENGTH_IN_K)
+			continue;
+
 		// For SIMD builds only use FFT lengths which are at least a multiple of 4 Kdoubles:
 	  #if 0//def USE_SSE2	*** v21: Removed array padding for FFT < 32K, disabled this "skip"
 		if(iarg & 3) continue;
@@ -4846,10 +5071,10 @@ uint64	parse_cmd_args_get_shift_value(void)
 	int i, nargs = 1;
 	while(global_argv[nargs])
 	{
-		strncpy(stFlag, global_argv[nargs++], STR_MAX_LEN-1);
+		snprintf(stFlag, sizeof(stFlag), "%s", global_argv[nargs++]);
 		if(STREQ(stFlag, "-shift"))
 		{
-			strncpy(stFlag, global_argv[nargs++], STR_MAX_LEN-1);
+			snprintf(stFlag, sizeof(stFlag), "%s", global_argv[nargs++]);
 			/* Convert the shift argument to a uint64: */
 			i64arg = 0;
 			for(i = 0; i < STR_MAX_LEN && stFlag[i] != '\0'; i++) {
@@ -4858,11 +5083,11 @@ uint64	parse_cmd_args_get_shift_value(void)
 					/* Check for overflow: */
 					if(i64arg % (uint64)10 != (uint64)(stFlag[i]-CHAROFFSET))
 					{
-						snprintf(cbuf,STR_MAX_LEN*2, "*** ERROR: -shift argument %s overflows uint64 field.\n", stFlag);
+						snprintf(cbuf, sizeof(cbuf), "*** ERROR: -shift argument %s overflows uint64 field.\n", stFlag);
 						fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 					}
 				} else {
-					snprintf(cbuf,STR_MAX_LEN*2, "*** ERROR: Non-numeric character encountered in -shift argument %s.\n", stFlag);
+					snprintf(cbuf, sizeof(cbuf), "*** ERROR: Non-numeric character encountered in -shift argument %s.\n", stFlag);
 					fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 				}
 			}
@@ -4903,7 +5128,12 @@ int	cfgNeedsUpdating(char*in_line)
 
 const char*returnMlucasErrCode(uint32 ierr)
 {
-	ASSERT(ierr < ERR_MAX, "Error code out of range!");
+	// A single well-defined error code is a nonzero value in [1,ERR_MAX]. Anything else - 0 (no error) reaching
+	// here, a value > ERR_MAX, or a bitmask with 2 or more bits set as a result of distinct modmul-error types
+	// having occurred within a single batch of modmuls - is not a simple lookup, so describe it as such rather
+	// than asserting and killing an otherwise-healthy run over a diagnostic-string lookup failure:
+	if(ierr < 1 || ierr > ERR_MAX)
+		return "unknown/composite error code";
 	return err_code[ierr-1];
 }
 
@@ -5176,7 +5406,18 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 			if(nsquares > 0xFFFFFFFFull)
 				ASSERT(B2_start <= nsquares, "P-1 stage 2 restart requires (B2_start in worktodo assignment) <= (savefile nsquares field)!");
 		} else {	// It's a stage 1 restart:
-			ASSERT(nsquares <= 0xFFFFFFFFull && nsquares < 1.5*(double)B1, "P-1 stage 1 restart: savefile nsquares value out of bounds!");
+			ASSERT(nsquares <= 0xFFFFFFFFull, "P-1 stage 1 restart: savefile nsquares value out of bounds!");
+			// nsquares >= ~1.5*B1 means the savefile's in-progress Stage 1 was run to a larger B1 than
+			// the current run's. compute_pm1_s1_product() normally recovers that B1 from the '.s1_prod' product-savefile
+			// and adopts it before we get here; if we still land here, that file is missing/unreadable, so the original
+			// B1 cannot be recovered. Fail with actionable guidance rather than the bare bounds-assert (a partial powering
+			// to the larger B1 is not a completed - nor a valid partial - Stage 1 at the smaller B1: proceeding loses factors).
+			if(nsquares >= 1.5*(double)B1) {
+				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: %s: P-1 Stage 1 restart-file iteration count [%" PRIu64 "] is too large for the current B1 = %u.\n"
+					"The in-progress Stage 1 was run to a larger B1; its '.s1_prod' product-savefile (which records that B1) is missing or unreadable, so it cannot be recovered automatically.\n"
+					"Re-run with the original (larger) '-b1 <N>', or delete this exponent's P-1 savefiles to start a fresh run.\n", func, nsquares, B1);
+				mlucas_fprint(cbuf,1);	ASSERT(0, "P-1 Stage 1 restart B1-mismatch: see preceding message.");
+			}
 		}
 		// If S2 restart and (nsquares > B2_start), read the ensuing S2 interim residue; if (nsquares == B2_start)
 		// it means S2 started but was aborted for some reason before writing an interim S2 residue. That will set
@@ -5371,7 +5612,7 @@ void write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], con
 	i = fwrite(arr_tmp, sizeof(char), nbytes, fp);
 	if(i != nbytes) {
 		fclose(fp); fp = 0x0;
-		snprintf(cbuf,STR_MAX_LEN*2,"%s: Error writing residue to restart file.\n",func);
+		snprintf(cbuf, sizeof(cbuf),"%s: Error writing residue to restart file.\n",func);
 		mlucas_fprint(cbuf,0);	ASSERT(0,cbuf);
 	}
 	/* ...and checksums:	*/
@@ -5675,10 +5916,13 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	into the LS word of the residue (e.g. if cy = 1, this amounts to subtracting
 	the modulus from the positive-digit form to get the balanced-digit form):
 	*/
-	/* Should have carryout of +1 Iff MS word < 0; otherwise expect 0 carry: */
-	if(cy && (a[j1] >= 0 || cy != +1))
+	/* Should have carryout of +1 Iff MS word <= 0; otherwise expect 0 carry.
+	(MS word == 0 with cy = 1 is a legal boundary case: an all-1-bits top digit
+	plus an incoming carry of 1 normalizes to 0 with carryout 1 - the a[0] += cy
+	fold below handles that correctly, same as the MS word < 0 case.): */
+	if(cy && (a[j1] > 0 || cy != +1))
 	{
-		sprintf(cbuf, "convert_res_bytewise_FP: Illegal combination of nonzero carry = %" PRId64 ", most sig. word = %20.4f\n", cy, a[j]);
+		snprintf(cbuf, STR_MAX_LEN*2, "convert_res_bytewise_FP: Illegal combination of nonzero carry = %" PRId64 ", most sig. word = %20.4f\n", cy, a[j1]);
 		ASSERT(0, cbuf);
 	}
 
@@ -6164,27 +6408,35 @@ void generate_JSON_report(
 	const char prp_status[2] = {'C','P'};
 	const char*pm1_status[2] = {"NF","F"};
 	const char*false_or_true[2] = {"false","true"};
-	// Attempt to read 32-hex-char Primenet assignment ID for current assignment (first line of WORKFILE):
-	ASSERT((fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
-	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
+	// Attempt to read the 32-hex-char Primenet assignment ID for the just-completed assignment from WORKFILE.
+	// v21 (issue #121): The completed assignment need not be the FIRST line of the workfile - the user may have
+	// inserted other assignments above it while the (possibly months-long) run was in progress - so scan for the
+	// line matching ESTRING rather than assuming line 1. If the workfile, or a matching line, is absent (e.g. the
+	// user edited it away mid-run), proceed with an empty AID rather than aborting: the result MUST be reported
+	// to the results file regardless of the workfile's state, else a months-long computation would be lost.
 	char_addr = 0x0;
-	while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
-		char_addr = in_line; while(isspace(*char_addr)) { ++char_addr; }
-		if(isalpha(*char_addr)) break;
+	if((fp = mlucas_fopen(WORKFILE, "r")) != 0x0) {
+		// v20.1.1: consider only lines whose leading non-WS char is alphabetic; find the one matching the exponent:
+		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
+			char_addr = in_line; while(isspace(*char_addr)) { ++char_addr; }
+			if( isalpha(*char_addr) && (strstr(in_line, ESTRING) || (MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP))) )
+				break;	// Found the just-completed assignment
+			char_addr = 0x0;	// Not a match - keep looking (char_addr stays 0x0 if we exit the loop empty-handed)
+		}
+		fclose(fp); fp = 0x0;
 	}
-	fclose(fp); fp = 0x0;
-	ASSERT(strlen(char_addr) != 0 && isalpha(*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
-	if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
-		snprintf(cbuf,STR_MAX_LEN*2, "ERROR: Current exponent %s not found in %s file!\n",ESTRING,WORKFILE);
-		ASSERT(0,cbuf);
-	}
-	// Is there a Primenet-server 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
-	char_addr = strstr(in_line, "=");
-	if(char_addr) {
-		char_addr++;
-		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
-			strncpy(aid,char_addr,32);
+	if(!char_addr) {
+		snprintf(cbuf,STR_MAX_LEN*2, "WARNING: Just-completed exponent %s not found in %s file (edited away mid-run?) - reporting result without an assignment ID.\n",ESTRING,WORKFILE);
+		mlucas_fprint(cbuf,1);
+	} else {
+		// Is there a Primenet-server 32-hexit assignment ID in the matching assignment line? If so, include it in the JSON output:
+		char_addr = strstr(in_line, "=");
+		if(char_addr) {
+			char_addr++;
+			while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+			if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
+				strncpy(aid,char_addr,32);
+		}
 	}
 	const uint32 error_code = (MIN(NERR_ROE, 0x3F) << 8) | (MIN(NERR_GCHECK, 0xF) << 20);
 	// Write the result line. The 2 nested conditionals here are LL-or-PRP and has-AID-or-not:
@@ -6389,7 +6641,7 @@ uint32 extract_known_factors(uint64 p, char*fac_start) {
 		cptr = char_addr+1;	// Advance 1-char past the current , or "
 	}
 	if(char_addr != 0x0) {
-		sprintf(cbuf,"%s: Unrecognized token sequence in parsing known-factors portion of assignment: \"%s\".",WORKFILE,fac_start);	ASSERT(0,cbuf);
+		snprintf(cbuf, sizeof(cbuf), "%s: Unrecognized token sequence in parsing known-factors portion of assignment: \"%s\".",WORKFILE,fac_start);	ASSERT(0,cbuf);
 	}
 	ASSERT(nfac != 0,"Must specify at least one known factor!");
 // A bit of just-for-fun code: For smaller moduli N, use mi64 utils to see if cofactor C is a base-3 PRP:
@@ -6456,7 +6708,7 @@ The decimal value of the GCD is returned in gcd_str, presumed to be dimensioned 
 uint32 gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*const gcd_str) {
 #if !INCLUDE_GMP
 	#warning INCLUDE_GMP defined == 0 at compile time ... No GCDs will be done on p-1 outputs.
-	snprintf(cbuf,STR_MAX_LEN*2,"INCLUDE_GMP defined == 0 at compile time ... No GCD will be done.\n");
+	snprintf(cbuf, sizeof(cbuf),"INCLUDE_GMP defined == 0 at compile time ... No GCD will be done.\n");
 	mlucas_fprint(cbuf,1);
 	return 0;	// If user turns off p-1 support, keep the decl of gcd() to allow pm1.c to build
 #else
@@ -6512,24 +6764,24 @@ uint32 gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*
 	gmp_size = mpz_sizeinbase(gmp_arr1,10);
 	// Anything >= 900 digits (~90% the value of our STR_MAX_LEN dimensioning of I/O strings) treated as suspect:
 	if(gmp_size >= 900) {
-		snprintf(cbuf,STR_MAX_LEN*2, "GCD has %u digits -- possible data corruption, aborting.\n",(uint32)gmp_size);
+		snprintf(cbuf, sizeof(cbuf), "GCD has %u digits -- possible data corruption, aborting.\n",(uint32)gmp_size);
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 	}
 	retval = 1;
 gcd_return:
 	if(!p) {
 		gmp_snprintf(gcd_str,STR_MAX_LEN,"%Zd",gmp_arr1);
-		gmp_snprintf(cbuf,STR_MAX_LEN*2,"GCD(A[%" PRIu64 " bits], B[%" PRIu64 " bits]) = %s\n",sz1,sz2,gcd_str);
+		gmp_snprintf(cbuf, sizeof(cbuf),"GCD(A[%" PRIu64 " bits], B[%" PRIu64 " bits]) = %s\n",sz1,sz2,gcd_str);
 	} else if(retval) {
 		gmp_snprintf(gcd_str,STR_MAX_LEN,"%Zd",gmp_arr1);
-		gmp_snprintf(cbuf,STR_MAX_LEN*2,"Found %u-digit factor in Stage %u: %s\n",gmp_size,stage,gcd_str);
+		gmp_snprintf(cbuf, sizeof(cbuf),"Found %u-digit factor in Stage %u: %s\n",gmp_size,stage,gcd_str);
 	} else {	// Caller can use either return value or empty gcd_str as proxy for "no factor found"
 		gcd_str[0] = '\0';
-		gmp_snprintf(cbuf,STR_MAX_LEN*2,"Stage %u: No factor found.\n",stage);
+		gmp_snprintf(cbuf, sizeof(cbuf),"Stage %u: No factor found.\n",stage);
 	}
 	mlucas_fprint(cbuf,1);
 	clock2 = getRealTime(); tdiff = clock2 - clock1;
-	snprintf(cbuf,STR_MAX_LEN*2,"Time for GCD =%s\n",get_time_str(tdiff));
+	snprintf(cbuf, sizeof(cbuf),"Time for GCD =%s\n",get_time_str(tdiff));
 	mlucas_fprint(cbuf,1);
 	// Done with the GMP arrays:
 	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2); mpz_clear(gmp_d); mpz_clear(gmp_r); mpz_clear(gmp_q);
@@ -6595,7 +6847,7 @@ void modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb) {
 	retval = mpz_invert(gmp_arr1, gmp_arr1,gmp_arr2);
 	gmp_size = mpz_sizeinbase(gmp_arr1,2);
 	if(!retval) {
-		snprintf(cbuf,STR_MAX_LEN*2,"MODINV: Fatal error: inverse does not exist.\n");
+		snprintf(cbuf, sizeof(cbuf),"MODINV: Fatal error: inverse does not exist.\n");
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 	}
 	// Export the result from gmp_arr1 to destination array vec2:
@@ -6661,7 +6913,7 @@ uint32 filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_be
 		}
 		fclose(fptr);
 	} else {
-		sprintf(cbuf,"filegrep error: file %s not found.\n",fname);
+		snprintf(cbuf, sizeof(cbuf), "filegrep error: file %s not found.\n",fname);
 		ASSERT(0, cbuf);
 	}
 	if(strlen(cstr) != 0)

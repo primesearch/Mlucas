@@ -31,14 +31,6 @@ set -e
 
 shopt -s nocasematch
 
-# for mode in AVX512 AVX2 AVX SSE2; do
-	# if grep -iq "$mode" /proc/cpuinfo; then
-		# echo -e "The CPU supports the ${mode} SIMD build mode.\n"
-		# ARGS+=( "-DUSE_${mode}" )
-		# break
-	# fi
-# done
-
 DIR=obj
 Mlucas=Mlucas
 Mfactor=Mfactor
@@ -89,14 +81,102 @@ elif ! command -v gcc >/dev/null; then
 	exit 1
 fi
 
+# Returns success iff $CC (default gcc) accepts the given flag(s) for a full compile-and-link of a
+# trivial program - used below to auto-detect toolchain-version-dependent flag/feature support instead
+# of hardcoding version-number cutoffs (which drift out of date and vary by distro/backport).
+# Compile a real temp file to a real output rather than piping stdin to '-o /dev/null': a native
+# Windows (MinGW) gcc does not understand the POSIX path /dev/null as an -o target (it becomes a
+# nonexistent C:\dev\null), so the /dev/null form spuriously fails every probe on that toolchain:
+try_flag() {
+	local tmpdir
+	tmpdir=$(mktemp -d) || return 1
+	trap 'rm -rf "$tmpdir"' RETURN
+	printf 'int main(void){return 0;}\n' >"$tmpdir/t.c"
+	"${CC:-gcc}" "$@" "$tmpdir/t.c" -o "$tmpdir/t.out" >/dev/null 2>&1
+}
+
+# Returns success iff $CC's assembler accepts the AVX-512 constructs Mlucas's inline-asm kernels use:
+# the "extended" register names (zmm16-31, xmm16-31, k0-k7). Some older Clang releases reject these even
+# when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register names - so probe them,
+# exactly as the CI does (#73). (The lone AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c
+# routine and is now gated to KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an
+# ER-capable assembler and the probe need not test it.)
+try_avx512_asm() {
+	local tmpdir
+	tmpdir=$(mktemp -d) || return 1
+	trap 'rm -rf "$tmpdir"' RETURN
+	cat >"$tmpdir/t.c" <<'EOF'
+int main(void)
+{
+	__asm__ __volatile__(
+		"vpxord %%zmm31,%%zmm31,%%zmm31\n\t"
+		"vmovdqa64 %%xmm16,%%xmm17\n\t"
+		"kmovw %%k1,%%eax"
+		::: "zmm31","xmm16","xmm17","k1","eax"
+	);
+	return 0;
+}
+EOF
+	# -c (compile to a real object, mirroring the real per-file build) still runs the assembler, so a
+	# toolchain that genuinely can't assemble these constructs still fails; but compiling a real file to a
+	# real .o avoids the MinGW '-o /dev/null' pitfall that made this probe a false-negative on Windows:
+	"${CC:-gcc}" -mavx512f -c "$tmpdir/t.c" -o "$tmpdir/t.o" >/dev/null 2>&1
+}
+
+# Returns success iff $CC can compile two separate translation units with the given -flto[=...] variant
+# and link them together. A single-file compile-and-link (like try_flag) is too weak a test here: LTO
+# breakage on some older or misconfigured toolchains (missing/mismatched ar/nm/ranlib plugin support,
+# old binutils) only shows up once the linker actually has to combine LTO object files from more than
+# one translation unit - which is exactly what building Mlucas's ~90 source files does:
+try_lto() {
+	local cc=${CC:-gcc} flag=${1:--flto} tmpdir
+	tmpdir=$(mktemp -d) || return 1
+	trap 'rm -rf "$tmpdir"' RETURN
+	printf 'int mm_lto_probe_helper(void){return 0;}\n' >"$tmpdir/a.c"
+	printf 'int mm_lto_probe_helper(void);\nint main(void){return mm_lto_probe_helper();}\n' >"$tmpdir/b.c"
+	(
+		cd "$tmpdir" && \
+		"$cc" "$flag" -c a.c -o a.o && \
+		"$cc" "$flag" -c b.c -o b.o && \
+		"$cc" "$flag" a.o b.o -o out
+	) >/dev/null 2>&1
+}
+
 if [[ ! $OSTYPE == darwin* ]]; then
-	MAKE_ARGS+=(-O)
 	LD_ARGS+=(-lm -lpthread)
 	if [[ $OSTYPE != msys && $OSTYPE != cygwin ]]; then
 		LD_ARGS+=(-lrt)
 	fi
 fi
+# GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe for the flag itself
+# rather than assuming by version number (which drifts, and varies by distro/backport):
+if "$MAKE" --help 2>/dev/null | grep -wq -- '-O'; then
+	MAKE_ARGS+=(-O)
+fi
 MAKE_ARGS+=(-j "$CPU_THREADS")
+
+# Windows/MinGW gcc (observed on both 15.2 and 16.1) has a longstanding x86-64 codegen bug: when
+# autovectorization creates 256/512-bit temporaries, gcc spills them with ALIGNED stores (vmovdqa,
+# needing 32/64-byte alignment) into stack frames it never dynamically realigns - but the Win64 ABI
+# only guarantees 16-byte alignment at function entry, and Windows randomizes the initial thread
+# stack phase per run. Result: plain C code (no inline asm involved) faults on ~half of all runs,
+# at a stable instruction but "moving" whenever the code is recompiled - observed as Mfactor's
+# test_fac() SIGSEGVing intermittently in CI (vmovdqa %ymm0,0x170(%rsp) with rsp = 0 mod 32, where
+# gcc assumed 16 mod 32). Linux and Wine always start with the compatible phase, which is why this
+# never reproduced off real Windows. -mstackrealign does NOT help (it realigns only to the 16-byte
+# preferred boundary). Instead, keep compiler-GENERATED vector code to 128 bits so no 32/64-byte-
+# aligned spill slots exist at all; Mlucas's hand-written SIMD asm is unaffected (the assembler
+# needs no -m flags), so AVX2/AVX-512 build modes lose nothing but gcc's autovectorization width:
+if [[ $OSTYPE == msys || $OSTYPE == cygwin ]] && ! "${CC:-gcc}" --version 2>/dev/null | grep -qi clang; then
+	pvw_tmp=$(mktemp -d)
+	printf 'int main(void){return 0;}\n' >"$pvw_tmp/t.c"
+	# Compile a real temp file to a real output: native MinGW gcc misparses '-o /dev/null' as C:\dev\null.
+	if "${CC:-gcc}" -mprefer-vector-width=128 "$pvw_tmp/t.c" -o "$pvw_tmp/t.out" >/dev/null 2>&1; then
+		echo -e "MinGW gcc detected: adding -mprefer-vector-width=128 to work around gcc's unaligned-AVX-spill bug on Windows.\n"
+		ARGS+=(-mprefer-vector-width=128)
+	fi
+	rm -rf "$pvw_tmp"
+fi
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
 echo "Total number of input parameters = $#"
@@ -236,27 +316,53 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			;;
 	esac
 
+	# The AVX-512 kernels use "extended" register names (zmm16-31/xmm16-31/k0-7) that some older
+	# Clang releases reject even when otherwise AVX-512-aware; probe rather than let the user hit a
+	# wall of asm errors deep in the build:
+	if [[ $arg == avx512* ]] && ! try_avx512_asm; then
+		echo "Error: ${CC:-gcc}'s assembler does not support the AVX-512 extended register names (zmm16-31/xmm16-31/k0-7) needed for this build mode ... aborting. Try a newer compiler, or build with 'avx2' instead." >&2
+		exit 1
+	fi
+
 	DIR+="_$arg"
 
 elif [[ $OSTYPE == darwin* ]]; then
 
-	# MacOS:
-	if (($(sysctl -n hw.optional.avx512f))); then
+	# MacOS: sysctl -n prints nothing (and exits nonzero) for an absent key - e.g. all the
+	# hw.optional.avx* keys on Apple Silicon - so capture each with a 0 default. This also lets the
+	# combined AVX-512||AVX2 test below use plain arithmetic without an empty operand tripping
+	# '((: || : syntax error' (as `(( || $(...) ))` would when the first sysctl yields nothing):
+	avx512f=$(sysctl -n hw.optional.avx512f 2>/dev/null || echo 0)
+	avx2_0=$( sysctl -n hw.optional.avx2_0  2>/dev/null || echo 0)
+	avx1_0=$( sysctl -n hw.optional.avx1_0  2>/dev/null || echo 0)
+	sse2=$(   sysctl -n hw.optional.sse2    2>/dev/null || echo 0)
+	neon=$(   sysctl -n hw.optional.neon    2>/dev/null || echo 0)
+	if ((avx512f)) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif (($(sysctl -n hw.optional.avx2_0))); then
+	elif ((avx512f || avx2_0)); then
+		if ((avx512f)); then
+			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
+		fi
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
-	elif (($(sysctl -n hw.optional.avx1_0))); then
+	elif ((avx1_0)); then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX -march=native -mavx)
-	elif (($(sysctl -n hw.optional.sse2))); then
+	elif ((sse2)); then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
 		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
-	elif (($(sysctl -n hw.optional.neon))); then
+	elif ((neon)); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
+		ARGS+=(-DUSE_ARM_V8_SIMD)
+		if try_flag -mcpu=native; then
+			ARGS+=(-mcpu=native)
+		elif try_flag -march=native; then
+			ARGS+=(-march=native)
+		fi
+		# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
+		# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
@@ -266,10 +372,13 @@ elif [[ $OSTYPE == darwin* ]]; then
 elif [[ $OSTYPE == linux* ]]; then
 
 	# Linux:
-	if grep -iq 'avx512' /proc/cpuinfo; then
+	if grep -iq 'avx512' /proc/cpuinfo && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif grep -iq 'avx2' /proc/cpuinfo; then
+	elif grep -iq 'avx512\|avx2' /proc/cpuinfo; then
+		if grep -iq 'avx512' /proc/cpuinfo; then
+			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
+		fi
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
 	elif grep -iq 'avx' /proc/cpuinfo; then
@@ -280,7 +389,14 @@ elif [[ $OSTYPE == linux* ]]; then
 		ARGS+=(-DUSE_SSE2 -march=native -msse2)
 	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
 		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD -mcpu=native) # -march=native
+		ARGS+=(-DUSE_ARM_V8_SIMD)
+		if try_flag -mcpu=native; then
+			ARGS+=(-mcpu=native)
+		elif try_flag -march=native; then
+			ARGS+=(-march=native)
+		fi
+		# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
+		# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
 	else
 		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
@@ -289,48 +405,43 @@ elif [[ $OSTYPE == linux* ]]; then
 
 else
 
+	# Fallback path for hosts without /proc/cpuinfo or sysctl (notably Windows/MSYS2/Cygwin): compile a tiny
+	# probe that just reports the CPU's highest SIMD level as a keyword, then map that to build flags in the
+	# shell below - reusing the same try_avx512_asm / try_flag probes as the Linux and Darwin branches so the
+	# AVX-512 extended-register-name check and the -mcpu/-march fallback apply here too (see #60, #67).
 	# Adapted from: https://stackoverflow.com/a/28939692
-	cat <<EOF >/tmp/simd.c
+	tmpdir=$(mktemp -d)
+	trap 'rm -rf "$tmpdir"' EXIT
+	cat <<'EOF' >"$tmpdir/simd.c"
 #include <stdio.h>
 int main()
 {
 // defined(__amd64) || defined(__amd64__) || defined(_M_AMD64) || defined(_M_EMT64) || defined(__x86_64) || defined(__x86_64__)
 #ifdef __x86_64__
 	#ifdef __AVX512F__
-		fputs("The CPU supports the AVX512 SIMD build mode.\n\n", stderr);
-		puts("-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma");
+		puts("avx512");
 	#elif defined __AVX2__
-		fputs("The CPU supports the AVX2 SIMD build mode.\n\n", stderr);
-		puts("-DUSE_AVX2 -march=native -mavx2 -mfma");
+		puts("avx2");
 	#elif defined __AVX__
-		fputs("The CPU supports the AVX SIMD build mode.\n\n", stderr);
-		puts("-DUSE_AVX -march=native -mavx");
+		puts("avx");
 	#elif defined __SSE2__
-		fputs("The CPU supports the SSE2 SIMD build mode.\n\n", stderr);
-		puts("-DUSE_SSE2 -march=native -msse2");
+		puts("sse2");
 	#else
-		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
-		fputs("Warning: This likely means there is a bug in this script. Please report!\n", stderr);
-		puts("-march=native");
+		puts("none_x86");
 	#endif
 #elif defined(__aarch64__)
 	#ifdef __ARM_NEON
-		fputs("The CPU supports the ASIMD build mode.\n\n", stderr);
-		puts("-DUSE_ARM_V8_SIMD -mcpu=native"); // -march=native
+		puts("asimd");
 	#else
-		fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
-		fputs("Warning: This likely means there is a bug in this script. Please report!\n", stderr);
-		puts("-mcpu=native"); // -march=native
+		puts("none_arm");
 	#endif
 #else
-	fputs("The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n\n", stderr);
-	puts("-march=native");
+	puts("none");
 #endif
 	return 0;
 }
 EOF
 
-	trap 'rm /tmp/simd{.c,}' EXIT
 	args=()
 	case $HOSTTYPE in
 		aarch64 | arm*)
@@ -340,13 +451,70 @@ EOF
 			args+=(-march=native)
 			;;
 	esac
-	"${CC:-gcc}" -Wall -g -O3 "${args[@]}" -o /tmp/simd /tmp/simd.c
-	if ! output=$(/tmp/simd); then
-		echo "$output"
+	"${CC:-gcc}" -Wall -g -O3 "${args[@]}" -o "$tmpdir/simd" "$tmpdir/simd.c"
+	if ! output=$("$tmpdir/simd"); then
 		echo "Error: Unable to detect the SIMD build mode" >&2
 		exit 1
 	fi
-	ARGS+=($output)
+
+	case $output in
+		avx512)
+			if try_avx512_asm; then
+				echo -e "The CPU supports the AVX512 SIMD build mode.\n"
+				ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
+			else
+				echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
+				echo -e "The CPU supports the AVX2 SIMD build mode.\n"
+				ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
+			fi
+			;;
+		avx2)
+			echo -e "The CPU supports the AVX2 SIMD build mode.\n"
+			ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
+			;;
+		avx)
+			echo -e "The CPU supports the AVX SIMD build mode.\n"
+			ARGS+=(-DUSE_AVX -march=native -mavx)
+			;;
+		sse2)
+			echo -e "The CPU supports the SSE2 SIMD build mode.\n"
+			ARGS+=(-DUSE_SSE2 -march=native -msse2)
+			;;
+		asimd)
+			echo -e "The CPU supports the ASIMD build mode.\n"
+			ARGS+=(-DUSE_ARM_V8_SIMD)
+			if try_flag -mcpu=native; then
+				ARGS+=(-mcpu=native)
+			elif try_flag -march=native; then
+				ARGS+=(-march=native)
+			fi
+			# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
+			# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
+			;;
+		none_arm)
+			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
+			echo "Warning: This likely means there is a bug in this script. Please report!" >&2
+			if try_flag -mcpu=native; then
+				ARGS+=(-mcpu=native)
+			elif try_flag -march=native; then
+				ARGS+=(-march=native)
+			fi
+			;;
+		none_x86)
+			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
+			echo "Warning: This is a 64-bit x86 system without even SSE2, which likely means there is a bug in this script. Please report!" >&2
+			ARGS+=(-march=native)
+			;;
+		none)
+			echo -e "The CPU architecture is not recognized by this script ... building in scalar-double mode.\n"
+			try_flag -march=native && ARGS+=(-march=native)
+			;;
+		*)
+			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
+			echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!" >&2
+			ARGS+=(-march=native)
+			;;
+	esac
 fi
 
 if [[ -d $DIR ]]; then
@@ -362,6 +530,28 @@ if [[ -x $TARGET ]]; then
 	exit 1
 fi
 
+# -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on some older
+# or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe for both
+# instead of assuming. CI jobs that need a different CFLAGS entirely (sanitizer builds) should export a
+# CFLAGS environment variable before invoking this script - the generated Makefile's "CFLAGS ?=" already
+# defers to a pre-set environment CFLAGS instead of the computed value below. Prefer -flto=auto (parallel
+# LTO codegen, see #56) over plain -flto when supported:
+CFLAGS_PROBED=(-Wall -g -O3)
+# The Mlucas sources use C99 features (for-loop-scope declarations, mixed declarations-and-code) plus GNU
+# extensions (statement expressions in the checked-alloc macros). Old gcc (e.g. 4.8 on Ubuntu 14.04)
+# defaults to gnu89/gnu90 and rejects the C99 constructs with a hard error, so request -std=gnu99
+# unconditionally: every toolchain then compiles the same dialect, and gnu99 (vs plain c99) keeps the GNU
+# extensions enabled. -D_GNU_SOURCE (set in CPPFLAGS below) still exposes the POSIX/GNU library surface:
+CFLAGS_PROBED+=(-std=gnu99)
+try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
+if try_lto -flto=auto; then
+	CFLAGS_PROBED+=(-flto=auto)
+elif try_lto -flto; then
+	CFLAGS_PROBED+=(-flto)
+else
+	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+fi
+
 # Clang-under-MacOS linker barfs if one tries to explicitly invoke standard libs - h/t tdulcet for the
 # conditional-inline syntax. Some OSes put the GMP headers in /usr/local/include, so -I that path in the
 # compile command. If said path does not exist, make silently ignores it.
@@ -370,8 +560,8 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS ?= -fdiagnostics-color -Wall -g -O3 -flto # =auto
-CPPFLAGS ?= -I/usr/local/include -I/opt/homebrew/include
+CFLAGS ?= ${CFLAGS_PROBED[*]}
+CPPFLAGS ?= -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS ?= -L/opt/homebrew/lib
 LDLIBS ?= ${LD_ARGS[@]} # -static
 
@@ -391,10 +581,6 @@ clean:
 
 .phony: clean
 EOF
-
-# if [[ -e build.log ]]; then
-	# cp -vf --backup=t build.log{,}
-# fi
 
 echo -e "Building $TARGET"
 printf "%'d CPU cores detected ... parallel-building using that number of make threads.\n" "$CPU_THREADS"

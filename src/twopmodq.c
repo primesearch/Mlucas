@@ -26,6 +26,16 @@
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define YES_ASM
 #endif
+// AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
+// all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); the
+// #ifndef YES_ASM branches provide a portable-C fallback, so disable the asm under ASan:
+#if defined(__SANITIZE_ADDRESS__)
+	#undef YES_ASM
+#elif defined(__has_feature)
+	#if __has_feature(address_sanitizer)	/* older Clang: no __SANITIZE_ADDRESS__ predefine */
+		#undef YES_ASM
+	#endif
+#endif
 
 #if FAC_DEBUG
 #error !!!
@@ -1407,8 +1417,8 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $1,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd4a		/* Skip if n < 0 */	\n\t"\
-	"LoopBeg4a:								\n\t"\
+		"jl LoopEnd4a%=		/* Skip if n < 0 */	\n\t"\
+	"LoopBeg4a%=:								\n\t"\
 	"/* SQR_LOHI_q4(x*, lo*, hi*): */	\n\t"\
 		"movq	%%r12,%%rax	/* x0-3 in r8-11. */\n\t"\
 		"mulq	%%rax		\n\t"\
@@ -1476,7 +1486,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"movl	%[__p],%%eax	/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\n\t"\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
-	"je	twopmmodq64_q4_pjmp			\n\t"\
+	"je	twopmmodq64_q4_pjmp%=			\n\t"\
 		"\n\t"\
 		"movq	%%r12,%%r8 	/* r8  <- Copy of x */\n\t"\
 		"movq	%%r12,%%rax	/* rax <- Copy of x */\n\t"\
@@ -1506,12 +1516,12 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"addq	%%rax,%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-	"twopmmodq64_q4_pjmp:					\n\t"\
+	"twopmmodq64_q4_pjmp%=:					\n\t"\
 		"/* } endif((p >> j) & (uint64)1) */						\n\t"\
 		"subq	$1,%%rcx	/* j-- */		\n\t"\
 		"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
-		"jge	LoopBeg4a	/* if (j >= 0), Loop */	\n\t"\
-	"LoopEnd4a:							\n\t"\
+		"jge	LoopBeg4a%=	/* if (j >= 0), Loop */	\n\t"\
+	"LoopEnd4a%=:							\n\t"\
 		"movq	%%r12,%[__x0]	\n\t"\
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\

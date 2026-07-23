@@ -193,38 +193,6 @@ void threadpool_free(struct threadpool *pool);
 int threadpool_drain(struct threadpool *pool,
 			int blocking);
 
-/********************* utility macros: ********************/
-
-// Don't use any of these at present, but note MacOS has its own versions of these, in /usr/include/X11/Xthreads.h:
-#if 1
-	static void * xmalloc(size_t len) {
-		void *ptr = malloc(len);
-		if (ptr == NULL) {
-			printf("failed to allocate %u bytes\n", (uint32)len);
-			exit(-1);
-		}
-		return ptr;
-	}
-	
-	static void * xcalloc(size_t num, size_t len) {
-		void *ptr = calloc(num, len);
-		if (ptr == NULL) {
-			printf("failed to calloc %u bytes\n", (uint32)(num * len));
-			exit(-1);
-		}
-		return ptr;
-	}
-	
-	static void * xrealloc(void *iptr, size_t len) {
-		void *ptr = realloc(iptr, len);
-		if (ptr == NULL) {
-			printf("failed to reallocate %u bytes\n", (uint32)len);
-			exit(-1);
-		}
-		return ptr;
-	}
-#endif
-
 #ifdef __cplusplus
 }
 #endif

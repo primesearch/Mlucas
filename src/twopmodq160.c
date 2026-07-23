@@ -43,16 +43,16 @@ The key 3-operation sequence here is as follows:
 */
 uint64 twopmodq160(uint64 *p_in, uint64 k)
 {
-#if FAC_DEBUG
-	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, p)], "0");
-	uint160 y,z;
-#endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint160 p /*= {p_in[0],p_in[1],p_in[2]}*/, q, qhalf, qinv, x, lo, hi;	// MSVC gives "illegal initialization" error for this p-init...
 	static uint160 psave = {0ull,0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	p.d0 = p_in[0];	p.d1 = p_in[1];	p.d2 = p_in[2];	// ... so do it the hard way here.
+#if FAC_DEBUG
+	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, p)], "0");
+	uint160 y,z;
+#endif
 	uint32 FERMAT;
 	if(p.d2 != 0ull)
 		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
@@ -60,6 +60,7 @@ uint64 twopmodq160(uint64 *p_in, uint64 k)
 		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
 	else
 		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq160:\n");
@@ -110,7 +111,8 @@ if(dbg)printf("twopmodq160:\n");
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift (if > 159, use the leftmost 7) and subtract from 160: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			/* j==0 => shift-by-64 UB; guard the cross-word term: */
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 159)
 			{
 				lead8 >>= 1;
@@ -298,7 +300,8 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 #if FAC_DEBUG
 	if(dbg) printf("Final x = %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 #endif
-	q.d0 -= FERMAT;
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	lo.d2 = lo.d1 = 0ull; lo.d0 = FERMAT;	SUB160(q,lo,q);	// Since carry may propagate > 1 word (e.g. F133 testfac), use general SUB
 	SUB160(x,q,x);
 #if FAC_DEBUG
 	if(dbg) printf("Final x-q=%s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);

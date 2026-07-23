@@ -2705,8 +2705,8 @@ if(~pshift != p+78) {
 				"movslq	%[__start_index], %%rcx		\n\t"\
 				"subq $2,%%rcx						\n\t"\
 				"test %%rcx, %%rcx					\n\t"\
-				"jl Loop4End		/* Skip if n < 0 */	\n\t"\
-			"Loop4Beg:								\n\t"\
+				"jl Loop4End%=		/* Skip if n < 0 */	\n\t"\
+			"Loop4Beg%=:								\n\t"\
 			/* SQR_LOHI78_3WORD_DOUBLE_q4(fx, flo,fhi). Inputs flo0,1,2 enter in xmm0,2,4 [lcol] and xmm8,10,12 [rcol]: */\
 				"/* SQR_LOHI78_3WORD_DOUBLE_q4(): */\n\t"\
 				"movq	%[__fx0],%%rax				\n\t"\
@@ -2930,8 +2930,8 @@ if(~pshift != p+78) {
 				"movaps	%%xmm1,%%xmm2 /* fx1 */	\n\t	movaps	%%xmm9 ,%%xmm10	/* hx1 */	\n\t"\
 				"subq	$1,%%rcx	/* j-- */		\n\t"\
 				"cmpq	$0,%%rcx	/* j > 0 ?	*/	\n\t"\
-				"jge	Loop4Beg	/* if (j >= 0), loop */	\n\t"\
-			"Loop4End:							\n\t"\
+				"jge	Loop4Beg%=	/* if (j >= 0), loop */	\n\t"\
+			"Loop4End%=:							\n\t"\
 				:					/* outputs: none */\
 				: [__fqinv0] "m" (fqinv0)	/* All inputs from memory addresses here */\
 				 ,[__two26i] "m" (two26i)	\
@@ -4367,8 +4367,8 @@ if(~pshift != p+78) {
 					"movslq	%[__start_index], %%rcx		/* for(j = start_index-2; j >= 0; j--) { */\n\t"\
 					"subq $2,%%rcx						\n\t"\
 					"test %%rcx, %%rcx					\n\t"\
-					"jl Loop8End		/* Skip if n < 0 */	\n\t"\
-				"Loop8Beg:								\n\t"\
+					"jl Loop8End%=		/* Skip if n < 0 */	\n\t"\
+				"Loop8Beg%=:								\n\t"\
 					"movaps	0x200(%%rsi),%%xmm6	/* two13i shared between both columns */	\n\t		/* SQR_LOHI96_q4(x*, lo*, hi*): */	\n\t"\
 					"																						/* Load the x.d0 data: */	\n\t"\
 					"/* SQR_LOHI78_3WORD_DOUBLE_q4(): */\n\t													movq	0x300(%%rsi),%%rax	/* Dereference the x0 pointer... */\n\t"\
@@ -4597,7 +4597,7 @@ if(~pshift != p+78) {
 					"movq	%[__pshift],%%rax					\n\t"\
 					"shrq	%%cl,%%rax	/* j already in c-reg */\n\t"\
 					"andq	$0x1,%%rax							\n\t"\
-				"je	twopmodq96_q4_pshiftjmp						\n\t"\
+				"je	twopmodq96_q4_pshiftjmp%=						\n\t"\
 					"			/* Int64 code: if h<l carryout of low 64 bits gives hi=2^32 = 0x100000000, need to zero upper 32 bits prior to double step: */\n\t"\
 					"																							movq	$-1,%%rdi	\n\t"\
 					"																							shrq	$32,%%rdi	\n\t"\
@@ -4654,7 +4654,7 @@ if(~pshift != p+78) {
 					"	subpd		%%xmm13,%%xmm9	/* x mod q, low 26 bits */				\n\t				andq	%%rdi,%%rdx	\n\t"\
 					"																							addq	%%rax,%%r11	\n\t"\
 					"																							adcq	%%rdx,%%r15	\n\t"\
-				"twopmodq96_q4_pshiftjmp:													\n\t"\
+				"twopmodq96_q4_pshiftjmp%=:													\n\t"\
 					"/* } */																\n\t"\
 					"/* Normalize the result: */											\n\t"\
 					"movaps	0x210(%%rsi),%%xmm4		\n\t	movaps	0x210(%%rsi),%%xmm12	\n\t"\
@@ -4676,8 +4676,8 @@ if(~pshift != p+78) {
 					"movaps	%%xmm1,%%xmm2 /* fx1 */	\n\t	movaps	%%xmm9 ,%%xmm10	/* hx1 */	\n\t			movq	%%r15,0x338(%%rsi)	\n\t"\
 					"subq	$1,%%rcx	/* j-- */		\n\t"\
 					"cmpq	$0,%%rcx	/* j > 0 ?	*/	\n\t"\
-					"jge	Loop8Beg	/* if (j >= 0), loop */	\n\t"\
-				"Loop8End:							\n\t"\
+					"jge	Loop8Beg%=	/* if (j >= 0), loop */	\n\t"\
+				"Loop8End%=:							\n\t"\
 					:					/* outputs: none */\
 					: [__fq0] "m" (fq0)	/* All inputs from memory addresses here */\
 					 ,[__pshift] "m" (pshift)	\
@@ -4840,7 +4840,7 @@ if(~pshift != p+78) {
 		uint64 twopmodq78_3WORD_DOUBLE_q16(uint64 p, uint64 k[], int init_sse2, int thr_id)
 		{
 		#if FAC_DEBUG
-			int dbg  = (p==17715697 && k[0] = 67885719840ull);
+			int dbg  = (init_sse2 == FALSE) && (p==17715697 && k[0] == 67885719840ull);	// == not =; guard k[] deref against init-mode calls
 		#endif
 			const char func[] = "twopmodq78_3WORD_DOUBLE_q16";
 			 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
@@ -5957,7 +5957,7 @@ if(~pshift != p+78) {
 				 ,[__kvec] "m" (tm1)	/* vec-of-doubles copy of input kvec */\
 				 ,[__minv8]   "m" (minv8_ptr)	/* Ptr to Table of precomputed byte-inverses def'd in mi64.h */\
 				 ,[__two26f] "m" (two26f)\
-				: "cc","memory","rax","rbx","rcx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+				: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 			);
 
 		#endif
@@ -6119,7 +6119,7 @@ if(~pshift != p+78) {
 				: [__fq0] "m" (dptr)	/* All inputs from memory addresses here */\
 				 ,[__two26f] "m" (two26f)	\
 				 ,[__result] "m" (r)	\
-				: "cc","memory","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+				: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 			);
 
 			return r;
@@ -6222,7 +6222,7 @@ if(~pshift != p+78) {
 			  #ifdef MULTITHREAD
 				__r0  = sc_ptr;
 				mask_lo26 = sc_ptr + 0x300;
-				mask_lo52 = sc_ptr + 0x310;
+				mask_lo52 = sc_ptr + 0x308;	// 0x308 (not 0x310): consts are 1 AVX-512 reg (0x08) each, packed after mask_lo26 @0x300 - must match per-thread rebase site below
 				for(j = 0; j < max_threads; ++j) {
 					/* These remain fixed within each per-thread local store: */
 					// Need specific-length inits here since might be building overall in AVX-512 mode:
@@ -6259,7 +6259,7 @@ if(~pshift != p+78) {
 			// +0x140,160 - Insert another 2 pairs of padding slots here for high-product-words register spills (we spill 2 of 3 words)
 			// Consts: only get 1 AVX-512 reg (8 uint64s) per:
 				mask_lo26 = sc_ptr + 0x300;
-				mask_lo52 = sc_ptr + 0x310;
+				mask_lo52 = sc_ptr + 0x308;	// 0x308 (not 0x310): consts are 1 AVX-512 reg (0x08) each, packed after mask_lo26 @0x300 - must match per-thread rebase site below
 			// Total: Equivalent of 12*4 + 2 = 50 AVX-512 slots, alloc 56
 				VEC_U64_INIT((vec_u64*)mask_lo26, 0x0000000003FFFFFFull);
 				VEC_U64_INIT((vec_u64*)mask_lo52, 0x000FFFFFFFFFFFFFull);
@@ -6741,7 +6741,7 @@ if(~pshift != p+78) {
 				 ,[__kvec] "m" (tm1)	/* vec-of-doubles copy of input kvec */\
 				 ,[__minv8]   "m" (minv8_ptr)	/* Ptr to Table of precomputed byte-inverses def'd in mi64.h */\
 				 ,[__two26f] "m" (two26f)\
-				: "cc","memory","rax","rbx","rcx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+				: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 			);
 
 		#endif
@@ -6865,7 +6865,7 @@ if(~pshift != p+78) {
 				: [__fq0] "m" (dptr)	/* All inputs from memory addresses here */\
 				 ,[__two26f] "m" (two26f)	\
 				 ,[__result] "m" (r)	\
-				: "cc","memory","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10", "xmm12","xmm13","xmm14", "xmm16","xmm17","xmm18", "xmm20","xmm21","xmm22", "xmm24","xmm25","xmm26", "xmm28","xmm29","xmm30"	/* Clobbered registers */\
+				: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10", "xmm12","xmm13","xmm14", "xmm16","xmm17","xmm18", "xmm20","xmm21","xmm22", "xmm24","xmm25","xmm26", "xmm28","xmm29","xmm30"	/* Clobbered registers */\
 			);
 			return r;
 		}

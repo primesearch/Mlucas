@@ -218,7 +218,7 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy12_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy12_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -279,7 +279,7 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	if(p != psave || n != nsave
 	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
@@ -346,7 +346,7 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #ifdef USE_PTHREAD
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
-			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -1399,6 +1399,8 @@ void radix12_dif_pass1(double a[], int n)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
+	#else
+		j1 = j;
 	#endif
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
@@ -1662,6 +1664,8 @@ void radix12_dit_pass1(double a[], int n)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
+	#else
+		j1 = j;
 	#endif
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
@@ -1809,8 +1813,8 @@ void radix12_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy12_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	cy12_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
@@ -2090,7 +2094,7 @@ void radix12_dit_pass1(double a[], int n)
 			thread_arg->maxerr = maxerr;
 		}
 
-		return 0x0;
+		return;
 	}
 #endif
 

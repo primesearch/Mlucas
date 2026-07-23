@@ -54,6 +54,11 @@ extern "C" {
 	#if HWLOC_API_VERSION < 0x00010000
 		#error Application requires installed hwloc version to be >= 1.0
 	#endif
+	// hwloc v2.0 renamed HWLOC_OBJ_SOCKET to HWLOC_OBJ_PACKAGE; the new name was added as an alias
+	// as of v1.11 to ease the transition, but versions older than that only have the old name:
+	#if HWLOC_API_VERSION < 0x00010b00
+		#define HWLOC_OBJ_PACKAGE HWLOC_OBJ_SOCKET
+	#endif
 
 	extern hwloc_topology_t hw_topology;
 	extern int HWLOC_AFFINITY;	// Is per-thread LPU-binding (affinity) supported?
@@ -65,8 +70,13 @@ extern uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max
 
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 extern int REINIT_LOCAL_DATA_TABLES;
-// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
-extern int MLUCAS_KEEP_RUNNING;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action.
+// Must be volatile sig_atomic_t: it is written from the async signal handler and polled by the main control loop;
+// this is the only type the C standard guarantees can be safely shared with a signal handler (see signal-safety(7)).
+extern volatile sig_atomic_t MLUCAS_KEEP_RUNNING;
+// Records the signal number that requested the graceful quit, so the main thread (not the async-unsafe handler)
+// can print the human-readable "received <signal>" message at the next safe check point. 0 = none received.
+extern volatile sig_atomic_t MLUCAS_INTERRUPT_SIGNO;
 typedef void sigfunc(int);
 sigfunc *signal(int, sigfunc*);
 
@@ -86,7 +96,7 @@ extern const int CHAROFFSET;
 extern int len_a;
 
 /* These must match the smallest and largest values in the switch() in get_fft_radices(): */
-#define MIN_FFT_LENGTH_IN_K			1
+#define MIN_FFT_LENGTH_IN_K			2	/* 1K is unsupported (needs >= 3 radices; see get_fft_radices() and issue #101), so 2K is the smallest usable length */
 #define MAX_FFT_LENGTH_IN_K			524288
 /* This next one should be set to log2(MAX_FFT_LENGTH_IN_K) + 10 + 4,
 i.e. max. 16 bits per digit of the transform vector: */

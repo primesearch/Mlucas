@@ -729,10 +729,10 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 
 /* Macros for 96/128/160/192-bit unsigned integer leading-zeros counting. For > 192-bit, call mi64_leadz instead.
 Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) because leadz* returns a 32-bit value for inputs of all sizes: */
-#define LEADZ128(__x)	( leadz64(__x.d1) + ((-(sint32)(__x.d1 == 0)) && leadz64(__x.d0)) )
-#define LEADZ96(__x)	( leadz32(__x.d1) + ((-(sint32)(__x.d1 == 0)) && leadz64(__x.d0)) )
+#define LEADZ128(__x)	( leadz64(__x.d1) + ((-(sint32)(__x.d1 == 0)) & leadz64(__x.d0)) )
+#define LEADZ96(__x)	( leadz32(__x.d1) + ((-(sint32)(__x.d1 == 0)) & leadz64(__x.d0)) )
 
-#define LEADZ192(__x)	( leadz64(__x.d2) + ((-(sint32)(__x.d2 == 0)) && leadz64(__x.d1))+ ((-(sint32)(__x.d2 == 0 && __x.d1 == 0)) && leadz64(__x.d0)) )
+#define LEADZ192(__x)	( leadz64(__x.d2) + ((-(sint32)(__x.d2 == 0)) & leadz64(__x.d1))+ ((-(sint32)(__x.d2 == 0 && __x.d1 == 0)) & leadz64(__x.d0)) )
 #define LEADZ160(__x)	LEADZ192(__x)
 
 /* For larger operands it's more convenient to use a conditional + leadz64: */
