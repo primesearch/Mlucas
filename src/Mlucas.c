@@ -4359,7 +4359,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		if(iarg == 0) {
 			sprintf(cbuf  , "*** ERROR: Must specify a valid FFT length on command line before -radset argument!\n");
-			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+			fprintf(stderr,"%s", cbuf);	exit(EXIT_FAILURE);	// v21: bad user input - clean error exit, not ASSERT/abort+core
 		}
 
 		/* Make sure it's a valid radix set index for this FFT length: */
@@ -4371,7 +4371,10 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			else
 				sprintf(cbuf  , "ERROR: Unknown error-code value %d from get_fft_radices(), called with radix set index %d, FFT length %d K\n",i,radset, iarg);
 
-			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+			// v21: an out-of-range radix set for this build is a *user input* error (e.g. SIMD builds offer
+			// fewer radix sets per FFT length than scalar ones, since the small-leading-radix carry routines
+			// are scalar-only) - report it and exit cleanly rather than ASSERT, which aborts with a core dump:
+			fprintf(stderr,"%s", cbuf);	exit(EXIT_FAILURE);
 		}
 
 	}
