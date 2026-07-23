@@ -1784,6 +1784,21 @@ READ_RESTART_FILE:
 			// case; as in the p-1 branch above, a zero shift just means the seed goes straight into a[0]
 			// (no need for the random-shift selection or shift_word() carry-in of the else-branch below):
 			RES_SHIFT = 0ull; a[0] = iseed;
+		} else if(RADIX_VEC[0] < 16) {
+			// v21 (#119): The CY (carry) routines for a leading FFT radix < 16 do not support nonzero
+			// residue shifts - they WARN + return ERR_ASSERT on RES_SHIFT != 0 (see e.g. the guard at the
+			// top of radix8_ditN_cy_dif1.c). Fermat-mod, however, applies a random default shift whenever
+			// the user specifies none, so a leading-radix-<16 radix set (e.g. the 2K {8,8,16} set) would
+			// abort mid-carry-step even for an otherwise-valid production invocation, and even an explicit
+			// '-shift 0' does not help in the cases where the shift is (re)randomized below. So for a leading
+			// radix < 16, force shift 0 - as in the p-1 branch above, a zero shift simply routes the initial
+			// seed straight into a[0] - and if a nonzero shift was requested (explicitly via -shift, or
+			// implicitly via the Fermat-mod random default), emit an informational note rather than aborting:
+			if(parse_cmd_args_get_shift_value() != 0ull) {	// != 0 catches both an explicit nonzero -shift and -1 = "-shift unspecified" (=> would-be random)
+				snprintf(cbuf,STR_MAX_LEN*2, "INFO: Leading FFT radix %u is < 16, which does not support shifted residues; setting residue shift = 0.\n", RADIX_VEC[0]);
+				mlucas_fprint(cbuf,-INTERACT);
+			}
+			RES_SHIFT = 0ull; a[0] = iseed;
 		} else {
 			// Apply initial-residue shift - if user has not set one via cmd-line or current value >= p, randomly choose a value in [0,p).
 			// [Note that the RNG is inited as part of the standard program-start-sequence, via function host_init().]
