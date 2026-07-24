@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+#endif
 
 	/*...The radix-64 DIT pass is here:	*/
 
@@ -215,7 +217,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tptr = t + reverse(l,3);
 		k2 = po_br[l];	// po_br[] = p[04261537]
 		jt = j1 + k2; jp = j2 + k2;
-		addr = DFT64_TWIDDLES[l-1]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
+		const double *addr = DFT64_TWIDDLES[l-1], *addi = addr+1;	// Pointer to required row of 2-D twiddles array
 		RADIX_08_DIT_TWIDDLE_OOP(
 			tptr->re,tptr->im,(tptr+0x08)->re,(tptr+0x08)->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x18)->re,(tptr+0x18)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x28)->re,(tptr+0x28)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x38)->re,(tptr+0x38)->im,
 			a[jt],a[jp],a[jt+p20],a[jp+p20],a[jt+p10],a[jp+p10],a[jt+p30],a[jp+p30],a[jt+p08],a[jp+p08],a[jt+p28],a[jp+p28],a[jt+p18],a[jp+p18],a[jt+p38],a[jp+p38],
@@ -323,7 +325,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		const uint32 nloop = RADIX>>3;
 		AVX_cmplx_carry_fast_pow2_wtsinit_X8 (add1,add2,add3, bjmodn, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_nm1)
 	   #endif
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;
+		tmp = s1p00; tm1 = cy_r; itmp = bjmodn;
+	   #ifndef USE_AVX512
+		tm2 = cy_r+1; itm2 = bjmodn+4;
+	   #endif
 		for(l = 0; l < nloop; l++) {
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l+l];
@@ -559,9 +564,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
 
-		idx_offset = j;
-		idx_incr = NDIVR;
-
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
 		// Hi-accuracy version needs 2 copies of each base root, one for each invocation of the SSE2_fermat_carry_norm_pow2 carry macri:
@@ -649,9 +651,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
-
-		idx_offset = j;
-		idx_incr = NDIVR;
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
@@ -960,7 +959,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		tptr = t + reverse(l,3);
 		k2 = poff[l+l];	// poffs[2*l] = p00,08,10,...,30,38
 		jt = j1 + k2; jp = j2 + k2;
-		addr = DFT64_TWIDDLES[l-1]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
+		const double *addr = DFT64_TWIDDLES[l-1], *addi = addr+1;	// Pointer to required row of 2-D twiddles array
 		RADIX_08_DIF_TWIDDLE_OOP(
 			tptr->re,tptr->im,(tptr+0x08)->re,(tptr+0x08)->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x18)->re,(tptr+0x18)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x28)->re,(tptr+0x28)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x38)->re,(tptr+0x38)->im,
 			a[jt],a[jp],a[jt+p01],a[jp+p01],a[jt+p02],a[jp+p02],a[jt+p03],a[jp+p03],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p06],a[jp+p06],a[jt+p07],a[jp+p07],
@@ -980,5 +979,4 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
-
+}	/* end for(int k=1; k <= khi; k++) */

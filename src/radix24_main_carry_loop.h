@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 	/*...The radix-24 DIT pass is here:	*/
 	/*...gather the needed data (24 64-bit complex, i.e. 48 64-bit reals) and do 3 radix-8 transforms,	*/
@@ -610,5 +612,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	col += RADIX;
 	co3 -= RADIX;
 
-}	/* end for(k=1; k <= khi; k++) */
-
+}	/* end for(int k=1; k <= khi; k++) */
