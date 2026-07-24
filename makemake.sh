@@ -267,7 +267,6 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			;;
 		avx512_knl)
 			echo "Building for avx512_knl SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			echo "Warning: The 'avx512_knl' option is deprecated, use 'avx512' instead."
 			ARGS+=(-DUSE_AVX512 -march=knl -mavx512f -mavx512cd -mavx512er -mfma)
 			;;
 		avx512)
