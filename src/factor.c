@@ -2432,6 +2432,9 @@ candidate factors that survive sieving.	*/
 			MODULUS_TYPE,
 			VERSION,
 			OFILE
+		#ifdef USE_AVX512
+			, psmall
+		#endif
 		);
 
 	#ifdef USE_GPU
@@ -2604,6 +2607,10 @@ MFACTOR_HELP:
 		const int MODULUS_TYPE,
 		const char*VERSION,
 		const char*OFILE
+	#ifdef USE_AVX512
+		, uint32*psmall	// Small-primes table; the multithreaded build gets this from targ->psmall, but the
+				// single-threaded build must receive it explicitly for the AVX-512 gather/scatter bit-clear asm
+	#endif
 	) {
 		int    tid = 0;
 

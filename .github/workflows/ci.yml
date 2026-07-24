@@ -525,7 +525,11 @@ jobs:
       shell: bash
       run: |
         $CC --version
-        if [[ $HOSTTYPE == aarch64 ]]; then
+        # The windows-11-arm runner ships no native aarch64 toolchain (no MSYS2/CLANGARM64), so its
+        # "gcc" is really an x86_64-w64-mingw32 compiler running under emulation. Both $HOSTTYPE
+        # (x86_64) and the matrix OS label (arm) mislead here, so key the arch off what the compiler
+        # itself targets:
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             $CC -dM -E -mcpu=native - </dev/null
         else
             $CC -dM -E -march=native - </dev/null
@@ -535,10 +539,25 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == aarch64 ]]; then
+        # The windows-11-arm runner ships no native aarch64 toolchain, so its "gcc" actually targets
+        # x86_64 (run under emulation); detect the arch the compiler targets rather than the matrix OS
+        # label or $HOSTTYPE, both of which say the wrong thing on that runner:
+        run_avx512=1
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            # The AVX-512 mode compiles fine here (the assembler handles the extended registers). But
+            # GitHub's Windows runner CPUs are AVX2-only, so the built AVX-512 binaries hit SIGILL when
+            # run. Probe whether baseline AVX-512 actually executes here; if not, still build the mode
+            # (compile-time coverage) but skip running its test binaries below.
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
+                run_avx512=1
+            else
+                run_avx512=0
+                echo "::warning title=AVX-512 execution skipped::$("${CC:-gcc}" --version | head -n1): this runner's CPU cannot execute AVX-512; building the AVX-512 mode for compile coverage but not running its test binaries."
+            fi
+            rm -f conftest_avx512run conftest_avx512run.exe
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -546,12 +565,24 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                # The windows-11-arm runner has no GMP installed (the Install step is x86-only), so the
+                # Mfactor build must also request no_gmp there, exactly as the main build above does:
+                bash -e -o pipefail -- makemake.sh mfac ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || '' }} $word $mode || true
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
+                            echo "Skipping execution of AVX-512 Mfactor${word:+_$word}: this runner's CPU cannot run AVX-512."
+                        else
+                            # Run Mfactor's built-in test_fac() self-test (see #82) rather than just -h:
+                            # M(127) has no factors <= 2^20 so the trial-factoring pass is quick. Assert the
+                            # self-test success marker while tolerating the run's own exit status.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
+                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        fi
+                    fi
                 )
             done
         done
