@@ -383,6 +383,7 @@ double dbl_flip_lsb(double d)
 	return u64_to_f64(c);
 }
 
+#ifdef X87_ASM
 /* qfloat --> long double conversion utility.
 Example: x = QLN2:
 	hi = 0x3fe62e42fefa39ef,
@@ -430,6 +431,7 @@ struct qfloat ldbl_to_q(long double x)
 	q.lo = (x87_mant<<53);
 	return q;
 }
+#endif
 
 
 /* Convert IEEE64 double to qfloat. */
@@ -1273,6 +1275,7 @@ struct qfloat qfadd	(struct qfloat q1, struct qfloat q2)
 	else
 	{
 		ASSERT(0,"ERROR: unrecognized sign combination in QFADD");
+		q = QZRO; // silence warning
 	}
 #if QFDEBUG
 	double qres = qfdbl(q), dres = (1-2.0*sgn1)*qfdbl(q1) + (1-2.0*sgn2)*qfdbl(q2);	// Must cast sgn1,2 to double prior to 1-...
@@ -1317,6 +1320,7 @@ struct qfloat qfsub	(struct qfloat q1, struct qfloat q2)
 	else
 	{
 		ASSERT(0,"ERROR: unrecognized sign combination in QFSUB");
+		q = QZRO; // silence warning
 	}
 #if QFDEBUG
 	double qres = qfdbl(q), dres = (1-2.0*sgn1)*qfdbl(q1) - (1-2.0*sgn2)*qfdbl(q2);	// Must cast sgn1,2 to double prior to 1-...
@@ -2128,7 +2132,6 @@ then do 1 or 2 of the above N-R inverse-function iterations in qfloat mode using
 struct qfloat qfexp(struct qfloat x)
 {
 	 int32 pow2;
-	uint32 i;
 	double darg = qfdbl(x);
 	struct qfloat xabs, y, sinh;
 
@@ -2173,6 +2176,7 @@ struct qfloat qfexp(struct qfloat x)
 
 #elif 1	// Algo A:
 
+	uint32 i;
 	uint32 nterm,nterm_idx;
 	const uint8 nterm_arr[64] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,5,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,12,13,15,17,19,22,25,30,30,30,30,30,30,30};
 	struct qfloat curr_term, mult;
