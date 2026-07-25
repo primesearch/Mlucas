@@ -58,8 +58,11 @@ uint32 SYSTEM_RAM = 0;	// Total usable main memory size in MB, and max. % of tha
 
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 int REINIT_LOCAL_DATA_TABLES = 0;
-// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
-int MLUCAS_KEEP_RUNNING = 1;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action.
+// volatile sig_atomic_t: written by the async signal handler, polled by the main control loop (see Mdata.h note).
+volatile sig_atomic_t MLUCAS_KEEP_RUNNING = 1;
+// Signal number of a received graceful-quit signal, so the main thread can report it safely (0 = none):
+volatile sig_atomic_t MLUCAS_INTERRUPT_SIGNO = 0;
 // v18: Enable savefile-on-interrupt-signal, access to argc/argv outside main():
 char **global_argv;
 
@@ -225,27 +228,83 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 /****** END(Allocate storage for Globals (externs)). ******/
 
 #ifndef NO_USE_SIGNALS
+	/*
+	Async-signal-safe graceful-quit handler.
+
+	ROOT CAUSE of the Dec-2021 "runs that have been underway for a day or more refuse to quit"
+	instability (which led to this savefile-on-interrupt feature being disabled): a signal handler
+	runs on whatever thread the kernel happens to deliver the signal to, asynchronously interrupting
+	whatever that thread was doing at that instant. POSIX permits a handler to call ONLY async-signal-safe
+	functions (see signal-safety(7)). The old handler violated this badly - it called fprintf() and
+	sprintf() (into the shared global cbuf) and then exit(). All three are unsafe:
+	  - fprintf/sprintf take the stdio lock and can call malloc();
+	  - exit() flushes all stdio streams and runs atexit() handlers.
+	If the signal was delivered to an FFT worker thread (all threads had these signals unblocked) that
+	happened to already hold the malloc arena lock or a stdio lock - very likely, since the workers are
+	the threads doing nearly all the CPU work - the handler would deadlock on that non-recursive lock and
+	the entire process would hang forever. Because *which* thread receives the signal is nondeterministic,
+	the hang was intermittent: exactly the "run-to-run inconsistency" that was reported. sprintf() into the
+	shared cbuf also races the main thread's concurrent use of that same buffer.
+
+	The fix has three parts:
+	  (1) This handler now does NOTHING but store the signal number and clear the keep-running flag - both
+	      volatile sig_atomic_t, the only data the C standard lets a handler safely touch. No stdio, no
+	      malloc, no exit(): nothing that can take a lock, so it cannot deadlock no matter which thread or
+	      instruction it interrupts.
+	  (2) All user messaging and the (consistent, last-completed-iteration) savefile write are deferred to
+	      the main-thread control loop, which polls MLUCAS_KEEP_RUNNING at a safe point between mod-squaring
+	      iterations.
+	  (3) The FFT worker threads block these signals (see threadpool.c::worker_thr_routine), so the handler
+	      only ever runs on the main thread - making delivery deterministic and keeping the workers, which
+	      hold the shared locks, out of signal context entirely.
+	*/
 	void sig_handler(int signo)
 	{
-		if (signo == SIGINT) {
-			fprintf(stderr,"received SIGINT signal.\n");	sprintf(cbuf,"received SIGINT signal.\n");
-		} else if(signo == SIGTERM) {
-			fprintf(stderr,"received SIGTERM signal.\n");	sprintf(cbuf,"received SIGTERM signal.\n");
-	#ifndef __MINGW32__
-		} else if(signo == SIGHUP) {
-			fprintf(stderr,"received SIGHUP signal.\n");	sprintf(cbuf,"received SIGHUP signal.\n");
-		} else if(signo == SIGALRM) {
-			fprintf(stderr,"received SIGALRM signal.\n");	sprintf(cbuf,"received SIGALRM signal.\n");
-		} else if(signo == SIGUSR1) {
-			fprintf(stderr,"received SIGUSR1 signal.\n");	sprintf(cbuf,"received SIGUSR1 signal.\n");
-		} else if(signo == SIGUSR2) {
-			fprintf(stderr,"received SIGUSR2 signal.\n");	sprintf(cbuf,"received SIGUSR2 signal.\n");
-	#endif
-		}
-	// Dec 2021: Until resolve run-to-run inconsistencies in signal handling, kill it with fire:
-	exit(1);
-		// Toggle a global to allow desired code sections to detect signal-received and take appropriate action:
-		MLUCAS_KEEP_RUNNING = 0;
+		MLUCAS_INTERRUPT_SIGNO = signo;	// Record which signal, for the main thread to report safely later
+		MLUCAS_KEEP_RUNNING = 0;		// The main control loop polls this between iterations and quits gracefully
+	}
+
+	/*
+	Install sig_handler for the graceful-quit signals. Called from the mod-squaring functions; the static
+	'installed' guard makes it a no-op after the first call, so it runs exactly once, on the main thread.
+
+	We use sigaction() rather than signal() for deterministic, portable semantics:
+	  - sa_mask blocks the other quit-signals while the handler runs, so two signals racing in can't
+	    interleave the (trivial) flag stores;
+	  - SA_RESTART makes interrupted library calls auto-resume instead of failing with EINTR;
+	  - the handler stays installed after firing (signal() gives this on glibc but not on strict SysV).
+	Because the FFT worker threads block these signals (threadpool.c), the handler set here only ever
+	runs on the main thread.
+	*/
+	void mlucas_install_signal_handlers(void)
+	{
+		static int installed = 0;
+		if(installed) return;
+		installed = 1;
+
+	#ifdef __MINGW32__
+		// Windows/MinGW has no sigaction(); fall back to signal() for the signals it supports:
+		if(signal(SIGINT , sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGINT.\n");
+		if(signal(SIGTERM, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGTERM.\n");
+	#else
+		struct sigaction sa;
+		memset(&sa, 0, sizeof sa);
+		sa.sa_handler = sig_handler;
+		sa.sa_flags = SA_RESTART;
+		sigemptyset(&sa.sa_mask);
+		sigaddset(&sa.sa_mask, SIGINT);
+		sigaddset(&sa.sa_mask, SIGTERM);
+		sigaddset(&sa.sa_mask, SIGHUP);
+		sigaddset(&sa.sa_mask, SIGALRM);
+		sigaddset(&sa.sa_mask, SIGUSR1);
+		sigaddset(&sa.sa_mask, SIGUSR2);
+		if(sigaction(SIGINT , &sa, 0x0)) fprintf(stderr,"Can't catch SIGINT.\n");
+		if(sigaction(SIGTERM, &sa, 0x0)) fprintf(stderr,"Can't catch SIGTERM.\n");
+		if(sigaction(SIGHUP , &sa, 0x0)) fprintf(stderr,"Can't catch SIGHUP.\n");
+		if(sigaction(SIGALRM, &sa, 0x0)) fprintf(stderr,"Can't catch SIGALRM.\n");
+		if(sigaction(SIGUSR1, &sa, 0x0)) fprintf(stderr,"Can't catch SIGUSR1.\n");
+		if(sigaction(SIGUSR2, &sa, 0x0)) fprintf(stderr,"Can't catch SIGUSR2.\n");
+	#endif	// __MINGW32__ ? signal() : sigaction()
 	}
 #endif
 
@@ -1930,8 +1989,12 @@ READ_RESTART_FILE:
 					/* If interrupt *and* we're past the first subinterval, need to undo initial-fwd-FFT-pass and DWT-weighting on b[],
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
+					// This b[]-undo is only to make b[] savefile-consistent for the ensuing interrupt
+					// checkpoint-write; it must NOT clobber ierr, which has to stay ERR_INTERRUPT so the
+					// downstream savefile-write-and-exit handling fires (else the interrupt is lost and the
+					// PRP test spins to maxiter and aborts in the post-test residue step). Discard its return:
 					if(ierr == ERR_INTERRUPT && !first_sub)
-						ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+						(void)func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
 					break;
 				}
 				/* At end of each subinterval, do a single modmul of current residue a[] with Gerbicz-checkproduct to update the latter:
@@ -2110,15 +2173,30 @@ READ_RESTART_FILE:
 		if(INTERACT && (ierr == ERR_INTERRUPT))
 			exit(0);
 
-		// In non-interactive (production-run) mode, write savefiles and exit gracefully on signal:
+		// In non-interactive (production-run) mode, write a consistent savefile and exit gracefully on signal.
+		// This block runs on the main thread at a safe point: the inner mod-squaring loop exited cleanly
+		// *between* squarings (it polls MLUCAS_KEEP_RUNNING every iteration), so the residue just converted
+		// into arrtmp[] above is the exact last-completed-iteration residue - nothing is torn or in-flight.
+		// We do NOT exit here: we fall through to the normal checkpoint-write code below (which then does
+		// 'if(ierr == ERR_INTERRUPT) exit(0);' after the savefile has been safely written and fclosed).
 		if(ierr == ERR_INTERRUPT) {
-			// First print the signal-handler-generated message:
+			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here; savefile is written for this iter
+			// Report the signal safely here on the main thread (the async handler only recorded the number):
+			const char *signame;
+			switch(MLUCAS_INTERRUPT_SIGNO) {
+				case SIGINT:  signame = "SIGINT";  break;
+				case SIGTERM: signame = "SIGTERM"; break;
+			#ifndef __MINGW32__
+				case SIGHUP:  signame = "SIGHUP";  break;
+				case SIGALRM: signame = "SIGALRM"; break;
+				case SIGUSR1: signame = "SIGUSR1"; break;
+				case SIGUSR2: signame = "SIGUSR2"; break;
+			#endif
+				default:      signame = "unknown"; break;
+			}
+			snprintf(cbuf,sizeof(cbuf),"Received %s signal: writing savefile at Iter = %u and exiting.\n",signame,ihi);
 			mlucas_fprint(cbuf,1);
-			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here
-		/*** Nov 2021: interrupt-handling still not stable ... runs that have been underway for a day or more refuse to quit. Just clean-exit w/o savefile write for now: ***/
-		//	sprintf(cbuf,"Iter = %u: Writing savefiles and exiting.\n",ihi);
-			sprintf(cbuf,"Exiting at Iter = %u.\n",ihi); mlucas_fprint(cbuf,1);
-			exit(1);
+			// Fall through to the checkpoint-write path below.
 		}
 
 		/*...Done?	*/
@@ -2763,7 +2841,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// types via bit tests, not equality or (as used pre-bitmask, to work around distinct hits of the
 				// same error type within one batch summing to an integer multiple of it) modulo tests:
 				if(ierr == ERR_INTERRUPT) {
-					// First print the signal-handler-generated message:
+					// p-1 stage 2 does its own interior checkpointing (see pm1.c); on interrupt we resume
+					// from the last stage-2 checkpoint, so just report and exit. The async handler only
+					// recorded the signal number, so build the message here on the main thread:
+					snprintf(cbuf,sizeof(cbuf),"Received quit signal (%d) in p-1 stage 2: exiting; will resume from last stage-2 checkpoint.\n",(int)MLUCAS_INTERRUPT_SIGNO);
 					mlucas_fprint(cbuf,1);
 					exit(1);
 				} else if(ierr & (1<<ERR_ROUNDOFF)) {	// One or more modmuls hit a roundoff error - bump FFT length and restart
