@@ -754,6 +754,9 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 			ASSERT(0,"0");
 		}
 	}
+	free((void *)p ); p  = 0x0;	// Done with the ffacBig scratch arrays; p/q/q2 are not used past this loop
+	free((void *)q ); q  = 0x0;
+	free((void *)q2); q2 = 0x0;
 
 	/* Test 63-bit factors using the 63, 64 and 96-bit modmul routines */
 #ifdef FACTOR_STANDALONE
