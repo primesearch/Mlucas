@@ -1169,6 +1169,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 	  #elif !defined(USE_AVX512)	// AVX/AVX2:
 
 	  // In AVX mode need 4 sets of sincos:
+		ASSERT(k + (j1 > 128 ? 4 : 2) <= (int)(N2>>5), "radix32_wrapper_square: AVX sincos index[] overrun - FFT length too small for SIMD width");
 		// Need to explicitly 0 these for the first-blocks case in AVX mode to make sure the
 		// unused-in-those-cases 3rd/4th-set indices stay nice and non-segfault-y:
 		if(j1 <= 320) {
@@ -1260,6 +1261,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 	  #elif defined(USE_AVX512)	// AVX512:
 
 	  // In AVX-512 mode need 8 sets of sincos:
+		ASSERT(k + 2 + (j1 > 128 ? 2 : 0) + (j1 > 320 ? 4 : 0) <= (int)(N2>>5), "radix32_wrapper_square: AVX-512 sincos index[] overrun - FFT length too small for SIMD width");
 		// Need to explicitly 0 these for the first-few-blocks-done-via-scalar-code case in AVX mode to make sure the
 		// unused-in-those-cases 3rd/4th-set indices stay nice and non-segfault-y:
 		if(j1 <= 320) {
