@@ -708,6 +708,44 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(n%NRT){ sprintf(cbuf,"ERROR: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		NRTM1 = NRT - 1;
 
+		/* The radix{16|32}_dyadic_square final-pass twiddle computation indexes the rt1 sincos table
+		(length n/(2*NRT), allocated just below) with the high bits of the twiddle index; for the final
+		radix RADIX_VEC[NRADICES-1] those indices range up to that radix. When the FFT length is so small
+		that rt1 has fewer than RADIX_VEC[NRADICES-1] entries, the (multithreaded) dyadic-square reads past
+		rt1 - garbage twiddles, or a SIGSEGV under ASan / on an unmapped page. This bites e.g. the (32,32)
+		radix set at a 2K Fermat FFT: n = 1024 gives rt1 length n/(2*NRT) = 16 < 32. Such tiny length/radix
+		combos are toy sizes with no production use (and cannot represent the corresponding F_m regardless),
+		so soft-skip - the self-test then moves on to the next radix set - exactly as the n/radix0 checks
+		above do. (Unlike those, this bound is not gated on DAT_BITS, since it bites the small, DAT_BITS==31
+		lengths.) The (8,8,16) set at 2K is retained: final radix 16 <= rt1 length 16. */
+		if((n / (2*NRT)) < (uint32)RADIX_VEC[NRADICES-1]) {
+			sprintf(cbuf,"rt1 sincos-table length n/(2*NRT) = %u is too small for final radix %u at FFT length %u K! Skipping this radix combo.\n", n/(2*NRT), (uint32)RADIX_VEC[NRADICES-1], (uint32)(n>>10));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+
+	#if defined(USE_AVX512) || (defined(USE_SSE2) && !defined(MULTITHREAD))
+		/* KNOWN-BROKEN: the SIMD Fermat-mod path is broken for the 63*2^k leading radices - radix63,
+		radix1008 (= 63*16) and radix4032 (= 63*64), which all share the ODD_RADIX = 63 RADIX_63/
+		SSE2_RADIX_63 sub-transform and its carry macro. Two distinct failure modes, both confirmed for
+		F24 @ 1008K FFT (radices 1008,16,32):
+		  - AVX-512 (threaded or not): the carry step miscomputes, producing a nonzero exit carry / corrupted
+		    residue after a couple of iterations, and SIGSEGVs outright on real AVX-512 hardware.
+		  - single-threaded SIMD builds of any tier (SSE2/AVX/AVX2/AVX-512, i.e. -DUSE_SSE2 without
+		    -DUSE_THREADS): SIGSEGV inside SSE2_RADIX_63_DIT (out-of-range index offsets into the DFT
+		    scratch), reproduced on AVX2.
+		By contrast nosimd, and *threaded* SSE2/AVX/AVX2 builds, handle these radices correctly (threaded
+		AVX2 gives the same residue as nosimd). The neighbouring 15*2^k / 7*2^k leading radices are fine in
+		all builds (e.g. radix960 @ 960K and the radix-896 set @ 896K both pass for F24), so this is specific
+		to the radix-63-based sub-transform, not to odd-composite radices in general. Until the RADIX_63 SIMD
+		DFT/carry is fixed, soft-skip these radix sets in the affected build configurations - the self-test/
+		driver then selects a working one - rather than returning wrong residues or crashing. (Odd part of
+		leading radix == 63  <=>  radix in {63, 1008, 4032}.) */
+		if(((uint32)RADIX_VEC[0] >> trailz32((uint32)RADIX_VEC[0])) == 63) {
+			sprintf(cbuf,"radix %u (63*2^k) has a broken SIMD Fermat-mod carry step in this build config; skipping this radix combo (build nosimd, or a threaded non-AVX-512 SIMD build, or use a non-63 radix set).\n", (uint32)RADIX_VEC[0]);
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
+
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
 		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
 		*/
