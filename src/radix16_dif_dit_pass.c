@@ -128,11 +128,20 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 #endif
 {
 	const char func[] = "radix16_dif_pass";
-	// pfetch_dist feeds the "e" (immediate) asm operand in the SSE2_RADIX16_*_TWIDDLE macros
-	// below, so it must be an integer *constant expression*. A `const int` variable only folds
-	// to an immediate once optimization is on; at -O0 stricter modern compilers (e.g. gcc-16)
-	// reject it with "impossible constraint in 'asm'". An enum makes it a true constant at all -O.
+	// pfetch_dist feeds an asm operand whose required form differs by target, so declare it to suit:
+	//   x86 (SSE2/AVX SSE2_RADIX16_*_TWIDDLE macros): an "e" (immediate) operand, which needs an
+	// integer *constant expression*. A `const int` variable only folds to an immediate once
+	// optimization is on, so at -O0 stricter modern compilers (e.g. gcc-16) reject it with
+	// "impossible constraint in 'asm'"; an enum is a true constant at every -O level.
+	//   ARMv8 (SSE2_RADIX16_*_TWIDDLE_V2 in radix16_dif_dit_pass_asm.h): an "m" (memory) operand
+	// ("ldr w14,%[__pfetch_dist]"), which must be an addressable lvalue - an enum constant is not,
+	// and gcc/clang reject it ("memory input is not directly addressable" / "invalid lvalue in asm
+	// input for constraint 'm'"). So keep a real variable on ARM.
+#ifdef USE_ARM_V8_SIMD
+	const int pfetch_dist = PFETCH_DIST;
+#else
 	enum { pfetch_dist = PFETCH_DIST };
+#endif
 	int pfetch_addr;	// Since had pre-existing L1-targeting pfetch here, add numerical suffix to differentiate cache levels being targeted by the various types of prefetching
 	static int max_threads = 0;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
@@ -1962,9 +1971,14 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 #endif
 {
 	const char func[] = "radix16_dit_pass";
-	// See the matching note in radix16_dif_pass: pfetch_dist feeds an "e" (immediate) asm operand,
-	// so it must be an integer constant expression to compile at -O0 under modern gcc.
+	// See the matching note in radix16_dif_pass: pfetch_dist feeds an "e" (immediate) asm operand on
+	// x86 (needs an integer constant expression to compile at -O0 under modern gcc) but an "m"
+	// (memory) operand on ARMv8 (needs an addressable lvalue), so declare it to suit the target.
+#ifdef USE_ARM_V8_SIMD
+	const int pfetch_dist = PFETCH_DIST;
+#else
 	enum { pfetch_dist = PFETCH_DIST };
+#endif
 	int pfetch_addr;
 	static int max_threads = 0;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
