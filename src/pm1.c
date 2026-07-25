@@ -1025,6 +1025,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #ifdef MULTITHREAD
 	static int *thr_ret = 0x0;
 	static pthread_t *thread = 0x0;
+	static pthread_attr_t attr;
 	static struct pm1_thread_data_t *tdat = 0x0;
 	// Threadpool-based dispatch:
 	static struct threadpool *tpool = 0x0;
