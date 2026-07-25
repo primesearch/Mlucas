@@ -39,6 +39,9 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 */
 	int n18,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17
 		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
+	int target_idx = -1, target_set = 0, tidx_mod_stride;	// v21: residue-shift carry-injection support
+	double target_cy = 0;
+	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17, nsave = 0;
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -54,8 +57,6 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double rt,it,re
 		,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h
 		,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h
-	,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r,aj1p16r,aj1p17r
-	,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i,aj1p16i,aj1p17i
 		,cy0,cy1,cy2,cy3,cy4,cy5,cy6,cy7,cy8,cy9,cy10,cy11,cy12,cy13,cy14,cy15,cy16,cy17,temp,frac,scale;
 	double maxerr = 0.0;
 #if PFETCH
@@ -174,10 +175,27 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	cy16= 0;
 	cy17= 0;
 
-	/* If an LL test, init the subtract-2: */
+	// v21: If an LL test, compute the target index for the residue-shift carry injection. This routine
+	// formerly did an unconditional 'cy0 = -2' (inject the LL subtract-2 into word 0), silently ignoring
+	// RES_SHIFT - so any nonzero shift (the v20 Fermat/Mersenne default) yielded a wrong residue. Now we
+	// mirror the >= 16 power-of-2 radices' target_idx/target_set/target_cy machinery (see radixNN_main_carry_loop.h).
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
-		cy0 = -2;
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// high 7 bytes = unpadded target word index; low byte = within-word bit-shift
+			target_idx = (int)(itmp64 >> 8);
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// n is 32-bit; use 64-bit only for the intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
+			target_set = target_idx / n18;		// which of the RADIX(=18) independent carry sub-chains holds the target
+			target_idx -= target_set*n18;		// target_idx now = index within that sub-chain
+			tidx_mod_stride = target_idx & 1;	// non-SIMD: main-loop stride = 2*RE_IM_STRIDE = 2, so mask = stride-1 = 1
+			target_idx -= tidx_mod_stride;		// stride-align (loop var j steps by 2)
+			target_set = (target_set << 1) + tidx_mod_stride;	// non-SIMD: L2_SZ_VD-2 = 1; low bit selects Re/Im part
+			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
 	}
 
 	*fracmax=0;	/* init max. fractional error	*/
@@ -311,33 +329,33 @@ for(outer=0; outer <= 1; outer++)
 			t06 =rt+t0c;		t07 =it+t0d;
 			t0c =rt-t0c;		t0d =it-t0d;
 			t00 =t00+t06;		t01 =t01+t07;
-			aj1p0r =t00;		aj1p0i =t01;
+			a[j1] =t00;		a[j2] =t01;
 			t06 =t00+c3m1*t06;	t07 =t01+c3m1*t07;
 			rt  =s3*t0c;		it  =s3*t0d;
-			aj1p6r =t06+it;		aj1p6i =t07-rt;
-			aj1p12r=t06-it;		aj1p12i=t07+rt;
+			a[j1+p6] =t06+it;		a[j2+p6] =t07-rt;
+			a[j1+p12]=t06-it;		a[j2+p12]=t07+rt;
 
 			rt  =t08*c +t09*s;	it  =t09*c -t08*s;
 			re  =t0e*c2+t0f*s2;	t0f =t0f*c2-t0e*s2;	t0e=re;
 			t08 =rt+t0e;		t09 =it+t0f;
 			t0e =rt-t0e;		t0f =it-t0f;
 			t02 =t02+t08;		t03 =t03+t09;
-			aj1p8r =t02;		aj1p8i =t03;
+			a[j1+p8] =t02;		a[j2+p8] =t03;
 			t08 =t02+c3m1*t08;	t09=t03+c3m1*t09;
 			rt  =s3*t0e;		it  =s3*t0f;
-			aj1p14r=t08+it;		aj1p14i=t09-rt;
-			aj1p2r =t08-it;		aj1p2i =t09+rt;
+			a[j1+p14]=t08+it;		a[j2+p14]=t09-rt;
+			a[j1+p2] =t08-it;		a[j2+p2] =t09+rt;
 
 			rt  =t0a*c2+t0b*s2;	it  =t0b*c2-t0a*s2;
 			re  =t0g*c4+t0h*s4;	t0h =t0h*c4-t0g*s4;	t0g=re;
 			t0a =rt+t0g;		t0b =it+t0h;
 			t0g =rt-t0g;		t0h =it-t0h;
 			t04 =t04+t0a;		t05 =t05+t0b;
-			aj1p16r=t04;		aj1p16i=t05;
+			a[j1+p16]=t04;		a[j2+p16]=t05;
 			t0a =t04+c3m1*t0a;	t0b =t05+c3m1*t0b;
 			rt  =s3*t0g;		it  =s3*t0h;
-			aj1p4r =t0a+it;		aj1p4i =t0b-rt;
-			aj1p10r=t0a-it;		aj1p10i=t0b+rt;
+			a[j1+p4] =t0a+it;		a[j2+p4] =t0b-rt;
+			a[j1+p10]=t0a-it;		a[j2+p10]=t0b+rt;
 
 	/*...Second radix-9 transform:	*/
 			rt  =t12;			it  =t13;
@@ -371,33 +389,33 @@ for(outer=0; outer <= 1; outer++)
 			t16 =rt+t1c;		t17 =it+t1d;
 			t1c =rt-t1c;		t1d =it-t1d;
 			t10 =t10+t16;		t11 =t11+t17;
-			aj1p9r =t10;		aj1p9i =t11;
+			a[j1+p9] =t10;		a[j2+p9] =t11;
 			t16 =t10+c3m1*t16;	t17 =t11+c3m1*t17;
 			rt  =s3*t1c;		it  =s3*t1d;
-			aj1p15r=t16+it;		aj1p15i=t17-rt;
-			aj1p3r =t16-it;		aj1p3i =t17+rt;
+			a[j1+p15]=t16+it;		a[j2+p15]=t17-rt;
+			a[j1+p3] =t16-it;		a[j2+p3] =t17+rt;
 
 			rt  =t18*c +t19*s;	it  =t19*c -t18 *s;
 			re  =t1e*c2+t1f*s2;	t1f =t1f*c2-t1e*s2;	t1e=re;
 			t18 =rt+t1e;		t19 =it+t1f;
 			t1e =rt-t1e;		t1f =it-t1f;
 			t12 =t12+t18;		t13 =t13+t19;
-			aj1p17r=t12;		aj1p17i=t13;
+			a[j1+p17]=t12;		a[j2+p17]=t13;
 			t18 =t12+c3m1*t18;	t19=t13+c3m1*t19;
 			rt  =s3*t1e;		it  =s3*t1f;
-			aj1p5r =t18+it;		aj1p5i =t19-rt;
-			aj1p11r=t18-it;		aj1p11i=t19+rt;
+			a[j1+p5] =t18+it;		a[j2+p5] =t19-rt;
+			a[j1+p11]=t18-it;		a[j2+p11]=t19+rt;
 
 			rt  =t1a*c2+t1b*s2;	it  =t1b*c2-t1a*s2;
 			re  =t1g*c4+t1h*s4;	t1h =t1h*c4-t1g*s4;	t1g=re;
 			t1a =rt+t1g;		t1b =it+t1h;
 			t1g =rt-t1g;		t1h =it-t1h;
 			t14 =t14+t1a;		t15 =t15+t1b;
-			aj1p7r =t14;		aj1p7i =t15;
+			a[j1+p7] =t14;		a[j2+p7] =t15;
 			t1a =t14+c3m1*t1a;	t1b =t15+c3m1*t1b;
 			rt  =s3*t1g;		it  =s3*t1h;
-			aj1p13r=t1a+it;		aj1p13i=t1b-rt;
-			aj1p1r =t1a-it;		aj1p1i =t1b+rt;
+			a[j1+p13]=t1a+it;		a[j2+p13]=t1b-rt;
+			a[j1+p1] =t1a-it;		a[j2+p1] =t1b+rt;
 
 /*...Now do the carries. Since the outputs would
     normally be getting dispatched to 18 separate blocks of the A-array, we need 18 separate carries.	*/
@@ -413,25 +431,37 @@ for(outer=0; outer <= 1; outer++)
 			wtlp1   =wt0[    l+1];
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
+			// v21: inject the LL residue-shift target carry when the main-loop reaches the target word.
+			// (target_idx was set to -1 for a zero shift's word-0 case handled by cy0=-2 below? No: for the
+			// zero-shift case target_idx==0 and target_set==0, so this fires at j==0 into a[j1], exactly
+			// replacing the old 'cy0 = -2'. Set target_idx = -1 after firing so it happens exactly once.)
+			if(target_idx == j) {
+				const int poff18[18] = {0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17};
+				int tset = target_set >> 1;	// which of the RADIX DIT-output complex data holds the target
+				if(target_set & 1) a[j2 + poff18[tset]] += target_cy*(n>>1);	// Im part
+				else               a[j1 + poff18[tset]] += target_cy*(n>>1);	// Re part
+				target_idx = -1;
+			}
+
 /*...set0 is slightly different from others:	*/
-		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy5 ,bjmodn5 ,5 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy6 ,bjmodn6 ,6 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy7 ,bjmodn7 ,7 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy8 ,bjmodn8 ,8 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy9 ,bjmodn9 ,9 ,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy10,bjmodn10,10,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy11,bjmodn11,11,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy12,bjmodn12,12,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy13,bjmodn13,13,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy14,bjmodn14,14,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p15r,aj1p15i,cy15,bjmodn15,15,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p16r,aj1p16i,cy16,bjmodn16,16,prp_mult);
-			cmplx_carry_norm_errcheck(aj1p17r,aj1p17i,cy17,bjmodn17,17,prp_mult);
+		   cmplx_carry_norm_errcheck0(a[j1] ,a[j2] ,cy0 ,bjmodn0 ,0 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p1] ,a[j2+p1] ,cy1 ,bjmodn1 ,1 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p2] ,a[j2+p2] ,cy2 ,bjmodn2 ,2 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p3] ,a[j2+p3] ,cy3 ,bjmodn3 ,3 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p4] ,a[j2+p4] ,cy4 ,bjmodn4 ,4 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p5] ,a[j2+p5] ,cy5 ,bjmodn5 ,5 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p6] ,a[j2+p6] ,cy6 ,bjmodn6 ,6 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p7] ,a[j2+p7] ,cy7 ,bjmodn7 ,7 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p8] ,a[j2+p8] ,cy8 ,bjmodn8 ,8 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p9] ,a[j2+p9] ,cy9 ,bjmodn9 ,9 ,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p10],a[j2+p10],cy10,bjmodn10,10,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p11],a[j2+p11],cy11,bjmodn11,11,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p12],a[j2+p12],cy12,bjmodn12,12,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p13],a[j2+p13],cy13,bjmodn13,13,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p14],a[j2+p14],cy14,bjmodn14,14,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p15],a[j2+p15],cy15,bjmodn15,15,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p16],a[j2+p16],cy16,bjmodn16,16,prp_mult);
+			cmplx_carry_norm_errcheck(a[j1+p17],a[j2+p17],cy17,bjmodn17,17,prp_mult);
 
 			i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -444,9 +474,9 @@ prefetch_p_doubles(add0);
 #endif
 
 /*...First radix-9 transform:	*/
-		t00 =aj1p0r;			t01 =aj1p0i;
-		t02 =aj1p12r+aj1p6r;	t03 =aj1p12i+aj1p6i ;
-		t04 =aj1p12r-aj1p6r;	t05 =aj1p12i-aj1p6i ;
+		t00 =a[j1];			t01 =a[j2];
+		t02 =a[j1+p12]+a[j1+p6];	t03 =a[j2+p12]+a[j2+p6] ;
+		t04 =a[j1+p12]-a[j1+p6];	t05 =a[j2+p12]-a[j2+p6] ;
 		t00 =t00+t02;			t01 =t01+t03;
 		t02 =t00+c3m1*t02;		t03 =t01+c3m1*t03;
 		rt  =s3*t04;			it  =s3*t05;
@@ -456,9 +486,9 @@ prefetch_p_doubles(add0);
 addr = add0+p1;
 prefetch_p_doubles(addr);
 #endif
-		t06 =aj1p16r;			t07 =aj1p16i;
-		t08 =aj1p10r+aj1p4r;	t09 =aj1p10i+aj1p4i ;
-		t0a =aj1p10r-aj1p4r;	t0b =aj1p10i-aj1p4i ;
+		t06 =a[j1+p16];			t07 =a[j2+p16];
+		t08 =a[j1+p10]+a[j1+p4];	t09 =a[j2+p10]+a[j2+p4] ;
+		t0a =a[j1+p10]-a[j1+p4];	t0b =a[j2+p10]-a[j2+p4] ;
 		t06 =t06+t08;			t07 =t07+t09;
 		t08 =t06+c3m1*t08;		t09 =t07+c3m1*t09;
 		rt  =s3*t0a;			it  =s3*t0b;
@@ -468,9 +498,9 @@ prefetch_p_doubles(addr);
 addr = add0+p2;
 prefetch_p_doubles(addr);
 #endif
-		t0c =aj1p14r;			t0d =aj1p14i;
-		t0e =aj1p8r +aj1p2r;	t0f =aj1p8i +aj1p2i ;
-		t0g =aj1p8r -aj1p2r;	t0h =aj1p8i -aj1p2i ;
+		t0c =a[j1+p14];			t0d =a[j2+p14];
+		t0e =a[j1+p8] +a[j1+p2];	t0f =a[j2+p8] +a[j2+p2] ;
+		t0g =a[j1+p8] -a[j1+p2];	t0h =a[j2+p8] -a[j2+p2] ;
 		t0c =t0c+t0e;			t0d =t0d+t0f;
 		t0e =t0c+c3m1*t0e;		t0f =t0d+c3m1*t0f;
 		rt  =s3*t0g;			it  =s3*t0h;
@@ -519,9 +549,9 @@ addr = add0+p6;
 prefetch_p_doubles(addr);
 #endif
 /*...Second radix-9 transform:	*/
-		t10 =aj1p9r;			t11 =aj1p9i;
-		t12 =aj1p3r +aj1p15r;	t13 =aj1p3i +aj1p15i;
-		t14 =aj1p3r -aj1p15r;	t15 =aj1p3i -aj1p15i;
+		t10 =a[j1+p9];			t11 =a[j2+p9];
+		t12 =a[j1+p3] +a[j1+p15];	t13 =a[j2+p3] +a[j2+p15];
+		t14 =a[j1+p3] -a[j1+p15];	t15 =a[j2+p3] -a[j2+p15];
 		t10 =t10+t12;			t11 =t11+t13;
 		t12 =t10+c3m1*t12;		t13 =t11+c3m1*t13;
 		rt  =s3*t14;			it  =s3*t15;
@@ -531,9 +561,9 @@ prefetch_p_doubles(addr);
 addr = add0+p7;
 prefetch_p_doubles(addr);
 #endif
-		t16 =aj1p7r;			t17 =aj1p7i;
-		t18 =aj1p1r +aj1p13r;	t19 =aj1p1i +aj1p13i;
-		t1a =aj1p1r -aj1p13r;	t1b =aj1p1i -aj1p13i;
+		t16 =a[j1+p7];			t17 =a[j2+p7];
+		t18 =a[j1+p1] +a[j1+p13];	t19 =a[j2+p1] +a[j2+p13];
+		t1a =a[j1+p1] -a[j1+p13];	t1b =a[j2+p1] -a[j2+p13];
 		t16 =t16+t18;			t17 =t17+t19;
 		t18 =t16+c3m1*t18;		t19 =t17+c3m1*t19;
 		rt  =s3*t1a;			it  =s3*t1b;
@@ -543,9 +573,9 @@ prefetch_p_doubles(addr);
 addr = add0+p8;
 prefetch_p_doubles(addr);
 #endif
-		t1c =aj1p5r;			t1d =aj1p5i;
-		t1e =aj1p17r+aj1p11r;	t1f =aj1p17i+aj1p11i;
-		t1g =aj1p17r-aj1p11r;	t1h =aj1p17i-aj1p11i;
+		t1c =a[j1+p5];			t1d =a[j2+p5];
+		t1e =a[j1+p17]+a[j1+p11];	t1f =a[j2+p17]+a[j2+p11];
+		t1g =a[j1+p17]-a[j1+p11];	t1h =a[j2+p17]-a[j2+p11];
 		t1c =t1c+t1e;			t1d =t1d+t1f;
 		t1e =t1c+c3m1*t1e;		t1f =t1d+c3m1*t1f;
 		rt  =s3*t1g;			it  =s3*t1h;

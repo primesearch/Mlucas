@@ -41,6 +41,9 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix7/8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,iroot,root_incr,k1,k2,k,khi,l,ntmp,outer;
+	int target_idx = -1, target_set = 0, tidx_mod_stride;	// v21: residue-shift carry-injection support
+	double target_cy = 0;
+	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29, nsave = 0;
 	static int poff[(RADIX+2)>>2];
@@ -180,10 +183,27 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	for(l = 0; l < RADIX; l++) {
 		cy_r[l] = cy_i[l] = 0;
 	}
-	/* If an LL test, init the subtract-2: */
+	// v21: If an LL test, compute the target index for the residue-shift carry injection. This routine
+	// formerly did an unconditional 'cy_r[0] = -2' (inject the LL subtract-2 into word 0), silently ignoring
+	// RES_SHIFT - so any nonzero shift (the v20 Fermat/Mersenne default) yielded a wrong residue. Now we
+	// mirror the >= 16 power-of-2 radices' target_idx/target_set/target_cy machinery (see radixNN_main_carry_loop.h).
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
-		cy_r[0] = -2;
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// high 7 bytes = unpadded target word index; low byte = within-word bit-shift
+			target_idx = (int)(itmp64 >> 8);
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// n is 32-bit; use 64-bit only for the intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
+			target_set = target_idx / NDIVR;	// which of the RADIX(=30) independent carry sub-chains holds the target
+			target_idx -= target_set*NDIVR;		// target_idx now = index within that sub-chain
+			tidx_mod_stride = target_idx & 1;	// non-SIMD: main-loop stride = 2*RE_IM_STRIDE = 2, so mask = stride-1 = 1
+			target_idx -= tidx_mod_stride;		// stride-align (loop var j steps by 2)
+			target_set = (target_set << 1) + tidx_mod_stride;	// non-SIMD: L2_SZ_VD-2 = 1; low bit selects Re/Im part
+			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
 	}
 
 	*fracmax=0;	/* init max. fractional error	*/
@@ -216,9 +236,14 @@ int full_pass = (root_incr!=0);
 
 	bjmodn[0] = 0;
 	bjmodn[1] = bjmodnini;
-	j = bjmodnini-n;	// Const addend
+	// v21 bugfix: MOD_ADD32 requires both addends normalized to [0,n); the previous code passed the
+	// *negative* addend (bjmodnini-n) - the old explicit-renormalize idiom's constant - which made
+	// every bjmodn[l], l >= 2 come out congruent mod n but negative (off by -2n). The carry macros
+	// compute their big/smallword flags i,m,m2 from bjmodn via (uint32)(...)>>31 sign tricks, so those
+	// flags were wrong for the first few j-iterations of every carry sub-chain >= 2, silently corrupting
+	// any residue word landing there (all sibling radices pass the positive bjmodnini increment):
 	for(l = 2; l < RADIX; l++) {
-		MOD_ADD32(bjmodn[l-1], j, n, bjmodn[l]);
+		MOD_ADD32(bjmodn[l-1], bjmodnini, n, bjmodn[l]);
 	}
 
 	/* For Fermat-mod, IBDWT access patterns repeat with period NWT = {odd part of radix0},
@@ -615,6 +640,15 @@ int full_pass = (root_incr!=0);
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
+			// v21: inject the LL residue-shift target carry when the main loop reaches the target word
+			// (replaces the old unconditional 'cy_r[0] = -2' seed); fires exactly once, then target_idx = -1:
+			if(target_idx == j) {
+				const int p0123[4] = {0,p01,p02,p03};
+				l = target_set&1;	target_set >>= 1;	// low bit of target_set selects Re (+0) or Im (+1) part
+				a[j1 + poff[target_set>>2] + p0123[target_set&3] + l] += target_cy*(n>>1);
+				target_idx = -1;
+			}
+
 			l= j & (nwt-1);
 			n_minus_sil   = n-si[l  ];
 			n_minus_silp1 = n-si[l+1];

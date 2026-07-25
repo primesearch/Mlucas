@@ -81,6 +81,18 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		return(ERR_ASSERT);
 	}
 
+	// v21: The right-angle Fermat-mod carry scheme used in this routine (the older per-chain ii/bjmodn
+	// form of fermat_carry_norm_errcheck) structurally requires an EVEN leading radix: the acyclic
+	// weighting pairs word j with word j + n/2, i.e. carry sub-chain c with sub-chain c + RADIX/2, and
+	// for odd RADIX the n/2 point falls mid-chain (contrast radix30_ditN_cy_dif1.c, which seeds both
+	// bjmodn[0] and bjmodn[15]). Odd leading radices need the newer icycle-based scheme (cf.
+	// radix63_ditN_cy_dif1.c). Until that is ported here, reject cleanly - previously this path ran to
+	// completion but produced silently-wrong residues:
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+		WARN(HERE, "radix15_ditN_cy_dif1: Fermat-mod requires an even leading radix or the icycle-based carry scheme; this radix set is Mersenne-only.", "", 1);
+		return(ERR_ASSERT);
+	}
+
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
@@ -715,6 +727,13 @@ for(outer=0; outer <= 1; outer++)
 	/*
 	For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 	*/
+	// v21 bugfix: the wraparound mini-pass must restart the loop indices - every sibling radix resets
+	// jstart/jhi/khi here (cf. radix9_ditN_cy_dif1.c), but this routine only reset jhi. With jstart still
+	// holding its end-of-full-pass value (>> jhi) the mini-pass j-loop never executed, so the radix_inv
+	// pre-scaling of the first few words of each block was never cancelled by the mini-pass's re-DIF -
+	// every iteration silently multiplied those words by 1/RADIX, corrupting both Mers- and Fermat-mod.
+	jstart = 0;
+	khi = 1;
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
 		jhi =15;
