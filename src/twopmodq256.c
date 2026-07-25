@@ -271,21 +271,22 @@ uint256 twopmodq256(uint256 p, uint256 q)
 		{
 			j = leadz64(pshift.d3);
 			/* Extract leftmost 8 bits of pshift and subtract from 256: */
-			lead8 = (((pshift.d3<<j) + (pshift.d2>>(64-j))) >> 56);
+			/* j==0 => shift-by-64 UB; guard the cross-word term: */
+			lead8 = (((pshift.d3<<j) + (j ? (pshift.d2>>(64-j)) : 0ull)) >> 56);
 			start_index = 256-j-8;
 		}
 		else if(pshift.d2)
 		{
 			j = leadz64(pshift.d2);
 			/* Extract leftmost 8 bits of pshift and subtract from 192: */
-			lead8 = (((pshift.d2<<j) + (pshift.d1>>(64-j))) >> 56);
+			lead8 = (((pshift.d2<<j) + (j ? (pshift.d1>>(64-j)) : 0ull)) >> 56);
 			start_index = 192-j-8;
 		}
 		else if(pshift.d1)
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift and subtract from 128: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			start_index = 128-j-8;
 		}
 		else

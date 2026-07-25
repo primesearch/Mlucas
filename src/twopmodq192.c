@@ -259,7 +259,8 @@ uint192 twopmodq192(uint192 p, uint192 q)
 		{
 			j = leadz64(pshift.d2);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d2<<j) + (pshift.d1>>(64-j))) >> 56);
+			/* j==0 => shift-by-64 UB; guard the cross-word term: */
+			lead8 = (((pshift.d2<<j) + (j ? (pshift.d1>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -272,7 +273,7 @@ uint192 twopmodq192(uint192 p, uint192 q)
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -532,7 +533,7 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		{
 			j = leadz64(pshift.d2);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d2<<j) + (pshift.d1>>(64-j))) >> 56);
+			lead8 = (((pshift.d2<<j) + (j ? (pshift.d1>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -545,7 +546,7 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -930,7 +931,7 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 		{
 			j = leadz64(pshift.d2);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d2<<j) + (pshift.d1>>(64-j))) >> 56);
+			lead8 = (((pshift.d2<<j) + (j ? (pshift.d1>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -943,7 +944,7 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -1211,7 +1212,7 @@ uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 		{
 			j = leadz64(pshift.d2);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d2<<j) + (pshift.d1>>(64-j))) >> 56);
+			lead8 = (((pshift.d2<<j) + (j ? (pshift.d1>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
@@ -1224,7 +1225,7 @@ uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 		{
 			j = leadz64(pshift.d1);
 			/* Extract leftmost 8 bits of pshift (if > 191, use the leftmost 7) and subtract from 192: */
-			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
+			lead8 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 56);
 			if(lead8 > 191)
 			{
 				lead8 >>= 1;
