@@ -1175,7 +1175,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 	}
 	a      = ALIGN_DOUBLE(a_ptmp);	ASSERT(((intptr_t)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
-	buf = (double **)calloc(num_b*m,sizeof(double *));
+	buf = (double **)CALLOC(num_b*m,sizeof(double *));
 	// ...and num_b*m "buffers" for precomputed bigstep-coprime odd-square powers of the stage 1 residue:
 	for(i = 0; i < num_b*m; i++) {
 		buf[i] = a + i*npad;
@@ -1203,9 +1203,12 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	if(thr_ret) { free((void *)thr_ret); thr_ret = 0x0; }
 	if(thread)  { free((void *)thread ); thread  = 0x0; }
 	if(tdat)    { free((void *)tdat   ); tdat    = 0x0; }
-	thr_ret  = (int *)calloc(NTHREADS, sizeof(int));
-	thread   = (pthread_t *)calloc(NTHREADS, sizeof(pthread_t));
-	tdat     = (struct pm1_thread_data_t *)calloc(NTHREADS, sizeof(struct pm1_thread_data_t));
+	thr_ret  = (int *)CALLOC(NTHREADS, sizeof(int));
+	thread   = (pthread_t *)CALLOC(NTHREADS, sizeof(pthread_t));
+	tdat     = (struct pm1_thread_data_t *)CALLOC(NTHREADS, sizeof(struct pm1_thread_data_t));
+	// Initialize and set thread detached attribute:
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	const int nbytes_simd_align = (RE_IM_STRIDE*8) - 1;	// And per-thread data chunk addresses with this to check SIMD alignment
 	ASSERT(((intptr_t)mult[0] & nbytes_simd_align) == 0x0,"mult[0] not aligned on 64-byte boundary!");
 	ASSERT(((intptr_t)buf [0] & nbytes_simd_align) == 0x0,"buf [0] not aligned on 64-byte boundary!");	// Since npad a multiple of RE_IM_STRIDE, only need to check buf[0] alignment

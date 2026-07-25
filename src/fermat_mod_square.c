@@ -390,7 +390,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(index) {
 			free((void *)index); index = 0x0;
 		}
-		index = (int *)calloc(k,sizeof(int));
+		index = (int *)CALLOC(k,sizeof(int));
 	//	printf("Alloc index[%u]...\n",k);
 		/*...Forward (DIF) FFT sincos data are in bit-reversed order. We define a separate last-pass twiddles
 		array within the routine wrapper_square, since that allows us to merge those nicely with the wrapper sincos data.	*/
@@ -1117,9 +1117,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(radix0, sizeof(int));
-		thread  = (pthread_t *)calloc(radix0, sizeof(pthread_t));
-		tdat    = (struct ferm_thread_data_t *)calloc(radix0, sizeof(struct ferm_thread_data_t));
+		thr_ret = (int *)CALLOC(radix0, sizeof(int));
+		thread  = (pthread_t *)CALLOC(radix0, sizeof(pthread_t));
+		tdat    = (struct ferm_thread_data_t *)CALLOC(radix0, sizeof(struct ferm_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);

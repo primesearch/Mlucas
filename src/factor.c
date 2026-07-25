@@ -986,7 +986,7 @@ Others are optional and in some cases mutually exclusive:
 	#ifndef MULTITHREAD
 		#warning Building factor.c in unthreaded (i.e. single-main-thread) mode.
 		ASSERT(NTHREADS == 1, "NTHREADS must == 1 in single-threaded mode!");
-		k_to_try = (uint64 *)calloc(TRYQ * NTHREADS, sizeof(uint64));
+		k_to_try = (uint64 *)CALLOC(TRYQ * NTHREADS, sizeof(uint64));
 	#else
 		MAX_THREADS = get_num_cores();
 		ASSERT(MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
@@ -1007,7 +1007,7 @@ Others are optional and in some cases mutually exclusive:
 		}
 		sprintf(cbuf,"0:%d",NTHREADS-1);
 		parseAffinityString(cbuf);
-		k_to_try = (uint64 *)calloc(TRYQ * NTHREADS, sizeof(uint64));
+		k_to_try = (uint64 *)CALLOC(TRYQ * NTHREADS, sizeof(uint64));
 
 		// Up to TF_PASSES work units (perhaps fewer if a restart) get done by a pool of NTHREADS threads.  Yypically have
 		// NTHREADS <= TF_PASSES, i.e. pool threads get reassigned a fresh work unit as they complete their current one.
@@ -1015,7 +1015,7 @@ Others are optional and in some cases mutually exclusive:
 		if(tdat) {
 			free((void *)tdat); tdat = 0x0;	// Not sure if we might ever have occasion to realloc here, but easy enough to set up for it
 		}
-		tdat = (struct fac_thread_data_t *)calloc(NTHREADS, sizeof(struct fac_thread_data_t));
+		tdat = (struct fac_thread_data_t *)CALLOC(NTHREADS, sizeof(struct fac_thread_data_t));
 
 		// Alloc threadpool of NTHREADS threads, which will concurrently/asynchronally
 		// do TF_PASSES 'work units' (factoring passes for various (k mod TF_CLASSES) k-classes:
@@ -1110,7 +1110,7 @@ exit(0);
 		findex = convert_base10_char_uint64(pstring);
 		nbits_in_p = findex+1;
 		lenP = (nbits_in_p + 63)>>6;
-		p     = (uint64 *)calloc( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
+		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
 		p[0] = 1;	mi64_shl(p,p,findex,lenP);	// p = (uint64)1 << findex;
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
@@ -1118,11 +1118,11 @@ exit(0);
 		findex = convert_base10_char_uint64(pstring);	// This var was really named as abbreviation of "Fermat index", but re-use for MMp
 		nbits_in_p = findex;
 		if(findex > 1000) {	// Large MMp need deeper sieving on each k passing the default sieve
-			kdeep = (uint32 *)calloc( 1024, sizeof(uint32));
+			kdeep = (uint32 *)CALLOC( 1024, sizeof(uint32));
 			ASSERT(kdeep != 0x0, "Calloc of kdeep[] failed!");
 		}
 		lenP = (nbits_in_p + 63)>>6;
-		p     = (uint64 *)calloc( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
+		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
 		p[0] = 1;	mi64_shl(p,p,findex,lenP);
 		mi64_sub_scalar(p,1,p,lenP);	// p = 2^findex - 1;
 	#ifdef FAC_DEBUG
@@ -1136,11 +1136,11 @@ exit(0);
 	}
 
 	// Allocate the other modulus-dependent vectors:
-	two_p   = (uint64 *)calloc(lenQ, sizeof(uint64));
-	p2NC    = (uint64 *)calloc(lenQ, sizeof(uint64));
-	q       = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
-	q2      = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
-	u64_arr = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
+	two_p   = (uint64 *)CALLOC(lenQ, sizeof(uint64));
+	p2NC    = (uint64 *)CALLOC(lenQ, sizeof(uint64));
+	q       = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
+	q2      = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
+	u64_arr = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
 
 	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
 	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
@@ -1486,7 +1486,7 @@ ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passm
 	ASSERT(NUM_SIEVING_PRIME > 0, "factor.c : NUM_SIEVING_PRIME > 0");
 
 /*   allocate the arrays and initialize the array of sieving primes	*/
-	temp_late = (uint64 *)calloc(len, sizeof(uint64));
+	temp_late = (uint64 *)CALLOC(len, sizeof(uint64));
 
   #if TF_CLASSES == 60
 	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
