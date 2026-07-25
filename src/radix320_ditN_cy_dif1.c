@@ -2542,6 +2542,18 @@ void radix320_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
+	// GCC 11 + AVX-512: this function's local 'a' (Main data array pointer, extracted from
+	// thread_arg->arrdat) gets silently corrupted to a small integer (i.e. loses its base address,
+	// leaving only an index/offset component) between extraction and use, at every -O level from
+	// -O1 through -O3 (reproduced under Intel SDE with the exact ubuntu-22.04/gcc-11.4 CI
+	// toolchain+flags; -O0 is clean; confirmed via instrumented builds that thread_arg->arrdat
+	// itself is correctly a valid heap pointer at extraction time, so the corruption happens later,
+	// in this function's own body - this is a different manifestation than the compiler-
+	// autovectorizer bug the file-level pragma above works around, which by itself does not fix it).
+	// Scope the fix to just this function so the rest of the file keeps its normal optimization
+	// level; verified crash-free and numerically correct (Res64 matches the AVX2 build) for
+	// M12628613 @ 640K FFT, radices {320,32,32}, the case in which this was found.
+	__attribute__((optimize("O0")))
 	void*
 	cy320_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
