@@ -4840,7 +4840,7 @@ if(~pshift != p+78) {
 		uint64 twopmodq78_3WORD_DOUBLE_q16(uint64 p, uint64 k[], int init_sse2, int thr_id)
 		{
 		#if FAC_DEBUG
-			int dbg  = (p==17715697 && k[0] = 67885719840ull);
+			int dbg  = (init_sse2 == FALSE) && (p==17715697 && k[0] == 67885719840ull);	// == not =; guard k[] deref against init-mode calls
 		#endif
 			const char func[] = "twopmodq78_3WORD_DOUBLE_q16";
 			 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
@@ -6222,7 +6222,7 @@ if(~pshift != p+78) {
 			  #ifdef MULTITHREAD
 				__r0  = sc_ptr;
 				mask_lo26 = sc_ptr + 0x300;
-				mask_lo52 = sc_ptr + 0x310;
+				mask_lo52 = sc_ptr + 0x308;	// 0x308 (not 0x310): consts are 1 AVX-512 reg (0x08) each, packed after mask_lo26 @0x300 - must match per-thread rebase site below
 				for(j = 0; j < max_threads; ++j) {
 					/* These remain fixed within each per-thread local store: */
 					// Need specific-length inits here since might be building overall in AVX-512 mode:
@@ -6259,7 +6259,7 @@ if(~pshift != p+78) {
 			// +0x140,160 - Insert another 2 pairs of padding slots here for high-product-words register spills (we spill 2 of 3 words)
 			// Consts: only get 1 AVX-512 reg (8 uint64s) per:
 				mask_lo26 = sc_ptr + 0x300;
-				mask_lo52 = sc_ptr + 0x310;
+				mask_lo52 = sc_ptr + 0x308;	// 0x308 (not 0x310): consts are 1 AVX-512 reg (0x08) each, packed after mask_lo26 @0x300 - must match per-thread rebase site below
 			// Total: Equivalent of 12*4 + 2 = 50 AVX-512 slots, alloc 56
 				VEC_U64_INIT((vec_u64*)mask_lo26, 0x0000000003FFFFFFull);
 				VEC_U64_INIT((vec_u64*)mask_lo52, 0x000FFFFFFFFFFFFFull);
