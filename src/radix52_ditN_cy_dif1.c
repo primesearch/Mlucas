@@ -131,7 +131,7 @@
 
 /****************/
 
-int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
+ATTR_NO_ASAN int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -1637,7 +1637,7 @@ void radix52_dit_pass1(double a[], int n)
 	#endif
 
 	void*
-	cy52_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+ATTR_NO_ASAN cy52_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;

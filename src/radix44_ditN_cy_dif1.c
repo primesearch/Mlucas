@@ -131,7 +131,7 @@
 
 /****************/
 
-int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
+ATTR_NO_ASAN int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -1932,7 +1932,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	#endif
 
 	void*
-	cy44_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+ATTR_NO_ASAN cy44_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
