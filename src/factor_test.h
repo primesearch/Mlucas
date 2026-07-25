@@ -444,13 +444,13 @@ int test_fac()
 	q[1] = mi64_mul_scalar( p, 2*56474845800ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 56474845800ull, q, lenQ, q2) != 1) {
-		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
+		printf("ERROR: res = %s != 1\n", &cbuf0[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
 		ASSERT(0, "MM31 known-factor (k = 56474845800) test failed!");
 	}
 	q[1] = mi64_mul_scalar( p, 2*41448832329225ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 41448832329225ull, q, lenQ, q2) != 1) {
-		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
+		printf("ERROR: res = %s != 1\n", &cbuf0[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
 		ASSERT(0, "MM31 known-factor (k = 41448832329225) test failed!");
 	}
 	free((void*)p);	free((void*)q);	free((void*)q2);	p = q = q2 = 0x0;
@@ -710,8 +710,10 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	for(i = 0; ffac256[i].n != 0; i++)
 	{
 		p64 = ffac256[i].n;	// Fermat index n
-		p256.d2 = p256.d1 = 0ull; p256.d0 = 1ull;	LSHIFT256(p256,p64,p256);	// p256 holds powering exponent 2^n
-		q256.d2 = q256.d1 = 0ull; q256.d0 = ffac256[i].k;	// q256 holds k (As of 2015, no k > 64-bit known)
+		// v21: Must zero .d3 as well - it was left uninitialized here, so LSHIFT256 and twopmodq256
+		// read stack garbage in the top word; benign only on hosts whose stack slot happens to be 0:
+		p256.d3 = p256.d2 = p256.d1 = 0ull; p256.d0 = 1ull;	LSHIFT256(p256,p64,p256);	// p256 holds powering exponent 2^n
+		q256.d3 = q256.d2 = q256.d1 = 0ull; q256.d0 = ffac256[i].k;	// q256 holds k (As of 2015, no k > 64-bit known)
 		LSHIFT256(q256,(p64+2),q256);	q256.d0 += 1ull;	// ...and now q256 holds q = k.2^(n+2) + 1 .
 
 		/* This uses the generic 256-bit mod function to calculate q%(2*p): */
@@ -739,12 +741,18 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		ASSERT(l >= (j+2), "Power of 2 appearing in factor of Fn must be >= [n+2]!");
 		k =         ffacBig[i].d0;	// Factor k; must be odd in this schema
 		ASSERT(1ull == (k & 1ull), "k must be odd!");
+		// p,q are calloc'd once above and only word 0 is reseeded below; fully re-zero them each pass so
+		// mi64_shl's in-place shift-in doesn't pick up stale nonzero high words from a previous iteration
+		// (harmless overhead here - 2*640 words over ~10 iterations of a self-test):
+		memset(p, 0, 640*sizeof(uint64));
+		memset(q, 0, 640*sizeof(uint64));
 		lenP = (j+63)>>6;	// Assume Fermat index increases as we traverse ffacBig array, thus this overwrites previous
 		p[0] = 1ull;	p[lenP] = mi64_shl(p,p,j,lenP);	lenP += (p[lenP] != 0ull);	// case's p = (1 << j) array elements.
 		lenQ = (l+63)>>6;
 		q[0] = k;		q[lenQ] = mi64_shl(q,q,l,lenQ);	lenQ += (q[lenQ] != 0ull);
 		q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	//printf("Testing F%u, q = %" PRIu64 " * 2^%u + 1, lenQ = %u...\n",j,k,l,lenQ);
+		ASSERT(l-j-1 < 64, "k << (l-j-1) requires l-j-1 < 64!");	// Defensive: shift count must stay in-range for a uint64
 		uint32 res1 = mi64_twopmodq(p, lenP, k << (l-j-1), q, lenQ, q2);	// Fiddle k to put q in Mersenne-like form = 2.k'.2^j + 1
 			//	res1 = mi64_twopmodq_qferm(j, k << (l-j), q2);
 		if(res1 != 1) {
@@ -2349,6 +2357,11 @@ if((q128.d1 >> 14) == 0) {
 		/*for(i3 = 0; fac64[i3].p != 0; i3++)*/
 		for(i3 = 0; i3 < 100; i3++)
 		{
+			/* This whole #if(0) block is disabled; tmp64 is undeclared elsewhere in test_fac(),
+			so declare it locally here (scoped to this loop body) so the block would compile if
+			re-enabled, without risking a redeclaration clash with the unrelated tmp64 declared
+			under "#if TEST_256" at the top of test_fac(): */
+			uint64 tmp64;
 			if(fac64[i3].p == fac63[i].p || fac64[i3].p == fac65[i2].p)
 				continue;
 
@@ -2489,6 +2502,12 @@ if((q128.d1 >> 14) == 0) {
 	and a 65-bit factor q4 of M(p3) and checking whether q1*q2*q3*q4 divides M(p1*p2*p3*p4).
 	*/
 	#define NTEST256	1000000
+
+	/* p63 holds the 63x65-bit exponent product (analogous to p64 below, which holds
+	the 64x64-bit exponent product); cbuf3-cbuf6 are scratch print buffers, same
+	size/convention as cbuf0-cbuf2 declared at the top of test_fac(): */
+	uint64 p63;
+	char cbuf3[STR_MAX_LEN], cbuf4[STR_MAX_LEN], cbuf5[STR_MAX_LEN], cbuf6[STR_MAX_LEN];
 
    #ifdef FACTOR_STANDALONE
 	printf("Testing 63*64*64*65-bit factors...");
