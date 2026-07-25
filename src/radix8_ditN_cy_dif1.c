@@ -124,11 +124,18 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 			i = leadz32(NTHREADS);
 			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> (i-1);
 		}
-		if(CY_THREADS > MAX_THREADS)
-			CY_THREADS = MAX_THREADS;
 
-		ASSERT(CY_THREADS >= NTHREADS,"radix8_ditN_cy_dif1.c: CY_THREADS < NTHREADS");
-		ASSERT(isPow2(CY_THREADS)    ,"radix8_ditN_cy_dif1.c: CY_THREADS not a power of 2!");
+		if(CY_THREADS > MAX_THREADS)
+		{
+		//	Don't clamp CY_THREADS to a (possibly non-power-of-2) core count. On e.g. a 3-core VM/CPU,
+		//	NTHREADS=3 rounds up to 4; clamping that back to 3 both breaks the power-of-2 requirement
+		//	(which tripped the assert here) and drops CY_THREADS below NTHREADS, which radix8's
+		//	CY_THREADS-indexed carry dispatch can't handle. Just warn about the over-subscription, exactly
+		//	as radix16/63/992 and the other leading radices already do (their clamp is likewise commented):
+		//	CY_THREADS = MAX_THREADS;
+			fprintf(stderr,"WARN: CY_THREADS = %d exceeds number of cores = %d\n", CY_THREADS, MAX_THREADS);
+		}
+		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
 		if(CY_THREADS > 1)
 		{
 			ASSERT(n8       %CY_THREADS == 0,"radix8_ditN_cy_dif1.c: n8      %CY_THREADS != 0 ... likely more threads than this leading radix can handle.");
