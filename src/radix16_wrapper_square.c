@@ -4681,8 +4681,13 @@ loop:
 	  #ifdef USE_AVX
 		if(j1 < j2) {
 		//	printf("j1,j2 = %d,%d; (j1 < j2), skip loop-control and goto jump_new.\n",j1,j2);
-			j1pad = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 1st element index is here */
-			j2pad = j2 + ( (j2 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 2nd element index is here */
+			// j1 (and thus j2, similarly derived) can be negative on this branch (the whole point of
+			// which is to handle the AVX-512 j1<=160 residual case) - a signed left-shift of a negative
+			// value is undefined behavior in C, so use the equivalent multiply-by-2^PAD_BITS instead of
+			// "<< PAD_BITS" here. Same bug and fix as the identical pattern in radix32_wrapper_square.c
+			// (reproduced as a clang -O3 AVX-512 SIGSEGV via UBSan+ASan under Intel SDE there).
+			j1pad = j1 + ( (j1 >> DAT_BITS) * (1 << PAD_BITS) );	/* floating padded-array 1st element index is here */
+			j2pad = j2 + ( (j2 >> DAT_BITS) * (1 << PAD_BITS) );	/* floating padded-array 2nd element index is here */
 			goto jump_new;
 		}
 	  #endif
