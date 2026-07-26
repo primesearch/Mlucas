@@ -6516,10 +6516,13 @@ uint32 gcd(uint32 stage, uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb, cha
 	retval = 1;
 gcd_return:
 	if(!p) {
-		gmp_snprintf(gcd_str,sizeof(gcd_str),"%Zd",gmp_arr1);
+		// gcd_str is a char*-typed parameter here (caller's actual array is dimensioned
+		// STR_MAX_LEN, see this function's header comment) - sizeof(gcd_str) would just be
+		// the pointer size, silently truncating the printed value, so use STR_MAX_LEN directly:
+		gmp_snprintf(gcd_str,STR_MAX_LEN,"%Zd",gmp_arr1);
 		gmp_snprintf(cbuf,sizeof(cbuf),"GCD(A[%" PRIu64 " bits], B[%" PRIu64 " bits]) = %s\n",sz1,sz2,gcd_str);
 	} else if(retval) {
-		gmp_snprintf(gcd_str,sizeof(gcd_str),"%Zd",gmp_arr1);
+		gmp_snprintf(gcd_str,STR_MAX_LEN,"%Zd",gmp_arr1);
 		gmp_snprintf(cbuf,sizeof(cbuf),"Found %u-digit factor in Stage %u: %s\n",gmp_size,stage,gcd_str);
 	} else {	// Caller can use either return value or empty gcd_str as proxy for "no factor found"
 		gcd_str[0] = '\0';
