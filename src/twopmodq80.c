@@ -5414,7 +5414,7 @@ if(~pshift != p+78) {
 			 int32 j = 0;	/* This needs to be signed because of the LR binary exponentiation. */
 			uint64 lead7, r = 0;
 		#ifdef USE_AVX512_I
-			uin64 tmp64;
+			uint64 tmp64;
 		#endif
 			static uint64 psave = 0, pshift;
 			static uint32 start_index, zshift, first_entry = TRUE;
