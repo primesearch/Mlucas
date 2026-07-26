@@ -1831,18 +1831,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	}
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	int	ns_retval;
-	struct timespec ns_time,ns_err;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
-	while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
-	//		sleep(1);	//*** too granular ***
-		// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
-	//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	}
+	ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 //	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
 #else

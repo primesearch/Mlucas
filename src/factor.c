@@ -2238,9 +2238,6 @@ candidate factors that survive sieving.	*/
   #ifdef MULTITHREAD
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 10000000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
 	// Populate the work-unit-encoding data structs which will get done by our pool of threads.
 	// Current assignment may be restart of a partially-completed run, in which case npass < TF_PASSES
@@ -2362,10 +2359,7 @@ candidate factors that survive sieving.	*/
 		#endif
 		}
 
-		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
-			// Posix sleep() too granular here; use finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-			ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-		}
+		ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
 	};	// wave-loop
 

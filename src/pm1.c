@@ -2612,15 +2612,7 @@ ERR_RETURN:
 		//	printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 		}
 	//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-		struct timespec ns_time;	// We want a sleep interval of 10 nSec here...
-		ns_time.tv_sec  =  0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-		ns_time.tv_nsec = 10;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
-		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
-			ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
-		//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-		}
+		ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 	//	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 		for(i = 0; i < NTHREADS; ++i) {
 			// Pointer subtraction is legal, and automatically undoes the earlier *8 pointer-arithmetic scaling, but result
