@@ -3215,7 +3215,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	// int data:
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
-	#if !defined(USE_SSE2) && !defined(USE_FGT61)
+	#ifndef USE_SSE2
 		int nm1 = n-1;
 	#endif
 		int target_idx = thread_arg->target_idx;
