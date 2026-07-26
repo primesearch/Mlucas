@@ -9470,11 +9470,10 @@ int mkdir_p(char *path)
 		strcpy(cmdstr, "mkdir ");
 		strcat(cmdstr, tmp);
 		strcat(cmdstr, " 2> /dev/null");
-		err = system(cmdstr);
-		if (err != 0) {
-			fprintf(stderr, "ERROR: mkdir_p failed <%s>\n", cmdstr);
-			ASSERT(0, "Exiting.");
-		}
+		// mkdir (no -p) fails whenever this path component already exists, which is the
+		// common case on every startup after the first - deliberately ignore that here,
+		// matching mkdir -p semantics; only cast to void to silence the unused-result warning:
+		(void)system(cmdstr);
 	}
 
 	strcat(tmp, "_Mlucas_util_c_mkdir_p_tmp");
