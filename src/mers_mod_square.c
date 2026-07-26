@@ -275,6 +275,22 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	if(first_entry)
 	{
+	  #ifdef USE_AVX512
+		// radix32_wrapper_square's AVX-512 sincos/main-array-address setup corrupts memory and SIGSEGVs
+		// (radix32_wrapper_square.c, the "a[rdum]" read) for every radix combination tried so far under
+		// SDE+ASan/UBSan, regardless of the other radices in RADIX_VEC: M341749 @ 16K {16,16,32},
+		// M4837331 @ 240K {240,16,32}, M383521 @ 18K {36,8,32}, M673469 @ 32K {16,32,32} all reproduce
+		// this. Root cause not fully isolated (input j1/ws_j1[] values into the call are legitimate;
+		// something inside the function's own multi-thousand-line AVX-512 processing body corrupts j1's
+		// own storage) and no combination with a trailing radix of 32 has been observed to succeed on
+		// AVX-512 - so reject the whole radix32_wrapper_square path here rather than risk further memory
+		// corruption. (radix32_wrapper_square is still used by, and presumably fine on, non-AVX-512 SIMD
+		// modes; this guard is AVX-512-specific.)
+		if(RADIX_VEC[NRADICES-1] == 32) {
+			WARN(HERE, "mers_mod_square: radix32_wrapper_square is not supported in AVX-512 mode; skipping this radix set.", "", 1);
+			return ERR_RADIX0_UNAVAILABLE;
+		}
+	  #endif
 		if(!arr_scratch) {
 			sprintf(cbuf, "Init portion of %s requires non-null scratch array!",func);
 			ASSERT(0, cbuf);
