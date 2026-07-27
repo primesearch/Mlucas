@@ -515,13 +515,13 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #endif
 		tmp = sc_ptr;
 		r00 = tmp + 0x00;	//r10 = tmp + 0x10;	r20 = tmp + 0x20;	r30 = tmp + 0x30;
-		//rr02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
-		//rr04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
-		//rr06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
-		//rr08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
-		//rr0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
-		//rr0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
-		//rr0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
+		//r02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
+		//r04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
+		//r06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
+		//r08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
+		//r0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
+		//r0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
+		//r0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
 		tmp += 0x40;
 		two  	= tmp + 0x0;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
 		one 	= tmp + 0x1;

@@ -245,7 +245,7 @@ void radix32_wrapper_square(
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",__FUNCTION__, max_threads, NTHREADS);
+		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",__func__, max_threads, NTHREADS);
 
 		#ifdef USE_SSE2
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
@@ -875,14 +875,14 @@ void radix32_wrapper_square(
 	blocklen     = ws_blocklen    ;
 	blocklen_sum = ws_blocklen_sum;
 
-//	fprintf(stderr,"%s: stride = %d\n",__FUNCTION__,stride);
-//	fprintf(stderr,"%s: On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",__FUNCTION__,j1,j2,nradices_prim,blocklen);
+//	fprintf(stderr,"%s: stride = %d\n",__func__,stride);
+//	fprintf(stderr,"%s: On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",__func__,j1,j2,nradices_prim,blocklen);
 
 	/* If j1 == 0 we need to init the loop counters; otherwise, just jump
 	   right in and pick up where we left off on the previous pair of blocks:
 	*/
 	if(j1 > 0) {
-	//	fprintf(stderr,"%s: Jumping into loop!\n",__FUNCTION__);
+	//	fprintf(stderr,"%s: Jumping into loop!\n",__func__);
 		goto jump_in;
 	}
 
@@ -907,7 +907,7 @@ for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim
 		// Apr 2014: Must store intermediate product j1*radix0 in a 64-bit int to prevent overflow!
 		if(j1 && ((uint64)j1*radix0)%n == 0)
 		{
-		//	fprintf(stderr,"(%s: j1 && j1*radix0 == 0 (mod n)) check hit: returning\n",__FUNCTION__);
+		//	fprintf(stderr,"(%s: j1 && j1*radix0 == 0 (mod n)) check hit: returning\n",__func__);
 			return;
 		}
 
@@ -1181,7 +1181,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 			memset(k2_arr, 0, 14*RE_IM_STRIDE*sizeof(uint32));
 		}
   #if 0
-	printf("%s: Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",__FUNCTION__,k,index[k]);
+	printf("%s: Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",__func__,k,index[k]);
   #endif
 		// 1st set:
 		iroot = index[k++];

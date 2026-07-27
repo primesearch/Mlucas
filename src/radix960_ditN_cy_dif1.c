@@ -365,7 +365,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int m,m2;
 	#endif
   #endif
-  #ifndef USE_PTHREAD
+  #ifndef MULTITHREAD
   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
    #ifdef CARRY_16_WAY
@@ -385,7 +385,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double rt,it;
 	#endif
   #endif
-  #endif // !USE_PTHREAD
+  #endif // !MULTITHREAD
 	// indices into weights arrays (mod NWT):
 	static int ii[ODD_RADIX] = {
 		-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
@@ -1163,29 +1163,29 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
   #ifdef USE_AVX512
    #ifdef CARRY_16_WAY
-    #ifndef USE_PTHREAD
+    #ifndef MULTITHREAD
 	n_minus_sil   = (struct uint32x16*)sse_n + 1;
 	n_minus_silp1 = (struct uint32x16*)sse_n + 2;
 	sinwt         = (struct uint32x16*)sse_n + 3;
 	sinwtm1       = (struct uint32x16*)sse_n + 4;
-    #endif // !USE_PTHREAD
+    #endif // !MULTITHREAD
 	nbytes += 256;
    #else
-    #ifndef USE_PTHREAD
+    #ifndef MULTITHREAD
 	n_minus_sil   = (struct uint32x8 *)sse_n + 1;
 	n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
 	sinwt         = (struct uint32x8 *)sse_n + 3;
 	sinwtm1       = (struct uint32x8 *)sse_n + 4;
-    #endif // !USE_PTHREAD
+    #endif // !MULTITHREAD
 	nbytes += 128;
    #endif
   #elif defined(USE_AVX)
-    #ifndef USE_PTHREAD
+    #ifndef MULTITHREAD
 	n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 	n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 	sinwt         = (struct uint32x4 *)sse_n + 3;
 	sinwtm1       = (struct uint32x4 *)sse_n + 4;
-    #endif // !USE_PTHREAD
+    #endif // !MULTITHREAD
 	nbytes += 64;
   #endif
 
