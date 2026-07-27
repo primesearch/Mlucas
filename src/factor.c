@@ -743,7 +743,10 @@ int main(int argc, char *argv[])
 
 /* Allocate factor_k array and align on 16-byte boundary: */
 	factor_ptmp = ALLOC_UINT64(factor_ptmp, 24);
-	factor_k = ALIGN_UINT64(factor_ptmp);	factor_ptmp = 0x0;
+	// Retain the base pointer: factor_k is an *interior* (64-byte-aligned) pointer into the
+	// factor_ptmp allocation, so only factor_ptmp can be passed to free() - and it is, near the
+	// end of main(). Nulling it here made that free() a no-op on NULL, leaking the allocation.
+	factor_k = ALIGN_UINT64(factor_ptmp);
 	ASSERT(((uint64)factor_k & 0x3f) == 0, "factor_k not 64-byte aligned!");
 
 /*...initialize logicals and factoring parameters...	*/
@@ -2530,7 +2533,8 @@ candidate factors that survive sieving.	*/
 	}
 
 	// Free the allocated memory:
-	free((void *)factor_ptmp);
+	free((void *)factor_ptmp);	factor_ptmp = 0x0;
+	free((void *)k_to_try);		k_to_try = 0x0;
 	free((void *)p);
 	free((void *)kdeep);
 	free((void *)bit_map);
