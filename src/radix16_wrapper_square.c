@@ -231,7 +231,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		#endif
 
 		#ifdef USE_SSE2
-		//	fprintf(stderr, "%s: pfetch_dist = %d\n",__FUNCTION__,pfetch_dist);
+		//	fprintf(stderr, "%s: pfetch_dist = %d\n",__func__,pfetch_dist);
 			if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 				free((void *)sm_arr);	sm_arr=0x0;
 				free((void *)sc_arr);	sc_arr=0x0;
@@ -399,7 +399,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
 	#ifdef USE_PRECOMPUTED_TWIDDLES
-	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",__FUNCTION__,N2*15/8);
+	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",__func__,N2*15/8);
 		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(twidl_ptmp != 0,"ERROR: unable to allocate twidl_ptmp!");
 		twidl = ALIGN_COMPLEX(twidl_ptmp);	ASSERT(((long)twidl & 0x3f) == 0, "twidl-array not 64-byte aligned!");
 	#endif
@@ -4774,7 +4774,7 @@ loop:
 	j2=j2_start;			    /* Reset j2 for start of the next block. */
 
 //	fprintf(stderr,"after update_blocklen: j1,j2 = %u, %u\n",j1,j2);
-//	fprintf(stderr,"%s[thread %u]: after update_blocklen: j1,j2 = %u,%u; k = %u\n",__FUNCTION__,thr_id,j1,j2,k);
+//	fprintf(stderr,"%s[thread %u]: after update_blocklen: j1,j2 = %u,%u; k = %u\n",__func__,thr_id,j1,j2,k);
 
 /*printf("newblock: blocklen = %8d blocklen_sum = %8d j2 = %8d\n",blocklen,blocklen_sum,j2);*/
 }	 /* End of Main (i) loop */
