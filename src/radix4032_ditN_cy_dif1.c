@@ -1353,7 +1353,11 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 				jhi = NDIVR/CY_THREADS;	// Earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, need 2x that here
 				// Get value of (negative) increment resulting from (jhi-jstart)/stride execs of *cycle[] += wts_idx_inc* (mod nwt*):
 			#ifndef USE_SSE2
-				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt16);	// []>>(L2_SZ_VD-2) is fast subst. for []/stride
+				// Scalar-double mode: icycle[] holds plain (non-pointerized) cycle indices in [0,nwt), and the
+				// negative-wrap correction on the next line adds nwt, so this increment must be reduced mod nwt -
+				// NOT mod nwt16 (= nwt*sizeof(vec_dbl)), which is the SIMD/pointerized modulus. Cf. radix28/56/
+				// 60/224/240/960, which all use nwt here.
+				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt);	// []>>(L2_SZ_VD-2) is fast subst. for []/stride
 			#else
 				j = ((int64)wts_idx_inc2 * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt16);	// Cast wts_idx_inc* to signed 64-bit to avoid
 						// overflow of product; further compute (jhi-jstart)/stride prior to multiply to gain more bits-to-spare.
