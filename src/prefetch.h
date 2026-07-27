@@ -82,7 +82,7 @@ to point to a simple pointer variable:
 		__asm	prefetcht0 [edx]\
 	}
   #else
-	# define prefetch_p_doubles(_pd)	/* NO-OP! */ do { (void)(_pd); } while (0)
+	# define prefetch_p_doubles(_pd)	/* NO-OP! */ (void)(_pd)
   #endif
 
 /* AMD64/Solaris, Sun C compiler */
@@ -156,7 +156,7 @@ before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__
 		__asm	prefetchw [edx]\
 	}
   #else
-	# define prefetch_p_doubles(_pd)	/* NO-OP! */ do { (void)(_pd); } while (0)
+	# define prefetch_p_doubles(_pd)	/* NO-OP! */ (void)(_pd)
   #endif
 
 /* AMD Athlon/Duron family, Metrowerks CodeWarrior C compiler */
@@ -332,7 +332,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define CACHE_LINE_COMPLEX	0
 
 	# define prefetch_data(_array,_k)	/* NO-OP! Use #pragma prefetch _array[_k] here??? */
-	# define prefetch_p_doubles(_pd)	/* NO-OP! */ do { (void)(_pd); } while (0)
+	# define prefetch_p_doubles(_pd)	/* NO-OP! */ (void)(_pd)
 
   #endif
 
@@ -427,7 +427,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define CACHE_LINE_COMPLEX	0
 
 	# define prefetch_data(_array,_k)	/* NO-OP! Use #pragma prefetch _array[_k] here??? */
-	# define prefetch_p_doubles(_pd)	/* NO-OP! */ do { (void)(_pd); } while (0)
+	# define prefetch_p_doubles(_pd)	/* NO-OP! */ (void)(_pd)
 
 /* IBM Power: */
 #elif(defined(CPU_IS_POWER))
@@ -437,7 +437,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define CACHE_LINE_COMPLEX	0
 
 	# define prefetch_data(_array,_k)	/* NO-OP! Use #pragma prefetch _array[_k] here??? */
-	# define prefetch_p_doubles(_pd)	/* NO-OP! */ do { (void)(_pd); } while (0)
+	# define prefetch_p_doubles(_pd)	/* NO-OP! */ (void)(_pd)
 
 #else
 
@@ -449,7 +449,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define CACHE_LINE_COMPLEX  0
 
 	# define prefetch_data(_array,_k)	/* */
-	# define prefetch_p_doubles(_pd)	do { (void)(_pd); } while (0)
+	# define prefetch_p_doubles(_pd)	(void)(_pd)
 
 #endif
 
