@@ -1400,7 +1400,7 @@ void radix12_dif_pass1(double a[], int n)
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
-		j1 = j; // LD: double-check this additional init is what is expected (comes from radix24)
+		j1 = j;
 	#endif
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
@@ -1665,7 +1665,7 @@ void radix12_dit_pass1(double a[], int n)
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
-		j1 = j; // LD: double-check this additional init is what is expected (comes from radix24)
+		j1 = j;
 	#endif
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
