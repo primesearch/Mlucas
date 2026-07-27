@@ -87,7 +87,7 @@
 // Conventional positive-power version of twopmodq256, returns true mod:
 uint256 twopmmodq256(uint256 p, uint256 q)
 {
-	int32 j;
+	int32 j;	// j needs to be signed because of the LR binary exponentiation
 #if FAC_DEBUG
 	int32 pow;
 	int dbg = STREQ(&char_buf[convert_uint256_base10_char(char_buf, q)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"

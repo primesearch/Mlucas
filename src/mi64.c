@@ -6084,7 +6084,6 @@ Returns: The (n)th modular power of the twos-complement radix, R^n (mod q).
 #endif
 uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 {
-//	const char func[] = "radix_power64";
 #if MI64_RAD_POW64_DBG
 	int dbg = 0;	//q == 16357897499336320049ull;
 #endif
