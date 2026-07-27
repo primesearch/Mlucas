@@ -111,7 +111,7 @@ char PSTRING[STR_MAX_LEN+1];	// Modulus being used in string form, e.g. "M110916
 #endif
 
 const int hex_chars[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
-char cbuf[STR_MAX_LEN*2+200], g_cstr[STR_MAX_LEN];
+char cbuf[STR_MAX_LEN*3], g_cstr[STR_MAX_LEN];
 char g_in_line[STR_MAX_LEN];
 char *char_addr;
 
@@ -995,8 +995,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 						// Copy all but the final (pm1_done) char of the assignment into g_cstr and append pm1_done = 1. If g_in_line ends with newline, first --j:
 						j = strlen(g_in_line) - 1;	j -= (g_in_line[j] == '\n');
-						// Note we over copy with strcpy, but since the end of string is explictly set, that's no issue.
-						strcpy(g_cstr, g_in_line);	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
+						// g_cstr and g_in_line are both STR_MAX_LEN, so strcpy can't overflow here as long as
+						// g_in_line is NUL-terminated within its bounds - use strncpy with the buffer length anyway,
+						// to bound the copy explicitly rather than relying on that invariant:
+						strncpy(g_cstr, g_in_line, STR_MAX_LEN-1);	g_cstr[STR_MAX_LEN-1] = '\0';	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
 						split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 						goto GET_NEXT_ASSIGNMENT;
 					}

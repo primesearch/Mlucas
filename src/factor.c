@@ -196,7 +196,7 @@ int restart;
 	uint64 PMIN;	/* minimum #bits allowed for FFT-based mul */
 	uint64 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
 					  and will be determined at runtime, via call to given_N_get_maxP(). */
-	char cbuf[STR_MAX_LEN*2+200], g_cstr[STR_MAX_LEN];
+	char cbuf[STR_MAX_LEN*3], g_cstr[STR_MAX_LEN];
 	char g_in_line[STR_MAX_LEN];
 	/* Declare a blank STATFILE string to ease program logic: */
 	char STATFILE[] = "";
@@ -1833,6 +1833,10 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	pm = 16: 0, 6, 8,14,18,20,24,26,30,36,38,44,48,50,54,56	<*** F36 factor has k = 20 ... why do I miss? ***
 	pm = 32: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
 */
+	// This call only self-checks the returned pass count below; the populated itmp64 values are
+	// never consumed (the verification printf loop below is commented out), and that count doesn't
+	// depend on k's value, so passing a literal 0 here (k itself is never assigned in this function,
+	// same as at the CHECK_PKMOD60 call above) is fine:
 	i = CHECK_PKMOD60  (&itmp64,1, 0/* k */, incr);
 	ASSERT(i == TF_PASSES, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[1,7,11,13,17,19,23,29,31,37,41,43,47,49,53,59] (mod 60).\n");
 /*

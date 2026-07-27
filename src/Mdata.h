@@ -222,7 +222,7 @@ extern char PSTRING[STR_MAX_LEN+1];	/* Number being tested in string form, typic
 #endif
 
 extern const int hex_chars[16];
-extern char cbuf[STR_MAX_LEN*2+200], g_cstr[STR_MAX_LEN];
+extern char cbuf[STR_MAX_LEN*3], g_cstr[STR_MAX_LEN];
 extern char g_in_line[STR_MAX_LEN];
 extern char *char_addr;
 extern int char_offset;
