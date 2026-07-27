@@ -2176,7 +2176,6 @@ void mers_process_chunk(
 
 #endif	// #ifdef MULTITHREAD
 
-//	const char func[] = "mers_process_chunk";
 	int radix0 = RADIX_VEC[0];
 	int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
