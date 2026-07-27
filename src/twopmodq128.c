@@ -60,9 +60,9 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	uint32 curr_bit, leadb, start_index, nshift;
 	uint64 lo64;
 	uint128 pshift, qhalf, qinv, x, lo,hi, rsqr;
-	// char_buf is local, cstr is globall available:
+	// char_buf is local, g_cstr is globally available:
 #if FAC_DEBUG
-	if(dbg) printf("twopmmodq128: computing 2^%s (mod %s)\n",&char_buf[convert_uint128_base10_char(char_buf,p)],&cstr[convert_uint128_base10_char(cstr,q)]);
+	if(dbg) printf("twopmmodq128: computing 2^%s (mod %s)\n",&char_buf[convert_uint128_base10_char(char_buf,p)],&g_cstr[convert_uint128_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 	// If p <= 128, directly compute 2^p (mod q):
