@@ -193,6 +193,26 @@ void threadpool_free(struct threadpool *pool);
 int threadpool_drain(struct threadpool *pool,
 			int blocking);
 
+/********************* utility macros: ********************/
+
+static void * xmalloc(size_t len) {
+	void *ptr = malloc(len);
+	if (ptr == NULL) {
+		printf("failed to allocate %u bytes\n", (uint32)len);
+		exit(-1);
+	}
+	return ptr;
+}
+
+static void * xcalloc(size_t num, size_t len) {
+	void *ptr = calloc(num, len);
+	if (ptr == NULL) {
+		printf("failed to calloc %u bytes\n", (uint32)(num * len));
+		exit(-1);
+	}
+	return ptr;
+}
+
 #ifdef __cplusplus
 }
 #endif
