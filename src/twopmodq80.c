@@ -738,7 +738,6 @@ z0 = 6272576; z12 = 898312175313603; z=z0+a*z12	<*** z0 is +1 too large ***
 uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 {
 #if FAC_DEBUG
-	const char func[] = "twopmodq78_3WORD_DOUBLE";
 	int dbg = 0;//(p==2147483647 && k==20269004);
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
@@ -757,7 +756,7 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 
 #if FAC_DEBUG
 	if(dbg) {
-		printf("%s with p = %" PRIu64 ", k = %" PRIu64 "\n",func,p,k);
+		printf("%s with p = %" PRIu64 ", k = %" PRIu64 "\n",__func__,p,k);
 	}
 #endif
 	ASSERT((p >> 63) == 0, "twopmodq78_q2 : p must be < 2^63!");
@@ -1128,7 +1127,7 @@ if(~pshift != p+78) {
 
 	#if FAC_DEBUG
 		if(dbg) {
-			printf("%s with p = %" PRIu64 ", k0 = %" PRIu64 ", k1 = %" PRIu64 "\n",__FUNCTION__,p,k0,k1);
+			printf("%s with p = %" PRIu64 ", k0 = %" PRIu64 ", k1 = %" PRIu64 "\n",__func__,p,k0,k1);
 		}
 	#endif
 
@@ -1183,7 +1182,7 @@ if(~pshift != p+78) {
 			#else
 				max_threads = init_sse2;
 			#endif
-				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",__FUNCTION__,max_threads);
+				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",__func__,max_threads);
 			#ifndef COMPILER_TYPE_GCC
 				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
@@ -2023,7 +2022,7 @@ if(~pshift != p+78) {
 			#else
 				max_threads = init_sse2;
 			#endif
-				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",__FUNCTION__,max_threads);
+				fprintf(stderr, "%s: Setting up for as many as %d threads...\n",__func__,max_threads);
 			#ifndef COMPILER_TYPE_GCC
 				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
