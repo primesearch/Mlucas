@@ -249,7 +249,8 @@ if(dbg) printf("twopmodq128:\n");
 			j = leadz64(pshift.d1);
 			start_index = 128-j-7;
 			/* Extract leftmost 7 bits of pshift and subtract from 127: */
-			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			/* j==0 => shift-by-64 UB; guard the cross-word term: */
+			zshift = 127 - (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 57);
 		} else {
 			j = leadz64(pshift.d0);
 			start_index =  64-j-7;
@@ -463,7 +464,7 @@ if(dbg) printf("twopmodq128x2:\n");
 			j = leadz64(pshift.d1);
 			start_index = 128-j-7;
 			/* Extract leftmost 7 bits of pshift and subtract from 127: */
-			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			zshift = 127 - (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 57);
 			pshift.d1 = ~pshift.d1;
 		}
 		else
@@ -648,7 +649,7 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 			j = leadz64(pshift.d1);
 			start_index = 128-j-7;
 			/* Extract leftmost 7 bits of pshift and subtract from 127: */
-			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			zshift = 127 - (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 57);
 			pshift.d1 = ~pshift.d1;
 		} else {
 			j = leadz64(pshift.d0);
@@ -767,7 +768,7 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		if(pshift.d1)
 		{
 			j = leadz64(pshift.d1);
-			lead7 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			lead7 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 57);
 			start_index = 128-j-7;
 			pshift.d1 = ~pshift.d1;
 		}
@@ -1023,7 +1024,7 @@ if(dbg) printf("twopmodq128_q8:\n");
 		if(pshift.d1)
 		{
 			j = leadz64(pshift.d1);
-			lead7 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			lead7 = (((pshift.d1<<j) + (j ? (pshift.d0>>(64-j)) : 0ull)) >> 57);
 			start_index = 128-j-7;
 			pshift.d1 = ~pshift.d1;
 		}
