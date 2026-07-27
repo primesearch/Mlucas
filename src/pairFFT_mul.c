@@ -101,26 +101,22 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 	double *ivec[2] = {0x0, 0x0};
 	int kblocks = n>>10, n_inputs = 0, input;
 
-	struct qfloat qtheta,qr,qi,qn,qt,qc,qs;	/* qfloats used for FFT sincos  calculation. */
+	struct qfloat qtheta/* ,qr,qi */,qn,qt,qc,qs;	/* qfloats used for FFT sincos  calculation. */
 	static int radix_set, nradsets, radix_set_save[10] = {1000,0,0,0,0,0,0,0,0,0};
-	static int radix_vec0, nchunks, modtype_save; 	// Store frequently-used RADIX_VEC[0] and modulus type on entry
+	static int radix_vec0, modtype_save; 	// Store frequently-used RADIX_VEC[0] and modulus type on entry
 	static int nradices_prim,nradices_radix0,radix_prim[30];/* radix_prim stores sequence of complex FFT radices used, in terms of their prime factors.	*/
 	static int *index = 0x0, *index_ptmp = 0x0;		/* Bit-reversal index array and array storing S*I mod N values for DWT weights.	*/
 	static int *block_index;				/* array storing the RADIX_VEC[0] data-block indices for pass-2 of the FFT.	*/
 	/* arrays storing the index values needed for the paired-block wrapper/square scheme: */
 	static int *ws_i,*ws_j1,*ws_j2,*ws_j2_start,*ws_k,*ws_m,*ws_blocklen,*ws_blocklen_sum;
-	int i,ii,ierr,j,jhi,k,l,m,mm,k2,m2,l1,l2,l2_start,blocklen,blocklen_sum,outer,retval;
-	static double n2inv,radix_inv;
+	int i,ii,ierr,j,jhi,k,l,m,mm,l1,l2,l2_start,blocklen,blocklen_sum,outer,retval;
+	static double radix_inv;
 	/* roots of unity table pairs needed for FFT: */
 	static struct complex *rt0 = 0x0, *rt0_ptmp = 0x0, *rt1 = 0x0, *rt1_ptmp = 0x0;
-	double ftmp, re,im, cy_re,cy_im, frac, fracmax;
+	double fracmax;
 	char char_str[STR_MAX_LEN];
 	static int first_entry=TRUE;		/* Master variable controlling whether the init sequences in subroutines get done (.true.) or not.	*/
 	char *char_addr;
-
-	/* These came about as a result of multithreading, but now are needed whether built unthreaded or multithreaded */
-	static int init_sse2 = FALSE;
-	int thr_id = -1;	// No multithread support yet.
 
 	ASSERT(((uint32)FFT_MUL_BASE >> 16) == 1, "FFT_MUL_BASE != 2^16");
 
@@ -142,7 +138,6 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		free((void *)index_ptmp); index_ptmp = 0x0; index = 0x0;
 
 		N2 =n/2;		/* Complex vector length.	*/
-		n2inv = 1.0/(N2);
 
 		/* Only power-of-2 FFT lengths supported for now: */
 		ASSERT((n>>trailz32(n)) == 1,"Only power-of-2 FFT lengths supported!");
@@ -151,7 +146,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		// to find how many different radsets available at this length, then loop over them (including the 0-one)
 		// in order to find the first one satisfying the radix-set constraints of this routine [carry-radix = 16
 		// or 32, dyad-mul-surrounding radix = 16]:
-		radix_set = -1;	retval = get_fft_radices(n>>10, radix_set, &nradsets, RADIX_VEC, 10);
+		radix_set = -1;	retval = get_fft_radices(n>>10, radix_set, (uint32_t *)&nradsets, RADIX_VEC, 10);
 		for(radix_set = 0; radix_set < nradsets; radix_set++) {
 			/* This call sets NRADICES and the first (NRADICES) elements of RADIX_VEC: */
 			retval = get_fft_radices(n>>10, radix_set, &NRADICES, RADIX_VEC, 10);
@@ -174,7 +169,6 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		ASSERT(radix_set < nradsets, "Unable to find suitable radix set!");
 		radix_vec0 = RADIX_VEC[0];
 		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)radix_vec0));
-		nchunks = radix_vec0>>1;
 
 		/* My array padding scheme requires N/radix_vec0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
@@ -427,8 +421,8 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 
 		qt     = i64_to_q((int64)N2);
 		qtheta = qfdiv(Q2PI, qt);	/* 2*pi/(N/2) */
-		qr     = qfcos(qtheta);
-		qi     = qfsin(qtheta);
+		/* qr     = qfcos(qtheta); */
+		/* qi     = qfsin(qtheta); */
 		qc = QONE; qs = qt = QZRO;	/* init sincos multiplier chain. */
 		for(i = 0; i < NRT; i++) {
 			qc = qfcos(qt);	rt0[i].re = qfdbl(qc);
@@ -450,8 +444,8 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		qt     = i64_to_q((int64)N2);
 		qt     = qfdiv(qn, qt);		/*      NRT/(N/2) */
 		qtheta = qfmul(Q2PI, qt);	/* 2*pi*NRT/(N/2) */
-		qr     = qfcos(qtheta);
-		qi     = qfsin(qtheta);
+		/* qr     = qfcos(qtheta); */
+		/* qi     = qfsin(qtheta); */
 		qc     = QONE; qs = qt = QZRO;	/* init sincos multiplier chain. */
 		for(i=0; i<(N2/NRT); i++) {
 			qc = qfcos(qt);	rt1[i].re = qfdbl(qc);

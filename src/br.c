@@ -31,7 +31,7 @@
 void print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q)
 {
 	const uint32 n2 = n>>1, n4 = n>>2, n8 = n>>3, lgn = trailz32(n),lgp = trailz32(p), lgq = trailz32(q);
-	uint32 pow2,odd, re_im_idx, sigma,signs;
+	uint32 pow2,odd, re_im_idx, signs;
 	int i,ir,j,k,pow;
 	const char csigns[2] = {'+','-'};
 	const char re_im[2] = {'c','s'};
