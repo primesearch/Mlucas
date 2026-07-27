@@ -360,7 +360,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy128_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy128_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -2669,8 +2669,8 @@ void radix128_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy128_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	cy128_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 	#ifdef USE_SSE2
@@ -3240,7 +3240,7 @@ void radix128_dit_pass1(double a[], int n)
 		{
 			thread_arg->maxerr = maxerr;
 		}
-		return 0x0;
+		return;
 	}
 #endif
 

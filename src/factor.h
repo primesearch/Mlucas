@@ -315,8 +315,8 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 	// Top-level routines for CPU-parallel and GPU-side sieving and testing of resulting factor candidates:
 #ifdef MULTITHREAD
 
-	void*				// Thread-arg pointer *must* be cast to void and specialized inside the function
-	PerPass_tfSieve(void*thread_arg);
+	void				// Thread-arg pointer *must* be cast to void and specialized inside the function
+	PerPass_tfSieve(void*thread_arg, int thread_num);
 
 #else
 
