@@ -66,7 +66,7 @@ me at: heber.tomer@gmail.com
 #include "util.h"	// This is to get (or not) <hwloc.h>
 
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
-	#include <windows.h>	// Windows CPU-affinity API (SetThreadGroupAffinity() etc.); see the affinity branch below.
+	#include <windows.h>	// Windows CPU-affinity API; see the affinity branch below for details.
 #endif
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
