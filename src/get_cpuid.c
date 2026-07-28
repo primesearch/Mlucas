@@ -465,7 +465,10 @@
 	#ifdef USE_AVX
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-		if(c & 0x18000000) {			// CPU supports AVX?
+		// Both bits must be lit, so - just as in has_avx2() below - can't use an "is result of AND nonzero?"-style
+		// check here: XGETBV faults with #UD unless OSXSAVE (bit 27) is set, so an OR-test would crash this very
+		// probe on an AVX-capable CPU whose OS has not enabled XSAVE:
+		if((c & 0x18000000) == 0x18000000) {	// CPU supports AVX and OS has enabled XGETBV?
 			XGETBV(0,a,d);
 			return (a & 0x6) == 0x6;	//  OS supports AVX?
 		} else {
@@ -479,8 +482,11 @@
 	// May 2015: Build-for-valgrind gives bad FMA-flag result on my Haswell/debian(v6)/gcc-4.4.5:
 	// a,b,c,d = 000206A7,00100800,1F9AE3BF,BFEBFBFF
     //                                 ^ lowest bit in E = 0, expect 1!
-	/* AVX2 requires us to check both AVX and FMA support, the former of which described in has_avx() and
-	the latter of which is encoded in bit 12 of ECX returned by calling CPUID with input EAX = 1: */
+	/* AVX2 requires us to check AVX and FMA support - the former of which described in has_avx() and the latter of
+	which is encoded in bit 12 of ECX returned by calling CPUID with input EAX = 1 - *and* the AVX2 feature flag
+	itself, which is CPUID.(EAX=07H, ECX=0):EBX.AVX2[bit 5]. Checking only AVX+FMA is not enough: the AMD Bulldozer
+	family from Piledriver onward (FX-83xx/FX-9xxx, A10-6800K, Steamroller, Excavator) supports AVX and FMA3 but
+	has no AVX2, and would be falsely reported as AVX2-capable: */
 	uint32	has_avx2()
 	{
 	#ifdef USE_AVX
@@ -490,7 +496,13 @@
 		// Since checking for > 1 lit bits here, can't simply use "is result of AND nonzero?)-style check as above:
 		if((c & 0x18001000) == 0x18001000) {			// CPU supports AVX+FMA?
 			XGETBV(0,a,d);
-			return (a & 0x6) == 0x6;	//  OS supports AVX?
+			if((a & 0x6) == 0x6) {		//  OS supports AVX?
+				CPUID(7,0,a,b,c,d);
+			//	printf("has_avx2: CPUID(7,0) returns [b] = %8X\n",b);
+				return (b & 0x20) != 0;	// CPU supports AVX2?
+			} else {
+				return 0;
+			}
 		} else {
 			return 0;
 		}
@@ -528,6 +540,11 @@
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
 		printf("has_imci512: CPUID(1,0) returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
+		// IMCI-512 has no CPUID feature-flag bit of its own, and a k1om binary can only execute on the 1st-gen
+		// Xeon Phi (KNF,KNC) which implements it, so the compile-time target is the detection. Must return
+		// *something* here: falling off the end of a non-void function is UB, and the caller (util.c) uses the
+		// value to decide between "INFO: Build uses k1om" and ASSERT(0):
+		return 1;
 	#else
 		return 0;
 	#endif
