@@ -289,6 +289,12 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 				 	sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
 				 	sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
 				 	sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
+#elif defined(MULTITHREAD)
+	// Threaded builds need no radix-7 trig consts at this scope: the per-thread copies live in
+	// cy_thread_data_t and are set up in the worker. This branch exists so that the #error below
+	// still catches genuinely unhandled flag combinations rather than being deleted outright.
+#else
+	#error Unhandled combination of preprocessor flags!	// Just in case I ever 'decide' to leave some holes in the above PP logic tree
 #endif
 	double scale,dtmp, maxerr = 0.0;
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
