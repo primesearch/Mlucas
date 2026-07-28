@@ -2,6 +2,8 @@
 
 This page expands on the [Performance tuning](../README.md#performance-tuning) section of the main README with worked `-cpu`/`-core` examples for various CPU topologies, and a template multi-instance launch script.
 
+Linux users: the [Mlucas install script](https://github.com/tdulcet/Distributed-Computing-Scripts#mlucas) automates everything on this page for you — it benchmarks instance/thread-count combinations and writes a `jobs.sh` launch script for the fastest one it finds, so most Linux users won't need to work through the manual steps below at all.
+
 If you built with `use_hwloc` (see [Build](../README.md#build)), skip straight to [Using `-core`](#using--core) — it removes the vendor-specific reasoning below entirely. The rest of this page is for builds without hwloc, or for understanding what `-core` is doing for you under the hood.
 
 ## Using `-core`
@@ -23,62 +25,62 @@ Because vendor-specific logical-core numbering no longer matters, the rest of th
 
 Because the same-looking `-cpu` range means something different on the two vendors, benchmark both interpretations on unfamiliar hardware rather than assuming:
 
-```
-./Mlucas -s m -cpu 0:1 >& test0.log        # "2 physical cores, 1 thread each" on Intel / "1 physical core, both threads" on AMD
+```sh
+./Mlucas -s m -cpu 0:1 > test0.log 2>&1        # "2 physical cores, 1 thread each" on Intel / "1 physical core, both threads" on AMD
 mv mlucas.cfg mlucas.cfg.a
-./Mlucas -s m -cpu 0:3:2 >& test1.log      # the other interpretation
+./Mlucas -s m -cpu 0:3:2 > test1.log 2>&1      # the other interpretation
 mv mlucas.cfg mlucas.cfg.b
 ```
 Compare the `sec/iter`/`msec/iter` figures across FFT lengths in the two `.cfg` files and symlink the faster one to `mlucas.cfg`:
-```
+```sh
 ln -s mlucas.cfg.a mlucas.cfg   # or mlucas.cfg.b, whichever won
 ```
 
 ### Non-hyperthreaded x86 (Intel or AMD)
 
 No SMT ambiguity — just assign contiguous physical cores per instance. For a 12-core system running three 4-thread instances:
-```
+```sh
 mkdir run0 run1 run2
-cp obj/mlucas.cfg run0/ run1/ run2/
-cd run0 && nohup ../obj/Mlucas -maxalloc 50 -cpu 0:3 &
-cd ../run1 && nohup ../obj/Mlucas -maxalloc 50 -cpu 4:7 &
-cd ../run2 && nohup ../obj/Mlucas -maxalloc 50 -cpu 8:11 &
+ln -s obj/mlucas.cfg run0/ run1/ run2/
+cd run0 && nohup ../obj/Mlucas -maxalloc 33 -cpu 0:3 &
+cd ../run1 && nohup ../obj/Mlucas -maxalloc 33 -cpu 4:7 &
+cd ../run2 && nohup ../obj/Mlucas -maxalloc 33 -cpu 8:11 &
 ```
 
 ### Hyperthreaded Intel, core count a multiple of 4
 
 Benchmark 4-thread-per-instance vs. 8-thread-per-instance (4 physical cores + their hyperthreads) first:
-```
-./Mlucas -s m -cpu 0:3 >& test0.log            # 4 physical cores, no HT
+```sh
+./Mlucas -s m -cpu 0:3 > test0.log 2>&1            # 4 physical cores, no HT
 mv mlucas.cfg mlucas.cfg.4c4t
-./Mlucas -s m -cpu 0:3,12:15 >& test1.log      # same 4 cores + their HT siblings (n=12 physical cores here)
+./Mlucas -s m -cpu 0:3,12:15 > test1.log 2>&1      # same 4 cores + their HT siblings (n=12 physical cores here)
 mv mlucas.cfg mlucas.cfg.4c8t
 ```
 Then launch instances using whichever won, e.g. for a 12c/24t system where 4c/8t was faster:
-```
+```sh
 mkdir run0 run1 run2
-cp obj/mlucas.cfg run0/ run1/ run2/   # the winning mlucas.cfg.4c8t, renamed
-cd run0 && nohup ../obj/Mlucas -maxalloc 50 -cpu 0:3,12:15 &
-cd ../run1 && nohup ../obj/Mlucas -maxalloc 50 -cpu 4:7,16:19 &
-cd ../run2 && nohup ../obj/Mlucas -maxalloc 50 -cpu 8:11,20:23 &
+ln -s obj/mlucas.cfg run0/ run1/ run2/   # the winning mlucas.cfg.4c8t, renamed
+cd run0 && nohup ../obj/Mlucas -maxalloc 33 -cpu 0:3,12:15 &
+cd ../run1 && nohup ../obj/Mlucas -maxalloc 33 -cpu 4:7,16:19 &
+cd ../run2 && nohup ../obj/Mlucas -maxalloc 33 -cpu 8:11,20:23 &
 ```
 
 ### Hyperthreaded AMD, core count a multiple of 4
 
 AMD's adjacent-pair SMT numbering means the "no-HT" benchmark uses a stride-2 range instead:
-```
-./Mlucas -s m -cpu 0:7:2 >& test0.log     # 4 physical cores, one thread each
+```sh
+./Mlucas -s m -cpu 0:7:2 > test0.log 2>&1     # 4 physical cores, one thread each
 mv mlucas.cfg mlucas.cfg.4c4t
-./Mlucas -s m -cpu 0:7 >& test1.log       # same 4 cores, both SMT threads each
+./Mlucas -s m -cpu 0:7 > test1.log 2>&1       # same 4 cores, both SMT threads each
 mv mlucas.cfg mlucas.cfg.4c8t
 ```
 For a 12c/24t AMD system where 4c/8t won:
-```
+```sh
 mkdir run0 run1 run2
-cp obj/mlucas.cfg run0/ run1/ run2/
-cd run0 && nohup ../obj/Mlucas -maxalloc 50 -cpu 0:7 &
-cd ../run1 && nohup ../obj/Mlucas -maxalloc 50 -cpu 8:15 &
-cd ../run2 && nohup ../obj/Mlucas -maxalloc 50 -cpu 16:23 &
+ln -s obj/mlucas.cfg run0/ run1/ run2/
+cd run0 && nohup ../obj/Mlucas -maxalloc 33 -cpu 0:7 &
+cd ../run1 && nohup ../obj/Mlucas -maxalloc 33 -cpu 8:15 &
+cd ../run2 && nohup ../obj/Mlucas -maxalloc 33 -cpu 16:23 &
 ```
 
 (The odd-multiple-of-2 core-count cases follow the same pattern with narrower ranges — benchmark both interpretations and use whichever gives faster `sec/iter` numbers.)
@@ -95,8 +97,8 @@ Apple Silicon is a special case: there is currently no reliable way to pin an Ml
 
 ## Finding optimal parameters for a single FFT length
 
-If you need tuning data for one FFT length not covered by the standard self-test tiers:
-```
+The standard self-test tiers already cover every supported FFT length, so this is not usually needed — but if you want tuning data for just one specific FFT length rather than a whole tier:
+```sh
 ./Mlucas -fft {n}[K|M] -iters {100|1000|10000} [-core or -cpu args]
 ```
 This appends one line to `mlucas.cfg` for that length. See [help.txt](../help.txt) section `[2]` for the full FFT-length argument syntax.
