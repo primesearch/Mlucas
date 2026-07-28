@@ -1079,8 +1079,10 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	each corresponding semiprime q*psmall is hit in the remapped stage 2 interval:
 	*/
 	pm1_check_bounds();	// This sanity-checks the bounds and sets B2_start = B1 if unset.
-	if(B2_start == B1 && B2 >= B1*psmall) {	// It's possible user running a S2 with B2/psmall < B1, hence the 2nd clause
-		reloc_start = psmall*B1;				// Start including relocation-semiprimes once S2 passes this point, and
+	// Note the (uint64) casts: B1 and psmall are both 32-bit, so their product must be widened before
+	// multiplying, else it wraps for B1 > 2^32/psmall, silently corrupting reloc_start and B2_start:
+	if(B2_start == B1 && B2 >= (uint64)B1*psmall) {	// It's possible user running a S2 with B2/psmall < B1, hence the 2nd clause
+		reloc_start = (uint64)psmall*B1;		// Relocation-semiprimes start appearing at this point, and
 		B2_start = MIN(reloc_start, B2/psmall);	// shift B2_start upward to reflect the fact that primes in [B1,B2/psmall]
 												// will be relocated to [B1*psmall,B2].
 	} else {	// In the case of a standalone S2 interval (B2_small > B1), set psmall = 0 and reloc_start = UINT64_MAX:
@@ -1088,7 +1090,20 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	}
 	sprintf(cbuf,"Using B2_start = %" PRIu64 ", B2 = %" PRIu64 ", Bigstep = %u, M = %u\n",B2_start,B2,bigstep,m);
 	mlucas_fprint(cbuf,pm1_standlone+1);
-	uint32 reloc_on = FALSE;	// Gets switched to TRUE (= start using semiprimes which are multiples of psmall) when q > reloc_start
+	/* Whether to include relocation-semiprimes (multiples of psmall whose cofactor is prime) when tagging
+	the primes of each new D-interval entering the pairing bitmap. This must be enabled for the very first
+	interval tagged, rather than switched on partway through the q-loop: intervals are tagged (m2+1) passes
+	before they get processed, the interval tagged on pass q being the one centered on q + (m2+1)*D, so a
+	gate based on the loop variable q engages relocation (m2+1) intervals (plus a further D/2 due to the
+	interval's own width) too late, silently skipping the first ((m2+1)*D + D/2)/psmall primes above B1.
+	Tagging relocation-semiprimes psmall*p with p < B1 is harmless - such p are already in the stage 1
+	prime-product, and psmall*p is composite so nothing is lost by testing p in its place - so simply
+	enable relocation for the whole sweep whenever we are doing relocation at all: */
+	uint32 reloc_on = (psmall != 0);
+	if(reloc_on) {
+		sprintf(cbuf,"Small-prime relocation enabled: semiprimes %u*p start appearing at q = %" PRIu64 "\n",psmall,reloc_start);
+		mlucas_fprint(cbuf,pm1_standlone+1);
+	}
 
 	// Oct 2021: For small q0 and large #bufs, qlo can underflow, so check!
 	q0 = B2_start + bigstep - B2_start%bigstep;
@@ -1110,6 +1125,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// May 2021: Added support for M even:
 	m_is_odd = IS_ODD(m);
 	m_is_even = !m_is_odd;
+	m2 = m/2;	// If m odd, m2 = (m-1)/2 = # of D-interval on either side of the central 0-interval
 	ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for p-1!\n");	// Need BASE_MULTIPLIER_BITS array = 0 for modmuls below!
 	// Alloc the needed memory:
   #ifndef PM1_STANDALONE
@@ -1765,6 +1781,26 @@ MME = 0;
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
 	}
+	/* The prime-pairing bitmap map[] is stateful across passes of the q-loop below: a D-interval's primes
+	are tagged in the bitmap when the interval enters at the top of the extended-match window, but any of
+	them left unpaired are only processed (and the interval retired) once it has shifted m2 slots down the
+	map, m2 passes later. map[] is *not* part of the .s2 savefile, so on a restart the m2 D-intervals just
+	below the resume point would never be re-tagged, and their as-yet-unprocessed unpaired primes would be
+	skipped by the pre-interrupt and the post-restart run alike - a silent hole ~m2*D/ln(B2) primes wide,
+	fresh with each restart, and stage 2 gets restarted from its savefile not only by the user but also by
+	the roundoff-error FFT-length bump and the carry-error retry. Rather than grow the savefile format,
+	simply redo those m2 intervals, backing the resume point up by m2*D but no further than the original
+	stage 2 starting point. Redoing already-accumulated prime pairs is harmless: it only multiplies the
+	stage 2 accumulator by terms it already contains, which cannot remove a prime factor from the product,
+	hence cannot lose a factor. Cost is m2 extra D-blocks per restart. */
+	if(qlo > B2_start) {	// True only on a savefile-restart; a fresh stage 2 has qlo == B2_start
+		if(qlo > B2_start + (uint64)m2*bigstep)
+			qlo -= (uint64)m2*bigstep;
+		else
+			qlo = B2_start;
+		sprintf(cbuf,"Stage 2 restart: backing resume point up to q = %" PRIu64 " to re-cover the %u D-intervals whose pairing-bitmap state the savefile does not preserve.\n",qlo,m2);
+		mlucas_fprint(cbuf,pm1_standlone+1);
+	}
 	/* [b] Stage 2 starts at q0, the smallest multiple of D nearest but not exceeding qlo + D/2;
 	once have that, compute k0 = q0/D: */
 	q0 = qlo + bigstep - qlo%bigstep;
@@ -1800,7 +1836,6 @@ MME = 0;
 	of each word correspond to singleton (in the sense that the corr. q2 is composite) q1 = (q - b[i])'s relative
 	to the center of each of the M D-intervals, the hi bits to the q2 = (q + b[i])'s.
 	*/
-	m2 = m/2;	// If m odd, m2 = (m-1)/2 = # of D-interval on either side of the central 0-interval
 	/*
 	We save ourselves some awkward preprocessing by starting the stage 2 loop such that at end of the first loop pass,
 	the D-interval centered on q0 (M odd) or just left of q0 (M even) enters the as the new upper-interval.
@@ -2051,11 +2086,6 @@ MME = 0;
 	qhi = (B2 + m*bigstep);
 	for(q = qlo; q < qhi; q += bigstep)
 	{
-		if(!reloc_on && q >= reloc_start) {	// Start including relocation-semiprimes once S@ passes this point
-			reloc_on = TRUE;
-			sprintf(cbuf,"Hit q = %" PRIu64 " >= reloc_start[%" PRIu64 "] ... enabling small-prime relocation.\n",q,reloc_start);
-			mlucas_fprint(cbuf,pm1_standlone+1);
-		}
 		// Only start actual 0-interval and extended-window pairing when q hits q0:
 		if(q >= q0) {
 		  if(m_is_odd) {	// prime-pairing between lo|hi halves of 0-interval only done if M odd
