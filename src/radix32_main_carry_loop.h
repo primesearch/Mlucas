@@ -59,15 +59,14 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	if(MODULUS_TYPE == MODULUS_TYPE_GENFFTMUL)
 	{
-		// TODO: 'addi' use is commented out since 'genfftmul_carry_norm_pow2_errcheck' doesn't use its cy parameter in its current implementation
-		l = 0; addr = (double *)cy_r; //addi = (double *)cy_i;
+		l = 0; addr = (double *)cy_r; addi = (double *)cy_i;
 		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
 							// Indices in rightmost col are debug-usage only: vvv
-			genfftmul_carry_norm_pow2_errcheck(a[jt    ],a[jp    ],*addr,*addi,l); ++l; ++addr; //++addi;
-			genfftmul_carry_norm_pow2_errcheck(a[jt+p01],a[jp+p01],*addr,*addi,l); ++l; ++addr; //++addi;
-			genfftmul_carry_norm_pow2_errcheck(a[jt+p02],a[jp+p02],*addr,*addi,l); ++l; ++addr; //++addi;
-			genfftmul_carry_norm_pow2_errcheck(a[jt+p03],a[jp+p03],*addr,*addi,l); ++l; ++addr; //++addi;
+			genfftmul_carry_norm_pow2_errcheck(a[jt    ],a[jp    ],*addr,*addi,l); ++l; ++addr; ++addi;
+			genfftmul_carry_norm_pow2_errcheck(a[jt+p01],a[jp+p01],*addr,*addi,l); ++l; ++addr; ++addi;
+			genfftmul_carry_norm_pow2_errcheck(a[jt+p02],a[jp+p02],*addr,*addi,l); ++l; ++addr; ++addi;
+			genfftmul_carry_norm_pow2_errcheck(a[jt+p03],a[jp+p03],*addr,*addi,l); ++l; ++addr; ++addi;
 		}
 	// continue;	// For gen-FFT case, only expect one mul at a time, rather than primality-test-style
 					// one-mul-after-another, thus skip the ensuing first-passof-fFFT stuff
