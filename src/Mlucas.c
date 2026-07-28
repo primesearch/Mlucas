@@ -6355,7 +6355,8 @@ Returns: The number of factors read in.
 */
 uint32 extract_known_factors(uint64 p, char *fac_start) {
 	uint32 i, findex, lenf, nchar, nfac = 0;
-	uint64 *fac = 0x0, twop[4], quo[4],rem[4];	// fac = ptr to each mi64-converted factor input string;
+	uint64 *fac = 0x0, *kfac = 0x0, twop[4], quo[4],rem[4];	// fac = ptr to each mi64-converted factor input string;
+											// kfac = ptr to the KNOWN_FACTORS[] slot that factor was just stored in;
 	uint256 p256,q256,res256;
 	char *cptr = fac_start+1;
 	ASSERT(fac_start[0] == '\"',"Known-factors line of worktodo must consist of a comma-separated list of such enclosed in double-quotes!");
@@ -6391,15 +6392,23 @@ uint32 extract_known_factors(uint64 p, char *fac_start) {
 		mi64_set_eq(KNOWN_FACTORS + 4*nfac++,fac,lenf);
 		// Verify that F is a base-3 Fermat-PRP via binary modpow, 3^(q-1) == 1 (mod q):
 		ASSERT(mi64_pprimeF(fac,3ull,lenf),"Factor-is-base-3-PRP check fails!");
-		// Verify that it's a factor via binary modpow:
+		// Verify that it's a factor via binary modpow. Must test the factor we just parsed, which the above
+		// mi64_set_eq stored - zero-padded to 4 limbs - in slot (nfac-1), *not* KNOWN_FACTORS[0..3]: using the
+		// latter made the check a no-op for every factor after the first, so a non-dividing 2nd..10th factor
+		// was only caught much later, by the C = N/F remainder ASSERT in Suyama_CF_PRP:
+		kfac = KNOWN_FACTORS + 4*(nfac-1);
 		p256.d0 = p; p256.d1 = p256.d2 = p256.d3 = 0ull;
-		q256.d0 = KNOWN_FACTORS[0];	q256.d1 = KNOWN_FACTORS[1];	q256.d2 = KNOWN_FACTORS[2];	q256.d3 = KNOWN_FACTORS[3];
+		q256.d0 = kfac[0];	q256.d1 = kfac[1];	q256.d2 = kfac[2];	q256.d3 = kfac[3];
 		res256 = twopmmodq256(p256,q256);
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
-			ASSERT(CMPEQ256(res256,ONE256),"Factor-divides-modulus check fails!");
+			i = CMPEQ256(res256,ONE256);
 		} else {
 			res256.d0 += 1ull;	// Fermat case: check that 2^p == -1 == q - 1 (mod q):
-			ASSERT(CMPEQ256(res256,q256),"Factor-divides-modulus check fails!");
+			i = CMPEQ256(res256,q256);
+		}
+		if(!i) {
+			snprintf(g_cstr,sizeof(g_cstr),"%s: known-factor #%u [%s] of this assignment does not divide the modulus ... please correct or remove that entry.",WORKFILE,nfac,cbuf);
+			ASSERT(0,g_cstr);
 		}
 		// If find any duplicate-entries in input list, warn & remove:
 		if(nfac > 1) {
