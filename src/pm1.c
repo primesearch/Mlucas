@@ -1465,7 +1465,7 @@ fprintf(stderr,"#1: vec1 = A^+1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ";
 		fp = mlucas_fopen(inv_file, "wb");
 		if(fp) {
 			write_ppm1_savefiles(inv_file,p,n,fp, 0ull, (uint8*)vec2,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
-			fclose(fp);	fp = 0x0;
+			close_savefile(inv_file,fp);	fp = 0x0;
 		} else {
 			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",inv_file);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
@@ -1720,7 +1720,7 @@ MME = 0;
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s2");
 	// [From the above p-1 savefile schema] 3. On entry, S2 checks for existence of ".s2" savefile:
-	fp = mlucas_fopen(savefile,"r");
+	fp = mlucas_fopen(savefile,"rb");	// v21: the .s2 savefile is binary (written "wb"); text mode mangles it on Windows
 	// o If exists, read nsquares field into uint64 qlo, mask off high byte (which stores the value of any relocation-prime
 	// psmall used for stage 2), compare vs original-assignment B2_start read (or inferred, as B2_start = B1) from worktodo entry:
 	if(fp) {												// G-check residue fields all set NULL in this call:
@@ -2461,7 +2461,7 @@ MME = 0;
 				// q won't get += bigstep until we loop, so here, (q + bigstep) is the q-value corr. to just-incremented k.
 				// Also write any relocation-prime psmall into high bit of the resulting nsquares field:
 				write_ppm1_savefiles(savefile,p,n,fp, ((uint64)psmall<<56) + q + bigstep, (uint8*)arrtmp,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
-				fclose(fp);	fp = 0x0;
+				close_savefile(savefile,fp);	fp = 0x0;
 			} else {
 				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",savefile);
 				mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
