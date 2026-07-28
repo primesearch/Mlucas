@@ -72,9 +72,8 @@ jobs:
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
                             # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
                 )
@@ -149,9 +148,8 @@ jobs:
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
                             # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
                 )
@@ -447,9 +445,8 @@ jobs:
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
                             # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
                 )
@@ -521,9 +518,8 @@ jobs:
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
                         else
                             # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
                 )
@@ -669,9 +665,8 @@ jobs:
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
                         # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                        # factors <= 2^20 so the pass is quick. Assert the marker, tolerate exit status.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                        grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
+                        # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20
                     fi
                 )
             done
