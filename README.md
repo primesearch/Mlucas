@@ -48,7 +48,7 @@ The original [Mlucas README](https://mersenneforum.org/mayer/README.html) is ava
 * [Automatic method](#automatic-method)
 * [Manual method](#manual-method)
   * [Download](#download)
-  * [Installing GMP and HWLOC](#installing-gmp-and-hwloc)
+  * [Installing GMP and hwloc](#installing-gmp-and-hwloc)
   * [Build](#build)
   * [Common Build Issues and Workarounds](#common-build-issues-and-workarounds)
 * [Basic build self-test](#basic-build-self-test)
@@ -56,7 +56,6 @@ The original [Mlucas README](https://mersenneforum.org/mayer/README.html) is ava
 * [Getting exponents from PrimeNet](#getting-exponents-from-primenet)
 * [Sending results to PrimeNet](#sending-results-to-primenet)
 * [Savefile format](#savefile-format)
-* [Tracking your contribution](#tracking-your-contribution)
 * [Further documentation](#further-documentation)
 
 ## Prerequisites
@@ -72,7 +71,7 @@ Dependencies:
 
 Use `which <tool>` (e.g. `which gcc`, `which gdb`) to check whether a given piece is already installed; most Linux distributions and macOS releases already include Make and a C compiler. `gdb` is a nice-to-have if you ever need to debug a crash (see [Common Build Issues](#common-build-issues-and-workarounds)).
 
-GMP is used to take the GCDs that extract factors from P-1 residues; build without it (`no_gmp`, see [Build](#build)) and P-1 factoring still runs, but won't identify factors it finds. HWLOC is recommended starting with v21: it lets Mlucas resolve physical-core/thread topology itself via the new `-core` flag, removing the need to know your CPU vendor's logical-core numbering scheme (see [Basic build self-test](#basic-build-self-test)).
+GMP is used to take the GCDs that extract factors from P-1 residues; build without it (`no_gmp`, see [Build](#build)) and P-1 factoring still runs, but won't identify factors it finds. hwloc is recommended starting with v21: it lets Mlucas resolve physical-core/thread topology itself via the new `-core` flag, removing the need to know your CPU vendor's logical-core numbering scheme (see [Basic build self-test](#basic-build-self-test)).
 
 ## Windows Users
 
@@ -111,9 +110,12 @@ Native Windows builds are experimental. For now, Windows users should use the [W
 3. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
 4. To download AutoPrimeNet, run: `wget -nv https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`.
 
-### Installing GMP and HWLOC
+### Installing GMP and hwloc
 
-If your package manager doesn't have `libgmp-dev`/`gmp-devel`/`hwloc` packages (see the OS-specific commands above), or you need a newer version than your distro ships:
+Almost all package managers already include GMP and hwloc, as listed in the [Download](#download) section above. The following is only needed if your package manager doesn't have `libgmp-dev`/`gmp-devel`/`hwloc` packages, or you need a newer version than your distro ships:
+
+<details>
+<summary>Building GMP and hwloc from source</summary>
 
 **GMP** (mandatory for P-1 factor extraction): download the current `.tar.xz` from [gmplib.org](https://gmplib.org/), then:
 ```
@@ -125,18 +127,30 @@ make check
 make install   # re-run with sudo if you get a 'permission denied' error
 ```
 
-**HWLOC** (recommended since v21, for the `-core` affinity flag and for visualizing hardware topology, especially on manycore and hybrid big.LITTLE-style processors): most distros package it as `hwloc`/`libhwloc-dev`/`hwloc-devel`. If your package manager can't find the header, look for a `-dev`/`-devel` variant of the package (e.g. Ubuntu's runtime `hwloc` package is separate from the `libhwloc-dev` package that provides `hwloc.h`). Once installed, the `lstopo` command-line tool (occasionally packaged as `lstopo-no-graphics`) can render your machine's topology, e.g. `lstopo my_machine.svg`, which is useful when choosing `-core`/`-cpu` arguments by hand.
+**hwloc** (recommended since v21, for the `-core` affinity flag and for visualizing hardware topology, especially on manycore and hybrid big.LITTLE-style processors): most distros package it as `hwloc`/`libhwloc-dev`/`hwloc-devel`. If your package manager can't find the header, look for a `-dev`/`-devel` variant of the package (e.g. Ubuntu's runtime `hwloc` package is separate from the `libhwloc-dev` package that provides `hwloc.h`). Once installed, the `lstopo` command-line tool (occasionally packaged as `lstopo-no-graphics`) can render your machine's topology, e.g. `lstopo my_machine.svg`, which is useful when choosing `-core`/`-cpu` arguments by hand.
+
+</details>
 
 ### Build
 
 1. Change into the `Mlucas` directory. Run: `cd Mlucas` or `cd Mlucas-main` depending on which method one used to download it.
 2. Run:
 	* To build Mlucas: `bash makemake.sh [SIMD mode] [use_hwloc] [no_gmp]`.
-	* To build Mfactor: `bash makemake.sh mfac [word]`, where `word` is optionally one of `1word`, `2word`, `3word`, `4word` or `nword`.
+	* To build Mfactor: `bash makemake.sh mfac [SIMD mode] [no_gmp] [word]`, where `word` is optionally one of `1word`, `2word`, `3word`, `4word` or `nword`.
 
-	(The bracketed arguments above are all optional and order-independent — mix and match as needed, e.g. `bash makemake.sh mfac avx2 2word`.)
+	(The bracketed arguments above are all optional, case-insensitive and order-independent — mix and match as needed, e.g. `bash makemake.sh mfac avx2 2word`.)
 
-By default `makemake.sh` auto-detects the highest SIMD mode your build host supports (AVX-512, AVX2, AVX, SSE2 on x86_64; ASIMD on Armv8) by probing `/proc/cpuinfo` on Linux, `sysctl` on macOS, or compiling a small feature-detection program on other platforms, and falls back to a scalar-double build if none is recognized. To cross-compile or target a different mode than the host's, pass one of `avx512`, `avx2`, `avx`, `sse2` (x86_64), `asimd` (Armv8), `k1om` (first-generation Xeon Phi/Knights Corner), or `nosimd` explicitly as the first argument, e.g. `bash makemake.sh avx2`. Add `use_hwloc` to link against libhwloc and enable the `-core` flag, or `no_gmp` to build without linking GMP (P-1 factoring will then run, but skip taking GCDs to extract factors from the resulting residue).
+	`word` sets the maximum size of the exponent `p` and candidate factor `q` Mfactor can trial-factor, per this table (bit limits from `src/Mdata.h`):
+
+	| `word` | Max exponent `p` (bits) | Max factor `q` (bits) |
+	| --- | ---: | ---: |
+	| (none, default = `1word`) | 57 | 96 |
+	| `2word` | 114 | 128 |
+	| `3word` | 178 | 192 |
+	| `4word` | 242 | 256 |
+	| `nword` (arbitrary-precision, needs GMP) | effectively unlimited | effectively unlimited |
+
+By default `makemake.sh` auto-detects the highest SIMD mode your build host supports (AVX-512, AVX2, AVX, SSE2 on x86_64; ASIMD on Armv8) by probing `/proc/cpuinfo` on Linux, `sysctl` on macOS, or compiling a small feature-detection program on other platforms, and falls back to a scalar-double build if none is recognized. For maximum performance, don't manually specify a SIMD mode — let auto-detection pick the best one for your hardware; only pass one explicitly when cross-compiling for a different target than the build host. To cross-compile or target a different mode than the host's, pass one of `avx512`, `avx2`, `avx`, `sse2` (x86_64), `asimd` (Armv8), `k1om` (first-generation Xeon Phi/Knights Corner), or `nosimd` explicitly as the first argument, e.g. `bash makemake.sh avx2`. Add `use_hwloc` to link against libhwloc and enable the `-core` flag, or `no_gmp` to build without linking GMP (P-1 factoring will then run, but skip taking GCDs to extract factors from the resulting residue).
 
 Each explicit SIMD mode gets its own object directory (the binary itself is still just named `Mlucas`), e.g. `bash makemake.sh avx2` builds `obj_avx2/Mlucas`; letting the script auto-detect (a plain `bash makemake.sh`) builds `obj/Mlucas`. This lets you keep binaries for multiple SIMD modes side by side without them overwriting each other.
 
@@ -144,14 +158,13 @@ To build with Clang or another GCC-compatible compiler instead of the default GC
 
 ### Common Build Issues and Workarounds
 
-* **Where to look first:** if `makemake.sh` reports errors, check the `build.log` file it writes inside the object directory (`obj`, `obj_avx2`, etc.) for the (case-insensitive) string "error".
+* **Where to look first:** if `makemake.sh` reports errors, check the `build.log` file it writes inside the object directory (`obj`, `obj_avx2`, etc.) for the (case-insensitive) string "error", e.g. `grep -i -C 3 'error' build.log`.
 * **Debug symbols:** builds include `-g` by default so that a crash can be diagnosed with `gdb -ex=r ./Mlucas` (gives you the file, line number and stack trace). If you want a smaller binary afterward, run `strip -g Mlucas`.
-* **Benign warnings:** `build.log` will typically contain compiler warnings about type-punned pointers, signed/unsigned comparisons, and unused variables — these come from the quad-float emulation and inline-assembly code and are expected; they are not build failures.
 * **`cc: command not found` (some WSL installs):** `export CC=gcc` before retrying `bash makemake.sh`.
-* **ARM/Apple Silicon SIMD detection:** `makemake.sh` probes for `-march=native`/`-mcpu=native` support before relying on it in the ASIMD fallback path, so most Clang-on-Arm toolchains are now handled automatically. If you still hit a runtime segfault or an "unsupported architecture" compiler error on an unusual ARM target, pass the closest matching mode explicitly (`bash makemake.sh asimd` or `bash makemake.sh nosimd`), or add an explicit `-march=<version>` for your CPU to your compiler flags.
-* **Rebuilding after a source update:** run `make clean` in the relevant `obj*` directory (or `rm -f obj*/*.o` from the top-level directory) before re-running `makemake.sh`, since Make does not always detect stale header-file dependents. Parallel builds are fast, so a full rebuild is usually the safe and quick choice.
+* **ARM/Apple Silicon SIMD detection:** `makemake.sh` probes for `-march=native`/`-mcpu=native` support before relying on it in the ASIMD fallback path, so most Clang-on-Arm toolchains are now handled automatically. If you still hit a runtime segfault or an "unsupported architecture" compiler error on an unusual ARM target, pass the closest matching mode explicitly (`bash makemake.sh asimd` or `bash makemake.sh nosimd`), or add an explicit `-march=<version>` for your CPU to your compiler flags. If `makemake.sh` fails to detect the correct SIMD mode at all, please report it — see below.
+* **Rebuilding after a source update:** run `make clean` in the relevant `obj*` directory (or `rm -f obj*/*.o` from the top-level directory) before re-running `makemake.sh`, since Make does not always detect stale header-file dependents. Parallel builds are fast, so a full rebuild is usually the safe and quick choice. Rerun your self-tests (see [Basic build self-test](#basic-build-self-test)) after any rebuild, especially after upgrading to a new Mlucas version.
 
-If you get stuck, please [open an issue](https://github.com/primesearch/Mlucas/issues) with your `build.log`, compiler version and platform details.
+For help with build problems or general usage questions, please post to the [Mlucas subforum](https://www.mersenneforum.org/node/91) of the Mersenne Forum — many more people are there and you'll likely get help faster. Use [GitHub issues](https://github.com/primesearch/Mlucas/issues) to report bugs or request features, including your `build.log`, compiler version and platform details.
 
 ## Basic build self-test
 
@@ -163,17 +176,15 @@ Look for a line reading `INFO: System has [X] available processor cores.` — th
 
 If that works, retry multithreaded:
 ```
-./Mlucas -fft 192 -iters 100 -radset 0 -nthread 2
+./Mlucas -fft 192 -iters 100 -radset 0 -cpu 0:1
 ```
 
 ### Setting thread count and CPU affinity
 
 Mlucas offers three mutually-exclusive ways to pick thread count and affinity:
 
-* **`-core {lo:hi[:threads_per_core]}`** — *recommended if you built with `use_hwloc`.* HWLOC resolves physical cores and their hardware threads for you, so `-core` behaves identically regardless of CPU vendor. `-core 0:3` runs one thread on each of physical cores 0 through 3; `-core 0:0:4` runs 4 threads on physical core 0 alone (handy for e.g. a Knights Corner-style core with 4 hardware threads).
+* **`-core {lo:hi[:threads_per_core]}`** — *recommended if you built with `use_hwloc`.* hwloc resolves physical cores and their hardware threads for you, so `-core` behaves identically regardless of CPU vendor. `-core 0:3` runs one thread on each of physical cores 0 through 3; `-core 0:0:4` runs 4 threads on physical core 0 alone (handy for e.g. a Knights Corner-style core with 4 hardware threads).
 * **`-cpu {lo[:hi[:incr]]}[,{lo[:hi[:incr]]},...]`** — the traditional, portable option, and still required if you did not build with hwloc support. It sets affinity to *logical* core indices directly, so the mapping from physical cores to logical-core numbers differs by vendor: on Intel, physical core *n* out of *N* total maps to logical cores *n* and *n+N* when hyperthreaded, so `-cpu 0:1` runs one thread on each of physical cores 0 and 1; on AMD, physical core *n*'s two hardware threads are the adjacent pair *2n*,*2n+1*, so the same-looking `-cpu 0:1` instead means "both threads of physical core 0 alone" — the AMD equivalent of "one thread on each of physical cores 0 and 1" is the stride-2 range `-cpu 0:3:2`. See [Performance tuning](#performance-tuning) for worked examples and vendor-specific benchmarking recipes.
-* **`-nthread {int}`** — deprecated; equivalent to `-cpu 0:{int-1}`. Kept for backward compatibility only.
-
 For a complete option reference (all self-test tiers, P-1 flags, `mlucas.ini` options, etc.), see [help.txt](help.txt).
 
 ## Performance tuning
@@ -181,14 +192,14 @@ For a complete option reference (all self-test tiers, P-1 flags, `mlucas.ini` op
 After a successful basic self-test, run one of the following self-test tiers to build a `mlucas.cfg` file of optimal per-FFT-length radix sets and timings for your hardware. Run these under unloaded or constant-load conditions for the most reliable data:
 
 ```
-./Mlucas -s m [-core or -cpu flags] >& test.log
+./Mlucas -s m [-core or -cpu flags] > test.log 2>&1
 ```
-`-s m` ("medium") covers the FFT-length range most GIMPS assignments currently fall into and is the tier ordinary users are recommended to run (roughly an hour on a fast CPU). Other tiers — `-s t`(iny), `-s s`(mall), `-s l`(arge), `-s a`(ll), `-s h`(uge), `-s e`(gregious) — cover progressively larger FFT-length ranges; see [help.txt](help.txt) section `[1]` for exact ranges and expected runtimes.
+`-s m` ("medium") covers the FFT-length range most GIMPS assignments currently fall into and is the tier ordinary users are recommended to run — how long it takes depends on your thread/iteration count, but it's usually well under an hour on modern systems (often under 15 minutes). Other tiers — `-s t`(iny), `-s s`(mall), `-s l`(arge), `-s a`(ll), `-s h`(uge), `-s e`(gregious) — cover progressively larger FFT-length ranges; see [help.txt](help.txt) section `[1]` for exact ranges and expected runtimes.
 
 Once `mlucas.cfg` exists, Mlucas reads it at startup to pick the best radix set for whatever exponent it's assigned. If you plan to run multiple simultaneous instances (recommended on 4+ core systems, generally 2-4 physical cores per instance), copy `mlucas.cfg` into one run directory per instance, and give each instance a disjoint `-core`/`-cpu` range and its own `worktodo.txt`/`results.txt`. A minimal example on a hwloc build with an 8-physical-core CPU, running two 4-core instances:
 ```
 mkdir run0 run1
-cp obj/mlucas.cfg run0/ && cp obj/mlucas.cfg run1/
+ln -s obj/mlucas.cfg run0/ run1/
 cd run0 && nohup ../obj/Mlucas -maxalloc 50 -core 0:3 &
 cd ../run1 && nohup ../obj/Mlucas -maxalloc 50 -core 4:7 &
 ```
@@ -198,27 +209,40 @@ Without hwloc, the correct `-cpu` ranges for hyperthreaded/SMT systems differ be
 
 ## Getting exponents from PrimeNet
 
-The recommended way to fetch and manage GIMPS assignments is [AutoPrimeNet](https://github.com/tdulcet/AutoPrimeNet), the actively-maintained successor to the `primenet.py` script that used to ship with Mlucas. It registers your machine, requests work of your preferred type, and writes/tops-up the `worktodo.txt` file in each run directory you point it at (`--dir`/`-D`, one per Mlucas instance), reading Mlucas's own progress/checkpoint files to know when to submit results and fetch more work. See its README for full usage (`--username`/`-u`, `--mlucas`/`-m` to select the Mlucas client, `--timeout`/`-t` for the polling interval, `-t 0` for a single-shot run).
+The recommended way to fetch and manage GIMPS assignments is [AutoPrimeNet](https://github.com/tdulcet/AutoPrimeNet), the actively-maintained successor to the `primenet.py` script that used to ship with Mlucas. Run it with `--setup` to be prompted for all the settings it needs; it then registers your machine, requests work of your preferred type, and writes/tops-up the `worktodo.txt` file in each run directory you point it at (`--dir`/`-D`, one per Mlucas instance), reading Mlucas's own progress/checkpoint files to know when to submit results and fetch more work. See its README for full usage (`--username`/`-u`, `--mlucas`/`-m` to select the Mlucas client, `--timeout`/`-t` for the polling interval, `-t 0` for a single-shot run).
 
-If you'd rather manage assignments by hand via the [PrimeNet manual testing pages](https://www.mersenne.org/), create a PrimeNet account, check out exponents from the [Manual Test Assignments](https://www.mersenne.org/manual_assignment/) page, then paste the returned assignment lines directly into `worktodo.txt` (one directory per Mlucas instance; **note that Mlucas v21's workfile is named `worktodo.txt`, not the old `worktodo.ini`** — rename any pre-v21 workfile before starting a v21 build). Mlucas supports these assignment line formats:
+<details>
+<summary>Managing assignments by hand instead (legacy, not recommended)</summary>
+
+The [PrimeNet manual testing pages](https://www.mersenne.org/) are deprecated in favor of AutoPrimeNet above, but still work if you'd rather manage assignments yourself: create a PrimeNet account, check out exponents from the [Manual Test Assignments](https://www.mersenne.org/manual_assignment/) page, then paste the returned assignment lines directly into `worktodo.txt` (one directory per Mlucas instance; **note that Mlucas v21's workfile is named `worktodo.txt`, not the old `worktodo.ini`** — rename any pre-v21 workfile before starting a v21 build). Mlucas supports these assignment line formats:
 
 ```
 Test={aid},{exponent},{TF bits},{P-1 done? 0|1}                                   # LL, first-time or double-check
 DoubleCheck={aid},{exponent},{TF bits},{P-1 done? 0|1}
-PRP={aid},1,2,{exponent},-1,{TF bits},{ignore}                                    # PRP, first-time
-PRP={aid},1,2,{exponent},-1,{TF bits},{ignore},{base},{residue type}              # PRP double-check
+PRP={aid},1,2,{exponent},-1,{TF bits},{tests saved if factor found}                # PRP, first-time
+PRP={aid},1,2,{exponent},-1,{TF bits},{tests saved if factor found},{base},{residue type}  # PRP double-check
 Pminus1=[aid,]1,2,{exponent},-1,{B1},{B2}[,{TF bits}][,{B2 start}][,"{known factors}"]
 Pfactor=[aid,]1,2,{exponent},-1,{TF bits},{LL/PRP tests saved if factor found}
 ```
-`{aid}` (the assignment ID) may be omitted or given as `n/a` (case-insensitive). When an LL/PRP assignment still needs P-1 work, Mlucas automatically splits it into a `Pminus1=`/`Pfactor=` assignment followed by the original, running P-1 first. Note that as of April 2021 the server no longer hands out first-time LL assignments (requests are converted to LL double-checks) — PRP with Gerbicz error-checking has superseded first-time LL testing. You can also LL-test an arbitrary prime exponent not obtained from the server by putting the bare number on its own line in `worktodo.txt`, or construct your own PRP assignment (`PRP=n/a,1,2,{exponent},-1,{TF bits},0`) for the same purpose with hardware-error detection.
+The `1,2,{exponent},-1` fields are `k,b,n,c` specifying the modulus `k*b^n+c`; `-1` is for a Mersenne number (`2^exponent - 1`) — a P-1 (`Pminus1=`/`Pfactor=`) assignment against a Fermat number instead uses `c = +1`. `{aid}` (the assignment ID) is optional for all work types and may be given as `n/a` (case-insensitive) if omitted. When an LL/PRP assignment still needs P-1 work, Mlucas automatically splits it into a `Pminus1=`/`Pfactor=` assignment followed by the original, running P-1 first. Note that as of April 2021 the server no longer hands out first-time LL assignments (requests are converted to LL double-checks) — PRP with Gerbicz error-checking has superseded first-time LL testing. You can also LL-test an arbitrary prime exponent not obtained from the server by putting the bare number on its own line in `worktodo.txt`, or construct your own PRP assignment (`PRP=n/a,1,2,{exponent},-1,{TF bits},0`) for the same purpose with hardware-error detection.
+
+Please verify these formats against what Mlucas, Prime95/MPrime and the PrimeNet server itself actually accept before relying on them.
+
+</details>
 
 ## Sending results to PrimeNet
 
-If you're using AutoPrimeNet, results are submitted automatically. For manual submission, log into your PrimeNet account and paste the new lines from your run directory's `results.txt` file into the [Manual Test Results Check-in](https://www.mersenne.org/manual_result/) page. Results are written in JSON format, e.g.:
+If you're using AutoPrimeNet, results are submitted automatically. Results are written in JSON format, e.g.:
 ```
 {"status":"C", "exponent":81253819, "worktype":"PRP-3", "res64":"CE9AB357C704369B", "residue-type":1, "fft-length":4718592, "shift-count":66554884, "error-code":"00000000", "program":{"name":"Mlucas", "version":"21.0.2"}, "timestamp":"2026-01-01 03:42:39 UTC", "aid":"0CF485CD87F1BAC48B6B05D3A2094579"}
 ```
-If you need more time to finish an assignment before its default 180-day expiry, use the [Manual Test Time Extension](https://www.mersenne.org/manual_extension/) page.
+
+<details>
+<summary>Submitting results by hand instead (legacy, not recommended)</summary>
+
+Log into your PrimeNet account and paste the new lines from your run directory's `results.txt` file into the [Manual Test Results Check-in](https://www.mersenne.org/manual_result/) page. If you need more time to finish an assignment before its default 180-day expiry, use the [Manual Test Time Extension](https://www.mersenne.org/manual_extension/) page.
+
+</details>
 
 ## Savefile format
 
@@ -231,17 +255,13 @@ Mlucas writes savefiles ("checkpoints") at regular intervals — every 10,000 it
 
 **Interrupting a run safely:** Mlucas listens for `SIGINT` (Ctrl-C) and `SIGTERM` (the default `kill` signal) and, for LL, PRP, and P-1 stage 1 work, will finish the current iteration, write savefiles, and exit cleanly. P-1 stage 2's state is more complex and does *not* currently have a clean-exit path — interrupting stage 2 loses any work since the last stage 2 savefile write. `killall -STOP Mlucas` / `killall -CONT Mlucas` will suspend/resume all running instances without losing anything. As a last resort for an unresponsive instance, `kill -9 {pid}` terminates immediately (and loses any not-yet-checkpointed work).
 
-## Tracking your contribution
-
-You can track your overall progress (both automated and manually-submitted work) on the [PrimeNet server's producer page](https://www.mersenne.org/report_top_500/) once you're registered. Note this does not include any pre-v5-PrimeNet-server manual test results.
-
 ## Further documentation
 
 * [help.txt](help.txt) — the full command-line option reference (self-test tiers, P-1 flags, `mlucas.ini` options, savefile internals, and more).
 * [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — worked `-cpu`/`-core` examples for hyperthreaded Intel/AMD, ARM, hybrid, and Apple Silicon systems, plus multi-instance launch-script templates.
 * [docs/Fermat-testing.md](docs/Fermat-testing.md) — testing Fermat numbers with Mlucas.
 * [docs/ANDROID.md](docs/ANDROID.md) — running Mlucas on a cluster of Android phones.
-* [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how Mlucas's FFT/DWT-based modular squaring works internally (the algorithmic Q&A formerly on the mersenneforum.org README page).
+* [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how Mlucas's FFT/DWT-based modular squaring works internally (the algorithmic Q&A formerly on Ernst's README webpage).
 
 ## Contributing
 
