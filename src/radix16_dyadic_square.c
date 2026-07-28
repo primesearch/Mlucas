@@ -103,8 +103,7 @@ void radix16_dyadic_square(
 #endif
 #ifdef USE_SSE2
 	int nbytes;
-#endif
-#ifndef USE_SSE2
+#else	// USE_SSE2
 	int j2;
 #endif
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
@@ -123,8 +122,6 @@ void radix16_dyadic_square(
 	double *add0,*add1;	/* Addresses into array sections */
   #ifndef USE_ARM_V8_SIMD
 	double *bdd0;		/* Addresses into array sections */
-  #endif
-  #ifndef USE_ARM_V8_SIMD
 	const double *cdd0;
   #endif
   #ifdef USE_AVX

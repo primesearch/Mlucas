@@ -179,9 +179,7 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #ifdef USE_SSE2
   #if COMPACT_OBJ && !defined(MULTITHREAD)
 	static uint32 pp07[8];
-   #ifndef MULTITHREAD
 	int i0,i1,i2,i3,i4,i5,i6,i7;
-   #endif
   #endif
 #else
   #ifndef MULTITHREAD
@@ -193,7 +191,7 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double wt_re,wt_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
   #endif
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
-	double wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	double wi_re,wi_im;
   #endif
   #ifdef USE_AVX512
 	const int jhi_wrap_mers = 15;
@@ -305,11 +303,9 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
    #ifndef USE_SSE2
 	double *addi;
    #endif
-  #endif
-  #ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
    #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
    #endif
   #endif
 	int err;
@@ -411,7 +407,7 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 		,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
   #if !defined(MULTITHREAD) && defined(USE_AVX)
-		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*cy_i
   #endif
 	;
   #ifdef USE_AVX
@@ -421,9 +417,9 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
    #ifdef USE_AVX
-	vec_dbl *tm0;	// Non-static utility ptrs
+	vec_dbl *tm0;
    #endif
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
   #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2495,8 +2491,7 @@ void radix56_dit_pass1(double a[], int n)
 		double *addr,*addi;
 	  #ifndef USE_SSE2
 		struct complex *tptr;
-	  #endif
-	  #ifdef USE_SSE2
+	  #else	// USE_SSE2
 		const int pfetch_dist = PFETCH_DIST;
 	  #endif
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
@@ -2545,7 +2540,7 @@ void radix56_dit_pass1(double a[], int n)
 		double wt_re,wt_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
 	#endif
     #ifndef USE_SSE2
-		double wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+		double wi_re,wi_im;
     #endif
 	#if !defined(USE_SSE2) || defined(USE_AVX)
 		double rt,it;
@@ -2564,11 +2559,11 @@ void radix56_dit_pass1(double a[], int n)
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2;	// utility ptrs
 	  #ifdef USE_AVX
-		vec_dbl *tm0;	// utility ptrs
+		vec_dbl *tm0;
 	  #endif
 		int *itmp;			// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;			// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2590,7 +2585,7 @@ void radix56_dit_pass1(double a[], int n)
 	  #endif
 			,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 	  #ifdef USE_AVX
-			,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+			,*cy_i
 	  #endif
 		;
 	  #ifdef USE_AVX

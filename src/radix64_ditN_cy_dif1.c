@@ -240,7 +240,7 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double rt,it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
 #endif
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
-	double wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+	double wi_re,wi_im;
 #endif
 	static uint32 bjmodnini;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
@@ -256,10 +256,10 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
   #ifndef MULTITHREAD
    #if defined(USE_SSE2) && !USE_SCALAR_DFT_MACRO
-	static int po_lin[8];	// Store mults of p-offsets for loop-controlled DFT macro calls
+	static int po_lin[8];
    #endif
    #ifndef USE_SSE2
-	static int po_br[8];	// Store mults of p-offsets for loop-controlled DFT macro calls
+	static int po_br[8];
    #endif
   #endif
 	static double radix_inv, n2inv;
@@ -274,7 +274,7 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
   #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 #endif
 	int err;
@@ -328,8 +328,6 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		//*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E,
 		//*r42,*r44,*r46,*r48,*r4A,*r4C,*r4E,*r52,*r54,*r56,*r58,*r5A,*r5C,*r5E,
 		//*r62,*r64,*r66,*r68,*r6A,*r6C,*r6E,*r72,*r74,*r76,*r78,*r7A,*r7C,*r7E,
-	  #endif
-	  #ifndef MULTITHREAD
 		// ...and s's as pointers-to-complex-SIMD; thus the r-indices run 2x faster than the s-ones:
 		*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p10,*s1p18,*s1p20,*s1p28,*s1p30,*s1p38,
 		//*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,*s1p0f,
@@ -339,7 +337,7 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #endif
 		*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 	  #if !defined(MULTITHREAD) && defined(USE_AVX)
-		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*cy_i
 	  #endif
 		;
   #ifdef USE_AVX
@@ -349,9 +347,9 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
    #ifdef USE_AVX
-	vec_dbl *tm0;	// Non-static utility ptrs
+	vec_dbl *tm0;
    #endif
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 
 #else
@@ -815,18 +813,18 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #ifdef USE_AVX512
 		cy_r = tmp;										// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 	   #ifndef MULTITHREAD
-					cy_i = tmp+0x08;					// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+					cy_i = tmp+0x08;
 	   #endif
-										tmp += 2*0x08;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+										tmp += 2*0x08;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
 		cy_r = tmp;										// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 	   #ifndef MULTITHREAD
-					cy_i = tmp+0x10;					// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+					cy_i = tmp+0x10;
 	   #endif
-										tmp += 2*0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+										tmp += 2*0x10;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// +2 = 340 vec_dbl
 		// This is where the value of half_arr_offset comes from
@@ -2598,10 +2596,10 @@ void radix64_dit_pass1(double a[], int n)
 		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,p20,p28,p30,p38;
 		int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
 	#if defined(USE_SSE2) && !USE_SCALAR_DFT_MACRO
-		int po_lin[8];		// Store mults of p-offsets for loop-controlled DFT macro calls
+		int po_lin[8];
 	#endif
 	#ifndef USE_SSE2
-		int po_br[8];		// Store mults of p-offsets for loop-controlled DFT macro calls
+		int po_br[8];
 	#endif
 	#if defined(USE_SSE2) && USE_SCALAR_DFT_MACRO
 		static int dft_offsets[RADIX], c_offsets[RADIX];
@@ -2642,7 +2640,7 @@ void radix64_dit_pass1(double a[], int n)
 		double rt,it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
 	#endif
 	#ifndef USE_SSE2
-		double wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+		double wi_re,wi_im;
 	#endif
 		int k1;
 	#if !defined(USE_SSE2) || defined(USE_AVX)
@@ -2662,7 +2660,7 @@ void radix64_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;			// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;			// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2689,7 +2687,7 @@ void radix64_dit_pass1(double a[], int n)
 			*s1p30,/* *s1p31,*s1p32,*s1p33,*s1p34,*s1p35,*s1p36,*s1p37,*/ *s1p38,/* *s1p39,*s1p3a,*s1p3b,*s1p3c,*s1p3d,*s1p3e,*s1p3f, */
 			*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 		#ifdef USE_AVX
-			,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+			,*cy_i
 		#endif
 			;
 	  #ifdef USE_AVX

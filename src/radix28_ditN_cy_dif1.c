@@ -307,7 +307,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double wt_re,wt_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
   #endif
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
-	double wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	double wi_re,wi_im;
   #endif
 	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
@@ -408,7 +408,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
    #endif
 	int *itmp;	// Pointer into the bjmodn array
    #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
    #endif
   #endif
 	int err;
@@ -483,7 +483,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 		,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
   #if !defined(MULTITHREAD) && defined(USE_AVX)
-		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*cy_i
   #endif
 	;
   #ifdef USE_AVX
@@ -492,9 +492,9 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
    #if defined(USE_AVX) && !defined(USE_AVX512)
-	vec_dbl *tm0;	// Non-static utility ptrs
+	vec_dbl *tm0;
    #endif
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
   #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2447,7 +2447,7 @@ void radix28_dit_pass1(double a[], int n)
 		double wt_re,wt_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
 	#endif
 	#ifndef USE_SSE2
-		double wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+		double wi_re,wi_im;
 	#endif
 	#if !defined(USE_SSE2) || (defined(USE_AVX) && !defined(USE_AVX512))
 		double rt,it;
@@ -2460,11 +2460,11 @@ void radix28_dit_pass1(double a[], int n)
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2;	// utility ptrs
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		vec_dbl *tm0;	// utility ptrs
+		vec_dbl *tm0;
 	  #endif
 		int *itmp;			// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;			// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2474,7 +2474,7 @@ void radix28_dit_pass1(double a[], int n)
 			*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r,*s1p20r,*s1p21r,*s1p22r,*s1p23r,*s1p24r,*s1p25r,*s1p26r,*s1p27r,
 			*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 	  #ifdef USE_AVX
-			,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+			,*cy_i
 	  #endif
 			;
 	  #if defined(USE_AVX) && !defined(USE_AVX512)

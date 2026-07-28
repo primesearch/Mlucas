@@ -213,7 +213,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
   #endif
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
-	static int p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
+	static int p0123[4];
   #endif
 	static double radix_inv, n2inv;
   #if !defined(MULTITHREAD) || defined(USE_SSE2)
@@ -532,7 +532,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		__r0 = sc_ptr;
 	  #endif
 		s1p00 = sc_ptr + 0x00;
-	  #if !defined(MULTITHREAD)
+	  #ifndef MULTITHREAD
 	   #if defined(USE_SSE2) && USE_SMALL_MACROS
 		s1p01 = sc_ptr + 0x02;
 		s1p02 = sc_ptr + 0x04;

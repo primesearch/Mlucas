@@ -192,8 +192,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-  #endif
-  #ifndef MULTITHREAD
+  #else	// MULTITHREAD
 	static
   #endif
 	  vec_dbl *cc0,*isrt2,*two,*pi4, *r1

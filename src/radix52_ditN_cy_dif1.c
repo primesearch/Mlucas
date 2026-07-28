@@ -227,7 +227,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40,p44,p48, nsave = 0;
 	static int poff[RADIX>>2];	// Store mults of p04 offset for loop control
   #ifndef MULTITHREAD
-	static int p0123[4];		// Store mults of p04 offset for loop control
+	static int p0123[4];
   #endif
 	static double radix_inv, n2inv;
 	double scale, dtmp, maxerr = 0.0;
@@ -244,7 +244,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
   #ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
    #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
    #endif
   #endif
 	int err;
@@ -293,7 +293,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
   #endif
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 	static vec_dbl *one,/* *two, */*rad13_const, *max_err, *sse2_rnd, *half_arr,	/* rad13_const needs 18*16 bytes allocated */
 		*r00
@@ -566,7 +566,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	  #ifndef MULTITHREAD
 		cy = tmp;						// RADIX/8 and round up
 	  #endif
-						tmp += 7;		// RADIX/8 and round up
+						tmp += 7;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
@@ -574,7 +574,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	  #ifndef MULTITHREAD
 		cy = tmp;						// RADIX/4 vec_dbl slots for carry sub-array
 	  #endif
-						tmp += 0x0d;	// RADIX/4 vec_dbl slots for carry sub-array
+						tmp += 0x0d;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 	// sc_ptr += 243; This is where the value of half_arr_offset52 comes from
@@ -583,7 +583,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	  #ifndef MULTITHREAD
 		cy = tmp;						// RADIX/2 vec_dbl slots for carry sub-array
 	  #endif
-						tmp += 0x1a;	// RADIX/2 vec_dbl slots for carry sub-array
+						tmp += 0x1a;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 	// sc_ptr += 256; This is where the value of half_arr_offset52 comes from
@@ -1723,8 +1723,7 @@ void radix52_dit_pass1(double a[], int n)
 		int j,j1,l,ntmp;
 	  #ifndef USE_SSE2
 		int j2,jt,jp;
-	  #endif
-	  #ifdef USE_SSE2
+	  #else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = --|--|13 for avx512,avx,sse, respectively.
 		// But fixed-incr too restrictive here, so in sse2 case 'divide 13 into pieces' via increment-array whose elts sum to 13:
@@ -1773,7 +1772,7 @@ void radix52_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -1790,7 +1789,7 @@ void radix52_dit_pass1(double a[], int n)
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 		vec_dbl *tmp,*tm1;	// Non-static utility ptrs
 	  #ifndef USE_AVX512
-		vec_dbl *tm2;	// Non-static utility ptrs
+		vec_dbl *tm2;
 		double dtmp;
 	  #endif
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;

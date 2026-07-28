@@ -171,7 +171,7 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p4 offset for loop control
   #endif
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
-	static int p0123[4];	// Store [RADIX/4] mults of p4 offset for loop control
+	static int p0123[4];
   #endif
   #if !defined(MULTITHREAD) || defined(USE_SSE2)
 	const double	c3m1= -1.50000000000000000000,	/* cos(twopi/3)-1	*/

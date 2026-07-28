@@ -263,7 +263,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #ifndef MULTITHREAD
 	static int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19;
 	static vec_dbl *cy00,*cy04,*cy08,*cy12,*cy16;
-   #if !defined(USE_AVX)
+   #ifndef USE_AVX
 	static vec_dbl *cy02,*cy06,*cy10,*cy14,*cy18;
    #endif
   #endif

@@ -199,8 +199,6 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
   #endif
   #ifndef MULTITHREAD
 	int col,co2,co3;
-  #endif
-  #ifndef MULTITHREAD
    #ifdef USE_AVX512
 	double t0,t1,t2,t3;
     #ifdef CARRY_16_WAY
@@ -221,7 +219,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	double rt,it, wt_re,wt_im;		// Fermat-mod weights stuff, used in both scalar and AVX mode
    #endif
    #ifndef USE_SSE2
-	double wi_re,wi_im;				// Fermat-mod weights stuff, used in both scalar and AVX mode
+	double wi_re,wi_im;
    #endif
   #endif
 	static uint32 bjmodnini;
@@ -275,10 +273,10 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #ifdef USE_SSE2
 	const double *addr,*addi;
 #endif
-#if !defined(MULTITHREAD)
+#ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
   #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 #endif
 	int err;
@@ -336,7 +334,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
   #endif
 		*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
   #if !defined(MULTITHREAD) && defined(USE_AVX)
-		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*cy_i
   #endif
 		;
   #ifdef USE_AVX
@@ -346,9 +344,9 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
    #if !defined(USE_SSE2) || defined(USE_AVX)
-	vec_dbl *tm0;		// Non-static utility ptrs
+	vec_dbl *tm0;
    #endif
-	vec_dbl *tm1;		// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 
 #else
@@ -586,11 +584,11 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x800;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp += 0x800;					// Head of 64 x vec_cmplx = 128 vec_dbl local store for DFT-64 intermediates
 	  #ifndef MULTITHREAD
-						vd00  = tmp;	// Head of 64 x vec_cmplx = 128 vec_dbl local store for DFT-64 intermediates
+						vd00  = tmp;
 	  #endif
 		tmp += 0x80;	// sc_ptr += 0x1080
 		// DFT-16 roots needed explicitly:
@@ -603,19 +601,19 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		tmp += 0x780;	// sc_ptr += 0x1083 + 4*0x1e0 = 0x1803
 	  #ifdef USE_AVX512
 		cy_r = tmp;										// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
-	   #if !defined(MULTITHREAD)
-					cy_i = tmp+0x080;					// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #ifndef MULTITHREAD
+					cy_i = tmp+0x080;
 	   #endif
-										tmp += 0x100;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+										tmp += 0x100;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
 		cy_r = tmp;										// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
-	   #if !defined(MULTITHREAD)
-					cy_i = tmp+0x100;					// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #ifndef MULTITHREAD
+					cy_i = tmp+0x100;
 	   #endif
-										tmp += 0x200;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+										tmp += 0x200;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x1803 + 0x202 = 0x1a05... This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 96 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
@@ -1216,9 +1214,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		for(l = 0; l < 64; l++) {
 			dif_o_offsets[l] = o_offsets[l] << (L2_SZ_VD - 3);	// 2x for sse2, 4x for avx, etc
 		}
-	  #endif
-
-	  #ifndef USE_SSE2
+	  #else	// USE_SSE2
 		dif_po_br[0x0] =  0; dif_po_br[0x1] = p8; dif_po_br[0x2] = p4; dif_po_br[0x3] = pc;
 		dif_po_br[0x4] = p2; dif_po_br[0x5] = pa; dif_po_br[0x6] = p6; dif_po_br[0x7] = pe;
 		dif_po_br[0x8] = p1; dif_po_br[0x9] = p9; dif_po_br[0xa] = p5; dif_po_br[0xb] = pd;
@@ -3254,8 +3250,7 @@ void radix1024_dit_pass1(double a[], int n)
 		int j,j1,jt,l,ntmp;
 	#ifndef USE_SSE2
 		int j2,jp;
-	#endif
-	#ifdef USE_SSE2
+	#else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 64|128|256 for avx512,avx,sse, respectively:
 		const int incr_long = 16,incr_med = 8,incr_short = 4;
@@ -3286,7 +3281,7 @@ void radix1024_dit_pass1(double a[], int n)
 		double rt,it, wt_re,wt_im;		// Fermat-mod weights stuff, used in both scalar and AVX mode
 	#endif
 	#ifndef USE_SSE2
-		double wi_re,wi_im;				// Fermat-mod weights stuff, used in both scalar and AVX mode
+		double wi_re,wi_im;
 	#endif
 	#if !defined(USE_SSE2) || defined(USE_AVX)
 		int k1,k2;
@@ -3304,11 +3299,11 @@ void radix1024_dit_pass1(double a[], int n)
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2;	// utility ptrs
 	  #if !defined(USE_SSE2) || defined(USE_AVX)
-		vec_dbl *tm0;			// utility ptrs
+		vec_dbl *tm0;
 	  #endif
 		int *itmp;			// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;			// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -3324,7 +3319,7 @@ void radix1024_dit_pass1(double a[], int n)
 			*vd00,	// Head of 64 x vec_cmplx loal store for DFT-64 intermediates
 			*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 	  #ifdef USE_AVX
-			,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+			,*cy_i
 	  #endif
 			;
 	  #ifdef USE_AVX

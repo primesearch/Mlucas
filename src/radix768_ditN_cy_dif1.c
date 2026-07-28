@@ -268,7 +268,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *addr, *add0,*add1,*add2,*add3;
 	int *itmp;			// Pointer into the bjmodn array
    #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;			// Pointer into the bjmodn array
+	int *itm2;
    #endif
   #endif
 
@@ -286,14 +286,14 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0, *ss0, *cc1, *ss1, *max_err, *sse2_rnd, *half_arr,
 		// ptrs to 16 sets of twiddles shared by the 2nd-half DIF and DIT DFT macros:
 		*twid0,*twid1,*twid2,*twid3,*twid4,*twid5,*twid6,*twid7,*twid8,*twid9,*twida,*twidb,*twidc,*twidd,*twide,*twidf,
 		*r000,			// Head of RADIX*vec_cmplx-sized local store #1
 	  #ifndef MULTITHREAD
-		*r100,*r200,	// Head of RADIX*vec_cmplx-sized local store #1
+		*r100,*r200,
 		*s1p000,		// Head of RADIX*vec_cmplx-sized local store #2
 	  #endif
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -2621,8 +2621,7 @@ void radix768_dit_pass1(double a[], int n)
 		int j,j1,k,l,l1,l2,k0,k1,k2;
 	#ifndef USE_SSE2
 		int j2;
-	#endif
-	#ifdef USE_SSE2
+	#else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 48|96|192 for avx512,avx,sse, respectively:
 		int incr;
@@ -2668,7 +2667,7 @@ void radix768_dit_pass1(double a[], int n)
 		vec_dbl *tmp,*tm1,*tm2;	// utility ptrs
 		int *itmp;			// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;			// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

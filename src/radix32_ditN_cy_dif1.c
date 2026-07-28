@@ -154,8 +154,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
    #if !defined(USE_SSE2) || defined(USE_AVX)
 	int k1,k2;
    #endif
-  #endif
-  #ifndef MULTITHREAD
 	int col,co2,co3;
    #ifdef USE_AVX512
 	double t0,t1,t2,t3;
@@ -175,11 +173,11 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #ifndef MULTITHREAD
 	double rt;	// Fermat-mod weights stuff, used in both scalar and AVX mode
    #if !defined(USE_SSE2) || defined(USE_AVX)
-	double it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+	double it, wt_re,wt_im;
    #endif
   #endif
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
-	double wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+	double wi_re,wi_im;
   #endif
 	static uint32 bjmodnini, nsave = 0;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
@@ -213,7 +211,7 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #ifndef MULTITHREAD
 	int *itmp;	// Pointers into the bjmodn array
    #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointers into the bjmodn array
+	int *itm2;
    #endif
   #endif
 	int err;
@@ -259,7 +257,7 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
 		,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 	  #if !defined(MULTITHREAD) && defined(USE_AVX)
-		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*cy_i
 	  #endif
 		;
   #ifdef USE_AVX
@@ -269,9 +267,9 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
    #ifdef USE_AVX
-	vec_dbl *tm0;	// Non-static utility ptrs
+	vec_dbl *tm0;
    #endif
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 
 #endif	// USE_SSE2
@@ -537,18 +535,18 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #ifdef USE_AVX512
 		cy_r = tmp;										// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 	   #ifndef MULTITHREAD
-					cy_i = tmp+0x04;					// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+					cy_i = tmp+0x04;
 	   #endif
-										tmp += 0x08;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+										tmp += 0x08;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
 		cy_r = tmp;										// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 	   #ifndef MULTITHREAD
-					cy_i = tmp+0x08;					// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+					cy_i = tmp+0x08;
 	   #endif
-										tmp += 0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+										tmp += 0x10;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 96 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
@@ -1960,10 +1958,10 @@ void radix32_dit_pass1(double a[], int n)
 	#endif
 		double rt;	// Fermat-mod weights stuff, used in both scalar and AVX mode
 	#if !defined(USE_SSE2) || defined(USE_AVX)
-		double it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+		double it, wt_re,wt_im;
 	#endif
 	#ifndef USE_SSE2
-		double wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
+		double wi_re,wi_im;
 	#endif
 	#if !defined(USE_SSE2) || defined(USE_AVX)
 		int k1,k2;
@@ -1978,12 +1976,12 @@ void radix32_dit_pass1(double a[], int n)
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm2;	// utility ptrs
 	  #ifdef USE_AVX
-		vec_dbl *tm0;	// utility ptrs
+		vec_dbl *tm0;
 	  #endif
-		vec_dbl *tm1;	// utility ptrs
+		vec_dbl *tm1;
 		int *itmp;	// Pointers into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointers into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

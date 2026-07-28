@@ -247,7 +247,7 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int *itmp;	// Pointer into the bjmodn array
   #endif
   #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 	int err;
 	static int first_entry=TRUE;
@@ -552,7 +552,7 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #endif
 		tmp += 0x180;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp += 0x180;
 		// DFT-64 roots all def'd locally in the DFT-64 functions, only need the radix-3 roots here:
@@ -2353,7 +2353,7 @@ void radix192_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

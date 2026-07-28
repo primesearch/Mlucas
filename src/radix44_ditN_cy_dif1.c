@@ -236,7 +236,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 	int *itmp;	// Pointer into the bjmodn array
   #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 #endif
 	int err;
@@ -314,7 +314,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 	static vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
 		*r00,
@@ -2006,8 +2006,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		int j,j1,l,ntmp;
 	#ifndef USE_SSE2
 		int j2,jt,jp;
-	#endif
-	#ifdef USE_SSE2
+	#else	// USE_SSE2
 	  #ifndef USE_AVX
 		const int *incr;
 	  #endif
@@ -2056,7 +2055,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2072,7 +2071,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 		vec_dbl *tmp,*tm1;	// Non-static utility ptrs
 	  #ifndef USE_AVX512
-		vec_dbl *tm2;	// Non-static utility ptrs
+		vec_dbl *tm2;
 		double dtmp;
 	  #endif
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;

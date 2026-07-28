@@ -212,8 +212,6 @@ int radix160_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 // Shared DIF+DIT:
   #ifndef USE_SSE2
 	double rt,it;
-  #endif
-  #ifndef USE_SSE2
 	static int t_offsets[32];
   #endif
 	// Need storage for 2 circular-shifts perms of a basic 5-vector, with shift count in [0,4] that means 2*9 elts:
@@ -248,7 +246,7 @@ int radix160_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
 	int *itmp;	// Pointer into the bjmodn array
   #if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 #endif
 	int err;
@@ -309,10 +307,10 @@ int radix160_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#endif
 		*tmp,*tm2	// Non-static utility ptrs
 	#if !defined(MULTITHREAD) || !defined(USE_SSE2)
-		,*tm1		// Non-static utility ptrs
+		,*tm1
 	#endif
 	#ifndef USE_SSE2
-		,*tm0		// Non-static utility ptrs
+		,*tm0
 	#endif
 		;
 	static vec_dbl *two,*one,*sqrt2,*isrt2,*xcc1,*xss1,*xcc2,*xss2,*xcc3,*xss3,	// radix-32 DFT trig consts
@@ -554,7 +552,7 @@ int radix160_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x140;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp += 0x140;
 		two   = tmp + 0x0;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
@@ -2572,7 +2570,7 @@ void radix160_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

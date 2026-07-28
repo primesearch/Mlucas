@@ -349,7 +349,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#endif
 	int *itmp;	// Pointer into the bjmodn array
 	#if defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
 	#endif
   #endif
 	int err;
@@ -362,8 +362,6 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#ifndef USE_SSE2
 	int m,m2;
 	#endif
-  #endif
-  #ifndef MULTITHREAD
   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
    #ifdef CARRY_16_WAY
@@ -447,7 +445,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
 		*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
   #if !defined(MULTITHREAD) && (!defined(USE_SSE2) || defined(USE_AVX))
-		,*cy_i	// Need RADIX slots for sse2 carries, RADIX/2 for avx
+		,*cy_i
   #endif
 		;
   #ifdef USE_AVX
@@ -457,9 +455,9 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
 	#if !defined(USE_SSE2) || defined(USE_AVX)
-	vec_dbl *tm0;		// Non-static utility ptrs
+	vec_dbl *tm0;
 	#endif
-	vec_dbl *tm1;		// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
   #if !defined(USE_AVX) && !defined(USE_AVX2) && !defined(USE_AVX512)
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -709,7 +707,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #ifndef MULTITHREAD
 		s1p00 = tmp;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #endif
-						tmp += 0x780;	// Head of RADIX*vec_cmplx-sized local store #2
+						tmp += 0x780;
 	  #ifndef MULTITHREAD
 		x00    = tmp + 0x00;
 		x01    = tmp + 0x02;
@@ -3336,8 +3334,7 @@ void radix960_dit_pass1(double a[], int n)
 		double *addr,*addi;
 	  #ifdef USE_SSE2
 		double *add0;
-	  #endif
-	  #ifndef USE_SSE2
+	  #else	// USE_SSE2
 		struct complex *tptr;
 	  #endif
 	  #ifdef USE_SSE2
@@ -3400,8 +3397,7 @@ void radix960_dit_pass1(double a[], int n)
 		int j,j1,jt,jp,l,ntmp;
 	  #ifndef USE_SSE2
 		int j2;
-	  #endif
-	  #ifdef USE_SSE2
+	  #else	// USE_SSE2
 		int incr = 0;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 60|120|240 for avx512,avx,sse, respectively:
@@ -3478,11 +3474,11 @@ void radix960_dit_pass1(double a[], int n)
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2;	// utility ptrs
 	  #ifdef USE_AVX
-		vec_dbl *tm0;	// utility ptrs
+		vec_dbl *tm0;
 	  #endif
 		int *itmp;			// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;			// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #if !defined(USE_AVX) && !defined(USE_AVX2) && !defined(USE_AVX512)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

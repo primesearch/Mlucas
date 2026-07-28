@@ -285,7 +285,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	int *itmp;	// Pointer into the bjmodn array
   #endif
   #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 	int err;
 	static int first_entry=TRUE;
@@ -337,7 +337,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	vec_dbl
 		*tmp,*tm2	// Non-static utility ptrs
 	  #ifndef MULTITHREAD
-		,*tm1	// Non-static utility ptrs
+		,*tm1
 	  #endif
 		;
 	static vec_dbl *two,*one,*sqrt2,*isrt2, *rad13_const, *max_err, *sse2_rnd, *half_arr, *cc0, *ss0,	// rad13_const needs 18*sizeof(vec_dbl) bytes
@@ -578,7 +578,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x1a0;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp += 0x1a0;
 		two   = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
@@ -596,7 +596,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	   #ifndef MULTITHREAD
 		cy = tmp;						// RADIX/8 vec_dbl slots for carry sub-array
 	   #endif
-						tmp += 0x1a;	// RADIX/8 vec_dbl slots for carry sub-array
+						tmp += 0x1a;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
@@ -604,7 +604,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	   #ifndef MULTITHREAD
 		cy = tmp;						// RADIX/4 vec_dbl slots for carry sub-array
 	   #endif
-						tmp += 0x34;	// RADIX/4 vec_dbl slots for carry sub-array
+						tmp += 0x34;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x390; This is where the value of half_arr_offset208 comes from
 		half_arr= tmp + 0x02;	// This table needs 96*SZ_VD bytes in avx mode
@@ -612,7 +612,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	   #ifndef MULTITHREAD
 		cy = tmp;						// RADIX/2 vec_dbl slots for carry sub-array
 	   #endif
-						tmp += 0x68;	// RADIX/2 vec_dbl slots for carry sub-array
+						tmp += 0x68;
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x3c4; This is where the value of half_arr_offset208 comes from
 		half_arr= tmp + 0x02;	// This table needs 32*SZ_VD bytes in sse2 mode
@@ -2000,8 +2000,7 @@ void radix208_dit_pass1(double a[], int n)
 		int j,j1,l;
 	#ifndef USE_SSE2
 		int j2,jt,jp,ntmp;
-	#endif
-	#ifdef USE_SSE2
+	#else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 13|26|52 for avx512,avx,sse, respectively.
 		// But fixed-incr too restrictive here, so 'divide 13|26|52 into pieces' via increment-array whose elts sum to 13|26|52:
@@ -2047,7 +2046,7 @@ void radix208_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

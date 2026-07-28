@@ -277,7 +277,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int *itmp;	// Pointer into the bjmodn array
 #endif
 #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
 #endif
 	int err;
 	static int first_entry=TRUE;
@@ -328,7 +328,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc1,*ss1,*cc2,*ss2,*cc3,*ss3, *five,
 		*ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9,
@@ -570,7 +570,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x2c0;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp	+= 0x2c0;
 		two     = tmp;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
@@ -2878,7 +2878,7 @@ void radix352_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

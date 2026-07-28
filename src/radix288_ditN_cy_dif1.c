@@ -202,8 +202,6 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 // Shared DIF+DIT:
   #ifndef USE_SSE2
 	double rt,it,re;
-  #endif
-  #ifndef USE_SSE2
 	static int t_offsets[32];
   #endif
 	// Need storage for 2 circular-shifts perms of a basic 9-vector, with shift count in [0,8] that means 2*17 elts:
@@ -236,7 +234,7 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int *itmp;	// Pointer into the bjmodn array
 #endif
 #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
 #endif
 	int err;
 	static int first_entry=TRUE;
@@ -538,7 +536,7 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x240;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp	+= 0x243;	// Extra 3 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
 		two     = tmp - 3;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
@@ -3047,8 +3045,7 @@ void radix288_dit_pass1(double a[], int n)
 		int j,j1,l;
 	#ifndef USE_SSE2
 		int j2,jt,jp,ntmp;
-	#endif
-	#ifdef USE_SSE2
+	#else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 18|36|72 for avx512,avx,sse, respectively:
 		int incr;
@@ -3106,7 +3103,7 @@ void radix288_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

@@ -147,9 +147,7 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #ifdef USE_SSE2
   #if COMPACT_OBJ && !defined(MULTITHREAD)
 	static uint32 pp07[8];
-   #ifndef MULTITHREAD
 	int i0,i1,i2,i3,i4,i5,i6,i7;
-   #endif
   #endif
 #else
   #ifndef MULTITHREAD
@@ -209,7 +207,7 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int *itmp;	// Pointer into the bjmodn array
   #endif
   #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 	int err;
 	static int first_entry=TRUE;
@@ -282,7 +280,7 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 	static vec_dbl *sqrt2,*isrt2,*two,*one, *xcc1, *xss1, *xcc2, *xss2, *xss3, *max_err, *sse2_rnd, *half_arr
 		,*r00
@@ -1694,7 +1692,7 @@ void radix40_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -1723,7 +1721,7 @@ void radix40_dit_pass1(double a[], int n)
 			,*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 		vec_dbl *tmp,*tm1;	// Non-static utility ptrs
 	  #ifndef USE_AVX512
-		vec_dbl *tm2;	// Non-static utility ptrs
+		vec_dbl *tm2;
 		double dtmp;
 	  #endif
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;

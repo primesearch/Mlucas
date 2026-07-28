@@ -310,7 +310,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int *itmp;	// Pointer into the bjmodn array
   #endif
   #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 	int err;
 	static int first_entry=TRUE;
@@ -365,14 +365,14 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
 	vec_dbl *tmp,*tm2;	// Non-static utility ptrs
   #ifndef MULTITHREAD
-	vec_dbl *tm1;	// Non-static utility ptrs
+	vec_dbl *tm1;
   #endif
 	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0, *five,
 		*ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9,
 		*ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9,
 		*max_err, *sse2_rnd, *half_arr,
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
-  #if !defined(MULTITHREAD)
+  #ifndef MULTITHREAD
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
   #endif
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -609,7 +609,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x160;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #if !defined(MULTITHREAD) && defined(USE_SSE2)
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp += 0x160;
 		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
@@ -2159,8 +2159,7 @@ void radix176_dit_pass1(double a[], int n)
 		int j,j1,l;
 	#ifndef USE_SSE2
 		int j2,jt,jp,ntmp;
-	#endif
-	#ifdef USE_SSE2
+	#else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 11|22|44 for avx512,avx,sse, respectively.
 		// But fixed-incr too restrictive here, so 'divide 11|22|44 into pieces' via increment-array whose elts sum to 11|22|44:
@@ -2206,7 +2205,7 @@ void radix176_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer

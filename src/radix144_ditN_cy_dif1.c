@@ -271,7 +271,7 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int *itmp;	// Pointer into the bjmodn array
   #endif
   #if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
-	int *itm2;	// Pointer into the bjmodn array
+	int *itm2;
   #endif
 	int err;
 	static int first_entry=TRUE;
@@ -331,10 +331,10 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#endif
 		*tmp,*tm2	// Non-static utility ptrs
 	#if !defined(MULTITHREAD) && defined(USE_AVX2)
-		,*tm0		// Non-static utility ptrs
+		,*tm0
 	#endif
 	#ifndef MULTITHREAD
-		,*tm1		// Non-static utility ptrs
+		,*tm1
 	#endif
 		;
 	static vec_dbl *two,*one,*sqrt2,*isrt2,*cc0,*ss0, *cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4, *max_err, *sse2_rnd, *half_arr,
@@ -574,7 +574,7 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x120;					// Head of RADIX*vec_cmplx-sized local store #2
 	  #ifndef MULTITHREAD
-						s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
+						s1p00 = tmp;
 	  #endif
 		tmp	+= 0x122;	// Extra 2 slots here for one,sqrt2 below - added those late, too lazy to rejigger all the existing offsets following
 		two    = tmp - 2;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
@@ -1982,8 +1982,7 @@ void radix144_dit_pass1(double a[], int n)
 		int j,j1,l;
 	  #ifndef USE_SSE2
 		int j2,jt,jp,ntmp;
-	  #endif
-	  #ifdef USE_SSE2
+	  #else	// USE_SSE2
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 9|18|36 for avx512,avx,sse, respectively:
 		int incr;
@@ -2036,7 +2035,7 @@ void radix144_dit_pass1(double a[], int n)
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
 	  #if defined(USE_AVX) && !defined(USE_AVX512)
-		int *itm2;	// Pointer into the bjmodn array
+		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2045,7 +2044,7 @@ void radix144_dit_pass1(double a[], int n)
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
 	  #ifdef USE_AVX2
-			*tm0,				// Non-static utility ptrs
+			*tm0,
 	  #endif
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,

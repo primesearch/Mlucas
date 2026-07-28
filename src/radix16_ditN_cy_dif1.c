@@ -236,7 +236,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	double rt,it, wt_re,wt_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
    #endif
    #ifndef USE_SSE2
-	double wi_re,wi_im;			// Fermat-mod weights stuff, used in both scalar and AVX mode
+	double wi_re,wi_im;
    #endif
   #endif
 	static uint32 bjmodnini, nsave = 0;
@@ -3137,7 +3137,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		double rt,it, wt_re,wt_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and AVX mode
 	#endif
 	#ifndef USE_SSE2
-		double wi_re,wi_im;			// Fermat-mod/LOACC weights stuff, used in both scalar and AVX mode
+		double wi_re,wi_im;
 		double temp,frac;
 	#endif
 
@@ -3152,7 +3152,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	  #endif
 		vec_dbl *cc0, *ss0, *isrt2, *max_err
-		  #if !defined(USE_AVX512)
+		  #ifndef USE_AVX512
 			, *sse2_rnd
 		  #endif
 			, *half_arr, *tmp
