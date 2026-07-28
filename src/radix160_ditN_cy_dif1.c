@@ -215,13 +215,11 @@ int radix160_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int t_offsets[32];
   #endif
 	// Need storage for 2 circular-shifts perms of a basic 5-vector, with shift count in [0,4] that means 2*9 elts:
-	static int dif_offsets[RADIX];
-	static int dif_p20_cperms[18], dif_p20_lo_offset[32];
+	static int dif_offsets[RADIX], dif_p20_cperms[18], dif_p20_lo_offset[32];
   #ifdef USE_SSE2
 	static int dif_phi[ODD_RADIX];
   #endif
-	static int dit_offsets[RADIX];
-	static int dit_p20_cperms[18], dit_p20_lo_offset[32];
+	static int dit_offsets[RADIX], dit_p20_cperms[18], dit_p20_lo_offset[32];
   #ifdef USE_SSE2
 	static int dit_phi[ODD_RADIX];
   #endif

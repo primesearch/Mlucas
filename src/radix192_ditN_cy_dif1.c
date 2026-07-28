@@ -203,8 +203,7 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0, nsave = 0;
   #ifndef MULTITHREAD
 // Shared DIF+DIT:
-	int ilo,ihi,idx,jdx,hi_neg,k0,k1,k2, *iptr;
-	int nshift;
+	int ilo,ihi,idx,jdx,hi_neg,k0,k1,k2,nshift, *iptr;
 	static int plo[16];
    #ifndef USE_SSE2
 	static int phi[12];

@@ -63,10 +63,8 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7,cy_i8,cy_i9,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14
 		,temp,frac,scale;
 	double maxerr = 0.0;
-#if 0
-#if PFETCH
+#if 0 && PFETCH
 	double *add0, *addr;
-#endif
 #endif
 	int err;
 	static int first_entry=TRUE;

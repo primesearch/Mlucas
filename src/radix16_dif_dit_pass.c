@@ -204,9 +204,12 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	  #endif
 		;
 	// This variable might have to be reenabled if commented out Chebyshev code below is ever enabled.
-	// In this case the variable must be 'static' if !MULTITHREAD.
+	// In that case it must be 'static' when !MULTITHREAD - the #elif 0 branch spells out what
+	// would be needed, so it is visible rather than left to be rediscovered:
   #if defined(MULTITHREAD) && !(defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE))
 	uint64 *sign_mask;
+  #elif 0	// !MULTITHREAD: only needed if the Chebyshev code below is re-enabled
+	static uint64 *sign_mask;
   #endif
 
 #else

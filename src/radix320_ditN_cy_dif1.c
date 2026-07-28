@@ -2196,9 +2196,7 @@ void radix320_dit_pass1(double a[], int n)
 	static int NDIVR,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
 		,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0,pd0,pe0,pf0,pg0,ph0,pi0,pj0, first_entry=TRUE;
 	static int plo[16];
-  #ifndef USE_SSE2
 	//static int phi[20];
-  #endif
 	// Need storage for 4 circular-shifts perms of a basic 5-vector, with shift count in [0,4] that means 4*9 elts:
 	static int dit_p20_cperms[36];
 	const double cc1 = -1.25000000000000000000,	/* [cos(u)+cos(2u)]/2-1 = -5/4; u = 2*pi/5 */
