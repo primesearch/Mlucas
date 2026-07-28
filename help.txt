@@ -161,6 +161,9 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	value must map to a supported FFT length; for Mlucas these are of form k × 2^n, where k
 	is an odd integer in the set (1,3,5,7,9,11,13,15).
 
+	The minimum supported FFT length is 2K; 1K is not supported. A -fft request below the minimum
+	(or above the current maximum, 512M) is rejected at startup with an explicit range error.
+
 	If -fft is invoked with a user-supplied value of -iters but without a
 	user-supplied exponent, the program will do the specified number of iterations
 	using the default self-test Mersenne or Fermat-number exponent for that FFT length.
@@ -580,6 +583,11 @@ integer hardware multiply where available. (Speeding things by replacing the O(n
 school" multiply with a subquadratic one is a possible future enhancement.) For a given
 stage 1 bound B1, the s1_prod file will be roughly 0.2*B1 bytes in size.
 
+o A p-1 stage 1 run resumes at the B1 bound it started with, even if the default B1 would now be
+different (Mlucas can auto-size B1 based on available memory). A restart recovers the original B1
+from the .s1_prod savefile; if that file is missing, the restart stops and asks you to either rerun
+with the original '-b1 <N>' or delete the exponent's p-1 savefiles to start fresh.
+
 ======================
 
 [13]: *** DON'Ts ***
@@ -601,6 +609,11 @@ Please start by looking for posts about your issue in the
 mersenneforum.org thread specific to the release you are using in the mersenneforum.org
 Mlucas subforum at https://www.mersenneforum.org/forumdisplay.php?f=118.
 If you don't find anything, make a post describing your problem.
+
+o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation (e.g. -maxalloc set too high for the
+actual available RAM, or too little free RAM for the requested FFT length or p-1 stage 2 buffer count),
+Mlucas exits with a clear out-of-memory message. If you see this, lower -maxalloc, use fewer p-1 stage 2
+buffers (via -pm1_s2_nbuf), or free up system RAM.
 
 [14a]: How to safely interrupt a running instance:
 
@@ -635,7 +648,8 @@ Once you have identified the desired process IDs:
 	interval completes, i.e. until the latest savefile update occurs.
 
 For the current list of signal types which the program listens for, see the sig_handler() function near
-the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2.
+the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2 on
+Linux/macOS; native Windows/MinGW builds only catch INT and TERM.
 
 ======================
 
