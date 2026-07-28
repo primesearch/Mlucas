@@ -77,10 +77,20 @@
 	/*if(full_pass && (x != 0. || y != 0.))printf("Block %2u, j = %4u: u += %6d*bpow; v += %6d*bpow; bpow *= b;\n",idx,j,(int)x,(int)y);*/\
 	}
 #else
-	/* V2 computes x-y (= a*u - b*v) on the fly and stores in the normalized x-output, setting y = 0:
+	/* V2 computes x-y (= a*u - b*v) on the fly and stores in the normalized x-output, setting y = 0.
+	Note V2 needs no imaginary-part carry: the single cx carry-chain covers the combined x-y output.
+	The cy parameter is therefore accepted but deliberately unused, so that this and the V1 variant
+	above present the same 5-argument interface and callers need not be written against one of the
+	two. The (void)sizeof below makes that discard explicit: without it, a caller which walks a
+	cy_i[] array purely to supply this argument looks like dead code to -Wunused-but-set-variable
+	(gcc and clang both warn), and "fixing" that warning by dropping the caller's cy_i setup
+	silently breaks the V1 variant. sizeof is used rather than a plain (void)(cy) cast because its
+	operand is unevaluated: it marks cy as used without dereferencing it, which matters because
+	callers pass an lvalue like *addi.
 	*/						// Idx-arg is debug-use only:vvv
 	#define genfftmul_carry_norm_pow2_errcheck(x,y,cx,cy,idx)\
 	{\
+		(void)sizeof(cy);	/* V2 carries only the combined x-y output; see the note above */\
 		/* Multiply the current transform output by any scale factor: */\
 			rt = (x - y)*scale + cx;\
 			temp = DNINT(rt);\
