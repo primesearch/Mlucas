@@ -1817,6 +1817,16 @@ exit(0);
 	ASSERT(MAX_THREADS > 0,"Mlucas.c: MAX_THREADS must be > 0");
 
 	printf("INFO: System has %d available processor cores.\n", MAX_THREADS);
+	/* If some external agency (taskset/numactl/systemd/batch scheduler/container cpuset) has restricted
+	this process's CPU-affinity mask, say so: the default core set is then taken from that mask rather
+	than from the system-wide core count, so the user needs to see which of the two is in play. Note we
+	deliberately leave MAX_THREADS as the system-wide logical-CPU count, since it doubles as the upper
+	bound on legal -cpu core *indices* - which remain OS-wide indices, not offsets into the mask:
+	*/
+	uint64 avail_cores[MAX_CORES>>6];
+	int navail_cores = get_avail_cores(avail_cores,MAX_CORES>>6);
+	if(navail_cores > 0 && navail_cores < MAX_THREADS)
+		printf("INFO: Inherited CPU-affinity mask permits use of only %d of those cores.\n", navail_cores);
 
 	/* Test Multithreading via simple pthreading self-test: */
   #if 0
@@ -8910,6 +8920,65 @@ exit(0);
 
   #endif
 
+	/* Does this platform give us a way to ask which CPUs the process is actually *allowed* to use?
+	sched_getaffinity() is Linux-specific, so the guard here deliberately mirrors the one around the
+	sched_setaffinity() call in threadpool.c::worker_thr_routine(), ensuring the two always agree
+	about which builds do OS-level thread pinning by logical-CPU index:
+	*/
+  #if defined(OS_TYPE_LINUX) && !defined(OS_TYPE_WINDOWS) && !defined(__MINGW32__)
+	#define MLUCAS_HAVE_GETAFFINITY	1
+  #else
+	#define MLUCAS_HAVE_GETAFFINITY	0
+  #endif
+
+	/* Snapshot the set of logical CPUs this process is *permitted* to run on, i.e. the CPU-affinity
+	mask it inherited from its parent. A user or job scheduler may have restricted that mask - via
+	taskset, numactl, systemd 'CPUAffinity=', SLURM, a container runtime - in which case the
+	system-wide online-CPU count returned by get_num_cores() says nothing about where we may run.
+
+	Fills avail[0:nword-1], a bitmap indexed exactly as the global CORE_SET is, and returns the number
+	of permitted CPUs. A return value of 0 (avail[] all-zero) means the mask could not be determined,
+	and must be treated by callers as "no information", *not* as "no CPUs".
+	*/
+	int get_avail_cores(uint64 avail[], int nword)
+	{
+		int i, nset = 0;
+		for(i = 0; i < nword; i++) { avail[i] = 0ull; }
+	#if MLUCAS_HAVE_GETAFFINITY
+		cpu_set_t cpu_set;
+		CPU_ZERO(&cpu_set);
+		// Fails e.g. on a machine with more CPUs than CPU_SETSIZE, or under a libc/sandbox lacking the
+		// syscall; in that case fall back to the legacy whole-machine behavior rather than guessing:
+		if(sched_getaffinity(0, sizeof(cpu_set), &cpu_set) != 0)
+			return 0;
+		for(i = 0; i < CPU_SETSIZE && i < (nword<<6); i++) {
+			if(CPU_ISSET(i, &cpu_set)) { avail[i>>6] |= 1ull<<(i&63);	++nset; }
+		}
+	  #if INCLUDE_HWLOC
+		/* The above is in OS logical-CPU indices, but in an hwloc build with per-thread binding support
+		threadpool.c consumes CORE_SET bit indices as hwloc *logical* PU indices
+		(hwloc_get_obj_by_type(...,HWLOC_OBJ_PU,i)) - an ordering which differs from the OS one on any
+		SMT machine. Translate, so this bitmap is always in the same index space as CORE_SET:
+		*/
+		if(HWLOC_AFFINITY && nset) {
+			uint64 lmap[nword];
+			int nl = 0;
+			for(i = 0; i < nword; i++) { lmap[i] = 0ull; }
+			for(i = 0; i < (nword<<6); i++) {
+				if(!(avail[i>>6] & (1ull<<(i&63)))) continue;
+				hwloc_obj_t obj = hwloc_get_pu_obj_by_os_index(hw_topology, (unsigned)i);
+				if(obj && obj->logical_index < (unsigned)(nword<<6)) {
+					lmap[obj->logical_index>>6] |= 1ull<<(obj->logical_index&63);	++nl;
+				}
+			}
+			// Only adopt the translated map if every permitted CPU mapped to a PU in the loaded topology:
+			if(nl == nset) { for(i = 0; i < nword; i++) { avail[i] = lmap[i]; } }
+		}
+	  #endif
+	#endif
+		return nset;
+	}
+
 	// Simple struct to pass multiple args to the loop/join-test thread function:
 	struct do_loop_test_thread_data{
 		int tid;
@@ -9146,21 +9215,34 @@ exit(0);
 	{
 		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,bit,word;
 		char *char_addr = istr, *endp;
+		unsigned long utmp;
 		ASSERT(char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);
 		if(len == 0) return 0;	// Allow 0-length input, resulting in no-op
 		ASSERT(len <= STR_MAX_LEN, "Excessive input-substring length!");
-		lo = strtoul(char_addr, &endp, 10);	ASSERT(lo >= 0, "lo-substring not a valid nonnegative number!");
+		/* NB: strtoul() returns an unsigned long, so assigning its result straight into an int silently
+		truncates any value >= 2^32 - '-cpu 4294967299' used to quietly bind to core 3, the truncated
+		index also sliding past the range check in parseAffinityString() below. And strtoul() converting
+		no digits at all is not an error, it just leaves endp == the input pointer - which is how '-cpu 0:'
+		used to be silently taken to mean '-cpu 0'. So for each field of the triplet, require that some
+		digits were actually consumed and that the value is a legal core index, *before* narrowing to int:
+		*/
+		utmp = strtoul(char_addr, &endp, 10);
+		ASSERT(endp != char_addr && utmp < MAX_CORES, "lo-substring of core-affinity-triplet not a valid core index in [0,MAX_CORES)!");
+		lo = (int)utmp;
 		if(*endp) {
 			ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 			char_addr = endp+1;
-			hi = strtoul(char_addr, &endp, 10);
+			utmp = strtoul(char_addr, &endp, 10);
+			ASSERT(endp != char_addr && utmp < MAX_CORES, "hi-substring of core-affinity-triplet not a valid core index in [0,MAX_CORES)!");
+			hi = (int)utmp;
 			ASSERT(hi >= lo, "hi-substring not a valid number >= lo!");
 			if(*endp) {
 				ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 				char_addr = endp+1;
-				incr = strtoul(char_addr, &endp, 10);
-				ASSERT(incr > 0, "incr-substring not a valid positive number!");
+				utmp = strtoul(char_addr, &endp, 10);
+				ASSERT(endp != char_addr && utmp > 0 && utmp < MAX_CORES, "incr-substring of core-affinity-triplet not a valid positive number < MAX_CORES!");
+				incr = (int)utmp;
 				ASSERT(*endp == 0x0, "Non-numeric increment substring in core-affinity-triplet substring!");
 			} else {
 				// If increment (third) argument of triplet omitted, default to incr = 1.
@@ -9265,6 +9347,80 @@ exit(0);
 			fprintf(stderr,"ERROR: %d cores in user-specified core set have index exceeding those of available logical cores = 0-%d!\n",core_count_oflow,MAX_THREADS-1);
 			exit(EXIT_FAILURE);
 		}
+		/* Lastly, warn about any specified core lying outside the CPU-affinity mask this process inherited
+		(taskset, numactl, systemd 'CPUAffinity=', SLURM, container cpuset). An explicit user-specified core
+		set still wins - overriding the inherited placement is the documented point of the -cpu flag - but
+		the resulting per-worker sched_setaffinity() will then either widen the process's mask back out,
+		silently defeating the operator's placement, or (under a cgroup cpuset) fail with EINVAL and leave
+		that worker unpinned. Neither outcome is otherwise apparent from the run's output:
+		*/
+		uint64 avail[MAX_CORES>>6];
+		if(get_avail_cores(avail,MAX_CORES>>6) > 0) {
+			nc = 0;
+			for(i = 0; i < MAX_CORES; i++) {
+				word = i>>6; bit = i & 63;
+				if((CORE_SET[word] & (1ull<<bit)) && !(avail[word] & (1ull<<bit))) {
+					if(!nc++) { fprintf(stderr,"WARN: Specified core set includes logical CPUs outside this process's inherited CPU-affinity mask: "); }
+					fprintf(stderr,"%u.",i);
+				}
+			}
+			if(nc) { fprintf(stderr,"\n      Pinning threads there overrides the externally-imposed affinity, or fails outright under a cgroup cpuset.\n"); }
+		}
+	}
+
+	/******************/
+	/* Set the default thread-affinity core set, i.e. the one used when the user specified no explicit
+	core set: either no affinity-related command-line flag at all, or just '-nthread [ncore]'.
+
+	This used to simply pin to logical CPUs [0:ncore-1], which silently discards any externally-imposed
+	CPU-affinity mask: the worker threads sched_setaffinity() themselves onto CPUs 0,1,...,ncore-1 no
+	matter where the operator placed the process, so the standard practice of running several instances
+	pinned to disjoint core groups ('taskset -c 0-3', 'taskset -c 4-7', ...) collapses every instance
+	onto the same low-numbered CPUs, with full contention and no diagnostic. Take the core set from the
+	first [ncore] CPUs of the process's *inherited* affinity mask instead. For a process whose mask is
+	unrestricted - the overwhelming majority of runs - those are exactly CPUs [0:ncore-1], hence the
+	resulting CORE_SET bitmap, the printed core list and NTHREADS are all unchanged.
+	*/
+	void setDefaultAffinity(uint32 ncore)
+	{
+		char ostr[STR_MAX_LEN+1];
+		uint64 avail[MAX_CORES>>6];
+		int i,j,lo,hi, nchar = 0, navail = get_avail_cores(avail,MAX_CORES>>6);
+		int use_mask = (navail > 0);
+		uint32 nc = 0;
+		ASSERT((int)ncore > 0, "#threads must be > 0!");
+		if(use_mask && ncore > (uint32)navail) {
+			if(navail < MAX_THREADS) {
+				// Oversubscribing an externally-restricted mask needs its own diagnostic, since the generic
+				// "exceeds #available logical cores" error issued by parseAffinityString() cites the
+				// machine-wide core count and so reads as a non sequitur here:
+				fprintf(stderr,"ERROR: #threads [ = %u] exceeds the %d logical CPUs permitted by this process's inherited CPU-affinity mask!\n",ncore,navail);
+				exit(EXIT_FAILURE);
+			}
+			// Mask unrestricted, user simply asked for more threads than the machine has cores: fall back to
+			// the legacy [0:ncore-1] core set so parseAffinityString() issues its usual error, unchanged:
+			use_mask = FALSE;
+		}
+		// Emit the first [ncore] permitted CPU indices as a comma-separated list of lo[:hi] triplets,
+		// collapsing runs of consecutive indices so the common cases stay well within STR_MAX_LEN:
+		for(i = 0; use_mask && i < MAX_CORES && nc < ncore; i++) {
+			if(!(avail[i>>6] & (1ull<<(i&63)))) continue;
+			lo = hi = i;	++nc;
+			while(nc < ncore && (hi+1) < MAX_CORES && (avail[(hi+1)>>6] & (1ull<<((hi+1)&63)))) { ++hi;	++nc; }
+			if(lo == hi)
+				j = snprintf(ostr+nchar,sizeof(ostr)-nchar,"%s%d"   ,(nchar ? "," : ""),lo);
+			else
+				j = snprintf(ostr+nchar,sizeof(ostr)-nchar,"%s%d:%d",(nchar ? "," : ""),lo,hi);
+			if(j < 0 || (size_t)(nchar+j) >= sizeof(ostr)) {
+				fprintf(stderr,"ERROR: Inherited CPU-affinity mask is too fragmented to encode as an affinity string ... use the -cpu flag to specify a core set explicitly.\n");
+				exit(EXIT_FAILURE);
+			}
+			nchar += j;	i = hi;
+		}
+		// nc = 0, i.e. no usable mask info (non-Linux build, or sched_getaffinity failed, or the
+		// unrestricted-mask-oversubscribed case above): legacy [0:ncore-1] core set
+		if(!nc) { snprintf(ostr,sizeof(ostr),"0:%u",ncore-1); }
+		parseAffinityString(ostr);
 	}
 
 #endif	// MULTITHREAD ?
