@@ -1015,7 +1015,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	int jhi;
 #endif
 	// num_b is #buffers per unit of extended-pairing-window size M; wsize is #bytes needed per 'word' of the associated bitmap
-	uint32 bigstep_pow2,rsize, nq,np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
+	uint32 bigstep_pow2,rsize, np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
 #if USE_PP1_MULTS
 	uint32 word,bit;
 #elif defined(PM1_DEBUG)
@@ -2055,8 +2055,11 @@ MME = 0;
 	*tdiff = AME = MME = 0.0;	// Reset timer and maxROE, now also init AvgROE
 	AME_ITER_START = 0;	// For p-1 stage 2, start collecting AvgROE data immediately, no need t wait for residue to "fill in"
 #endif
-	nq = np = 0;	// nq = # of stage 2 q's processed; np = #prime-pairs
+	np = 0;			// np = #prime-pairs
 	ns = 0;			// ns = # singleton-prime q's, i.e. prime q which end up getting paired with a composite
+	// (A 'nq = # of stage 2 q's processed' counter used to live here, but it was only ever incremented in the
+	//  M-odd 0-interval loop below and not in the extended-window loop, so it never held the total it claimed.
+	//  Dropped rather than kept dead; np,ns are the counts actually reported in the summary line post-loop.)
 	/*
 	There are 2 kinds of modmul in the stage 2 accumulation loop: the first is by an element of the precomputed
 	table of the stage 1 residue raised to successive even powers; in an actual bignum-code implementation these
@@ -2087,7 +2090,6 @@ MME = 0;
 		#endif
 			map_lo = map + m2*wsize + (wsize>>1);	// ptr to midpoint of 0-interval map word
 			for(i = 0; i < num_b; i++) {
-				nq += 2;
 				p1 = bytevec_test_bit(map_lo,-i-1); p2 = bytevec_test_bit(map_lo,+i);
 			#ifdef PM1_DEBUG
 				q1 = q - b[i]; q2 = q + b[i];
@@ -2140,7 +2142,6 @@ MME = 0;
 				++nmodmul;
 			#endif
 			}
-			(void)nq; // currently unused
 		  }	// m_is_odd?
 			/* Loop over the m2 interval-pairs symmetric about the 0-interval (M odd) or midpoint of the
 			current set of M extended-pairing windows (M even) and process any resulting pairings.
