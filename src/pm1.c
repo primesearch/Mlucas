@@ -1019,6 +1019,8 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	uint32 bigstep_pow2,rsize, nq,np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
 #if USE_PP1_MULTS
 	uint32 word,bit;
+#elif defined(PM1_DEBUG)
+	uint32 bit;		// The PM1_DEBUG prime-pairing cross-checks below use bit, but not word
 #endif
 	uint64 tmp,q,q0,q1,q2, qlo = 0ull,qhi, reloc_start, pinv64 = 0ull;
 	// map_lo|hi intended as variable ptrs to various parts of map[], lo|hi as const ptrs to words beyond end of
