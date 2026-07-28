@@ -3085,6 +3085,28 @@ void radix1024_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
+	// GCC 16 + AVX-512 + -O3 + LTO miscompiles this function: the carry step returns an
+	// all-zero residue array (and a correspondingly zero roundoff error, so nothing warns),
+	// i.e. a silently wrong result, for every FFT length whose leading radix is 1024 - that
+	// is radix_set 0 of every power-of-2 FFT length from 1M on up, plus 1024K radix_set 1.
+	// The data reaching this function are correct (verified by checksumming the residue array
+	// on both sides of the mers_mod_square dispatch), so the fault is inside this function.
+	// Reproduced under Intel SDE (-skx and -spr) with gcc 16.1.1; the identical source is
+	// clean with gcc 11.4.0, gcc 15.3.0 and clang 22.1.8, and clean with gcc 16.1.1 at -O1,
+	// at -O2, or at -O3 with LTO disabled. A whole-program UBSan build at the exact failing
+	// configuration is clean (887 __ubsan call sites in this function alone), and the alignment
+	// precondition the wtsinit macro relies on is provably satisfied here - wt1 is 128-byte
+	// aligned via ALIGN_DOUBLE, col is a multiple of 1024 and ii of 16, so &wt1[col+ii] is
+	// 64-byte aligned - yet that build's vmovaps on &wt1[col+ii] faults on a 16-mod-64 address,
+	// i.e. a state unreachable from valid inputs. The exact gcc-16 defect was not isolated, so
+	// this caps just this one function at -O2 rather than pretending to fix the generated code.
+	// Compiler- and ISA-gated to keep the normal -O3 codegen everywhere else, since this is a
+	// hot path at the mainstream 1M-8M FFT lengths. The upper version bound is deliberately
+	// open-ended: a silently wrong residue is not an acceptable risk to take on an untested
+	// future gcc.
+#if defined(USE_AVX512) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ >= 16)
+	__attribute__((optimize("O2")))
+#endif
 	void*
 	cy1024_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
