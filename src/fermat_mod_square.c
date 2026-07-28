@@ -347,6 +347,18 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			}
 		}
 
+	#ifdef USE_SSE2
+		/* Defence in depth for leading radix 992 - see the identical guard in mers_mod_square.c for the
+		full rationale. radix992_ditN_cy_dif1.c has no SIMD carry implementation; get_fft_radices() already
+		rejects the 31*2^k FFT lengths in SIMD builds, so this is unreachable today and exists only to keep
+		a future table change from silently reintroducing a wrong residue: */
+		if(radix0 == 992)
+		{
+			sprintf(cbuf  ,"radix 992 has no SIMD carry implementation; skipping this radix combo (use a %u K or %u K FFT length, or a scalar-double build).\n", (n/(31<<10))*30, (n/(31<<10))*32);
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
+
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
 		for(i = 0; i < NRADICES; i++)

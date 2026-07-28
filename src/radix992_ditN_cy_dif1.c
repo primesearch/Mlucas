@@ -303,6 +303,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Vars needed in scalar mode only:
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int bjmodn[RADIX];
+	int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop
 	double temp,frac,
 		cy_r[RADIX],cy_i[RADIX];
 
@@ -1078,6 +1079,9 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		p1 = 1*NDIVR;	 p1 += ( (p1 >> DAT_BITS) << PAD_BITS );
 		p2 = 2*NDIVR;	 p2 += ( (p2 >> DAT_BITS) << PAD_BITS );
 		p3 = 3*NDIVR;	 p3 += ( (p3 >> DAT_BITS) << PAD_BITS );
+	#ifndef MULTITHREAD
+		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
+	#endif
 
 		for(l = 0; l < (RADIX>>2); l++) {
 			poff[l] = (l<<2)*NDIVR;	// Corr. to every 4th plo[] term
@@ -2864,6 +2868,7 @@ void radix992_dit_pass1(double a[], int n)
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3;
 		int poff[RADIX>>2];
+		int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop
 		// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 		int dif_p20_cperms[62], plo[32],phi[62],jj[32], *iptr;
 		int idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
@@ -2933,6 +2938,7 @@ void radix992_dit_pass1(double a[], int n)
 		p1 = 1*NDIVR;	 p1 += ( (p1 >> DAT_BITS) << PAD_BITS );
 		p2 = 2*NDIVR;	 p2 += ( (p2 >> DAT_BITS) << PAD_BITS );
 		p3 = 3*NDIVR;	 p3 += ( (p3 >> DAT_BITS) << PAD_BITS );
+		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
 
 		for(l = 0; l < (RADIX>>2); l++) {
 			poff[l] = (l<<2)*NDIVR;	// Corr. to every 4th plo[] term
