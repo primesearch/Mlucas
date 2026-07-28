@@ -425,25 +425,25 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 	fprintf(stderr,"Pre-loop accumulator = %" PRIu64 " + 2^64*%" PRIu64,accum[0],accum[1]);
   }
 #endif
-// Undef to get debug output.
-//#define DEBUG_PM1_S1_PPOW_PROD
-//	fprintf(stderr,"Stage 1 exponent = %" PRIu64 ".",accum[0]);
+#ifdef PM1_DEBUG
+	fprintf(stderr,"Stage 1 exponent = %" PRIu64 ".",accum[0]);
+#endif
 	while(p < b1) {
 		mult = 1ull;
 		for(i = 0; i < loop; i++) {
 			prod = p; tmp = prod*p;
-#ifdef DEBUG_PM1_S1_PPOW_PROD
-			uint32_t j = 1;
+#ifdef PM1_DEBUG
+			uint32 j = 1;
 #endif
 			// if() uses prod*p here so as to include only the 1st power of the primes >= sqrt(b1):
 			while(tmp <= b1) {
 				prod = tmp; tmp *= p;
-#ifdef DEBUG_PM1_S1_PPOW_PROD
+#ifdef PM1_DEBUG
 				j++;
 #endif
 			}
 			mult *= prod;
-#ifdef DEBUG_PM1_S1_PPOW_PROD
+#ifdef PM1_DEBUG
 			if(j > 1)
 				fprintf(stderr,"%u^%u.",p,j);
 			else
@@ -455,10 +455,9 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 		cy = mi64_mul_scalar(accum, mult, accum, len);	++*nmul;
 		accum[len] = cy; len += (cy != 0ull);
 	}
-#ifdef DEBUG_PM1_S1_PPOW_PROD
+#ifdef PM1_DEBUG
 	fprintf(stderr,"\n");
 #endif
-#undef DEBUG_PM1_S1_PPOW_PROD
 	return len;
 }
 
