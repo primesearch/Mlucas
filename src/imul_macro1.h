@@ -6402,7 +6402,8 @@ On Alpha, this needs a total of 12 MUL instructions and 42 ALU ops.
 		MUL_LOHI64(__x.d0,__x.d2, __e , __f );	/*   x0*x2 */\
 		MUL_LOHI64(__x.d1,__x.d2, __i , __j );	/*   x1*x2 */\
 		/* Add last pair (bottom layer) cross terms: */\
-		__b += __e;	__i += __f + (__b < __e);	/* f is a UMULH output, so f + CY cannot overflow */\
+		__b += __e;	__f += (__b < __e);	/* f is a UMULH output, so f + CY cannot overflow */\
+		__i += __f;	__j += (__i < __f);	/* ...but i + (f + CY) can, so ripple that carry into j */\
 		__hi.d2 = ((int64)__j < 0);\
 		/* Interleave left-shift of the 4-word result with squaring MULs: */\
 		/*** I wish I could say that interleaving the MULs and ALU stuff gives a speedup, but on x86_64 I get same speed if I do */\
@@ -6433,10 +6434,12 @@ On Alpha, this needs a total of 12 MUL instructions and 42 ALU ops.
 		/* Evaluate the cross-terms first, then right-shift those 1 place while we compute the w0-w5 terms: */\
 	"movq	%[__x0],%%rax	\n\t	mulq	%[__x1]	\n\t	movq	%%rax,%%r11	\n\t	movq	%%rdx,%%r12	\n\t"/* _a:_b = x0*x1 */\
 	"movq	%[__x0],%%rax	\n\t	mulq	%[__x2]	\n\t	movq	%%rax,%%rdi	\n\t	movq	%%rdx,%%r13	\n\t"/* _e:_f = x0*x2 */\
-	"movq	%[__x1],%%rax	\n\t	mulq	%[__x2]	\n\t		movq %%rdx,%%r14  \n\t	movq	%%rdx,%%r15	\n\t"/* _i:_j = x1*x2; leave _i in rax, make 2 copies of rdx */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__x2]	\n\t		movq %%rdx,%%r14  \n\t"/* _i:_j = x1*x2; leave _i in rax, _j in r14 */\
 		/* Add last pair (bottom layer) cross terms: */\
 		"addq	%%rdi,%%r12		\n\t"/* _b += _e */\
 		"adcq	%%rax,%%r13		\n\t"/*	_i += _f + (_b < _e); _f is a UMULH output, so f + CY cannot overflow */\
+		"adcq	$0,%%r14		\n\t"/*	_j += (_i < _f); ...but _i + (_f + CY) can, so ripple that carry into _j */\
+		"movq	%%r14,%%r15		\n\t"/* copy of the now-final _j, for _w5 */\
 		"shrq	$63,%%r15		\n\t"/* _w5 = (_j >> 63) */\
 		/* Interleave left-shift of the 4-word result with squaring MULs: */\
 	"movq	%[__x0],%%rax	\n\t	mulq	%%rax	\n\t	movq	%%rax,%[__lo0] \n\t	movq	%%rdx,%%r10	\n\t"/* w0:w1 = x0^2 */\
