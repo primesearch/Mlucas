@@ -180,9 +180,6 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
   #endif
 	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
-  #if !defined(MULTITHREAD) && defined(USE_SSE2)
-	int incr = 0;
-  #endif
   #ifndef MULTITHREAD
 	#ifndef USE_SSE2
 	int j2;
@@ -193,6 +190,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int nbytes;
   #endif
   #if !defined(MULTITHREAD) && defined(USE_SSE2)
+	int incr = 0;
 	// incr = Carry-chain wts-multipliers recurrence length, which must divide
 	// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 60|120|240 for avx512,avx,sse, respectively:
 	const int incr_long = 15,incr_med =10,incr_short = 5;
@@ -415,10 +413,10 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
   #endif
   #ifdef USE_AVX512
-	static int mcycle[ODD_RADIX]/* ,mc_idx */;
-	static int ncycle[ODD_RADIX]/* ,nc_idx */;
-	static int ocycle[ODD_RADIX]/* ,oc_idx */;
-	static int pcycle[ODD_RADIX]/* ,pc_idx */;
+	static int mcycle[ODD_RADIX];
+	static int ncycle[ODD_RADIX];
+	static int ocycle[ODD_RADIX];
+	static int pcycle[ODD_RADIX];
   #ifndef MULTITHREAD
 	static int mc_idx, nc_idx, oc_idx, pc_idx;
   #endif
@@ -3399,14 +3397,12 @@ void radix960_dit_pass1(double a[], int n)
 			0x29,0x2b,0x2a,0x39,0x38,0x3a,0x3b,0x36,0x37,0x34,0x35,0x30,0x31,0x33,0x32
 		};
 
-	  #ifdef USE_SSE2
-		int incr = 0;
-	  #endif
 		int j,j1,jt,jp,l,ntmp;
 	  #ifndef USE_SSE2
 		int j2;
 	  #endif
 	  #ifdef USE_SSE2
+		int incr = 0;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 60|120|240 for avx512,avx,sse, respectively:
 		const int incr_long = 15,incr_med =10,incr_short = 5;
