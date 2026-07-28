@@ -2722,7 +2722,12 @@ void radix60_dit_pass1(double a[], int n)
 			*sse2_rnd,
 		  #endif
 			*half_arr,
-		  #ifndef USE_ARM_V8_SIMD // TODO that looks strange that this is needed to get rid of unused 'two'
+		  // 'two' is passed to SSE2_RADIX_15_[DIF|DIT]_X2 below, which hands it to
+		  // SSE2_RADIX_05_DFT_0TWIDDLE_X2. On ARM V8 that X2 macro is just a wrapper which calls the
+		  // non-X2 5-DFT macro twice, and the non-X2 macro takes no 'two' arg on any arch - so the
+		  // argument is discarded and the variable really is unused there. Every x86 SIMD variant of
+		  // the X2 macro does use it, hence the arch guard rather than a plain comment-out:
+		  #ifndef USE_ARM_V8_SIMD
 			*two,
 		  #endif
 			*sse2_c3m1, /* *sse2_s, */ *sse2_cn1, /* *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2, */
@@ -2968,7 +2973,9 @@ void radix60_dit_pass1(double a[], int n)
 		//sse2_ss3  = tmp + 0x04;
 		//sse2_sn1  = tmp + 0x05;
 		//sse2_sn2  = tmp + 0x06;
-	#ifndef USE_ARM_V8_SIMD // TODO that looks strange that this is needed to get rid of unused 'two'
+	// Unused on ARM V8 - see the note on the 'two' declaration above. The slot itself is still
+	// reserved by the unconditional tmp += 0x08 below, and is initialized in radix60_ditN_cy_dif1():
+	#ifndef USE_ARM_V8_SIMD
 		two       = tmp + 0x07;
 	#endif
 		tmp += 0x08;
