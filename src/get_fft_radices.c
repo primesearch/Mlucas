@@ -111,6 +111,30 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		fprintf(stderr,"       which exceeds the maximum allowed odd radix of 15.\n");
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
+#ifdef USE_SSE2
+	/* The odd-31 FFT lengths - 992K, 1984K, 3968K, 7936K, 15872K, 31744K, 63488K, i.e. 31*2^k Kdoubles -
+	are offered only with leading radix 992 (the factor of 31 must live in the leading radix, since the
+	intermediate radices are restricted to {8,16,32} and no radix-31/62/124/248/496 carry routine exists).
+	radix992_ditN_cy_dif1.c has no SIMD implementation: it #undefs USE_SSE2/USE_AVX/USE_AVX2/USE_AVX512 at
+	the top of the file and always compiles its scalar-double carry loop. In a SIMD build that loop then
+	walks the interleaved residue array as if it had the scalar layout - it touches only a[j1] and
+	a[j1+RE_IM_STRIDE] per complex datum - so all but 2 of every 2*RE_IM_STRIDE data never get a carry
+	propagated. The run dies a few iterations in with a spurious "excessive roundoff error"/"nonzero exit
+	carry in radix992_ditN_cy_dif1" diagnostic (SSE2/AVX/AVX2), or trips the cy_dat-alignment ASSERT during
+	init (AVX-512, where SZ_VD = 64 but the alignment search only scans 4 doubles = 32 bytes). Since 992 is
+	the only available leading radix, these lengths have no working radix set whatsoever in a SIMD build, so
+	reject them here rather than handing back a set that cannot work and leaving the driver to cycle through
+	radix sets that all fail. This is the same class as issue #154 (tables selecting a leading radix whose
+	carry routine is scalar-only); the lengths remain fully supported in scalar-double builds. */
+	if(i == 31)
+	{
+		fprintf(stderr,"ERROR: FFT length %d K (odd component 31) is not supported in SIMD builds:\n", kblocks);
+		fprintf(stderr,"       its only available leading FFT radix, 992, has no SIMD carry implementation.\n");
+		fprintf(stderr,"       Use FFT length %d K or %d K instead, or rebuild in scalar-double mode\n", (kblocks/31)*30, (kblocks/31)*32);
+		fprintf(stderr,"       ('makemake.sh nosimd'), where the 31*2^k lengths do work.\n");
+		return ERR_FFTLENGTH_ILLEGAL;
+	}
+#endif
 
 	/* Real-array length, in CS notation (1K=1024 8-byte elements):	*/
 	switch(kblocks)
