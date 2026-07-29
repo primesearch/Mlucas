@@ -92,6 +92,10 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 			LSHIFT128(x,(uint32)p.d0,x);
 		} else {
 			LSHIFT128(x,j,x);
+			// 2^j <= q < 2^(j+1), so the aligned seed is < q *except* when q is an exact power
+			// of 2, where 2^j == q and the seed needs reducing to 0 - the doublings below never
+			// reduce it otherwise, and the routine would return q (or 2^nshift) in place of 0:
+			if(CMPEQ128(x, q)) { x.d0 = x.d1 = 0ull; }
 		}
 		for( ; j < p.d0; j++) {
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */

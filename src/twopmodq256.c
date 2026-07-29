@@ -127,6 +127,10 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 			LSHIFT256(x,(uint32)p.d0,x);
 		} else {
 			LSHIFT256(x,j,x);
+			// 2^j <= q < 2^(j+1), so the aligned seed is < q *except* when q is an exact power
+			// of 2, where 2^j == q and the seed needs reducing to 0 - the doublings below never
+			// reduce it otherwise, and the routine would return q (or 2^nshift) in place of 0:
+			if(CMPEQ256(x, q)) { x.d0 = x.d1 = x.d2 = x.d3 = 0ull; }
 		}
 		for( ; j < p.d0; j++) {
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
