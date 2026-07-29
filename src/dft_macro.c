@@ -3445,6 +3445,14 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 				VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 			/* Move on to next thread's local store */
+				// *** two,one must be advanced here along with everything else: without this, all
+				// max_threads passes of this loop wrote 2.0/1.0 into thread 0's pair of slots and
+				// left threads 1..N-1 with whatever ALLOC_VEC_DBL returned (0.0 in practice).
+				// 'two' is a live operand of the FMA form of SSE2_RADIX_07_DFT below, so every
+				// carry thread but thread 0 computed a garbage radix-63 DFT in any build that
+				// defines USE_AVX2 (i.e. AVX2, AVX-512, ARMv8) - the radix1008/radix4032
+				// multithreaded wrong-residue/roundoff-halt bug. ***
+				two   += 152;			one += 152;
 				cc1   += 152;			dc0 += 152;
 				ss1   += 152;			ds0 += 152;
 				cc2   += 152;			dc1 += 152;
@@ -3696,6 +3704,14 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 				VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 			/* Move on to next thread's local store */
+				// *** two,one must be advanced here along with everything else: without this, all
+				// max_threads passes of this loop wrote 2.0/1.0 into thread 0's pair of slots and
+				// left threads 1..N-1 with whatever ALLOC_VEC_DBL returned (0.0 in practice).
+				// 'two' is a live operand of the FMA form of SSE2_RADIX_07_DFT below, so every
+				// carry thread but thread 0 computed a garbage radix-63 DFT in any build that
+				// defines USE_AVX2 (i.e. AVX2, AVX-512, ARMv8) - the radix1008/radix4032
+				// multithreaded wrong-residue/roundoff-halt bug. ***
+				two   += 152;			one += 152;
 				cc1   += 152;			dc0 += 152;
 				ss1   += 152;			ds0 += 152;
 				cc2   += 152;			dc1 += 152;
