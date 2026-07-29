@@ -23,6 +23,23 @@
 #include "Mlucas.h"
 #include "radix64.h"
 
+/* Work around a GCC 11 auto-vectorizer bug: in AVX-512 builds at -O3 (where GCC 11 enables the
+tree vectorizers), GCC 11.x miscompiles this translation unit - the compiler-vectorized code in
+cy320_process_chunk() dereferences a NULL-based address (observed on the ubuntu-22.04/gcc-11.4 CI
+runners and reproduced under Intel SDE with the same toolchain: SIGSEGV on a compiler-generated
+`vmovaps zmm0,[rax]` with rax = 0x7d80, i.e. a struct offset with its base pointer lost, at the
+very first multithreaded carry step of a leading-radix-320 run, e.g. M12628613 @ 640K FFT with
+radices {320,32,32}). The same build at -O2 - or with the tree vectorizers disabled at -O3, as
+done here - produces correct code (verified: 100-iteration Res64 matches the good-compiler
+reference). GCC 12+ (13/15/16 verified) and Clang are unaffected, as is the AVX2 build; note this
+is a different GCC 11 bug than the register-allocator one worked around in twopmodq96.c - forcing
+-fira-algorithm=priority does NOT fix this one. Only compiler-autovectorized glue code is
+affected; the hand-written AVX-512 asm macros which do the heavy lifting are untouched, so the
+performance impact is negligible. */
+#if defined(USE_AVX512) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 11)
+	#pragma GCC optimize ("no-tree-vectorize","no-tree-slp-vectorize")
+#endif
+
 #define RADIX 320	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 5	// ODD_RADIX = [radix >> trailz(radix)]
 
@@ -2525,6 +2542,18 @@ void radix320_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
+	// GCC 11 + AVX-512: this function's local 'a' (Main data array pointer, extracted from
+	// thread_arg->arrdat) gets silently corrupted to a small integer (i.e. loses its base address,
+	// leaving only an index/offset component) between extraction and use, at every -O level from
+	// -O1 through -O3 (reproduced under Intel SDE with the exact ubuntu-22.04/gcc-11.4 CI
+	// toolchain+flags; -O0 is clean; confirmed via instrumented builds that thread_arg->arrdat
+	// itself is correctly a valid heap pointer at extraction time, so the corruption happens later,
+	// in this function's own body - this is a different manifestation than the compiler-
+	// autovectorizer bug the file-level pragma above works around, which by itself does not fix it).
+	// Scope the fix to just this function so the rest of the file keeps its normal optimization
+	// level; verified crash-free and numerically correct (Res64 matches the AVX2 build) for
+	// M12628613 @ 640K FFT, radices {320,32,32}, the case in which this was found.
+	__attribute__((optimize("O0")))
 	void*
 	cy320_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
