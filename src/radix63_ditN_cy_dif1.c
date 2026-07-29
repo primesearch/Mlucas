@@ -47,7 +47,6 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix63_ditN_cy_dif1";
-	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer;
 
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
@@ -495,7 +494,7 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 				jstart = 0;
 				jhi = NDIVR/CY_THREADS;	// The earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, must double that here
 				// khi = 1 for Fermat-mod, thus no outer loop needed here
-				for(j = jstart; j < jhi; j += stride)
+				for(j = jstart; j < jhi; j += 2)	// v21: logical stride 2, matching the main carry loop
 				{
 					for(i = 0; i < ODD_RADIX; i++) {
 						icycle[i] += wts_idx_incr;		icycle[i] += ( (-(int)((uint32)icycle[i] >> 31)) & nwt);
@@ -942,8 +941,10 @@ void radix63_dif_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];	// v21: this arm was missing - USE_AVX512 implies USE_AVX
+	#elif defined(USE_AVX)					// (platform.h), so AVX-512 builds silently took the 4-complex
+		j1 = (j & mask02) + br8[j&7];		// br8 arm while RE_IM_STRIDE == 8.
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
@@ -1093,8 +1094,10 @@ void radix63_dit_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];	// v21: this arm was missing - USE_AVX512 implies USE_AVX
+	#elif defined(USE_AVX)					// (platform.h), so AVX-512 builds silently took the 4-complex
+		j1 = (j & mask02) + br8[j&7];		// br8 arm while RE_IM_STRIDE == 8.
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
