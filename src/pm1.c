@@ -360,7 +360,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		// For M(p) want to seed the S1 prime-powers product with 2*p; for F(m) we want seed = 2^(m+2). Since in the latter
 		// case our input p contains 2^m, can handle both cases via iseed = 4*p, giving an extra *2 in the Mersenne case:
 		iseed = p<<2;	ASSERT((iseed>>2) == p,"Binary exponent overflows (uint64)4*p in compute_pm1_s1_product!");
-		len = pm1_s1_ppow_prod(iseed, B1, PM1_S1_PRODUCT, &nmul, &maxmult);	PM1_S1_PROD_B1 = B1;
+		len = pm1_s1_ppow_prod(iseed, B1, PM1_S1_PRODUCT, s1p_alloc, &nmul, &maxmult);	PM1_S1_PROD_B1 = B1;
 		nbits = (len<<6)-mi64_leadz(PM1_S1_PRODUCT,len);
 		if(len > s1p_alloc) {
 			sprintf(cbuf,"Size of S1 prime-powers product exceeds alloc of PM1_S1_PRODUCT[]!");
@@ -408,11 +408,12 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 
 // Compute product of Stage 1 prime powers and store in a uint64[] accumulator.
 // Pointer-args nmul and maxmult return #mi64_mul_scalar calls and max value of the scalar multiplier for same:
-uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult) {
+uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 accum_alloc, uint32 *nmul, uint64 *maxmult) {
 	uint32 p = 2,i,len,maxbits = 64-leadz64(b1);
 	uint32 loop = 64/maxbits;	// Number of prime-powers we can accumulate inside inner loop while remaining < 2^64
 	uint64 tmp,prod,mult,cy = 0ull;
 	ASSERT(accum != 0x0, "Null accum[] pointer in s1_ppow_prod()");
+	ASSERT(accum_alloc != 0, "Zero accumulator allocation in s1_ppow_prod()");
 	ASSERT(accum != 0x0, "Zero initial seed in s1_ppow_prod()");
 	accum[0] = iseed; len = 1; *nmul = 0; *maxmult = 0ull;
 // Debug-only - allows testing of S1 on known-factor case without actually running S2:
@@ -460,6 +461,10 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 		}
 		*maxmult = MAX(mult,*maxmult);
 		cy = mi64_mul_scalar(accum, mult, accum, len);	++*nmul;
+		/* Bound the growth here, where the write happens. The caller sizes accum[] from an
+		estimate of the product length, and used to check that estimate only *after* this
+		function returned - by which point an under-estimate has already been written past. */
+		ASSERT(len < accum_alloc, "S1 prime-powers product exceeds the accumulator allocation!");
 		accum[len] = cy; len += (cy != 0ull);
 	}
 #ifdef PM1_DEBUG
