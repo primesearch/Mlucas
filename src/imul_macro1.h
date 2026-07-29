@@ -75,14 +75,14 @@ that is advantageous on at least an appreciable set of CPUs.
 #define ADD192_PTR(__x, __y, __sum)\
 {\
 	uint64 __s,__t, __cy0;	/* Need these in case any or all of x, y, sum point to the same address. */\
-	__s      = __x->d0;\
-	__t      = __x->d1;\
-	__sum->d0 = __x->d0 + __y->d0;	__cy0 = (__sum->d0 < __s);\
-	__sum->d1 = __x->d1 + __y->d1;\
-	__sum->d2 = __x->d2 + __y->d2 + (__sum->d1 < __t);\
+	__s      = (__x)->d0;\
+	__t      = (__x)->d1;\
+	(__sum)->d0 = (__x)->d0 + (__y)->d0;	__cy0 = ((__sum)->d0 < __s);\
+	(__sum)->d1 = (__x)->d1 + (__y)->d1;\
+	(__sum)->d2 = (__x)->d2 + (__y)->d2 + ((__sum)->d1 < __t);\
 	/* Need a separate add-and-overflow check for the carry out of the low word: */\
-	__sum->d1 += __cy0;\
-	__sum->d2 += (__sum->d1 < __cy0);\
+	(__sum)->d1 += __cy0;\
+	(__sum)->d2 += ((__sum)->d1 < __cy0);\
 }
 
 #define ADD160(__x, __y, __sum)\
@@ -120,23 +120,23 @@ that is advantageous on at least an appreciable set of CPUs.
 {\
 	uint64 __tmp, __cy;						\
 											\
-	__tmp = __x->d0+ __y->d0;					\
-	__cy  = (__tmp < __y->d0);				\
-	__sum->d0 = __tmp;						\
+	__tmp = (__x)->d0+ (__y)->d0;					\
+	__cy  = (__tmp < (__y)->d0);				\
+	(__sum)->d0 = __tmp;						\
 											\
-	__tmp = __x->d1 + __cy;					\
-	__cy  = (__tmp < __x->d1);				\
-	__tmp = __tmp + __y->d1;					\
-	__cy += (__tmp < __y->d1);				\
-	__sum->d1 = __tmp;						\
+	__tmp = (__x)->d1 + __cy;					\
+	__cy  = (__tmp < (__x)->d1);				\
+	__tmp = __tmp + (__y)->d1;					\
+	__cy += (__tmp < (__y)->d1);				\
+	(__sum)->d1 = __tmp;						\
 											\
-	__tmp = __x->d2 + __cy;					\
-	__cy  = (__tmp < __x->d2);				\
-	__tmp = __tmp + __y->d2;					\
-	__cy += (__tmp < __y->d2);				\
-	__sum->d2 = __tmp;						\
+	__tmp = (__x)->d2 + __cy;					\
+	__cy  = (__tmp < (__x)->d2);				\
+	__tmp = __tmp + (__y)->d2;					\
+	__cy += (__tmp < (__y)->d2);				\
+	(__sum)->d2 = __tmp;						\
 											\
-	__sum->d3 = __x->d3 + __y->d3 + __cy;		\
+	(__sum)->d3 = (__x)->d3 + (__y)->d3 + __cy;		\
 }
 
 /* Subtract: */
@@ -739,14 +739,14 @@ Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) becaus
 #define LEADZ256(__x)	leadz256(__x)
 
 /*** Special pointer-based versions of key 96-bit macros, for the pure-ASM int64 code *****/
-#define	CMPULT96_PTR(__x, __y)	((uint32)__x->d1 < (uint32)__y->d1 || ((uint32)__x->d1 == (uint32)__y->d1 && (uint64)__x->d0 < (uint64)__y->d0))
+#define	CMPULT96_PTR(__x, __y)	((uint32)(__x)->d1 < (uint32)(__y)->d1 || ((uint32)(__x)->d1 == (uint32)(__y)->d1 && (uint64)(__x)->d0 < (uint64)(__y)->d0))
 #define CMPUGT96_PTR(__x, __y)	CMPULT96_PTR(__y, __x)
-#define	CMPEQ96_PTR(__x, __y)	((uint32)__x->d1 == (uint32)__y->d1 && (uint64)__x->d0 == (uint64)__y->d0)
+#define	CMPEQ96_PTR(__x, __y)	((uint32)(__x)->d1 == (uint32)(__y)->d1 && (uint64)(__x)->d0 == (uint64)(__y)->d0)
 
 #define RSHIFT_FAST96_PTR(__x, __n, __y)\
 {\
-	__y->d0 = ((uint64)__x->d0 >> __n) + ((uint64)__x->d1 << (64-__n));\
-	__y->d1 = ((uint32)__x->d1 >> __n);\
+	(__y)->d0 = ((uint64)(__x)->d0 >> __n) + ((uint64)(__x)->d1 << (64-__n));\
+	(__y)->d1 = ((uint32)(__x)->d1 >> __n);\
 }
 
 #define LSHIFT96_PTR(__x, __n, __y)\
@@ -755,45 +755,45 @@ Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) becaus
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
 	{\
-		__y->d1 = ((uint64)__x->d1);\
-		__y->d0 = ((uint64)__x->d0);\
+		(__y)->d1 = ((uint64)(__x)->d1);\
+		(__y)->d0 = ((uint64)(__x)->d0);\
 	}\
 	else if(__n < 32)\
 	{\
-		__y->d1 = ((uint32)__x->d1 << __n) + (uint32)((uint64)__x->d0 >> (64-__n));\
-		__y->d0 = ((uint64)__x->d0 << __n);\
+		(__y)->d1 = ((uint32)(__x)->d1 << __n) + (uint32)((uint64)(__x)->d0 >> (64-__n));\
+		(__y)->d0 = ((uint64)(__x)->d0 << __n);\
 	}\
 	else if(__n < 64)\
 	{\
-		__y->d1 =                           (uint32)((uint64)__x->d0 >> (64-__n));\
-		__y->d0 = ((uint64)__x->d0 << __n);\
+		(__y)->d1 =                           (uint32)((uint64)(__x)->d0 >> (64-__n));\
+		(__y)->d0 = ((uint64)(__x)->d0 << __n);\
 	}\
 	else if(__n < 96)\
 	{\
-		__y->d1 = (uint32)((uint64)__x->d0 << (__n-64));\
-		__y->d0 = (uint64)0;\
+		(__y)->d1 = (uint32)((uint64)(__x)->d0 << (__n-64));\
+		(__y)->d0 = (uint64)0;\
 	}\
 	else\
 	{\
-		__y->d1 = (uint32)0;\
-		__y->d0 = (uint64)0;\
+		(__y)->d1 = (uint32)0;\
+		(__y)->d0 = (uint64)0;\
 	}\
 }
 
 #define ADD96_PTR(__x, __y, __sum)\
 {\
 	uint64 __t;	/* Need this in case any or all of x, y, sum point to the same address. */\
-	__t       = __x->d0;\
-	__sum->d0 = __x->d0 + __y->d0;\
-	__sum->d1 = __x->d1 + __y->d1 + (__sum->d0 < __t); /* Overflow into high word is checked here. */\
+	__t       = (__x)->d0;\
+	(__sum)->d0 = (__x)->d0 + (__y)->d0;\
+	(__sum)->d1 = (__x)->d1 + (__y)->d1 + ((__sum)->d0 < __t); /* Overflow into high word is checked here. */\
 }
 
 #define SUB96_PTR(__x, __y, __dif)\
 {\
 	uint64 __t;	/* Need this in case any or all of x, y, dif point to the same address. */\
-	__t       = __x->d0;\
-	__dif->d0 = __x->d0 - __y->d0;\
-	__dif->d1 = __x->d1 - __y->d1 - (__dif->d0 > __t); /* Borrow from high word is checked here. */\
+	__t       = (__x)->d0;\
+	(__dif)->d0 = (__x)->d0 - (__y)->d0;\
+	(__dif)->d1 = (__x)->d1 - (__y)->d1 - ((__dif)->d0 > __t); /* Borrow from high word is checked here. */\
 }
 
 
@@ -812,30 +812,30 @@ Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) becaus
 	uint64 __a2,__b2,__c2,__d2,__m2,__h2;\
 	uint64 __a3,__b3,__c3,__d3,__m3,__h3;\
 	\
-	MUL_LOHI32(__x0->d1, __y0->d1, __l32_0, __h32_0);\
-	MUL_LOHI32(__x1->d1, __y1->d1, __l32_1, __h32_1);\
-	MUL_LOHI32(__x2->d1, __y2->d1, __l32_2, __h32_2);\
-	MUL_LOHI32(__x3->d1, __y3->d1, __l32_3, __h32_3);\
+	MUL_LOHI32((__x0)->d1, (__y0)->d1, __l32_0, __h32_0);\
+	MUL_LOHI32((__x1)->d1, (__y1)->d1, __l32_1, __h32_1);\
+	MUL_LOHI32((__x2)->d1, (__y2)->d1, __l32_2, __h32_2);\
+	MUL_LOHI32((__x3)->d1, (__y3)->d1, __l32_3, __h32_3);\
 	\
 	__h0 = __l32_0 + ((uint64)__h32_0 << 32);\
 	__h1 = __l32_1 + ((uint64)__h32_1 << 32);\
 	__h2 = __l32_2 + ((uint64)__h32_2 << 32);\
 	__h3 = __l32_3 + ((uint64)__h32_3 << 32);\
 	\
-	MULH64(__x0->d0,__y0->d0,       __m0);\
-	MULH64(__x1->d0,__y1->d0,       __m1);\
-	MULH64(__x2->d0,__y2->d0,       __m2);\
-	MULH64(__x3->d0,__y3->d0,       __m3);\
+	MULH64((__x0)->d0,(__y0)->d0,       __m0);\
+	MULH64((__x1)->d0,(__y1)->d0,       __m1);\
+	MULH64((__x2)->d0,(__y2)->d0,       __m2);\
+	MULH64((__x3)->d0,(__y3)->d0,       __m3);\
 	\
-	MUL64x32(__x0->d0,__y0->d1, __a0, __b0);\
-	MUL64x32(__x1->d0,__y1->d1, __a1, __b1);\
-	MUL64x32(__x2->d0,__y2->d1, __a2, __b2);\
-	MUL64x32(__x3->d0,__y3->d1, __a3, __b3);\
+	MUL64x32((__x0)->d0,(__y0)->d1, __a0, __b0);\
+	MUL64x32((__x1)->d0,(__y1)->d1, __a1, __b1);\
+	MUL64x32((__x2)->d0,(__y2)->d1, __a2, __b2);\
+	MUL64x32((__x3)->d0,(__y3)->d1, __a3, __b3);\
 	\
-	MUL64x32(__y0->d0,__x0->d1, __c0, __d0);\
-	MUL64x32(__y1->d0,__x1->d1, __c1, __d1);\
-	MUL64x32(__y2->d0,__x2->d1, __c2, __d2);\
-	MUL64x32(__y3->d0,__x3->d1, __c3, __d3);\
+	MUL64x32((__y0)->d0,(__x0)->d1, __c0, __d0);\
+	MUL64x32((__y1)->d0,(__x1)->d1, __c1, __d1);\
+	MUL64x32((__y2)->d0,(__x2)->d1, __c2, __d2);\
+	MUL64x32((__y3)->d0,(__x3)->d1, __c3, __d3);\
 	\
 	__m0 += __a0;\
 	__m1 += __a1;\
@@ -858,10 +858,10 @@ Cast the result of the high-part-equals-zero test to a signed 32-bit (-1) becaus
 	__h3 += __d3 + (__m3 < __c3);\
 	\
 	/* Now put upper half of the result into __hi: */\
-	__hi0->d0 = (__m0>>32) + (__h0<<32);	__hi0->d1 = (uint32)(__h0>>32);\
-	__hi1->d0 = (__m1>>32) + (__h1<<32);	__hi1->d1 = (uint32)(__h1>>32);\
-	__hi2->d0 = (__m2>>32) + (__h2<<32);	__hi2->d1 = (uint32)(__h2>>32);\
-	__hi3->d0 = (__m3>>32) + (__h3<<32);	__hi3->d1 = (uint32)(__h3>>32);\
+	(__hi0)->d0 = (__m0>>32) + (__h0<<32);	(__hi0)->d1 = (uint32)(__h0>>32);\
+	(__hi1)->d0 = (__m1>>32) + (__h1<<32);	(__hi1)->d1 = (uint32)(__h1>>32);\
+	(__hi2)->d0 = (__m2>>32) + (__h2<<32);	(__hi2)->d1 = (uint32)(__h2>>32);\
+	(__hi3)->d0 = (__m3>>32) + (__h3<<32);	(__hi3)->d1 = (uint32)(__h3>>32);\
 }
 
 
