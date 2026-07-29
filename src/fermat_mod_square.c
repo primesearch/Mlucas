@@ -535,7 +535,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 //			nradices_radix0 = 12;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default:
-			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
+			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",radix0);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(0,cbuf);
 		}
