@@ -1207,9 +1207,16 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	// If get here, p > 64: set up for Montgomery-mul-based powering loop:
 	nshift = trailz64(q);
 	if(nshift) {
-		// p >= nshift guaranteed here:
+		// p >= nshift guaranteed here, since p > 64 > nshift:
 		q >>= nshift; p -= nshift;	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
 		if(debug) printf("Removed power-of-2 from q: q' = (q >> %u) = %" PRIu64 "\n",nshift,q);
+		// The (p <= 64) early-out above was taken against the *unshifted* exponent, so for
+		// p in (64, 64+nshift) the subtraction just dropped p below 64 and the (pshift = p - 64)
+		// computed below would wrap. Redo the direct computation, now against the odd part q',
+		// and restore the off-shifted power of 2 on the way out.  p = 64 needs no special case:
+		// it gives pshift = 0, hence leadb = 0 and start_index = 0, which the main path handles.
+		if(p < 64)
+			return ((1ull << p) % q) << nshift;
 	}
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 	// Extract leftmost 7 bits of (p - 64); if > 64, use leftmost 6 instead:
