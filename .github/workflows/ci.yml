@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
   schedule:
-    - cron:  '0 0 1 * *'
+    - cron: '0 0 1 * *'
 
 jobs:
   # Path-based gating: compute which categories of files changed so downstream jobs can skip
@@ -63,50 +63,22 @@ jobs:
         lscpu
         cat /proc/cpuinfo
         MODES=( '' NOSIMD )
-        run_avx512=1
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
-            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
-            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
-            # below (they are still built above, for compile coverage):
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
-                run_avx512=1
-            else
-                run_avx512=0
-                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
-            fi
-            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    if [[ -x Mfactor${word:+_$word} ]]; then
-                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
-                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
-                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
-                            ./Mfactor${word:+_$word} -h
-                        elif [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
-                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
-                        else
-                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                            # run's own exit status and instead assert the self-test success marker,
-                            # so a test_fac regression fails the job.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
-                        fi
-                    fi
                 )
             done
         done
@@ -120,6 +92,12 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_mfac_NOSIMD
+        else
+            cd ../obj_mfac
+        fi
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -144,55 +122,28 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/-DUSE_THREADS//' makemake.sh
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       run: |
         set -x
         MODES=( '' NOSIMD )
-        run_avx512=1
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
-            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
-            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
-            # below (they are still built above, for compile coverage):
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
-                run_avx512=1
-            else
-                run_avx512=0
-                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
-            fi
-            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    if [[ -x Mfactor${word:+_$word} ]]; then
-                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
-                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
-                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
-                            ./Mfactor${word:+_$word} -h
-                        elif [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
-                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
-                        else
-                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                            # run's own exit status and instead assert the self-test success marker,
-                            # so a test_fac regression fails the job.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
-                        fi
-                    fi
                 )
             done
         done
@@ -203,6 +154,12 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_mfac_NOSIMD
+        else
+            cd ../obj_mfac
+        fi
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -289,7 +246,7 @@ jobs:
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh ${HAVE_HWLOC:+use_hwloc} $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
@@ -299,6 +256,45 @@ jobs:
                 )
             done
         done
+
+  Linux-K1OM:
+    name: Mlucas K1OM
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Download
+      run: |
+          # https://web.archive.org/web/20210307201727/https://software.intel.com/content/www/us/en/develop/articles/intel-manycore-platform-software-stack-mpss.html
+          wget -nv 'https://web.archive.org/web/20200818141734id_/http://registrationcenter-download.intel.com/akdlm/irc_nas/15904/mpss-3.8.6-linux.tar'
+          tar -xvf mpss-3.8.6-linux.tar
+    - name: Script
+      run: |
+        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace centos:7 bash -s <<'EOF'
+        set -e -o pipefail
+        sed -i -e '/^mirrorlist/d;/^#baseurl=/{s,^#,,;s,/mirror,/vault,;}' /etc/yum.repos.d/CentOS*.repo
+        # yum update -y
+        yum install -y make
+        yum localinstall -y mpss-3.8.6/mpss-sdk-k1om-*.x86_64.rpm
+        source /opt/mpss/3.8.6/environment-setup-k1om-mpss-linux
+
+        export CC=k1om-mpss-linux-gcc
+        $CC --version
+        k1om-mpss-linux-ld --version
+        $CC -dM -E - </dev/null
+
+        bash -e -o pipefail -- makemake.sh no_gmp k1om
+        (cd obj_k1om; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh no_gmp mfac $word k1om
+            (
+                cd obj_mfac_k1om
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        EOF
 
   ASan-Linux:
     needs: changes
@@ -331,7 +327,7 @@ jobs:
         # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         (cd obj_nosimd; make clean)
-        for word in '' 1word 2word 3word 4word nword; do
+        for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (
@@ -345,7 +341,7 @@ jobs:
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         cd ../obj_mfac_nosimd
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
 
   TSan-Linux:
     needs: changes
@@ -374,11 +370,10 @@ jobs:
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        cd obj_nosimd
         make clean
-        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
-      continue-on-error: true
+        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))"
 
   GCC-analyzer:
     needs: changes
@@ -460,7 +455,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-14, macos-15-intel, macos-15, macos-26]
+        os: [macos-14, macos-15-intel, macos-15, macos-26-intel, macos-26]
       fail-fast: false
     steps:
     - uses: actions/checkout@v7
@@ -470,7 +465,7 @@ jobs:
     - name: Before script
       run: |
         clang --version
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             clang -dM -E -mcpu=native - </dev/null
         else
             clang -dM -E -march=native - </dev/null
@@ -481,50 +476,22 @@ jobs:
         set -o pipefail
         sysctl -a
         MODES=( '' NOSIMD )
-        run_avx512=1
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
-            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
-            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
-            # below (they are still built above, for compile coverage):
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
-                run_avx512=1
-            else
-                run_avx512=0
-                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
-            fi
-            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    if [[ -x Mfactor${word:+_$word} ]]; then
-                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
-                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
-                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
-                            ./Mfactor${word:+_$word} -h
-                        elif [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
-                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
-                        else
-                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                            # run's own exit status and instead assert the self-test success marker,
-                            # so a test_fac regression fails the job.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
-                        fi
-                    fi
                 )
             done
         done
@@ -534,10 +501,16 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        if [[ $HOSTTYPE == arm64 ]]; then
+            cd ../obj_mfac_NOSIMD
+        else
+            cd ../obj_mfac
+        fi
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -552,72 +525,51 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-15-intel, macos-latest]
+        os: [macos-26-intel, macos-latest]
       fail-fast: false
     steps:
     - uses: actions/checkout@v7
     - name: Before script
       run: |
         sed -i '' 's/-DUSE_THREADS//' makemake.sh
+        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
     - name: Script
       run: |
         set -x
         MODES=( '' NOSIMD )
-        run_avx512=1
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
-            # GitHub runners can build AVX-512 but often cannot execute it (SIGILL at runtime). Probe
-            # whether AVX-512 actually runs here; if not, skip running the AVX-512-mode test binaries
-            # below (they are still built above, for compile coverage):
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | ${CC:-cc} -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
-                run_avx512=1
-            else
-                run_avx512=0
-                echo "::warning title=AVX-512 execution skipped::this runner's CPU cannot execute AVX-512; AVX-512-mode test binaries were built but will not be run."
-            fi
-            rm -f conftest_avx512run
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    if [[ -x Mfactor${word:+_$word} ]]; then
-                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
-                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
-                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
-                            ./Mfactor${word:+_$word} -h
-                        elif [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
-                            echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
-                        else
-                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
-                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
-                            # factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                            # run's own exit status and instead assert the self-test success marker,
-                            # so a test_fac regression fails the job.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
-                        fi
-                    fi
                 )
             done
         done
         cd obj
         for s in tt t s m; do time ./Mlucas -s $s; done
         for s in tt t s; do time ./Mlucas -prp -s $s; done
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh
+        if [[ $HOSTTYPE == arm64 ]]; then
+            cd ../obj_mfac_NOSIMD
+        else
+            cd ../obj_mfac
+        fi
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -648,7 +600,7 @@ jobs:
         # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         (cd obj_nosimd; make clean)
-        for word in '' 1word 2word 3word 4word nword; do
+        for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (
@@ -662,7 +614,7 @@ jobs:
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         cd ../obj_mfac_nosimd
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -680,14 +632,13 @@ jobs:
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        cd obj_nosimd
         make clean
         # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
         # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
         # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
         time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-      continue-on-error: true
 
   Windows:
     needs: changes
@@ -749,47 +700,18 @@ jobs:
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
-            # The AVX-512 mode compiles fine here (the assembler handles the extended registers). But
-            # GitHub's Windows runner CPUs are AVX2-only, so the built AVX-512 binaries hit SIGILL when
-            # run. Probe whether baseline AVX-512 actually executes here; if not, still build the mode
-            # (compile-time coverage) but skip running its test binaries below.
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm0,%%zmm0,%%zmm0":::"zmm0");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o conftest_avx512run - >/dev/null 2>&1 && ./conftest_avx512run >/dev/null 2>&1; then
-                run_avx512=1
-            else
-                run_avx512=0
-                echo "::warning title=AVX-512 execution skipped::$("${CC:-gcc}" --version | head -n1): this runner's CPU cannot execute AVX-512; building the AVX-512 mode for compile coverage but not running its test binaries."
-            fi
-            rm -f conftest_avx512run conftest_avx512run.exe
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || 'use_hwloc' }} $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                # The windows-11-arm runner has no GMP installed (the Install step is x86-only), so the
-                # Mfactor build must also request no_gmp there, exactly as the main build above does:
-                bash -e -o pipefail -- makemake.sh mfac ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || '' }} $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || '' }} $word $mode
                 (
                     cd obj_mfac${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    if [[ -x Mfactor${word:+_$word} ]]; then
-                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
-                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
-                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
-                            ./Mfactor${word:+_$word} -h
-                        elif [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
-                            echo "Skipping execution of AVX-512 Mfactor${word:+_$word}: this runner's CPU cannot run AVX-512."
-                        else
-                            # Exercise Mfactor's built-in test_fac() self-test (see #82) rather than just -h:
-                            # M(127) has no factors <= 2^20 so the trial-factoring pass is quick. We tolerate the
-                            # run's own exit status and instead assert the self-test success marker, so a
-                            # test_fac regression fails the job.
-                            ./Mfactor${word:+_$word} -m 127 -bmax 20 2>&1 | tee "mfac_selftest_${word:-none}.log" || true
-                            grep -q 'self-tests completed successfully' "mfac_selftest_${word:-none}.log"
-                        fi
-                    fi
                 )
             done
         done
@@ -800,6 +722,12 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_mfac_NOSIMD
+        else
+            cd ../obj_mfac
+        fi
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -812,7 +740,6 @@ jobs:
     name: AddressSanitizer Windows
 
     runs-on: windows-latest
-    continue-on-error: true
     env:
       CC: clang
       PACKAGE_PREFIX: mingw-w64-clang-x86_64-
@@ -840,7 +767,7 @@ jobs:
         set -x
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         (cd obj_nosimd; make clean)
-        for word in '' 1word 2word 3word 4word nword; do
+        for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (
@@ -854,4 +781,4 @@ jobs:
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         cd ../obj_mfac_nosimd
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
