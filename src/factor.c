@@ -146,7 +146,17 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 #endif
 
 #ifdef	USE_FMADD	// Need to add 100-bit modpow routines before enabling this for build of this file
-	#warning USE_FMADD set in factor.c ... Using 100-bit FMA-based modpow.
+	/* ...and they never were, so honour that literally rather than merely warning about it: the
+	twopmodq100_2WORD_DOUBLE[_q2,_q4] routines the USE_FMADD call sites below name do not exist.
+	Undef so the dispatch falls through to the implemented paths - USE_FLOAT's 78-bit 3-word-double
+	routines where USE_FLOAT is set, else the 63/64/96/128-bit integer ones.
+	  The undef must cover the whole file, not just those call sites: the same !defined(USE_FMADD)
+	term gates the fbits_in_2p / fbits_in_k / fbits_in_q declarations in PerPass_tfSieve, which the
+	integer fallback paths use. Disabling only the calls trades the missing-function error for an
+	"fbits_in_q undeclared" one.
+	  Delete this #undef when the 100-bit FMA modpow routines are actually written. */
+	#undef USE_FMADD
+	#warning USE_FMADD set for factor.c, but the 100-bit FMA modpow routines it needs do not exist - using the implemented modpow paths instead.
 #endif
 
 #define SPOT_CHECK	0	// Enable periodic Spot-check (PRP or composite) of factor candidates
@@ -3580,7 +3590,11 @@ MFACTOR_HELP:
 								/* Otherwise use 78-bit floating-double-based modmul: */
 								res = twopmodq78_3WORD_DOUBLE_q2(p[0],k_to_try[0],k_to_try[1], 0,tid);
 							#else
-								#error	TRYQ = 2 / P1WORD only allowed if USE_FLOAT or USE_FMADD is defined!
+								/* USE_FMADD is not an alternative here: it is undef'd at the top of this file
+								(its 2-way 100-bit modpow was never written) and there is no integer q2 batch
+								routine to fall through to. Reachable only via a hand-rolled build - makemake.sh
+								always passes -DTRYQ=4 - so use TRYQ = 1 or 4. */
+								#error	TRYQ = 2 / P1WORD requires USE_FLOAT (the 2-way 100-bit FMADD modpow twopmodq100_2WORD_DOUBLE_q2 was never implemented) - build with TRYQ = 1 or 4!
 							#endif	/* #ifdef USE_FMADD */
 
 						  #else
