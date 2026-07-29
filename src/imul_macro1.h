@@ -3679,8 +3679,13 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		MUL64x32(  __x.d1,__y.d1,&__w2,&__w3);\
 		/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 		__a  += __c;\
-		__b  += __d + (__a < __c);\
-		DBG_ASSERT((__b >= __d),"MULH128x96: unexpected carryout of __b");\
+		/* (__a,__b) is a 96-bit product so __b < 2^32, but (__c,__d) is a FULL 128-bit one with
+		__d up to 2^64-2, so this 128-bit sum genuinely carries out of __b - the old code dropped
+		that carry, and the DBG_ASSERT below it expands to nothing unless FAC_DEBUG. The carry has
+		weight 2^128 here, i.e. it belongs in __w3. Add __d and the carry-in separately so the
+		carry test cannot itself be fooled when __d = 2^64-1 and there is a carry in: */\
+		__b  += __d;			__w3 += (__b < __d);\
+		__cy  = (__a < __c);	__b += __cy;	__w3 += (__b < __cy);\
 		/* Now add [w1,w2,w3] + [a,b,0]: */\
 		__w1 += __a;\
 		__cy  = (__w1 < __a);\
@@ -3739,8 +3744,13 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		MUL64x32(  __x.d1,__y.d1, __w2, __w3);\
 		/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 		__a  += __c;\
-		__b  += __d + (__a < __c);\
-		DBG_ASSERT((__b >= __d),"MULH128x96: unexpected carryout of __b");\
+		/* (__a,__b) is a 96-bit product so __b < 2^32, but (__c,__d) is a FULL 128-bit one with
+		__d up to 2^64-2, so this 128-bit sum genuinely carries out of __b - the old code dropped
+		that carry, and the DBG_ASSERT below it expands to nothing unless FAC_DEBUG. The carry has
+		weight 2^128 here, i.e. it belongs in __w3. Add __d and the carry-in separately so the
+		carry test cannot itself be fooled when __d = 2^64-1 and there is a carry in: */\
+		__b  += __d;			__w3 += (__b < __d);\
+		__cy  = (__a < __c);	__b += __cy;	__w3 += (__b < __cy);\
 		/* Now add [w1,w2,w3] + [a,b,0]: */\
 		__w1 += __a;\
 		__cy  = (__w1 < __a);\
@@ -3794,10 +3804,14 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		__a2 += __c2;\
 		__a3 += __c3;\
 		\
-		__b0 += __d0 + (__a0 < __c0);\
-		__b1 += __d1 + (__a1 < __c1);\
-		__b2 += __d2 + (__a2 < __c2);\
-		__b3 += __d3 + (__a3 < __c3);\
+		__b0 += __d0;			__hi0.d1 += (__b0 < __d0);\
+		__cy0 = (__a0 < __c0);	__b0 += __cy0;	__hi0.d1 += (__b0 < __cy0);\
+		__b1 += __d1;			__hi1.d1 += (__b1 < __d1);\
+		__cy1 = (__a1 < __c1);	__b1 += __cy1;	__hi1.d1 += (__b1 < __cy1);\
+		__b2 += __d2;			__hi2.d1 += (__b2 < __d2);\
+		__cy2 = (__a2 < __c2);	__b2 += __cy2;	__hi2.d1 += (__b2 < __cy2);\
+		__b3 += __d3;			__hi3.d1 += (__b3 < __d3);\
+		__cy3 = (__a3 < __c3);	__b3 += __cy3;	__hi3.d1 += (__b3 < __cy3);\
 		\
 		/* Now add [w1,w2,w3] + [a,b,0]: */\
 		__t0 += __a0;\
@@ -3906,14 +3920,22 @@ MUL64x32s, i.e. are significantly cheaper than full-blown MUL_LOHIs on
 		__a6 += __c6;\
 		__a7 += __c7;\
 		\
-		__b0 += __d0 + (__a0 < __c0);\
-		__b1 += __d1 + (__a1 < __c1);\
-		__b2 += __d2 + (__a2 < __c2);\
-		__b3 += __d3 + (__a3 < __c3);\
-		__b4 += __d4 + (__a4 < __c4);\
-		__b5 += __d5 + (__a5 < __c5);\
-		__b6 += __d6 + (__a6 < __c6);\
-		__b7 += __d7 + (__a7 < __c7);\
+		__b0 += __d0;			__hi0.d1 += (__b0 < __d0);\
+		__cy0 = (__a0 < __c0);	__b0 += __cy0;	__hi0.d1 += (__b0 < __cy0);\
+		__b1 += __d1;			__hi1.d1 += (__b1 < __d1);\
+		__cy1 = (__a1 < __c1);	__b1 += __cy1;	__hi1.d1 += (__b1 < __cy1);\
+		__b2 += __d2;			__hi2.d1 += (__b2 < __d2);\
+		__cy2 = (__a2 < __c2);	__b2 += __cy2;	__hi2.d1 += (__b2 < __cy2);\
+		__b3 += __d3;			__hi3.d1 += (__b3 < __d3);\
+		__cy3 = (__a3 < __c3);	__b3 += __cy3;	__hi3.d1 += (__b3 < __cy3);\
+		__b4 += __d4;			__hi4.d1 += (__b4 < __d4);\
+		__cy4 = (__a4 < __c4);	__b4 += __cy4;	__hi4.d1 += (__b4 < __cy4);\
+		__b5 += __d5;			__hi5.d1 += (__b5 < __d5);\
+		__cy5 = (__a5 < __c5);	__b5 += __cy5;	__hi5.d1 += (__b5 < __cy5);\
+		__b6 += __d6;			__hi6.d1 += (__b6 < __d6);\
+		__cy6 = (__a6 < __c6);	__b6 += __cy6;	__hi6.d1 += (__b6 < __cy6);\
+		__b7 += __d7;			__hi7.d1 += (__b7 < __d7);\
+		__cy7 = (__a7 < __c7);	__b7 += __cy7;	__hi7.d1 += (__b7 < __cy7);\
 		\
 		/* Now add [w1,w2,w3] + [a,b,0]: */\
 		__t0 += __a0;\
@@ -4358,8 +4380,13 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 	MUL_LOHI64(__x.d1,__y.d1,&__w2,&__w3);\
 	/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 	__a  += __c;\
-	__b  += __d + (__a < __c);\
-	DBG_ASSERT((__b >= __d),"MULH128: unexpected carryout of __b");\
+	/* Same dropped carry as in MULH128x96, and here it is far likelier: BOTH (__a,__b) and
+	(__c,__d) are full 128-bit products, so their sum overflows 128 bits for roughly half of all
+	operand pairs rather than only when __d is within 2^32 of the top. The carry has weight 2^128,
+	i.e. it belongs in __w3. Add __d and the carry-in separately so the carry test is not fooled
+	when __d = 2^64-1 and there is a carry in: */\
+	__b  += __d;			__w3 += (__b < __d);\
+	__cy  = (__a < __c);	__b += __cy;	__w3 += (__b < __cy);\
 	/* Now add [w1,w2,w3] + [a,b,0]: */\
 	__w1 += __a;\
 	__cy  = (__w1 < __a);\
