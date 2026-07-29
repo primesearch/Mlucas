@@ -100,6 +100,23 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	if(dbg) printf("twopmmodq256: computing 2^%s (mod %s)\n",&char_buf[convert_uint256_base10_char(char_buf,p)],&g_cstr[convert_uint256_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST256(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
+	/* If p > 256 we need the Montgomery-mul powering loop, which needs an odd modulus, so strip
+	any power of 2 from q *here*, ahead of the (p <= 256) early-out below: the strip lowers p by
+	nshift and can drop it into the early-out range. Doing the early-out first instead leaves
+	p in (256, 256+nshift) falling through to (pshift = p - 256), which wraps. The (p > 256)
+	guard keeps p >= nshift, so the identity 2^p mod q = 2^nshift * (2^(p-nshift) mod q') holds. */
+	nshift = 0;
+	if(!(p.d3 == 0 && p.d2 == 0 && p.d1 == 0 && p.d0 <= 256)) {
+		nshift = trailz256(q);
+		if(nshift) {
+			x.d0 = (uint64)nshift; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,p);	// p >= nshift guaranteed here:
+			RSHIFT256(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+			RSHIFT_FAST256(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
+		#if FAC_DEBUG
+			if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint256_base10_char(char_buf,q)]);
+		#endif
+		}
+	}
 	// If p <= 256, directly compute 2^p (mod q):
 	if(p.d3 == 0 && p.d2 == 0 && p.d1 == 0 && p.d0 <= 256) {
 		// Lshift (1 << j) to align with leading bit of q, then do (p - j) repeated mod-doublings:
@@ -115,18 +132,13 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT256(x, qhalf)){ ADD256(x, x, x); SUB256(x, q, x); }else{ ADD256(x, x, x); }
 		}
+		// Restore any power of 2 stripped from the modulus above:
+		if(nshift) {
+			LSHIFT256(x,nshift,x);
+		}
 		return x;
 	}
-	// If get here, p > 256: set up for Montgomery-mul-based powering loop:
-	nshift = trailz256(q);
-	if(nshift) {
-		x.d0 = (uint64)nshift; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,p);	// p >= nshift guaranteed here:
-		RSHIFT256(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
-		RSHIFT_FAST256(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
-	#if FAC_DEBUG
-		if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint256_base10_char(char_buf,q)]);
-	#endif
-	}
+	// If get here, p > 256 and q is odd: set up for Montgomery-mul-based powering loop.
 	// Extract leftmost 8 bits of (p - 256):
 	x.d0 = 256ull; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,pshift); j = leadz256(pshift);
 	if(j > 248) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
