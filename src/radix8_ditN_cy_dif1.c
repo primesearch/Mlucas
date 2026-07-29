@@ -398,7 +398,9 @@ for(outer=0; outer <= 1; outer++)
 		{
 			for(j = jstart; j < jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
 			{
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -837,7 +839,9 @@ void radix8_dif_pass1(double a[], int n)
 
     for(j = 0; j < n8; j += 2)
     {
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -955,7 +959,9 @@ void radix8_dit_pass1(double a[], int n)
 
     for(j=0; j < n8; j += 2)
     {
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
