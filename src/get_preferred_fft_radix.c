@@ -151,8 +151,14 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 									// we have current radix k = 8, an opening while( isspace(*char_addr++)) increments char_addr to the WS
 									// *following* the 8, and the loop continues, causing us to "lose the current radix",
 									// leading to an eventual ASSERT in the kprod-based looping sanity checks.
+									// The 2nd loop must also stop at the terminating NUL: if the .cfg file's last line
+									// lacks a trailing newline, the final radix token ends at end-of-string and an
+									// unguarded !isspace() scan runs off the end of g_in_line[] (ASan: global-buffer-
+									// overflow). Stopping on '\0' leaves char_addr on the terminator, which the leading
+									// isspace()-skip above then also stops on, so a truncated final line simply parses
+									// as far as its data goes.
 									while( isspace(*char_addr)) char_addr++;	// 1. First skip any WS preceding current numeric token
-									while(!isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
+									while(*char_addr && !isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
 									if(j && k) {
 										ASSERT(k <= 32  , "get_preferred_fft_radix: Intermediate radix > 32: out of range!");
 										ASSERT(isPow2(k), "get_preferred_fft_radix: Intermediate FFT radix not a power of 2!");
