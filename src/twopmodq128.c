@@ -93,12 +93,18 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	}
 	// Extract leftmost 8 bits of (p - 128); if > 128, use leftmost 7 instead:
 	x.d0 = 128ull; x.d1 = 0ull; SUB128(p,x,pshift); j = leadz128(pshift);
-	LSHIFT128(pshift,j,x);	leadb = x.d1 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
-	if(leadb > 128) {
-		start_index = 128-7-j;
-		leadb >>= 1;
+	if(j > 120) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = (uint32)pshift.d0;	start_index = 0;
 	} else {
-		start_index = 128-8-j;
+		LSHIFT128(pshift,j,x);	leadb = x.d1 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
+		if(leadb > 128) {
+			start_index = 128-7-j;
+			leadb >>= 1;
+		} else {
+			start_index = 128-8-j;
+		}
 	}
 #if FAC_DEBUG
 	if(dbg) {
@@ -141,7 +147,8 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	if(leadb == 128)
 		x = rsqr;
 	else {
-		x.d0 = 1ull; LSHIFT128(x,leadb,x);	// x <<= leadb;
+		// x is reused as scratch above, so must zero its high words before seeding with 2^leadb:
+		x.d0 = 1ull; x.d1 = 0ull;	LSHIFT128(x,leadb,x);	// x <<= leadb;
 		MONT_MUL128(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
  	}
 
