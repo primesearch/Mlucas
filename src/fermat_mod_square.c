@@ -1704,7 +1704,7 @@ undo_initial_ffft_pass:
 
 			atmp  = a[j2]*radix_inv;
 			a[j2] = DNINT(atmp);
-			k += (fabs(2*a[j1]) > base[ii]);
+			k += (fabs(2*a[j2]) > base[ii]);
 			frac_fp = fabs(a[j2]-atmp);
 			if(frac_fp > max_fp)
 				max_fp = frac_fp;
