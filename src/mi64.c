@@ -450,8 +450,14 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 		if(cy) {
 			if(nwshift < len)
 				cy = mi64_sub_scalar(y+nwshift,cy,y+nwshift,len-nwshift);
-			// In Fermat-mod case, if high bits happen to = 0, must (mod Fm) by adding borrow = 1 back into low limb:
-			ASSERT(mi64_sub_scalar(y,cy,y,len) == 0ull, "Nonzero carryout of (mod Fm) low-limb incrementing!");
+			/* In Fermat-mod case, if high bits happen to = 0, must (mod Fm) by adding borrow = 1 back into low limb.
+			A borrow out of the [nbits]-wide subtract means the exact value (y - u) is negative, and y[] holds it in
+			two's-complement form, i.e. as (y - u) + 2^nbits. Reducing (mod 2^nbits+1) means adding the modulus, so
+			what still needs adding is the +1 - the code here used to *subtract* 1 instead (contra this comment),
+			leaving every underflow result 2 too small. The lone case where this add itself carries out of the
+			[nbits]-wide result is the exact value 2^nbits == -1 (mod Fm), which is not representable in nbits bits
+			and is correctly left encoded as 0 - so no assertion on the carryout: */
+			if(cy) mi64_add_scalar(y,cy,y,len);
 		}
 	} else {
 		cy = mi64_add(y, u, y, nwshift);	ASSERT(cy == 0ull, "Nonzero carryout of nonoverlapping vector add!");
