@@ -138,7 +138,16 @@ N (K)	Radices used		ROE (avg, max)			T(sec for 100 iter)
 	// we are forced to resort to fugly hackage - add pad slots to a garbage-named struct-internal array along with
 	// a pointer-to-be-inited-at-runtime, when we set ptr to the lowest-index array element having the desired alginment:
 		double *cy_r,*cy_i;
+	// The init-time alignment search below scans up to RE_IM_STRIDE elements of cy_dat[] for an SZ_VD-aligned
+	// one, then uses cy_dat[l ... l+2*RADIX-1], so the array needs RE_IM_STRIDE-1 elements of slack. NB: the
+	// test cannot be spelled '#ifdef USE_AVX512' the way radix1008/4032/... spell it, because this file #undefs
+	// the SIMD symbols above; RE_IM_STRIDE is an object-like macro already expanded from platform.h and so
+	// still carries the build's true vector width (which is also what SZ_VD/SZ_VDM1 below do):
+	#if RE_IM_STRIDE == 8	// AVX-512
+		double cy_dat[2*RADIX+8] __attribute__ ((__aligned__(8)));
+	#else
 		double cy_dat[2*RADIX+4] __attribute__ ((__aligned__(8)));	// Enforce min-alignment of 8 bytes in 32-bit builds.
+	#endif
 	};
 
 #endif
@@ -453,8 +462,12 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tdat[ithread].rn0 = rn0;
 			tdat[ithread].rn1 = rn1;
 
-		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
-			for(l = 0; l < 4; l++) {
+		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread.
+		// The search window must be SZ_VD/sizeof(double) = RE_IM_STRIDE doubles wide: the hardcoded 4 that
+		// used to be here only covers 32 bytes, so under AVX-512 (SZ_VD = 64) it finds an aligned element
+		// only if it gets lucky with offsetof(cy_dat)%64, and otherwise aborts the run. Every other radix
+		// file bounds this loop by RE_IM_STRIDE (cf. radix1008_ditN_cy_dif1.c:513):
+			for(l = 0; l < RE_IM_STRIDE; l++) {
 				if( ((uintptr_t)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy_r = &tdat[ithread].cy_dat[l];
 					tdat[ithread].cy_i = tdat[ithread].cy_r + RADIX;
@@ -462,7 +475,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 					break;
 				}
 			}
-			ASSERT(l < 4, "Failed to align cy_dat array!");
+			ASSERT(l < RE_IM_STRIDE, "Failed to align cy_dat array!");
 		}
 	#endif
 
