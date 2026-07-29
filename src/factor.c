@@ -146,7 +146,29 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 #endif
 
 #ifdef	USE_FMADD	// Need to add 100-bit modpow routines before enabling this for build of this file
-	#warning USE_FMADD set in factor.c ... Using 100-bit FMA-based modpow.
+	/* ...and they never were added, so honour that "before enabling" literally rather than merely
+	warning about it. The three USE_FMADD call sites below - twopmodq100_2WORD_DOUBLE[_q2,_q4] at
+	the TRYQ = 1/2/4 dispatch points - name routines that exist nowhere in the tree: twopmodq100.c
+	defines exactly one function, the AVX-512-only 32-way twopmodq100_2WORD_DOUBLE_q32, which none
+	of those sites can use (factor.h caps TRYQ at 4 under USE_FMADD) and which nothing calls at all.
+	factor.h also declares a twopmodq100_2WORD_DOUBLE_q64 that is likewise never defined.
+	  This matters because USE_FMADD is not opt-in: platform.h auto-defines it for *every* x86-64
+	USE_AVX2 build (see the "x86_64 only has FMA support ... as of Intel AVX2+FMA3" block), and
+	USE_AVX512 implies USE_AVX2 - so both of makemake.sh's top two build modes hit it. The result is
+	that the standalone Mfactor target does not build there at all: an undefined-reference link
+	error historically, and, since clang 16 / gcc 14 promoted implicit function declarations from
+	warning to error, a hard compile error before that. factor.c is in OBJS_MFAC only, never in the
+	main Mlucas OBJS, and CI invokes "makemake.sh mfac ... || true", which is why it rotted unseen.
+	  Undef it here so the dispatch falls through to the paths that do exist - USE_FLOAT's 78-bit
+	3-word-double routines where USE_FLOAT is set (factor.c sets it for USE_AVX512 below), else the
+	63/64/96/128-bit integer ones - exactly as on a non-AVX2 build. Note the undef has to cover the
+	whole file, not just the three calls: the same !defined(USE_FMADD) term gates the declarations
+	of fbits_in_2p / fbits_in_k / fbits_in_q in PerPass_tfSieve, which the integer fallback paths
+	then use. Disabling only the call sites and leaving USE_FMADD defined swaps the missing-function
+	error for an "fbits_in_q undeclared" one on AVX2.
+	  Delete this #undef when the 100-bit FMA modpow routines are actually written. */
+	#undef USE_FMADD
+	#warning USE_FMADD was set for factor.c, but the 100-bit FMA modpow routines it needs (twopmodq100_2WORD_DOUBLE, _q2, _q4) do not exist - ignoring it and using the implemented modpow paths.
 #endif
 
 #define SPOT_CHECK	0	// Enable periodic Spot-check (PRP or composite) of factor candidates
@@ -3580,7 +3602,13 @@ MFACTOR_HELP:
 								/* Otherwise use 78-bit floating-double-based modmul: */
 								res = twopmodq78_3WORD_DOUBLE_q2(p[0],k_to_try[0],k_to_try[1], 0,tid);
 							#else
-								#error	TRYQ = 2 / P1WORD only allowed if USE_FLOAT or USE_FMADD is defined!
+								/* USE_FMADD is no longer an alternative here: it is undef'd at the top of this
+								file because its 2-way 100-bit modpow, twopmodq100_2WORD_DOUBLE_q2, was never
+								written, and there is no integer q2 batch routine to fall through to either.
+								Reachable only when factor.c is compiled without makemake.sh, which always
+								passes -DTRYQ=4; bare -DUSE_AVX2 lets the USE_FMADD default of TRYQ = 2 in factor.h
+								stand. Build with TRYQ = 1 or 4 instead. */
+								#error	TRYQ = 2 / P1WORD requires USE_FLOAT (the 2-way 100-bit FMADD modpow twopmodq100_2WORD_DOUBLE_q2 was never implemented) - build with TRYQ = 1 or 4!
 							#endif	/* #ifdef USE_FMADD */
 
 						  #else
