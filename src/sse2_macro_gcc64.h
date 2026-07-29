@@ -3970,15 +3970,15 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 	/* Block 0: r0-3 */												/* Block 1: r8-b */\
 		"movq	%[__in0],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[0,8]*ostride */\
 	/* Need separate address for Im parts of outputs due to literal-offsets below: */\
-		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	        (%%rsi),%%zmm0						\n\t	vmovaps	        (%%r8 ),%%zmm8 	\n\t"/* ar */\
-		"vmovaps	        (%%rdi),%%zmm1						\n\t	vmovaps	        (%%r9 ),%%zmm9 	\n\t"/* ai */\
+		"vmovaps	    0x40(%%rsi),%%zmm1						\n\t	vmovaps	        (%%r9 ),%%zmm9 	\n\t"/* ai */\
 		"vmovaps	%c[__i2](%%rsi),%%zmm2						\n\t	vmovaps	%c[__i2](%%r8 ),%%zmm10	\n\t"/* br */\
-		"vmovaps	%c[__i2](%%rdi),%%zmm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%zmm11	\n\t"/* bi */\
+		"vmovaps	%c[__i2]+0x40(%%rsi),%%zmm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%zmm11	\n\t"/* bi */\
 		"vmovaps	%c[__i1](%%rsi),%%zmm4						\n\t	vmovaps	%c[__i1](%%r8 ),%%zmm12	\n\t"/* cr */\
-		"vmovaps	%c[__i1](%%rdi),%%zmm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%zmm13	\n\t"/* ci */\
+		"vmovaps	%c[__i1]+0x40(%%rsi),%%zmm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%zmm13	\n\t"/* ci */\
 		"vmovaps	%c[__i3](%%rsi),%%zmm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%zmm14	\n\t"/* dr */\
-		"vmovaps	%c[__i3](%%rdi),%%zmm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%zmm15	\n\t"/* di */\
+		"vmovaps	%c[__i3]+0x40(%%rsi),%%zmm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%zmm15	\n\t"/* di */\
 		"																movq	%[__isrt2],%%r14	\n\t"\
 		"vsubpd		%%zmm2 ,%%zmm0,%%zmm0						\n\t	vsubpd		%%zmm11,%%zmm8 ,%%zmm8 	\n\t"/* ar-bi */\
 		"vsubpd		%%zmm3 ,%%zmm1,%%zmm1						\n\t	vsubpd		%%zmm10,%%zmm9 ,%%zmm9 	\n\t"/* ai-br */\
@@ -4020,15 +4020,14 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"																vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
 	/* Block 2: */													/* Block 3: */\
 		"addq	$%c[__i4],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[4,c]*ostride */\
-		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	%c[__i1](%%rsi),%%zmm4						\n\t	vmovaps	%c[__i1](%%r8 ),%%zmm12	\n\t"\
 		"vmovaps	%c[__i3](%%rsi),%%zmm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%zmm14	\n\t"\
-		"vmovaps	%c[__i1](%%rdi),%%zmm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%zmm13	\n\t"\
-		"vmovaps	%c[__i3](%%rdi),%%zmm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%zmm15	\n\t"\
-		"movq	%[__isrt2],%%rdi	\n\t	addq	$0x40,%%rdi	\n\t"/* cc0, from isrt2 [rdi,rsi shared by both cols] */\
+		"vmovaps	%c[__i1]+0x40(%%rsi),%%zmm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%zmm13	\n\t"\
+		"vmovaps	%c[__i3]+0x40(%%rsi),%%zmm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%zmm15	\n\t"\
 		"vmovaps	%%zmm4,%%zmm0								\n\t	vmovaps	%%zmm12,%%zmm8 		\n\t"\
 	/*	"vmovaps	%%zmm6,%%zmm2								\n\t	vmovaps	%%zmm14,%%zmm10		\n\t"*/\
-		"vmovaps	(%%rdi),%%zmm2								\n\t	vmovaps	0x40(%%rdi),%%zmm10	\n\t"/* Instead use these to store [c,s] */\
+		"vmovaps	0x40(%%r14),%%zmm2								\n\t	vmovaps	0x80(%%r14),%%zmm10	\n\t"/* Instead use these to store [c,s] */\
 		"vmovaps	%%zmm5,%%zmm1								\n\t	vmovaps	%%zmm13,%%zmm9 		\n\t"\
 		"vmovaps	%%zmm7,%%zmm3								\n\t	vmovaps	%%zmm15,%%zmm11		\n\t"\
 		"vmulpd		    %%zmm2 ,%%zmm4,%%zmm4					\n\t	vmulpd		    %%zmm10,%%zmm12,%%zmm12	\n\t"\
@@ -4043,18 +4042,17 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		"vsubpd	%%zmm7,%%zmm5,%%zmm5							\n\t	vsubpd	%%zmm15,%%zmm13,%%zmm13		\n\t"\
 	"vfmadd132pd	(%%r15),%%zmm4,%%zmm6						\n\t	vfmadd132pd	(%%r15),%%zmm12,%%zmm14		\n\t"\
 	"vfmadd132pd	(%%r15),%%zmm5,%%zmm7						\n\t	vfmadd132pd	(%%r15),%%zmm13,%%zmm15		\n\t"\
-		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
+		"								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	%c[__i2](%%rsi),%%zmm2						\n\t	vmovaps	%c[__i2](%%r8 ),%%zmm10	\n\t"\
-		"vmovaps	%c[__i2](%%rdi),%%zmm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%zmm11	\n\t"\
+		"vmovaps	%c[__i2]+0x40(%%rsi),%%zmm3						\n\t	vmovaps	%c[__i2](%%r9 ),%%zmm11	\n\t"\
 		"vmovaps	        (%%rsi),%%zmm0						\n\t	vmovaps	        (%%r8 ),%%zmm8 	\n\t"\
 		"vmovaps	    0x40(%%rsi),%%zmm1						\n\t	vmovaps	    0x40(%%r8 ),%%zmm9 	\n\t"\
 		"vsubpd		  %%zmm3,%%zmm2,%%zmm2						\n\t	vaddpd	%%zmm11,%%zmm10,%%zmm10	\n\t"\
 		"vaddpd	%c[__i2](%%rsi),%%zmm3,%%zmm3					\n\t	vsubpd	%c[__i2](%%r8 ),%%zmm11,%%zmm11	\n\t"\
-		"movq	%[__isrt2],%%r9 	\n\t"\
-	"vfnmadd231pd		 (%%r9),%%zmm2,%%zmm0				\n\t	vfnmadd231pd		 (%%r9),%%zmm10,%%zmm8 	\n\t"/* x = x - y.isrt2 */\
-	"vfnmadd231pd		 (%%r9),%%zmm3,%%zmm1				\n\t	vfnmadd231pd		 (%%r9),%%zmm11,%%zmm9 	\n\t"\
-	" vfmadd132pd	-0x40(%%r9),%%zmm0,%%zmm2				\n\t	 vfmadd132pd	-0x40(%%r9),%%zmm8 ,%%zmm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	" vfmadd132pd	-0x40(%%r9),%%zmm1,%%zmm3				\n\t	 vfmadd132pd	-0x40(%%r9),%%zmm9 ,%%zmm11	\n\t"\
+	"vfnmadd231pd		 (%%r14),%%zmm2,%%zmm0				\n\t	vfnmadd231pd		 (%%r14),%%zmm10,%%zmm8 	\n\t"/* x = x - y.isrt2 */\
+	"vfnmadd231pd		 (%%r14),%%zmm3,%%zmm1				\n\t	vfnmadd231pd		 (%%r14),%%zmm11,%%zmm9 	\n\t"\
+	" vfmadd132pd	-0x40(%%r14),%%zmm0,%%zmm2				\n\t	 vfmadd132pd	-0x40(%%r14),%%zmm8 ,%%zmm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	" vfmadd132pd	-0x40(%%r14),%%zmm1,%%zmm3				\n\t	 vfmadd132pd	-0x40(%%r14),%%zmm9 ,%%zmm11	\n\t"\
 	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
 		"movslq		0x20(%%r9),%%rax	\n\t"/*        off8 */"movslq	0x30(%%r9),%%r10	\n\t"/*        offc */\
 		"movslq		0x24(%%r9),%%rbx	\n\t"/*        off9 */"movslq	0x34(%%r9),%%r11	\n\t"/*        offd */\
@@ -4091,7 +4089,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		,[__two] "m" (Xtwo)\
 		,[out0] "m" (Xout0) /* output-address-octet base pointer */\
 		,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
