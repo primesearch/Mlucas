@@ -127,19 +127,20 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			target_idx = -1;
 		}
 
-	#ifdef USE_AVX512
-
-		#warning No avx-512 mers-mod carry support yet!
-		(void)n_minus_sil; (void)n_minus_silp1; (void)sinwt; (void)add0; (void)add1; (void)add2; (void)add3; (void)col; (void)co2; (void)co3; (void)wt0; (void)wt1; (void)sw; (void)si; (void)itmp; // silence warnings
-
-	#elif defined(USE_AVX)
+	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
-
-		l= j & (nwt-1);						tmp = half_arr + 128;	/* ptr to local storage for the doubled wtl,wtn terms: */
-		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+		/* ptr to local storage for the doubled wtl,wtn terms: */
+	  #ifdef USE_AVX512
+		tmp = half_arr +  64;	// No lookup-tables used in avx-512; instead use opmasked conditional-doubling;
+								// 1st 64 slots hold outputs of wtsinit call. Only half of said slots used in 8-way-init mode.
+	  #else
+		tmp = half_arr + 128;	// 1st 64 slots are basic-4 LUTs, next 32 are the additional 2 LOACC LUTs, next 32 hold outputs of wtsinit call
+	  #endif
+		l= j & (nwt-1);						// These rcol wts-terms are for individual-double-broadcast-to-full-vector-width,
+		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];	// hence the mixing of fwd/inv wts, which is normally taboo.
 		n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d0 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
@@ -161,16 +162,67 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+	  #ifdef USE_AVX512
+		l= (j+8) & (nwt-1);					tmp -= 3;	// Reset to same tmp-startval as above, now copy data into d4-7 slots of vec_dbl
+		n_minus_sil  ->d4 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d4 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d4 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d4 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
 
+		l= (j+10) & (nwt-1);				++tmp;
+		n_minus_sil  ->d5 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d5 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d5 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d5 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+
+		l= (j+12) & (nwt-1);				++tmp;
+		n_minus_sil  ->d6 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d6 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d6 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d6 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+
+		l= (j+14) & (nwt-1);				++tmp;
+		n_minus_sil  ->d7 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d7 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d7 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d7 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+	  #endif
+
+	#ifdef USE_AVX512
+	  // carry_gcc64.h:16296: "For AVX512, support only the fast [i.e. LOACC] Mers-carry macros" - there is no
+	  // AVX-512 analog of AVX_cmplx_carry_norm_errcheck_X4, so *every* USE_SHORT_CY_CHAIN setting must be routed
+	  // through the chained-weights path below (cf. radix960/radix56, which achieve the same by forcing their
+	  // LOACC-selector nonzero under AVX-512). The chain length is still varied with USE_SHORT_CY_CHAIN so the
+	  // runtime chain-shortening ROE fallback in mers_mod_square.c still has an effect.
+	  if(1) {
+	#else
 	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
+	#endif
 
 		uint32 ii,incr,loop,nloop = RADIX>>3, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;
+		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 unused in AVX-512 mode
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass:
+		// *** incr must divide nloop = RADIX/8 = 504, and be <= 8. The inner l-loop below runs [loop,loop+incr)
+		// unclamped, so a non-dividing incr overruns poff[RADIX>>2] and writes past cy_r/bjmodn - see the
+		// radix1008 sibling, where incr = 4 vs nloop = 126 silently zeroed the residue. 504 = 2^3*3^2*7, so the
+		// legal (i.e. nloop-dividing) chain lengths <= 8 are {1,2,3,4,6,7,8}. ***
+	  #ifdef USE_AVX512
+		if(USE_SHORT_CY_CHAIN == 0)			incr = 8;	// [long]
+		else if(USE_SHORT_CY_CHAIN == 1)	incr = 6;	// [med]
+		else if(USE_SHORT_CY_CHAIN == 2)	incr = 4;	// [short]
+		else								incr = 2;	// [hiacc] - no true HIACC macro in AVX-512, use shortest legal chain
+	   #if ((RADIX>>3) % 8) || ((RADIX>>3) % 6) || ((RADIX>>3) % 4) || ((RADIX>>3) % 2)
+		#error carry-chain length incr must divide nloop = RADIX>>3 !
+	   #endif
+	  #else
 		incr = 4;	// incr must divide RADIX/8!
+	   #if ((RADIX>>3) % 4)
+		#error carry-chain length incr must divide nloop = RADIX>>3 !
+	   #endif
+	  #endif
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
@@ -183,16 +235,19 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 			// *But*: since the init macro does an on-the-fly version of this between j,j+2 portions, external code co2=co3 must come *after* both ctmp-data octets are inited.
-		  #ifdef USE_AVX512
-			ASSERT(0, "AVX-512 version of AVX_cmplx_carry_fast_wtsinit_X8 not yet ported!");
-		  #endif
 			AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, itmp, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
 
 			for(l = loop; l < loop+incr; l++) {
 				// Each AVX carry macro call also processes 8 prefetches of main-array data
 				add0 = a + j1 + pfetch_dist + poff[l+l];
+			  // In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwise-unused sse2_rnd vec_dbl:
+			  #ifdef USE_AVX512
+				AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
+				tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
+			  #else
 				AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 16; tm1 += 2; tm2 += 2; itmp += 8; itm2 += 8; i = 0;
+			  #endif
 			}
 		}
 
