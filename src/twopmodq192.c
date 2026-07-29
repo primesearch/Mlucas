@@ -94,12 +94,18 @@ uint192 twopmmodq192(uint192 p, uint192 q)
 	}
 	// Extract leftmost 8 bits of (p - 192); if > 192, use leftmost 7 instead:
 	x.d0 = 192ull; x.d1 = x.d2 = 0ull; SUB192(p,x,pshift); j = leadz192(pshift);
-	LSHIFT192(pshift,j,x);	leadb = x.d2 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
-	if(leadb > 192) {
-		start_index = 192-7-j;
-		leadb >>= 1;
+	if(j > 184) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = (uint32)pshift.d0;	start_index = 0;
 	} else {
-		start_index = 192-8-j;
+		LSHIFT192(pshift,j,x);	leadb = x.d2 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
+		if(leadb > 192) {
+			start_index = 192-7-j;
+			leadb >>= 1;
+		} else {
+			start_index = 192-8-j;
+		}
 	}
 #if FAC_DEBUG
 	if(dbg) {
@@ -137,7 +143,9 @@ uint192 twopmmodq192(uint192 p, uint192 q)
 	if(leadb == 192)
 		x = rsqr;
 	else {
-		x.d0 = 1ull; LSHIFT192(x,leadb,x);	// x <<= leadb;
+		// x holds (2 - q*qinv) scratch from the Newton iteration above, whose high words are
+		// nonzero; must zero them before seeding with 2^leadb, else leadb < 64 shifts in garbage:
+		x.d0 = 1ull; x.d1 = x.d2 = 0ull;	LSHIFT192(x,leadb,x);	// x <<= leadb;
 		MONT_MUL192(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
  	}
 
