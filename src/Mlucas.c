@@ -3466,7 +3466,14 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 			C cannot be a prime power. (If it is not equal to 1, we have discovered a new factor of C.)"
 		*/
 		sprintf(cbuf,"This cofactor is COMPOSITE [C%u]. Checking prime-power-ness via GCD(A - B,C) ... \n",i); mlucas_fprint(cbuf,1);
-		i = gcd(0,0ull,ai,ci,j,gcd_str);	// 1st arg = stage of (p-1 or ecm) just completed, does not apply here
+		// gcd()'s nlimb arg is the common mi64 length of the 2 vectors it is handed, here ai[] = (A - B)
+		// and ci[] = C. j was overwritten just above with mi64_getlen(bi,j), the nonzero-limb count of the
+		// remainder (A - B) mod C: that is <= the limb count of C, hence generally shorter than (A - B),
+		// which spans all ceiling(p/64) limbs the mi64_sub() above wrote. Passing it lopped the high limbs
+		// off (A - B) - and off C as well, in the rarer case of the remainder being shorter than C - so the
+		// GCD got taken of a different pair of integers. mi64_div() zeroed ci[] across all ceiling(p/64)
+		// limbs before depositing C = N/F in it, so that is the correct common length here:
+		i = gcd(0,0ull,ai,ci,(p+63)>>6,gcd_str);	// 1st arg = stage of (p-1 or ecm) just completed, does not apply here
 		if(i)
 			sprintf(cbuf,"Cofactor is a prime power! GCD(A - B,C) = %s.\n",gcd_str);
 		else
