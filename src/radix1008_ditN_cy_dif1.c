@@ -1714,7 +1714,10 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			/* No-Op: in AVX-512 Mersenne mode there are no base/baseinv mini-tables in half_arr - the
+			carry macros use opmasked conditional-doubling of broadcast consts instead. Cf. radix960. */
+		#elif defined(USE_AVX)
 			// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 			dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 			dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -2880,7 +2883,9 @@ void radix1008_dit_pass1(double a[], int n)
 		tmp = half_arr;
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		/* No-Op: see the corr. comment in the main routine. */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
