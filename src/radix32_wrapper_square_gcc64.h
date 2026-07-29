@@ -3640,7 +3640,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		"vmovaps	%%zmm6,0x5c0(%%rdx)			\n\t		vmovaps	%%zmm12,0x7c0(%%rdx)			\n\t"\
 		"vmovaps	%%zmm0,0x580(%%rdx)	/* r36,37 */\n\t	vmovaps	%%zmm10,0x780(%%rdx)			\n\t"/* r3e,3f */\
 	/*******************************************
-	/**** Finish with 8-way 'un'terleaving: ****
+	***** Finish with 8-way 'un'terleaving: ****
 	Using the AVX-512 data layout, the rcol pattern is:
 		a[ 0- 7] = re[ 0, 8,16,24, 4,12,20,28].d0	a[ 8-15] = im[ 0, 8,16,24, 4,12,20,28].d0
 		a[16-23] = re[ 2,10,18,26, 6,14,22,30].d0	a[24-31] = im[ 2,10,18,26, 6,14,22,30].d0
@@ -4294,7 +4294,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		"vmovaps	%%zmm4,0x980(%%rax)	/* r26,27 */\n\t	vmovaps	%%zmm8 ,0xb80(%%rax)			\n\t"/* r2e,2f */\
 		"vmovaps	%%zmm5,0x9c0(%%rax)			\n\t		vmovaps	%%zmm9 ,0xbc0(%%rax)			\n\t"\
 	/*******************************************
-	/**** Finish with 8-way 'un'terleaving: ****
+	***** Finish with 8-way 'un'terleaving: ****
 	Using the AVX-512 data layout, the rcol pattern is:
 		a[ 0- 7] = re[ 0, 8,16,24, 4,12,20,28].d0	a[ 8-15] = im[ 0, 8,16,24, 4,12,20,28].d0
 		a[16-23] = re[ 2,10,18,26, 6,14,22,30].d0	a[24-31] = im[ 2,10,18,26, 6,14,22,30].d0
@@ -5070,7 +5070,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		"vmovaps	%%zmm4,0x980(%%rax)	/* r26,27 */\n\t	vmovaps	%%zmm8 ,0xb80(%%rax)			\n\t"/* r2e,2f */\
 		"vmovaps	%%zmm5,0x9c0(%%rax)			\n\t		vmovaps	%%zmm9 ,0xbc0(%%rax)			\n\t"\
 	/*******************************************
-	/**** Finish with 8-way 'un'terleaving: ****
+	***** Finish with 8-way 'un'terleaving: ****
 	Using the AVX-512 data layout, the rcol pattern is:
 		a[ 0- 7] = re[ 0, 8,16,24, 4,12,20,28].d0	a[ 8-15] = im[ 0, 8,16,24, 4,12,20,28].d0
 		a[16-23] = re[ 2,10,18,26, 6,14,22,30].d0	a[24-31] = im[ 2,10,18,26, 6,14,22,30].d0

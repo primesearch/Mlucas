@@ -23,7 +23,7 @@
 // This main loop is same for un-and-multithreaded, so stick into a header file
 // (can't use a macro because of the #if-enclosed stuff).
 
-for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
@@ -34,7 +34,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	#ifndef USE_SSE2
 		j2 = j1 + RE_IM_STRIDE;
+	#endif
 
 /*...The radix-1024 DIT pass is here:	*/
 
@@ -118,7 +120,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1	// DIF and DIT share same radix-16 DFT strides in this case, so could def
-		#undef OFF2	// once at top and undef at borrom, but keep it clean and local-def.
+		#undef OFF2	// once at top and undef at bottom, but keep it clean and local-def.
 		#undef OFF3
 		#undef OFF4
 	  #endif
@@ -147,7 +149,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tptr = t + reverse(ntmp,6);
 			jt = j1 + dit_po_br[ntmp]; jp = j2 + dit_po_br[ntmp];	// po_br[] = p[084c2a6e195d3b7f]
 			ju = jt+p200;	jv = jp+p200;
-			addr = DFT1024_TWIDDLES[ntmp]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
+			const double *addr = DFT1024_TWIDDLES[ntmp], *addi = addr+1;	// Pointer to required row of 2-D twiddles array
 			RADIX_16_DIT_TWIDDLE_OOP(
 				tptr->re,tptr->im,(tptr+0x040)->re,(tptr+0x040)->im,(tptr+0x080)->re,(tptr+0x080)->im,(tptr+0x0c0)->re,(tptr+0x0c0)->im,(tptr+0x100)->re,(tptr+0x100)->im,(tptr+0x140)->re,(tptr+0x140)->im,(tptr+0x180)->re,(tptr+0x180)->im,(tptr+0x1c0)->re,(tptr+0x1c0)->im,(tptr+0x200)->re,(tptr+0x200)->im,(tptr+0x240)->re,(tptr+0x240)->im,(tptr+0x280)->re,(tptr+0x280)->im,(tptr+0x2c0)->re,(tptr+0x2c0)->im,(tptr+0x300)->re,(tptr+0x300)->im,(tptr+0x340)->re,(tptr+0x340)->im,(tptr+0x380)->re,(tptr+0x380)->im,(tptr+0x3c0)->re,(tptr+0x3c0)->im,
 				a[jt     ],a[jp     ],a[jt+ p40],a[jp+ p40],a[jt+ p80],a[jp+ p80],a[jt+ pc0],a[jp+ pc0],a[jt+p100],a[jp+p100],a[jt+p140],a[jp+p140],a[jt+p180],a[jp+p180],a[jt+p1c0],a[jp+p1c0],a[ju     ],a[jv     ],a[ju+ p40],a[jv+ p40],a[ju+ p80],a[jv+ p80],a[ju+ pc0],a[jv+ pc0],a[ju+p100],a[jv+p100],a[ju+p140],a[jv+p140],a[ju+p180],a[jv+p180],a[ju+p1c0],a[jv+p1c0],
@@ -254,7 +256,10 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
+		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn;
+	  #ifndef USE_AVX512
+		itm2 = bjmodn+4;	// itm2 not used in AVX-512 mode
+	  #endif
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
@@ -515,9 +520,6 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
 
-		idx_offset = j;
-		idx_incr = NDIVR;
-
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
 		// Hi-accuracy version needs 2 copies of each base root, one for each invocation of the SSE2_fermat_carry_norm_pow2 carry macri:
@@ -605,9 +607,6 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
 		add2 = (double *)&rn1[0];
-
-		idx_offset = j;
-		idx_incr = NDIVR;
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
@@ -820,7 +819,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	*/
 		for(l = 0; l < 64; l++) {
 			jt = j1 + dif_i_offsets[l]; jp = j2 + dif_i_offsets[l];	// poffs[] = p10,p20,...,p3f0
-			addr = DFT1024_TWIDDLES[l]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
+			const double *addr = DFT1024_TWIDDLES[l], *addi = addr+1;	// Pointer to required row of 2-D twiddles array
 			RADIX_16_DIF_TWIDDLE_OOP(
 				tptr->re,tptr->im,(tptr+0x200)->re,(tptr+0x200)->im,(tptr+0x100)->re,(tptr+0x100)->im,(tptr+0x300)->re,(tptr+0x300)->im,(tptr+0x080)->re,(tptr+0x080)->im,(tptr+0x280)->re,(tptr+0x280)->im,(tptr+0x180)->re,(tptr+0x180)->im,(tptr+0x380)->re,(tptr+0x380)->im,(tptr+0x040)->re,(tptr+0x040)->im,(tptr+0x240)->re,(tptr+0x240)->im,(tptr+0x140)->re,(tptr+0x140)->im,(tptr+0x340)->re,(tptr+0x340)->im,(tptr+0x0c0)->re,(tptr+0x0c0)->im,(tptr+0x2c0)->re,(tptr+0x2c0)->im,(tptr+0x1c0)->re,(tptr+0x1c0)->im,(tptr+0x3c0)->re,(tptr+0x3c0)->im,
 				a[jt],a[jp],a[jt+p1],a[jp+p1],a[jt+p2],a[jp+p2],a[jt+p3],a[jp+p3],a[jt+p4],a[jp+p4],a[jt+p5],a[jp+p5],a[jt+p6],a[jp+p6],a[jt+p7],a[jp+p7],a[jt+p8],a[jp+p8],a[jt+p9],a[jp+p9],a[jt+pa],a[jp+pa],a[jt+pb],a[jp+pb],a[jt+pc],a[jp+pc],a[jt+pd],a[jp+pd],a[jt+pe],a[jp+pe],a[jt+pf],a[jp+pf],
@@ -841,5 +840,5 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		col += RADIX;
 		co3 -= RADIX;
 	}
-}	/* end for(k=1; k <= khi; k++) */
+}	/* end for(int k=1; k <= khi; k++) */
 

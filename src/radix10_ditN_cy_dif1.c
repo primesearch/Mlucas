@@ -40,7 +40,7 @@ int radix10_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	int n10,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9
-		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
+		,i,j,j1,j2,jstart,jhi,root_incr,k,khi,l,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9, nsave = 0;
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -162,7 +162,6 @@ int radix10_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	*fracmax=0;	/* init max. fractional error	*/
 
-	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
 	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
@@ -410,8 +409,6 @@ prefetch_p_doubles(addr);
 #endif
 			a[j1+p3]=t7 +t17;		a[j2+p3]=t8 +t18;
 			a[j1+p2]=t7 -t17;		a[j2+p2]=t8 -t18;
-
-			iroot += root_incr;		/* increment sincos index.	*/
 		}
 
 		jstart += nwt;
@@ -446,7 +443,6 @@ prefetch_p_doubles(addr);
 	cy1 = cy0;
 	cy0 = t1;
 
-	iroot = 0;
 	root_incr = 0;
 	scale = prp_mult = 1;
 
