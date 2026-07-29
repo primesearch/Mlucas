@@ -442,6 +442,13 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 				j++;
 #endif
 			}
+			/* loop = 64/maxbits assumes every factor folded in here is < 2^maxbits, which is true for
+			primes <= b1 but not for the up-to-(loop-1) primes past b1 that the batching can pull in, and
+			badly wrong for tiny b1 (at b1 = 3, loop = 32 and the batch product needs 169 bits). Rather
+			than trust the count, check the multiply itself and flush the batch early if it would wrap -
+			p is deliberately not advanced here, so the next pass re-folds this same prime power: */
+			if(mult > (~0ull)/prod)
+				break;
 			mult *= prod;
 #ifdef PM1_DEBUG
 			if(j > 1)
