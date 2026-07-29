@@ -4601,7 +4601,7 @@ if(~pshift != p+78) {
 					"movq	%[__pshift],%%rax					\n\t"\
 					"shrq	%%cl,%%rax	/* j already in c-reg */\n\t"\
 					"andq	$0x1,%%rax							\n\t"\
-				"je	twopmodq96_q4_pshiftjmp						\n\t"\
+				"je	twopmodq96_q4_pshiftjmp%=						\n\t"\
 					"			/* Int64 code: if h<l carryout of low 64 bits gives hi=2^32 = 0x100000000, need to zero upper 32 bits prior to double step: */\n\t"\
 					"																							movq	$-1,%%rdi	\n\t"\
 					"																							shrq	$32,%%rdi	\n\t"\
@@ -4658,7 +4658,7 @@ if(~pshift != p+78) {
 					"	subpd		%%xmm13,%%xmm9	/* x mod q, low 26 bits */				\n\t				andq	%%rdi,%%rdx	\n\t"\
 					"																							addq	%%rax,%%r11	\n\t"\
 					"																							adcq	%%rdx,%%r15	\n\t"\
-				"twopmodq96_q4_pshiftjmp:													\n\t"\
+				"twopmodq96_q4_pshiftjmp%=:													\n\t"\
 					"/* } */																\n\t"\
 					"/* Normalize the result: */											\n\t"\
 					"movaps	0x210(%%rsi),%%xmm4		\n\t	movaps	0x210(%%rsi),%%xmm12	\n\t"\

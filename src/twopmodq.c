@@ -1407,8 +1407,8 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $1,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd4a		/* Skip if n < 0 */	\n\t"\
-	"LoopBeg4a:								\n\t"\
+		"jl LoopEnd4a%=		/* Skip if n < 0 */	\n\t"\
+	"LoopBeg4a%=:								\n\t"\
 	"/* SQR_LOHI_q4(x*, lo*, hi*): */	\n\t"\
 		"movq	%%r12,%%rax	/* x0-3 in r8-11. */\n\t"\
 		"mulq	%%rax		\n\t"\
@@ -1510,8 +1510,8 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"/* } endif((p >> j) & (uint64)1) */						\n\t"\
 		"subq	$1,%%rcx	/* j-- */		\n\t"\
 		"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
-		"jge	LoopBeg4a	/* if (j >= 0), Loop */	\n\t"\
-	"LoopEnd4a:							\n\t"\
+		"jge	LoopBeg4a%=	/* if (j >= 0), Loop */	\n\t"\
+	"LoopEnd4a%=:							\n\t"\
 		"movq	%%r12,%[__x0]	\n\t"\
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
