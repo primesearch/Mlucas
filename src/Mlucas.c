@@ -409,7 +409,6 @@ uint32	ernstMain
 	static double *a_ptmp = 0x0, *a = 0x0, *b = 0x0, *c = 0x0, *d = 0x0, *e = 0x0;
 	// uint64 scratch array and 4 pointers used to store cast-to-(uint64 *) version of above b,c,d,e-pointers
 	static uint64 *arrtmp = 0x0, *b_uint64_ptr = 0x0, *c_uint64_ptr = 0x0, *d_uint64_ptr = 0x0, *e_uint64_ptr = 0x0;
-	double final_res_offset;
 
 /*...time-related stuff. clock_t is typically an int (signed 32-bit)
 	and a typical value of CLOCKS_PER_SEC (e.g. as defined in <machine/machtime.h>
@@ -2459,16 +2458,28 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					if(arrtmp[i] != 0x0) { isprime = 0; break; }
 				}
 			}
-		} else {	// older impl. of LL-test isprime parsed the entire double-float residue array:
+		} else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+			/* Pépin test: F_m is prime iff the final residue == N-1 == -1 (mod N). That comparison -
+			unlike the LL test's "residue == 0" in the else-clause below - is NOT invariant under the
+			circular residue shift, so it must not be read off the *shifted* double-float array a[]:
+			doing so reports a genuine Fermat prime as composite whenever the run ends with a nonzero
+			RES_SHIFT, which is the default (the shift is randomized at the start of a fresh run).
+			So use the shift-removed uint64 residue in arrtmp[] - filled by the convert_res_FP_bytewise()
+			call at the end of the iteration loop - which is the same array the Mersenne-PRP clause above
+			tests. It holds the residue fully reduced (mod N) but truncated to p bits, so N-1 = 2^p shows
+			up as all-limbs-zero; a Pépin residue of 0 cannot occur (gcd(3,F_m) = 1), so no ambiguity. */
 			isprime = 1;
-			/* For Fermat numbers, in balanced-digit form, it's prime if the lowest-order digit = -1, all others 0: */
-			final_res_offset = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
-			a[0] += final_res_offset;
+			j = (p+63)>>6;	// # of 64-bit limbs in the p-bit residue
+			for(i = 0; i < j; i++) {
+				if(arrtmp[i] != 0ull) { isprime = 0; break; }
+			}
+		} else {	// older impl. of LL-test isprime parsed the entire double-float residue array:
+			/* LL test: prime iff residue == 0, which *is* shift-invariant, so the shifted a[] is fine here: */
+			isprime = 1;
 			for(i = 0; i < n; i++) {
 				j = i + ( (i >> DAT_BITS) << PAD_BITS );
 				if(a[j] != 0.0) { isprime = 0; break; }
 			}
-			a[0] -= final_res_offset;
 		}
 
 	/************************************************************************************************************************/
@@ -6005,7 +6016,7 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 	//	fprintf(stderr,"%s: Flipping sign of residue...\n",func);
 		// Fm - R = (2^p - 1 - R) + 2, i.e. bitwise-complement then increment by 2. The increment must be
 		// carry-propagated: R = 1 makes limb 0 of the complement = 2^64-2, and the +2 carries out of it.
-		// R = 1 is precisely the negated final Pepin residue of a Fermat *prime*, so dropping that carry
+		// R = 1 is precisely the negated final Pépin residue of a Fermat *prime*, so dropping that carry
 		// rendered N-1 as (2^p - 2^64) rather than 0 in every nonzero-shift run.
 		for(ii = 0; ii < j; ii++) { u64_ptr[ii] = ~u64_ptr[ii]; }
 		// Carryout of the add is nonzero only in that R = 1 case, where the exact result 2^p is correctly
