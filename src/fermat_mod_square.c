@@ -613,7 +613,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		{
 			/* If power-of-2 runlength, no IBDWT gets done, make bases the same: */
 			base   [0] = (double)(1 << bits_small);	base   [1] = base[0]	;
-			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[1]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
+			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[0]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
 		}
 		else
 		{
