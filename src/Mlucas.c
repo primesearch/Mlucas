@@ -4471,7 +4471,12 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			for(j = 0; j < numTest; j++) {
 				if(i == MvecPtr[j].fftLength) break;
 			}
-			if(i != MvecPtr[j].fftLength) {
+			// The no-match test must be (j == numTest): on loop fallthrough j indexes the spare user-data slot
+			// at the top of the table, whose fftLength field was just set to i by the -fftlen handling above,
+			// so the old (i != MvecPtr[j].fftLength) test could never be true and this branch was dead code.
+			// That left the test exponent at 0 for any legal FFT length lacking a reference-residue entry, so
+			// Mlucas fell through to the "no worktodo file, no command-line exponent" path and silently exited:
+			if(j == numTest) {
 				hi = (99*given_N_get_maxP(i<<10)/100) | 0x1;	// Make sure starting value is odd. v21: Cut to 99% of pmax_rec
 				lo = hi - 1000;	if(lo < PMIN) lo = PMIN;
 				for(expo = hi; expo >=lo; expo -= 2) {
