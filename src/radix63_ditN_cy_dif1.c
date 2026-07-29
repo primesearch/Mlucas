@@ -47,6 +47,18 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix63_ditN_cy_dif1";
+	// v21 bugfix: the wraparound-carry mini-pass and the radix_inv rescale that follows it walk *physical*
+	// array indices, so the number of them that spans the first 4 complex data of a block is 2*RE_IM_STRIDE-1,
+	// not a constant 7. Under AVX-512 (RE_IM_STRIDE == 8) the old hardcoded 7 covered only the 8 real parts
+	// re0..re7 and none of the imaginary parts, so the mini-pass and the rescale disagreed about which data
+	// they had touched. Same constants as every SIMD-aware sibling, cf. radix64_ditN_cy_dif1.c:185-191.
+  #ifdef USE_AVX512
+	const int jhi_wrap_mers = 15;
+	const int jhi_wrap_ferm = 15;
+  #else
+	const int jhi_wrap_mers =  7;
+	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
+  #endif
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer;
 
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
@@ -551,7 +563,7 @@ for(outer=0; outer <= 1; outer++)
 		{
 			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -571,7 +583,7 @@ for(outer=0; outer <= 1; outer++)
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_ferm;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -823,11 +835,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
-		j_jhi =15;
+		j_jhi = jhi_wrap_ferm;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = jhi_wrap_mers;
 	}
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
