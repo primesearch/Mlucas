@@ -4095,7 +4095,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-iters"))
 		{
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			i64arg = atol(stFlag);
+			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "#iters argument must be < 2^32 ... halting.");
 			iters = (uint32)i64arg;
@@ -4144,7 +4144,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			char_addr = stFlag;
 			cptr = strchr(char_addr,',');
 			if(!cptr) {	// It's a radix-set index
-				i64arg = atol(stFlag);
+				i64arg = atoll(stFlag);
 				// Must be < 2^32:
 				ASSERT(i64arg < 20, "radset-index argument must be < 2^32 ... halting.");
 				radset = (uint32)i64arg;
@@ -4154,12 +4154,12 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 					// Copy substring into cbuf and null-terminate:
 					strncpy(cbuf,char_addr,(cptr-char_addr));	cbuf[cptr-char_addr] = '\0';
 					// Convert current radix to long and sanity-check:
-					i64arg = atol(cbuf);	ASSERT(!(i64arg>>12), "user-supplied radices must be < 2^12 ... halting.");
+					i64arg = atoll(cbuf);	ASSERT(!(i64arg>>12), "user-supplied radices must be < 2^12 ... halting.");
 					rvec[numrad++] = (uint32)i64arg;
 					char_addr = cptr+1;
 				}
 				// A properly formatted radix-set arg will end with ',[numeric]', with the numeric in char_addr:
-				i64arg = atol(char_addr);	ASSERT(!(i64arg>>12), "user-supplied radices must be < 2^12 ... halting.");
+				i64arg = atoll(char_addr);	ASSERT(!(i64arg>>12), "user-supplied radices must be < 2^12 ... halting.");
 				rvec[numrad++] = (uint32)i64arg;
 				rvec[numrad] = 0;	// Null-terminate the vector just for aesthetics
 				// Compute the radix product and make sure it's < 2^30, constraint due to the (fftlen < 2^31) one:
@@ -4197,7 +4197,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-shift"))
 		{
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			i64arg = atol(stFlag);
+			i64arg = atoll(stFlag);
 			// Must be < 2^32, though store in a uint64 for later bignum-upgrades:
 			ASSERT(!(i64arg>>32), "shift argument must be < 2^32 ... halting.");
 			RES_SHIFT = i64arg;
@@ -4207,7 +4207,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-b1"))
 		{
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			i64arg = atol(stFlag);
+			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "P-1 Stage 1 bound must be < 2^32 ... halting.");
 			B1 = (uint32)i64arg;
@@ -4217,14 +4217,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-b2")) {
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
 			// Allow Stage 2 bounds to be > 2^32:
-			B2 = atol(stFlag);
+			B2 = atoll(stFlag);
 			ASSERT(testType != TEST_TYPE_PRP, "b2-argument implies P-1 factoring; that and PRP-test types not simultaneously specifiable.");
 			testType = TEST_TYPE_PM1;
 		}
 		else if(STREQ(stFlag, "-b2_start")) {
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
 			// Allow Stage 2 bounds to be > 2^32:
-			B2_start = atol(stFlag);
+			B2_start = atoll(stFlag);
 			ASSERT(testType != TEST_TYPE_PRP, "b2_start-argument implies P-1 factoring; that and PRP-test types not simultaneously specifiable.");
 			testType = TEST_TYPE_PM1;
 		}
@@ -4236,7 +4236,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		#else
 			ASSERT(cpu == FALSE && core == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			i64arg = atol(stFlag);
+			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "nthread argument must be < 2^32 ... halting.");
 			NTHREADS = (uint32)i64arg;
@@ -4284,7 +4284,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-m") || STREQ(stFlag, "-mersenne"))
 		{
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			expo = atol(stFlag);
+			expo = atoll(stFlag);
 			userSetExponent = 1;
 			// Use 0-pad slot in MvecPtr[] to store user-set-exponent data - that can point to either MersVec
 			// or MvecPRP. if -prp is invoked after the -m {+int} flag, at that point copy any exponent set
@@ -4299,7 +4299,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			if(nargs < argc) {
 				strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
 				if(isdigit(stFlag[0])) {
-					PRP_BASE = atol(stFlag);
+					PRP_BASE = atoll(stFlag);
 					if(PRP_BASE+1 == 0) {
 						snprintf(cbuf,sizeof(cbuf), "*** ERROR: Numeric arg to -prp flag, '%s', overflows uint32 field.\n", stFlag);
 						ASSERT(0,cbuf);
@@ -4324,14 +4324,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-base"))
 		{
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			i64arg = atol(stFlag);
+			i64arg = atoll(stFlag);
 			PRP_BASE = (uint32)i64arg;
 		}
 
 		else if(STREQ(stFlag, "-f") || STREQ(stFlag, "-fermat"))
 		{
 			strncpy(stFlag, argv[nargs++], sizeof(stFlag)-1);
-			i64arg = atol(stFlag);
+			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "Fermat-number-index argument must be < 2^32 ... halting.");
 			findex = (uint32)i64arg;
