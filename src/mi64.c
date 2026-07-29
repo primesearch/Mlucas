@@ -5670,10 +5670,16 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	ylen = mi64_getlen(y, lenY);
 	ASSERT(ylen != 0, "divide by 0!");
 
-	// Allocate the needed auxiliary storage - the 2 yloc = ... / mi64_set_eq calls below copy (lenX + lenY) limbs into scratch, so alloc at least that much:
-	if(lens < (lenX + lenY)) {
+	/* Allocate the needed auxiliary storage. NOTE the requirement is 2*lenX limbs, not (lenX + lenY):
+	the y-copy below is *left-justified to lenX limbs* -
+		xloc = scratch       ; mi64_set_eq(xloc, x, lenX);
+		yloc = scratch + lenX; mi64_set_eq(yloc, y, lenY); mi64_clear(yloc+lenY, lenX-lenY);
+	- so yloc spans scratch[lenX, 2*lenX), and the mi64_clear() runs off the end of the allocation
+	whenever lenX > lenY + 16. The commented-out line below had this right ("Alloc yloc same as x to
+	allow for left-justification of y-copy"); the sizing that replaced it did not: */
+	if(lens < (lenX + MAX(lenX,lenY))) {
 		// lens = MAX(1024,lenX + lenY);	// Alloc yloc same as x to allow for left-justification of y-copy
-		lens = lenX + lenY + 16;        // GG: bug fix: Always add some extra buffer length. 16 is arbitrary and conservative.
+		lens = lenX + MAX(lenX,lenY) + 16;        // GG: bug fix: Always add some extra buffer length. 16 is arbitrary and conservative.
 		/*** May 2022: In preparing for the cofactor-is-prime-power GCD on F25/[known factors], build on Linux
 		with GCC 9.2.1, hit SIGABRT 		here with 'realloc(): invalid next size'. Step-thru debug showed
 		the #limbs-allocated counter lens increasing from 0 to 4 to 9, next jump from 9 to 1048574 triggered
