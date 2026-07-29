@@ -3338,7 +3338,11 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 		convert_res_FP_bytewise(a, (uint8 *)ci, n, p, Res64, &Res35m1, &Res36m1);	// Overwrite passed-in Pepin-Res64 with Fermat-PRP one
 		snprintf(cbuf,sizeof(cbuf),"MaxErr = %10.9f\n",MME); mlucas_fprint(cbuf,1);
 	} else if (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {	// Mersenne PRP-CF doesn't have the Res35m1 or Res36m1 values passed in,
-		res_SH(ci,n,&itmp64,&Res35m1,&Res36m1);			// so we refresh these; see https://github.com/primesearch/Mlucas/issues/27
+		// so we refresh these; see https://github.com/primesearch/Mlucas/issues/27 . res_SH() wants the
+		// mi64 limb-count of the packed-bit residue in ci[], i.e. ceiling(p/64) - NOT the FFT length n,
+		// which counts doubles and is ~3.5x larger. Passing n here ran mi64_div_by_scalar64() off the end
+		// of the ci[] (= arrtmp[]) allocation, giving nondeterministic Res35m1/Res36m1 for residue (A):
+		res_SH(ci,(p+63)>>6,&itmp64,&Res35m1,&Res36m1);
 	} else {
 		// Initialize to invalid value to prevent warnings.
 		Res35m1 = UINT64_MAX;
