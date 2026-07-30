@@ -2680,32 +2680,16 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 	uint32 lmod4 = (len&0x3), ihi = len - lmod4;
 	while(i < ihi)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		y[i] = lo + cy;
 		cy = hi + (y[i++] < lo);
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		y[i] = lo + cy;
 		cy = hi + (y[i++] < lo);
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		y[i] = lo + cy;
 		cy = hi + (y[i++] < lo);
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		y[i] = lo + cy;
 		cy = hi + (y[i++] < lo);
 	}
@@ -2713,11 +2697,7 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 	ASSERT(len != 0, "zero-length array!");
 	for(; i < len; i++)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		y[i] = lo + cy;
 		/*
 		A*x[i] is at most (2^64 - 1)^2, i.e. hi <= 2^64 - 2. Since the
@@ -2768,21 +2748,13 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 	uint32 lmod2 = (len&0x1), ihi = len - lmod2;	// Unlike mi64_mul_scalar, 2x-unrolled works best here
 	for(; i < ihi; ++i)			// "Oddly" enough, using a for-loop for cleanup rather than if(odd) is best
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		tmp = lo + cy;
 		cy	= hi + (tmp < lo);
 		z[i] = tmp + y[i];
 		cy += (z[i] < tmp);
 		i++;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		tmp = lo + cy;
 		cy	= hi + (tmp < lo);
 		z[i] = tmp + y[i];
@@ -2792,11 +2764,7 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 	ASSERT(len != 0, "zero-length array!");
 	for(; i < len; i++)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(a, x[i],&lo,&hi);
-	#else
 		MUL_LOHI64(a, x[i], lo, hi);
-	#endif
 		tmp = lo + cy;
 		cy	= hi + (tmp < lo);
 		z[i] = tmp + y[i];
@@ -3129,11 +3097,7 @@ void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 	{
 		sgn = (int64)z[j  ] < 0;
 		z[j  ] = (z[j  ] << 1) + cy;	cy = sgn;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x[i],u+j ,u+j+1 );
-	#else
 		SQR_LOHI64(x[i],u[j],u[j+1]);
-	#endif
 		sgn = (int64)z[j+1] < 0;
 		z[j+1] = (z[j+1] << 1) + cy;	cy = sgn;
 	}
@@ -3413,11 +3377,7 @@ void	mi64_mul_vector_hi_trunc(const uint64 x[], const uint64 y[], uint64 z[], ui
 		i0 = MAX(0,(int)(idx+1-len));	// Must cast (idx+1-len) to signed here!
 		for(i = i0, j = idx-i0; j >= i0; i++, j--) {
 			// x[i]*y[j]: lo64 into v[idx], hi64 into v[idx+1], any carryout of 2-limb accumulate-sum into v[idx+2]
-		#ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(x[i],y[j],tprod   ,tprod+1 );
-		#else
 			MUL_LOHI64(x[i],y[j],tprod[0],tprod[1]);
-		#endif
 			v[idx+2] += mi64_add(v+idx,tprod,v+idx,2);
 		}
 	}
@@ -4934,11 +4894,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 	}
 	ASSERT(!diff, "Barrett-modmul scaled inverse computation failed to converge!");
 	uint64 lo,hi;
-  #ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(a,b,&lo,&hi);
-  #else
 	MUL_LOHI64(a,b, lo, hi);
-  #endif
 	hi += __MULH64(ip,hi);	// MULH64(i,hi) = MULH64((2^64 + i'),hi) = hi + MULH64(i',hi)
 	MULL64(m,hi,hi);
 	r = lo - hi;	// (+= 2^64 automatic if lo < hi)
@@ -4962,11 +4918,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 	qinv = qinv*((uint64)2 - q*qinv);
 	// Do the Montgomery-mul, right-shifting the initial 128-bit product as needed if even modulus:
 	uint64 lo,hi;
-  #ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(a,b,&lo,&hi);
-  #else
 	MUL_LOHI64(a,b, lo, hi);
-  #endif
 	rem_save = lo & mask;
 	if(nshift) {
 		lo = (hi << lshift) + (lo >> nshift);
@@ -4985,11 +4937,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 #else	// Generic multiword DIV using Montgomery/Hensel approach, needs ~240 cycles on Core2:
 
 	uint64 x[2];
-  #ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(a,b,x+0,x+1);
-  #else
 	MUL_LOHI64(a,b,x[0],x[1]);
-  #endif
 	r = mi64_div_by_scalar64(x,m,2,0x0);
 
 #endif
@@ -6308,11 +6256,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 		cy = (cy > x[i]); /* Comparing this rather than (tmp > x[i]) frees up tmp for the multiply */
 		/* Now do the Montgomery mod: cy = umulh( q, mulq(tmp, qinv) ); */
 		tmp = tmp*qinv + cy;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		cy = __MULH64(q,tmp);
-	#else
 		MULH64(q,tmp, cy);
-	#endif
 	}
 
 #elif 1
@@ -6431,11 +6375,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		tmp0 = x[i] - cy0;			tmp1 = x[i] - cy1;			tmp2 = x[i] - cy2;			tmp3 = x[i] - cy3;
 		cy0 = (cy0 > x[i]);			cy1 = (cy1 > x[i]);			cy2 = (cy2 > x[i]);			cy3 = (cy3 > x[i]);
 		tmp0 = tmp0*qinv0 + cy0;	tmp1 = tmp1*qinv1 + cy1;	tmp2 = tmp2*qinv2 + cy2;	tmp3 = tmp3*qinv3 + cy3;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		cy0 = __MULH64(q0,tmp0);	cy1 = __MULH64(q1,tmp1);	cy2 = __MULH64(q2,tmp2);	cy3 = __MULH64(q3,tmp3);
-	#else
 		MULH64(q0,tmp0, cy0);		MULH64(q1,tmp1, cy1);		MULH64(q2,tmp2, cy2);		MULH64(q3,tmp3, cy3);
-	#endif
 	}
 
 #else
@@ -6544,11 +6484,7 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 		tmp0  = x[i] - cy0;				tmp1 = x[i+len2] - cy1;
 		cy0 = (cy0 > x[i]);				cy1 = (cy1 > x[i+len2]);
 		tmp0 = tmp0*qinv + cy0;			tmp1 = tmp1*qinv + cy1;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		cy0 = __MULH64(q,tmp0);			cy1 = __MULH64(q,tmp1);
-	#else
 		MULH64(q,tmp0, cy0);				MULH64(q,tmp1, cy1);
-	#endif
 	}
 
 #else
@@ -6663,11 +6599,7 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 		tmp0 = x[i0] - cy0;			tmp1 = x[i1] - cy1;			tmp2 = x[i2] - cy2;			tmp3 = x[i3] - cy3;
 		cy0 = (cy0 > x[i0]);		cy1 = (cy1 > x[i1]);		cy2 = (cy2 > x[i2]);		cy3 = (cy3 > x[i3]);
 		tmp0 = tmp0*qinv + cy0;		tmp1 = tmp1*qinv + cy1;		tmp2 = tmp2*qinv + cy2;		tmp3 = tmp3*qinv + cy3;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		cy0 = __MULH64(q,tmp0);		cy1 = __MULH64(q,tmp1);		cy2 = __MULH64(q,tmp2);		cy3 = __MULH64(q,tmp3);
-	#else
 		MULH64(q,tmp0, cy0);		MULH64(q,tmp1, cy1);		MULH64(q,tmp2, cy2);		MULH64(q,tmp3, cy3);
-	#endif
 	}
 
 #else
@@ -6888,11 +6820,7 @@ printf("\n");
 		#endif
 			tmp = tmp*qinv + cy;
 			// Do double-wide product. Fast-divisibility test needs just high half (stored in cy); low half (tmp) needed to extract true-mod
-		#ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(q, tmp, &tmp,&cy);
-		#else
 			MUL_LOHI64(q, tmp,  tmp, cy);
-		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, lo = %20" PRIu64 ", hi = %20" PRIu64 ", bw = %1u\n",i,tmp,cy,(uint32)bw);
 			ASSERT(itmp64 == tmp, "Low-half product check mismatch!");
@@ -6916,11 +6844,7 @@ printf("\n");
 			*iptr = tmp + ((-cy)&q);	// Expected value of low-half of MUL_LOHI
 		#endif
 			tmp = tmp*qinv + cy;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(q, tmp, &tmp,&cy);
-		#else
 			MUL_LOHI64(q, tmp,  tmp, cy);
-		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, lo = %20" PRIu64 ", hi = %20" PRIu64 ", bw = %1u\n",i,tmp,cy,(uint32)bw);
 			ASSERT(*iptr == tmp, "Low-half product check mismatch!");
@@ -7016,11 +6940,7 @@ printf("\n");
 			itmp64 = tmp;	// Expected value of low-half of MUL_LOHI; here the borrow gets subtracted from the next-higher word so no mod-q
 		#endif
 			tmp *= qinv;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(q, tmp, &lo,&cy);
-		#else
 			MUL_LOHI64(q, tmp,  lo, cy);
-		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, quot[i] = %20" PRIu64 ", lo1 = %20" PRIu64 ", lo2 = %20" PRIu64 ", hi = %20" PRIu64 ", bw = %1u\n",i,tmp,itmp64,lo,cy,(uint32)bw);
 			ASSERT(itmp64 == lo, "Low-half product check mismatch!");
@@ -7035,11 +6955,7 @@ printf("\n");
 			/*  Since may be working in-place, need an extra temp here due to asymmetry of subtract: */
 			bw = (tmp > y[i]);
 			tmp *= qinv;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(q, tmp, &lo,&cy);
-		#else
 			MUL_LOHI64(q, tmp,  lo, cy);
-		#endif
 		#if MI64_DIV_MONT64
 	//		if(dbg)printf("i = %4u, quot[i] = %20" PRIu64 "\n",i,tmp);
 		#endif
@@ -7116,11 +7032,7 @@ See similar behavior for 4-way-split version of the algorithm.
 			tmp0  = x[i] - cy0;				tmp1 = x[i+len2] - cy1;
 			cy0 = (cy0 > x[i]);				cy1 = (cy1 > x[i+len2]);
 			tmp0 = tmp0*qinv + cy0;			tmp1 = tmp1*qinv + cy1;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			cy0 = __MULH64(q,tmp0);			cy1 = __MULH64(q,tmp1);
-		#else
 			MULH64(q,tmp0, cy0);			MULH64(q,tmp1, cy1);
-		#endif
 		}
 	} else {	// Even modulus, with or without quotient computation, uses Algo B
 		if(!y) {	// If no y (quotient) array, use itmp64 to hold each shifted-x-array word:
@@ -7138,11 +7050,7 @@ See similar behavior for 4-way-split version of the algorithm.
 			tmp0 = *iptr0 - cy0;			tmp1 = *iptr1 - cy1;
 			cy0 = (cy0 > *iptr0);			cy1 = (cy1 > *iptr1);
 			tmp0 = tmp0*qinv + cy0;			tmp1 = tmp1*qinv + cy1;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			cy0 = __MULH64(q,tmp0);			cy1 = __MULH64(q,tmp1);
-		#else
 			MULH64(q,tmp0, cy0);			MULH64(q,tmp1, cy1);
-		#endif
 		}
 		// Last element has no shift-in from next-higher term, so can compute just low-half output term, sans explicit MULs:
 		*iptr0 = (x[i] >> nshift) + (x[i+1] << lshift);
@@ -7301,11 +7209,7 @@ See similar behavior for 4-way-split version of the algorithm.
 		/*  Since may be working in-place, need an extra temp here due to asymmetry of subtract: */
 		bw0 = (tmp0 > *iptr0);			bw1 = (tmp1 > *iptr1);
 		tmp0 *= qinv;					tmp1 *= qinv;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		cy0 = __MULH64(q,tmp0);			cy1 = __MULH64(q,tmp1);
-	#else
 		MULH64(q,tmp0, cy0);			MULH64(q,tmp1, cy1);
-	#endif
 	#if MI64_DIV_MONT64_U2
 		if(dbg)printf("quot[%2u] = %20" PRIu64 ", quot[%2u] = %20" PRIu64 ", bw0,1 = %1u,%1u, cy0,1 = %20" PRIu64 ",%20" PRIu64 "\n",i,tmp0,i+len2,tmp1,(uint32)bw0,(uint32)bw1,cy0,cy1);
 	#endif
@@ -7492,11 +7396,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 			tmp0 = x[i0] - cy0;			tmp1 = x[i1] - cy1;			tmp2 = x[i2] - cy2;			tmp3 = x[i3] - cy3;
 			cy0 = (cy0 > x[i0]);		cy1 = (cy1 > x[i1]);		cy2 = (cy2 > x[i2]);		cy3 = (cy3 > x[i3]);
 			tmp0 = tmp0*qinv + cy0;		tmp1 = tmp1*qinv + cy1;		tmp2 = tmp2*qinv + cy2;		tmp3 = tmp3*qinv + cy3;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			cy0 = __MULH64(q,tmp0);		cy1 = __MULH64(q,tmp1);		cy2 = __MULH64(q,tmp2);		cy3 = __MULH64(q,tmp3);
-		#else
 			MULH64(q,tmp0, cy0);		MULH64(q,tmp1, cy1);		MULH64(q,tmp2, cy2);		MULH64(q,tmp3, cy3);
-		#endif
 		}
 
 	} else if(!y) {	// Even modulus, no quotient computation, uses Algo B
@@ -7510,11 +7410,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 			tmp0 = bw0 - cy0;		tmp1 = bw1 - cy1;		tmp2 = bw2 - cy2;		tmp3 = bw3 - cy3;
 			cy0 = (cy0 > bw0);		cy1 = (cy1 > bw1);		cy2 = (cy2 > bw2);		cy3 = (cy3 > bw3);
 			tmp0 = tmp0*qinv + cy0;		tmp1 = tmp1*qinv + cy1;		tmp2 = tmp2*qinv + cy2;		tmp3 = tmp3*qinv + cy3;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			cy0 = __MULH64(q,tmp0);		cy1 = __MULH64(q,tmp1);		cy2 = __MULH64(q,tmp2);		cy3 = __MULH64(q,tmp3);
-		#else
 			MULH64(q,tmp0, cy0);		MULH64(q,tmp1, cy1);		MULH64(q,tmp2, cy2);		MULH64(q,tmp3, cy3);
-		#endif
 		}
 		// Last element has no shift-in from next-higher term, so can compute just low-half output term, sans explicit MULs:
 		bw0 = (x[i0] >> nshift) + (x[i0+1] << lshift);
@@ -7537,11 +7433,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 			tmp0 = *iptr0 - cy0;		tmp1 = *iptr1 - cy1;		tmp2 = *iptr2 - cy2;		tmp3 = *iptr3 - cy3;
 			cy0 = (cy0 > *iptr0);		cy1 = (cy1 > *iptr1);		cy2 = (cy2 > *iptr2);		cy3 = (cy3 > *iptr3);
 			tmp0 = tmp0*qinv + cy0;		tmp1 = tmp1*qinv + cy1;		tmp2 = tmp2*qinv + cy2;		tmp3 = tmp3*qinv + cy3;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			cy0 = __MULH64(q,tmp0);		cy1 = __MULH64(q,tmp1);		cy2 = __MULH64(q,tmp2);		cy3 = __MULH64(q,tmp3);
-		#else
 			MULH64(q,tmp0, cy0);		MULH64(q,tmp1, cy1);		MULH64(q,tmp2, cy2);		MULH64(q,tmp3, cy3);
-		#endif
 		}
 		// Last element has no shift-in from next-higher term, so can compute just low-half output term, sans explicit MULs:
 		*iptr0 = (x[i0] >> nshift) + (x[i0+1] << lshift);
@@ -7924,11 +7816,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		/*  Since may be working in-place, need an extra temp here due to asymmetry of subtract: */
 		bw0 = (tmp0 > *iptr0);		bw1 = (tmp1 > *iptr1);		bw2 = (tmp2 > *iptr2);		bw3 = (tmp3 > *iptr3);
 		tmp0 = tmp0*qinv;			tmp1 = tmp1*qinv;			tmp2 = tmp2*qinv;			tmp3 = tmp3*qinv;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		cy0 = __MULH64(q,tmp0);		cy1 = __MULH64(q,tmp1);		cy2 = __MULH64(q,tmp2);		cy3 = __MULH64(q,tmp3);
-	#else
 		MULH64(q,tmp0, cy0);		MULH64(q,tmp1, cy1);		MULH64(q,tmp2, cy2);		MULH64(q,tmp3, cy3);
-	#endif
 	#if MI64_DIV_MONT64_U4
 		if(dbg)printf("quot[%2u,%2u,%2u,%2u] = %20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 ", bw0-3 = %1u,%1u,%1u,%1u, cy0-3 = %20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 ",%20" PRIu64 "\n",i0,i1,i2,i3,tmp0,tmp1,tmp2,tmp3,(uint32)bw0,(uint32)bw1,(uint32)bw2,(uint32)bw3,cy0,cy1,cy2,cy3);
 	#endif

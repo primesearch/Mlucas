@@ -367,18 +367,6 @@ __device__ uint32 mi64_twopmodq_gpu(
 	uint32	mi64_twopmodq_qmmp		(const uint64 p, const uint64 k, uint64*res);
 
 /* Simple 32x32-bit Montgomery modular multiply - assumes inputs are either 32-bit ints or 64-bit ints < 2^32: */
-#ifdef MUL_LOHI64_SUBROUTINE
-
-	#define MONT_MUL32(__x,__y,__q,__qinv,__z)\
-	{\
-		uint32 lo,hi;					\
-		MUL_LOHI32(__x,__y,&lo,&hi);	\
-		MULL32(__qinv,lo,lo);			\
-		lo = __MULH32(__q,lo);			\
-		__z = hi - lo + ((-(int32)(hi < lo)) & __q);	/* did we have a borrow from (hi-lo)? */\
-	}
-
-#else
 
 	#define MONT_MUL32(__x,__y,__q,__qinv,__z)\
 	{\
@@ -389,21 +377,8 @@ __device__ uint32 mi64_twopmodq_gpu(
 		__z = hi - lo + ((-(int32)(hi < lo)) & __q);	/* did we have a borrow from (hi-lo)? */\
 	}
 
-#endif
 
 /* 48x48-bit: */
-#ifdef MUL_LOHI64_SUBROUTINE
-
-	#define MONT_MUL48(__x,__y,__q,__qinv,__z)\
-	{\
-		uint64 lo,hi;					\
-		MUL_LOHI64(__x<<16,__y,&lo,&hi);	lo >>= 16;\
-		MULL64(__qinv,lo,lo);	lo &= 0x0000FFFFFFFFFFFFull;\
-		lo = __MULH64(__q<<16,lo);			\
-		__z = hi - lo + ((-(int64)(hi < lo)) & __q);	/* did we have a borrow from (hi-lo)? */\
-	}
-
-#else
 
   #ifndef YES_ASM
 	#define MONT_MUL48(__x,__y,__q,__qinv,__z)\
@@ -445,59 +420,8 @@ __device__ uint32 mi64_twopmodq_gpu(
   #endif
 
 
-#endif
 
 /* Various flavors of 64x64-bit Montgomery modular multiply: */
-#ifdef MUL_LOHI64_SUBROUTINE
-
-	// Our performance target here is a 64-bit CPU where 64 x 64 ==> 128-bit
-	// hardware SQR no faster than general MUL, so SQR-macro here simply wraps the MUL one:
-	#define MONT_SQR64(__x,__q,__qinv,__z)\
-	{\
-		MONT_MUL64(__x,__x,__q,__qinv,__z);\
-	}
-
-	#define MONT_MUL64(__x,__y,__q,__qinv,__z)\
-	{\
-		uint64 lo,hi;					\
-		MUL_LOHI64(__x,__y,&lo,&hi);	\
-		MULL64(__qinv,lo,lo);			\
-		lo = __MULH64(__q,lo);			\
-		__z = hi - lo + ((-(int64)(hi < lo)) & __q);	/* did we have a borrow from (hi-lo)? */\
-	}
-
-	// "Downshift MUL" by unity to obtain x * B^(-1) mod q:
-	#define MONT_UNITY_MUL64(__x,__q,__qinv,__z)\
-	{\
-		uint64 lo = __x;				\
-		MULL64(__qinv,lo,lo);			\
-		lo = __MULH64(__q,lo);			\
-		__z = -lo + ((-(int64)(lo != 0)) & __q);	/* did we have a borrow from (0-lo)? */\
-	}
-
-	#define MONT_SQR64_q4(__x0,__x1,__x2,__x3,__q0,__q1,__q2,__q3,__qinv0,__qinv1,__qinv2,__qinv3,__z0,__z1,__z2,__z3)\
-	{\
-		uint64 lo0,lo1,lo2,lo3,hi0,hi1,hi2,hi3;					\
-		SQR_LOHI64(__x0,&lo0,&hi0);								\
-		SQR_LOHI64(__x1,&lo1,&hi1);								\
-		SQR_LOHI64(__x2,&lo2,&hi2);								\
-		SQR_LOHI64(__x3,&lo3,&hi3);								\
-		MULL64(__qinv0,lo0,lo0);								\
-		MULL64(__qinv1,lo1,lo1);								\
-		MULL64(__qinv2,lo2,lo2);								\
-		MULL64(__qinv3,lo3,lo3);								\
-		lo0 = __MULH64(__q0,lo0);								\
-		lo1 = __MULH64(__q1,lo1);								\
-		lo2 = __MULH64(__q2,lo2);								\
-		lo3 = __MULH64(__q3,lo3);								\
-		/* did we have a borrow from (hi-lo)? */				\
-		__z0 = hi0 - lo0 + ((-(int64)(hi0 < lo0)) & __q0);		\
-		__z1 = hi1 - lo1 + ((-(int64)(hi1 < lo1)) & __q1);		\
-		__z2 = hi2 - lo2 + ((-(int64)(hi2 < lo2)) & __q2);		\
-		__z3 = hi3 - lo3 + ((-(int64)(hi3 < lo3)) & __q3);		\
-	}
-
-#else
 
 	// Our performance target here is a 64-bit CPU where 64 x 64 ==> 128-bit
 	// hardware SQR no faster than general MUL, so SQR-macro here simply wraps the MUL one:
@@ -593,7 +517,6 @@ __device__ uint32 mi64_twopmodq_gpu(
 		__z3 = hi3 - lo3 + ((-(int64)(hi3 < lo3)) & __q3);		\
 	}
 
-#endif
 
 // And the multiword analogs of the above:
 
@@ -644,148 +567,6 @@ __device__ uint32 mi64_twopmodq_gpu(
 		}\
 	}
 
-#ifdef MUL_LOHI64_SUBROUTINE
-
-	#define mi64_mul_4word(__x, __y, __out)\
-	{\
-		uint64 __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7\
-						,__cy2,__cy3,__cy4,__cy5,__cy6,__cy7\
-		,__a,__b,__c,__d,__e,__f,__g,__h,__i,__j,__k,__l\
-		,__m,__n,__o,__p,__q,__r,__s,__t,__u,__v,__w,__z;\
-		\
-		MUL_LOHI64(__x[0],__y[0],&__w0,&__w1);	/*   x0*y0 */\
-		MUL_LOHI64(__x[1],__y[1],&__w2,&__w3);	/*   x1*y1 */\
-		MUL_LOHI64(__x[2],__y[2],&__w4,&__w5);	/*   x2*y2 */\
-		MUL_LOHI64(__x[3],__y[3],&__w6,&__w7);	/*   x3*y3 */\
-		\
-		MUL_LOHI64(__x[0],__y[1],&__a ,&__b );	/*   x0*y1 */\
-		MUL_LOHI64(__x[1],__y[0],&__c ,&__d );	/*   x1*y0 */\
-		\
-		MUL_LOHI64(__x[0],__y[2],&__e ,&__f );	/*   x0*y2 */\
-		MUL_LOHI64(__x[2],__y[0],&__g ,&__h );	/*   x2*y0 */\
-		\
-		MUL_LOHI64(__x[0],__y[3],&__i ,&__j );	/*   x0*y3 */\
-		MUL_LOHI64(__x[1],__y[2],&__k ,&__l );	/*   x1*y2 */\
-		MUL_LOHI64(__x[2],__y[1],&__m ,&__n );	/*   x2*y1 */\
-		MUL_LOHI64(__x[3],__y[0],&__o ,&__p );	/*   x3*y0 */\
-		\
-		MUL_LOHI64(__x[1],__y[3],&__q ,&__r );	/*   x1*y3 */\
-		MUL_LOHI64(__x[3],__y[1],&__s ,&__t );	/*   x3*y1 */\
-		\
-		MUL_LOHI64(__x[2],__y[3],&__u ,&__v );	/*   x2*y3 */\
-		MUL_LOHI64(__x[3],__y[2],&__w ,&__z );	/*   x3*y2 */\
-		\
-		/* Now add cross terms: */\
-		/* Add x0*y1 to w1-2: */\
-		__w1 += __a;	__cy2  = (__w1 < __a);\
-		__w2 += __b;	__cy3  = (__w2 < __b);\
-		\
-		/* Add x1*y0 to w1-2: */\
-		__w1 += __c;	__cy2 += (__w1 < __c);\
-		__w2 += __d;	__cy3 += (__w2 < __d);\
-		\
-		/* Add x0*y2 to w2-3: */\
-		__w2 += __e;	__cy3 += (__w2 < __e);\
-		__w3 += __f;	__cy4  = (__w3 < __f);\
-		\
-		/* Add x2*y0 to w2-3: */\
-		__w2 += __g;	__cy3 += (__w2 < __g);\
-		__w3 += __h;	__cy4 += (__w3 < __h);\
-		\
-		/* Add x0*y3 to w3-4: */\
-		__w3 += __i;	__cy4 += (__w3 < __i);\
-		__w4 += __j;	__cy5  = (__w4 < __j);\
-		\
-		/* Add x1*y2 to w3-4: */\
-		__w3 += __k;	__cy4 += (__w3 < __k);\
-		__w4 += __l;	__cy5 += (__w4 < __l);\
-		\
-		/* Add x2*y1 to w3-4: */\
-		__w3 += __m;	__cy4 += (__w3 < __m);\
-		__w4 += __n;	__cy5 += (__w4 < __n);\
-		\
-		/* Add x3*y0 to w3-4: */\
-		__w3 += __o;	__cy4 += (__w3 < __o);\
-		__w4 += __p;	__cy5 += (__w4 < __p);\
-		\
-		/* Add x1*y3 to w4-5: */\
-		__w4 += __q;	__cy5 += (__w4 < __q);\
-		__w5 += __r;	__cy6  = (__w5 < __r);\
-		\
-		/* Add x3*y1 to w4-5: */\
-		__w4 += __s;	__cy5 += (__w4 < __s);\
-		__w5 += __t;	__cy6 += (__w5 < __t);\
-		\
-		/* Add x2*y3 to w5-6: */\
-		__w5 += __u;	__cy6 += (__w5 < __u);\
-		__w6 += __v;	__cy7  = (__w6 < __v);\
-		\
-		/* Add x3*y2 to w5-6: */\
-		__w5 += __w;	__cy6 += (__w5 < __w);\
-		__w6 += __z;	__cy7 += (__w6 < __z);\
-		\
-		/* Now process carries: */\
-		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
-		__w3 += __cy3;	__cy4 += (__w3 < __cy3);\
-		__w4 += __cy4;	__cy5 += (__w4 < __cy4);\
-		__w5 += __cy5;	__cy6 += (__w5 < __cy5);\
-		__w6 += __cy6;	__cy7 += (__w6 < __cy6);\
-		__w7 += __cy7;\
-		\
-		/* Now split the result between __lo and __hi: */\
-		__out[0] = __w0; __out[1] = __w1; __out[2] = __w2; __out[3] = __w3;\
-		__out[4] = __w4; __out[5] = __w5; __out[6] = __w6; __out[7] = __w7;\
-	}
-
-	#define mi64_mul_lo_half_4word(__x, __y, __lo)\
-	{\
-		uint64 __w0, __w1, __w2, __w3\
-						,__cy2,__cy3\
-		,__a,__b,__c,__d,__e,__f,__g,__h,__i,__j,__k,__l;\
-		\
-		MUL_LOHI64(__x[0],__y[0],&__w0,&__w1);	/*   x0*y0 */\
-		MUL_LOHI64(__x[1],__y[1],&__w2,&__w3);	/*   x1*y1 */\
-		\
-		MUL_LOHI64(__x[0],__y[1],&__a ,&__b );	/*   x0*y1 */\
-		MUL_LOHI64(__x[1],__y[0],&__c ,&__d );	/*   x1*y0 */\
-		\
-		MUL_LOHI64(__x[0],__y[2],&__e ,&__f );	/*   x0*y2 */\
-		MUL_LOHI64(__x[2],__y[0],&__g ,&__h );	/*   x2*y0 */\
-		\
-		__i = __x[0]*__y[3];				/* (x0*y3).lo */\
-		__j = __x[1]*__y[2];				/* (x1*y2).lo */\
-		__k = __x[2]*__y[1];				/* (x2*y1).lo */\
-		__l = __x[3]*__y[0];				/* (x3*y0).lo */\
-		\
-		/* Now add cross terms: */\
-		/* Add x0*y1 to w1-2: */\
-		__w1 += __a;	__cy2  = (__w1 < __a);\
-		__w2 += __b;	__cy3  = (__w2 < __b);\
-		\
-		/* Add x1*y0 to w1-2: */\
-		__w1 += __c;	__cy2 += (__w1 < __c);\
-		__w2 += __d;	__cy3 += (__w2 < __d);\
-		\
-		/* Add x0*y2 to w2-3: */\
-		__w2 += __e;	__cy3 += (__w2 < __e);\
-		__w3 += __f;\
-		\
-		/* Add x2*y0 to w2-3: */\
-		__w2 += __g;	__cy3 += (__w2 < __g);\
-		__w3 += __h;\
-		\
-		/* Add (x0*y3 + x1*y2 + x2*y1 + x3*y0).lo to w3: */\
-		__w3 += __i+__j+__k+__l;\
-		\
-		/* Now process carries: */\
-		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
-		__w3 += __cy3;\
-		\
-		/* Now return the result in __lo: */\
-		__lo[0] = __w0; __lo[1] = __w1; __lo[2] = __w2; __lo[3] = __w3;\
-	}
-
-#else
 
 	#define mi64_mul_4word(__x, __y, __out)\
 	{\
@@ -926,7 +707,6 @@ __device__ uint32 mi64_twopmodq_gpu(
 		__lo[0] = __w0; __lo[1] = __w1; __lo[2] = __w2; __lo[3] = __w3;\
 	}
 
-#endif
 
 #undef DEV
 

@@ -2502,11 +2502,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		  // [2]: mi" in i1:
 			i1 = modinv64(mmodb,itmp64);
 		  // [3]: k ends up in i2, and may need reduction (mod b^2):
-		  #ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(rmodb,i1,&i2,&i3);
-		  #else
 			MUL_LOHI64(rmodb,i1, i2, i3);
-		  #endif
 			i2 %= itmp64;	ASSERT(i3 == 0ull, "K-multiplier needs 64-bit reduction (mod b^2)!");
 			if(i2) i2 = itmp64 - i2;	// if(k) k = -r".mi" (mod b^2) = b^2 - r".mi" .
 			// i2 contains the needed multiplier k. Since ensuing quotient computation needs separate arrays
