@@ -2624,13 +2624,31 @@ void	test_fft_radixtables()
 
 /*
 !...Set vector length, based on number of bits (p) in numbers to be FFT-multiplied.
-Returns: FFT length in units of kdoubles, i.e. raw FFT length = (return value << 10) doubles:
+Returns: FFT length in units of kdoubles, i.e. raw FFT length = (return value << 10) doubles.
+
+The candidate lengths are of the form {8,9,10,11,12,13,14,15}*2^m for Mersenne-mod, but
+Fermat-mod (right-angle-transform) runs only support FFT lengths whose odd part is one of
+[1,7,15,63] - see help.txt, section [5]. On the above grid the leading-radix values whose
+resulting lengths have such an odd part are just {8,14,15} (giving lengths 2^k, 7*2^k and
+15*2^k, respectively), so for MODULUS_TYPE_FERMAT we simply restrict the candidate vector
+to those three. Without this, e.g. F16 gets a default length of 3K = 12*2^8 and F18 one of
+13K, and no Fermat-mod carry routine implements either: the affected Fermat indices are
+F16 (3K), F17 (6K), F18 (13K), F19 (26K), F20 (52K), F21 (104K) and F22 (208K); all other
+Fermat indices in [13,33] happen to get a legal default from the Mersenne-mod schedule.
+
+Note the 63*2^k lengths (1008K, 2016K, 4032K, ...) are not of the form {8,...,15}*2^m at
+all, hence never were candidates here, and we deliberately do not add them: they would win
+over the adjacent power of 2 by a mere 1.6% while forcing use of the radix-63 family
+(radix63/1008/4032), which has known Fermat-mod correctness defects. Those lengths remain
+available via the -fft command-line flag.
 */
 uint32 get_default_fft_length(uint64 p)
 {
 	uint32 nradices;
-	uint32 leadingRadixVec[N_LEADING_RADICES] = {8,9,10,11,12,13,14,15};
-	uint32 i, twoK, fftLen;
+	const uint32 mersLeadingRadixVec[N_LEADING_RADICES] = {8,9,10,11,12,13,14,15};
+	const uint32 fermLeadingRadixVec[3]                 = {8,14,15};
+	const uint32 *leadingRadixVec;
+	uint32 i, nLeadingRadices, twoK, fftLen;
 
 	ASSERT(PMAX > PMIN,"get_default_fft_length: PMAX > PMIN");
 	if(p < PMIN || p > PMAX)
@@ -2640,7 +2658,13 @@ uint32 get_default_fft_length(uint64 p)
 		return 0;
 	}
 
-	/* Starting with N = 1K, Loop over all FFT lengths of form {8,9,10,11,12,13,14,15}*2^m,
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+		leadingRadixVec = fermLeadingRadixVec;	nLeadingRadices = 3;
+	} else {
+		leadingRadixVec = mersLeadingRadixVec;	nLeadingRadices = N_LEADING_RADICES;
+	}
+
+	/* Starting with N = 1K, Loop over all FFT lengths of form {leading radix}*2^m,
 	and return the smallest one for which maxP >= p: */
 	i = 0;
 	ASSERT(1024%leadingRadixVec[i] == 0,"get_default_fft_length: 1024%leadingRadixVec[0] == 0");
@@ -2664,7 +2688,7 @@ uint32 get_default_fft_length(uint64 p)
 			return (fftLen >> 10);
 
 	CYCLE:
-		i = (i+1) % N_LEADING_RADICES;
+		i = (i+1) % nLeadingRadices;
 		if(i == 0)
 			twoK *= 2;
 		fftLen = leadingRadixVec[i]*twoK;
