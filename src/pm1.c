@@ -532,7 +532,9 @@ PM1_S1P_READ_RETURN:
 		ASSERT(arr != 0x0, "Null arr pointer!");
 		ASSERT(strlen(fname) != 0, "Empty filename!");
 
-		FILE*fptr = mlucas_fopen(fname, "wb");
+		// v21: atomic-replace: a crash partway through this write formerly left a truncated primes-product
+		// file in place of the previous complete one, and the caller has no backup copy to fall back on:
+		FILE*fptr = mlucas_fopen_atomic(fname, "wb");
 		if(!fptr) {
 			sprintf(cbuf,"ERROR: Unable to open precomputed p-1 stage 1 primes-product file %s for writing.\n",fname);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0, cbuf);
@@ -570,7 +572,17 @@ PM1_S1P_READ_RETURN:
 		retval = 1;
 
 	PM1_S1P_WRITE_RETURN:
-		if(fptr) { fclose(fptr); fptr = 0x0; }
+		// v21: On the checksum-mismatch path above retval is still 0, i.e. we are abandoning this write;
+		// commit the scratch file over the target only if the data we staged in it is actually good:
+		if(fptr) {
+			if(!retval)
+				mlucas_discard_atomic(fname,fptr);
+			else if(mlucas_fclose_atomic(fname,fptr)) {
+				sprintf(cbuf,"ERROR: Unable to commit precomputed p-1 stage 1 primes-product file %s.\n",fname);
+				mlucas_fprint(cbuf,pm1_standlone+1);	retval = 0;
+			}
+			fptr = 0x0;
+		}
 		return retval;
 	}
 #endif
@@ -1462,7 +1474,7 @@ fprintf(stderr,"#1: vec1 = A^+1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ";
 		Res35m1 = mi64_div_by_scalar64(vec2,two35m1,nlimb,0x0);
 		Res36m1 = mi64_div_by_scalar64(vec2,two36m1,nlimb,0x0);
 		// Write inverse to savefile:
-		fp = mlucas_fopen(inv_file, "wb");
+		fp = mlucas_fopen_atomic(inv_file, "wb");	// v21: atomic-replace, as for the .s2 checkpoint below
 		if(fp) {
 			write_ppm1_savefiles(inv_file,p,n,fp, 0ull, (uint8*)vec2,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
 			close_savefile(inv_file,fp);	fp = 0x0;
@@ -2456,7 +2468,13 @@ MME = 0;
 				, 1000*get_time(*tdiff)/(nmodmul - nmodmul_save), Res64, AME, MME);
 			mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
 			*tdiff = MME = 0.0;	// Reset timer and maxerr at end of each iteration interval
-			fp = mlucas_fopen(savefile, "wb");
+			// v21: _atomic: the .s2 checkpoint has no secondary copy standing behind it - unlike the p/q
+			// residue savefiles, where a corrupt primary is detected and the secondary used instead - so
+			// truncating it in place made every checkpoint write a window in which the *only* record of
+			// stage-2 progress on disk was a partially-written file. Killing a run in that window destroyed
+			// the last good checkpoint and cost the whole of stage 2 so far. Stage the write in a scratch
+			// file and rename it over the target, which is then never seen in a partial state:
+			fp = mlucas_fopen_atomic(savefile, "wb");
 			if(fp) {
 				// q won't get += bigstep until we loop, so here, (q + bigstep) is the q-value corr. to just-incremented k.
 				// Also write any relocation-prime psmall into high bit of the resulting nsquares field:

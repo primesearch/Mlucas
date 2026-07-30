@@ -2227,7 +2227,10 @@ READ_RESTART_FILE:
 			sprintf(cbuf, ".%dM", ilo/1000000);
 			strcpy(g_cstr, RESTARTFILE);
 			strcat(g_cstr, cbuf);
-			if(rename(RESTARTFILE, g_cstr)) {
+			// v21: mlucas_rename(), not rename(): the latter ignored MLUCAS_PATH (so under a nonempty prefix it
+			// renamed a nonexistent cwd-relative name and always failed) and cannot replace an existing
+			// destination on Windows. Same for the other rename() calls below:
+			if(mlucas_rename(RESTARTFILE, g_cstr)) {
 				snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping every-10M-iteration restart file archiving\n",WORKFILE,g_cstr);
 				fprintf(stderr,"%s",cbuf);
 			}
@@ -2238,7 +2241,9 @@ READ_RESTART_FILE:
 		itmp64 = ihi;
 		// If Pepin test is at final iteration, change PRP base to 3 for final write to file (cf. earlier assignment at line 1214). More info: https://github.com/primesearch/Mlucas/pull/11
 		if (ihi == maxiter && TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT) PRP_BASE = 3;
-		fp = mlucas_fopen(RESTARTFILE, "wb");
+		// v21: _atomic: stage the new checkpoint in a scratch file and rename it over the savefile, so that
+		// a crash/kill/power-loss partway through the write cannot leave a truncated savefile behind:
+		fp = mlucas_fopen_atomic(RESTARTFILE, "wb");
 		if(fp) {		// In the non-PRP-test case, write_ppm1_savefiles() treats the latter 4 args as null:
 			write_ppm1_savefiles(RESTARTFILE,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
 			close_savefile(RESTARTFILE,fp); fp = 0x0;
@@ -2264,7 +2269,7 @@ READ_RESTART_FILE:
 			if(ihi%ITERS_BETWEEN_GCHECKS == 0) {
 				strcpy(g_cstr, RESTARTFILE);
 				strcat(g_cstr, ".G");
-				fp = mlucas_fopen(g_cstr, "wb");
+				fp = mlucas_fopen_atomic(g_cstr, "wb");	// v21: atomic-replace, as for the p/q savefiles above
 				if(fp) {
 					write_ppm1_savefiles(g_cstr,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
 					close_savefile(g_cstr,fp); fp = 0x0;
@@ -2765,7 +2770,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			// If end of a regular (non-s2-continuation) p-1 run and primary good, rename it from [p|f][expo] ==> [p|f][expo].s1;
 			// if primary missing/corrupt, rename secondary q[expo] ==> [p|f][expo].s1:
 			if(TEST_TYPE == TEST_TYPE_PM1 && !s2_continuation) {
-				if(rename(RESTARTFILE, g_cstr)) {
+				if(mlucas_rename(RESTARTFILE, g_cstr)) {
 					snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
 					mlucas_fprint(cbuf,1);
 				}
@@ -2773,7 +2778,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// If primary was missing/corrupt, i.e. we're on the secondary, rename secondary to primary-name
 				if(RESTARTFILE[0] == 'q') {
 					RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
-					if(rename(g_cstr, RESTARTFILE)) {
+					if(mlucas_rename(g_cstr, RESTARTFILE)) {
 						snprintf(cbuf,sizeof(cbuf),"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
 						mlucas_fprint(cbuf,1);
 					}
@@ -2905,8 +2910,12 @@ GET_NEXT_ASSIGNMENT:
 		fclose(fq); fq = 0x0;
 
 		/* Now blow away the old worktodo file and rename WINI.TMP ==> worktodo.txt...	*/
-		remove(WORKFILE);
-		if(rename("WINI.TMP", WORKFILE))
+		// v21: A single atomic rename replaces the former remove()-then-rename() pair, which on POSIX left a
+		// window in which the worktodo file did not exist at all - a crash there lost the entire assignment
+		// list. mlucas_rename() also supplies the MLUCAS_PATH prefix which the bare rename() omitted (both files
+		// having been *created* through mlucas_fopen(), which prefixes) and the replace-existing semantics which
+		// the Windows CRT rename() lacks - the very reason the remove() was there in the first place:
+		if(mlucas_rename("WINI.TMP", WORKFILE))
 		{
 			sprintf(cbuf,"ERROR: unable to rename WINI.TMP file ==> %s ... attempting line-by-line copy instead.\n",WORKFILE);
 			fprintf(stderr,"%s",cbuf);
@@ -5093,7 +5102,7 @@ holds the previous good checkpoint, rather than proceed with two damaged copies 
 */
 void close_savefile(const char *fname, FILE *fp)
 {
-	if(fclose(fp) == EOF) {
+	if(mlucas_fclose_atomic(fname,fp)) {
 		snprintf(cbuf,sizeof(cbuf),"ERROR: close of savefile %s failed - filesystem full? Aborting rather than leave a silently-truncated savefile.\n",fname);
 		mlucas_fprint(cbuf,0);	ASSERT(0,cbuf);
 	}
