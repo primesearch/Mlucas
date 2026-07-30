@@ -133,6 +133,21 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
  -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
  -s a		This will take around 12 hours on a fast CPU.
 
+ -s cover	Coverage sweep: runs 100 or 1000-iteration self-tests at the supported FFT lengths
+ -s c		which have NO row in the built-in reference-exponent table and which the tiers above
+			therefore never reach - the odd-31 and odd-63 families, 992K through 32M. These are
+			the only lengths at which leading FFT radices 63, 992, 1008 and 4032 are ever used.
+			No new reference data is needed: the residue after a fixed number of iterations
+			depends only on the exponent and the iteration count, not on the FFT length, so each
+			swept length borrows the exponent and stored residues of the nearest tabulated length
+			at or below it. Roughly the cost of '-s l'.
+
+	Exit status of any of the above: 0 if every radix set tried either matched its reference or
+	was skipped for a reason that does not impugn the answer; 1 if any case returned a wrong
+	answer (residue mismatch, disagreement between radix sets at one FFT length, or an
+	identically-zero residue); 2 if there were no wrong answers but some FFT length had too few
+	usable radix sets to be tested at all. A one-line summary is printed at the end either way.
+
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
  -s h		of 16 M(p), covering FFT lengths 64M-240M. This will take several days on a fast CPU.
 
