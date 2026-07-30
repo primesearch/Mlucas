@@ -2145,7 +2145,10 @@ undo_initial_ffft_pass:
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	// *** v19: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
 	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
-		ASSERT((ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
+		// On normal loop-completion iter = ihi+1; the early-exit-on-interrupt case is filtered out by the
+		// ERR_INTERRUPT return above, *except* for a signal arriving during the final iteration, in which
+		// case the interval did complete but the post-loop iter-- leaves iter = ihi - hence 2nd clause:
+		ASSERT((ierr == 0) && (iter == ihi+1 || !MLUCAS_KEEP_RUNNING), "[2a] sanity check failed!");
 		ROE_ITER = 0;
 		ROE_VAL = 0.0;
 		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
