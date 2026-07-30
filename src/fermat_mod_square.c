@@ -535,7 +535,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 //			nradices_radix0 = 12;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default:
-			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
+			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",radix0);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(0,cbuf);
 		}
@@ -613,7 +613,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		{
 			/* If power-of-2 runlength, no IBDWT gets done, make bases the same: */
 			base   [0] = (double)(1 << bits_small);	base   [1] = base[0]	;
-			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[1]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
+			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[0]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
 		}
 		else
 		{
@@ -1727,7 +1727,7 @@ undo_initial_ffft_pass:
 
 			atmp  = a[j2]*radix_inv;
 			a[j2] = DNINT(atmp);
-			k += (fabs(2*a[j1]) > base[ii]);
+			k += (fabs(2*a[j2]) > base[ii]);
 			frac_fp = fabs(a[j2]-atmp);
 			if(frac_fp > max_fp)
 				max_fp = frac_fp;
