@@ -3194,7 +3194,15 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	} else if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
 		strcpy(g_cstr, RESTARTFILE); g_cstr[0] = 'q';		// g_cstr = q[expo]
 	}
-	for(ierr = 0; ; RESTARTFILE[0] = 'q') {	// Start with the p-savefile, inrement to q-savefile on looping
+	/* At most two passes: the primary [p|f]<expo> savefile, then the secondary q<expo>. The loop control
+	must not be carried by RESTARTFILE[0], because the body legitimately rewrites it: on a good secondary
+	the LL/PRP branch below sets it back to 'p'/'f' before renaming q ==> primary. If that rename fails,
+	the q-file survives, ierr is still 1 from the failed primary, and RESTARTFILE[0] is no longer 'q' - so
+	neither exit condition holds, the loop increment sets 'q' again, and we spin on that state forever.
+	Track which pass we are on separately instead. ierr keeps its previous lifetime deliberately: it is
+	ernstMain()'s return code, so resetting it per pass would change what callers see. */
+	int on_secondary_savefile = 0;
+	for(ierr = 0; ; ) {	// Start with the p-savefile, increment to q-savefile on looping
 		if(restart_file_valid(RESTARTFILE, p, (uint8 *)arrtmp, (uint8 *)e_uint64_ptr)) {
 			// If end of a regular (non-s2-continuation) p-1 run and primary good, rename it from [p|f][expo] ==> [p|f][expo].s1;
 			// if primary missing/corrupt, rename secondary q[expo] ==> [p|f][expo].s1:
@@ -3216,9 +3224,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			}
 		} else
 			ierr = 1;
-		// If no errors on primary, break; otherwise loop
-		if(!ierr || RESTARTFILE[0] == 'q')
+		// If no errors on primary, break; otherwise try the secondary, once.
+		if(!ierr || on_secondary_savefile)
 			break;
+		on_secondary_savefile = 1;	RESTARTFILE[0] = 'q';
 	}
 	// If completion of LL/PRP run, or secondary was not used as a backup for p-1 stage 1 savefile rename, delete it now:
 	RESTARTFILE[0] = 'q';
