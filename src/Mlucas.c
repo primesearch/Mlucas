@@ -3945,7 +3945,7 @@ int 	main(int argc, char *argv[])
 	uint32 numrad = 0, rad_prod = 0, rvec[10], rvec2[10];	/* Temporary storage for FFT radices */
 	double	runtime,/* wruntime, */ runtime_best,wruntime_best, tdiff;	// v20: w-prefixed are weighted by associated ROEs
 	double	roerr_avg = 0, roerr_max = 0;
-	int		radix_set, radix_best, nradix_set_succeed;
+	int		radix_set, radix_best, nradix_set_succeed, nradix_set_skipped, nradix_set_tried;
 
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
 	uint32 new_data;
@@ -4662,6 +4662,7 @@ TIMING_TEST_LOOP:
 		runtime_best = wruntime_best = 0.0;
 		radix_best = -1;
 		nradix_set_succeed = 0;
+		nradix_set_skipped = 0;	// #radix-sets this build has no implementation for - not failures, see below
 
 		/* If user-specified radix set, do only that one: */
 		if(radset >= 0)
@@ -4718,7 +4719,19 @@ TIMING_TEST_LOOP:
 			else if(retVal)	// Bzzzzzzzzzzzt!!! That answer is incorrect. The penalty is death:
 			{
 				printMlucasErrCode(retVal);
-				if( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
+				// ERR_RADIX0_UNAVAILABLE means "this build has no working implementation of this leading radix"
+				// - e.g. the many radixNN_ditN_cy_dif1.c "No AVX-512 support; Skipping this leading radix."
+				// self-rejections, and the mers|fermat_mod_square guards on known-broken leading radices. That is
+				// "not applicable", not "computed the wrong answer", so it must not count against this FFT length
+				// in the pass-fraction test below: a length whose remaining radix sets are all correct should still
+				// get a cfg-file entry. Note we deliberately do NOT extend this to ERR_ASSERT, which the mod_square
+				// routines also return for the genuine "max_fp < 0.01 during DWT-unweighting" numerical failure -
+				// that one is a wrong-answer signal and must keep counting as a failure.
+				if(retVal == ERR_RADIX0_UNAVAILABLE) {
+					nradix_set_skipped++;
+					if( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
+						fprintf(stderr, "This radix set is not available in this build - skipping it (not counted as a failure).\n");
+				} else if( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
 					fprintf(stderr, "Error detected - this radix set will not be used.\n");
 				if(radset >= 0)	// If user-specified radix set, do only that one:
 					goto DONE;
@@ -4781,15 +4794,20 @@ TIMING_TEST_LOOP:
 		}
 
 		// If get no successful reference-Res64-matching results, or less than half of results @this FFT length match, skip it:
-		if(radix_best < 0 || runtime_best == 0.0 || nradix_set_succeed < (radix_set+1)/2)
+		// The denominator counts only the radix sets this build can actually run: ones which self-rejected with
+		// ERR_RADIX0_UNAVAILABLE are unimplemented here, not wrong, so counting them as failures would discard an
+		// FFT length whose remaining radix sets all produce the correct residue. When every set was skipped the
+		// (radix_best < 0) test still catches the length, so no cfg entry gets written on a vacuous 0-of-0.
+		nradix_set_tried = radix_set - nradix_set_skipped;	// #radix-sets actually attempted by this build
+		if(radix_best < 0 || runtime_best == 0.0 || nradix_set_succeed < (nradix_set_tried+1)/2)
 		{
-			sprintf(cbuf, "WARNING: %d of %d radix-sets at FFT length %u K passed - skipping it. PLEASE CHECK YOUR BUILD OPTIONS.\n",nradix_set_succeed,radix_set,iarg);
+			sprintf(cbuf, "WARNING: %d of %d radix-sets at FFT length %u K passed (%d skipped as unavailable in this build) - skipping it. PLEASE CHECK YOUR BUILD OPTIONS.\n",nradix_set_succeed,nradix_set_tried,iarg,nradix_set_skipped);
 			fprintf(stderr,"%s", cbuf);
 		}
 		/* If get a nonzero best-runtime, write the corresponding radix set index to the .cfg file: */
 		else
 		{
-			sprintf(cbuf, "INFO: %d of %d radix-sets at FFT length %u K passed - writing cfg-file entry.\n",nradix_set_succeed,radix_set,iarg);
+			sprintf(cbuf, "INFO: %d of %d radix-sets at FFT length %u K passed (%d skipped as unavailable in this build) - writing cfg-file entry.\n",nradix_set_succeed,nradix_set_tried,iarg,nradix_set_skipped);
 			fprintf(stderr,"%s", cbuf);
 
 			/* Divide by the number of iterations done in the self-test: */
