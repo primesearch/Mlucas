@@ -109,12 +109,13 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_mfac_NOSIMD
-        else
-            cd ../obj_mfac
-        fi
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # #222 gives each word-variant its own object directory, so the run enters one per variant
+        # rather than cd-ing once for the whole sweep:
+        mfac_mode=''
+        [[ $HOSTTYPE == aarch64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -181,12 +182,13 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_mfac_NOSIMD
-        else
-            cd ../obj_mfac
-        fi
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # #222 gives each word-variant its own object directory, so the run enters one per variant
+        # rather than cd-ing once for the whole sweep:
+        mfac_mode=''
+        [[ $HOSTTYPE == aarch64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -316,7 +318,7 @@ jobs:
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh no_gmp mfac $word k1om
             (
-                cd obj_mfac_k1om
+                cd obj_mfac${word:+_$word}_k1om
                 make clean
                 mv -v build.log build_${word}.log
             )
@@ -358,7 +360,7 @@ jobs:
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (
-                cd obj_mfac_nosimd
+                cd obj_mfac${word:+_$word}_nosimd
                 make clean
                 mv -v build.log build_${word}.log
             )
@@ -377,8 +379,10 @@ jobs:
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        cd ../obj_mfac_nosimd
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
 
   ASan-SIMD-Linux:
     name: AddressSanitizer SIMD Linux
@@ -644,12 +648,12 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        if [[ $HOSTTYPE == arm64 ]]; then
-            cd ../obj_mfac_NOSIMD
-        else
-            cd ../obj_mfac
-        fi
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        mfac_mode=''
+        [[ $HOSTTYPE == arm64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -713,12 +717,12 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh
-        if [[ $HOSTTYPE == arm64 ]]; then
-            cd ../obj_mfac_NOSIMD
-        else
-            cd ../obj_mfac
-        fi
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        mfac_mode=''
+        [[ $HOSTTYPE == arm64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -753,7 +757,7 @@ jobs:
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (
-                cd obj_mfac_nosimd
+                cd obj_mfac${word:+_$word}_nosimd
                 make clean
                 mv -v build.log build_${word}.log
             )
@@ -772,8 +776,10 @@ jobs:
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        cd ../obj_mfac_nosimd
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -901,12 +907,13 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_mfac_NOSIMD
-        else
-            cd ../obj_mfac
-        fi
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # #222 gives each word-variant its own object directory, so the run enters one per variant
+        # rather than cd-ing once for the whole sweep:
+        mfac_mode=''
+        [[ $HOSTTYPE == aarch64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -950,7 +957,7 @@ jobs:
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (
-                cd obj_mfac_nosimd
+                cd obj_mfac${word:+_$word}_nosimd
                 make clean
                 mv -v build.log build_${word}.log
             )
@@ -969,5 +976,7 @@ jobs:
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-        cd ../obj_mfac_nosimd
-        for word in '' {{1..4},n}word; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
