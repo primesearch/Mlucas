@@ -1335,6 +1335,11 @@ use, unless user overrides those via -nthread or -cpu:
 							// offsets used to prevent the shift count from modding to 0 as a result of repeated doublings (mod 2^m)
 		} else if(TEST_TYPE == TEST_TYPE_PRP) {
 			ASSERT(KNOWN_FACTORS[0] != 0, "Fermat-mod PRP test implies a PRP-CF run, but no known-factors provided!");
+			maxiter -= 1;	// Fermat-mod PRP means PRP-CF, whose full-modulus phase is just a Pepin test, i.e. p-1
+							// mod-squarings of the seed. The single further mod-squaring which converts that
+							// Euler/Pepin residue into the base-3 Fermat-PRP residue [A] needed by the Suyama
+							// test is done inside Suyama_CF_PRP(), not here. Cf. the (ilo >= p-1) PRP-phase-
+							// already-complete test further below, which encodes the same p-1 convention.
 			RES_SHIFT = 0ull;	// Must set = 0 here to make sure BASE_MULTIPLIER_BITS array gets set = 0 below
 		} else if(TEST_TYPE == TEST_TYPE_PM1) {
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT, store #bits of same in PM1_S1_PROD_BITS:
@@ -1969,8 +1974,14 @@ READ_RESTART_FILE:
 	} else if(KNOWN_FACTORS[0] != 0ull) {	// PRP-CF - but if ilo < (p-1) it's in the PRP-phase, handle like regular PRP run until that completes
 		ASSERT(TEST_TYPE == TEST_TYPE_PRP,"One or more known-factors in workfile entry requires a PRP= assignment type!");
 		if( ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) && (ilo >= p))
-		 || ((MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (ilo >= p-1)) )
+		 || ((MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (ilo >= p-1)) ) {
+			ihi = ilo;	// The cofactor-PRP code below the PM1_STAGE2 label reads the count of completed
+						// mod-squarings out of ihi, that being where the iteration loop leaves it (ihi ==
+						// maxiter) for a run which finishes its full-modulus phase in this same invocation.
+						// Here we are resuming from a savefile whose residue is already the final one, so
+						// the loop is skipped and ihi still holds the next-checkpoint value set on read.
 			goto PM1_STAGE2;	// The CF-handling is a clause of the if/else beginning at this label
+		}
 	}
 
 	for(;;)
@@ -2809,7 +2820,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		// v21: PRP-CF: Cofactor-PRP test applies to primality/Fermat (which we follow by 1 additional mod-squaring
 		// to convert the base^((N-1)/2) Pepin/Euler-PRP residue to a base^(N-1) Fermat-PRP one) and PRP/Mersenne residues:
 		if(KNOWN_FACTORS[0])	// This is automatically false for LL-test
-			isprime = Suyama_CF_PRP(p, &Res64, nfac, a,b,arrtmp, ilo, func_mod_square, n, scrnFlag, &tdiff, gcd_str);
+			isprime = Suyama_CF_PRP(p, &Res64, nfac, a,b,arrtmp, ihi, func_mod_square, n, scrnFlag, &tdiff, gcd_str);
 
 		// JSON-formatted result report for LL/PRP/cofactor-PRP tests of M(p):
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
@@ -3681,12 +3692,12 @@ Example: N = M(109) = 2^109-1 = 745988807.870035986098720987332873; let F = 7459
 	B = 3^(F-1) == 610082383855388688949555345767473 (mod N), and we verify that (A - B) == 0 (mod C), thus C is a PRP.
 Similarly, if we let A' = 3^N == 3.A (mod N) and B' = 3^F == 3.B (mod N), that also satisfies (A' - B') == 0 (mod C).
 */
-uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
+uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 nsquares,
 	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
 	int n, int scrnFlag, double *tdiff, char *const gcd_str)
 {
 	uint64 *ai = (uint64 *)a, *bi = (uint64 *)b;	// Handy 'precast' pointers
-	uint32 i,j,k, isprime, ierr = 0, ihi, fbits,lenf;
+	uint32 i,j,k, isprime, ierr = 0, ilo,ihi, fbits,lenf;
 	uint32 kblocks = n>>10, npad = n + ( (n >> DAT_BITS) << PAD_BITS );	// npad = length of padded data array
 	uint64 itmp64 = 0, Res35m1 = 0, Res36m1 = 0;	// Res64 from original PRP passed in via pointer; these are locally-def'd
 	// (init to 0 so the diagnostic prints below are well-defined even if the modulus type matches neither branch)
@@ -3697,8 +3708,8 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	// Pepin-test output = P, vs Mersenne-PRP (type 1) residue = A; thus only need an initial mod-squaring for:
 	// the former. Compute Fermat-PRP residue [A] from Euler-PRP (= Pepin-test) residue via a single mod-squaring:
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
-		ASSERT(ilo == p-1, "Fermat-mod cofactor-PRP test requires p-1 mod-squarings!");
-		snprintf(cbuf,sizeof(cbuf),"Doing one mod-%s squaring of iteration-%u residue [Res64 = %016" PRIX64 "] to get Fermat-PRP residue\n",PSTRING,ilo,*Res64);
+		ASSERT(nsquares == p-1, "Fermat-mod cofactor-PRP test requires p-1 mod-squarings!");
+		snprintf(cbuf,sizeof(cbuf),"Doing one mod-%s squaring of iteration-%u residue [Res64 = %016" PRIX64 "] to get Fermat-PRP residue\n",PSTRING,nsquares,*Res64);
 		mlucas_fprint(cbuf,1);
 		ilo = 0;	ihi = ilo+1;	// Have checked that savefile residue is for a complete PRP test, so reset iteration counter
 		BASE_MULTIPLIER_BITS[0] = 0ull;
@@ -3748,7 +3759,15 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	ilo = 0;	ihi = fbits-1;	// LR modpow; init b[0] = PRP_BASE takes cares of leftmots bit
 	RES_SHIFT = 0ull;	// Zero the residue-shift so as to not have to play games with where-to-inject-the-initial-seed
 	mi64_brev(BASE_MULTIPLIER_BITS,ihi);	// bit-reverse low [ihi] bits of BASE_MULTIPLIER_BITS:
-/*B*/	ierr = func_mod_square(b, (int*)ci, n, ilo,ihi, 0ull, p, scrnFlag, tdiff, TRUE, 0x0);
+	// update_shift *must* be False for this step: BASE_MULTIPLIER_BITS here holds the BRed modpow exponent
+	// (F-1), not the random-bit array of the shifted-residue scheme, and fermat_mod_square() folds one bit of
+	// that array into RES_SHIFT per autosquare. With update_shift = True the RES_SHIFT we just zeroed thus went
+	// nonzero on the first set exponent bit - a shift the residue does not actually carry, since here a set bit
+	// means multiply-by-PRP_BASE (3), not the doubling the shift-tracking assumes - and the run then aborted in
+	// any carry routine which rejects shifted residues, i.e. every leading FFT radix < 16. [The final readout
+	// escaped corruption only by an accident of Fermat arithmetic: every prime factor of F[m] == 1 (mod 2^(m+2)),
+	// so F-1 == 0 (mod 2^m = 2^p), and RES_SHIFT - which the loop mod-doubles by p - lands back on 0.]
+/*B*/	ierr = func_mod_square(b, (int*)ci, n, ilo,ihi, 0ull, p, scrnFlag, tdiff, FALSE, 0x0);
 	if(ierr) {
 		snprintf(cbuf,sizeof(cbuf),"Error of type[%u] = %s on iteration %u of mod-squaring chain ... aborting\n",ierr,returnMlucasErrCode(ierr),ROE_ITER);
 		mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
