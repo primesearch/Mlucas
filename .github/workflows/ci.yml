@@ -80,7 +80,7 @@ jobs:
         for s in tt t s m l; do
             time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
             st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         set -o pipefail
         (( rc == 0 ))
@@ -138,11 +138,11 @@ jobs:
             done
         done
         cd obj
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         st=0
         time ./Mlucas -s m || st=$?
-        (( st != 1 ))
+        (( st == 0 || st == 2 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -250,11 +250,11 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         st=0
         time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
-        (( st != 1 ))
+        (( st == 0 || st == 2 ))
         bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
       continue-on-error: true
 
@@ -286,11 +286,11 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         st=0
         time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
-        (( st != 1 ))
+        (( st == 0 || st == 2 ))
       continue-on-error: true
 
   GCC-analyzer:
@@ -423,7 +423,7 @@ jobs:
         for s in tt t s m l; do
             time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
             st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         set -o pipefail
         (( rc == 0 ))
@@ -477,11 +477,11 @@ jobs:
             done
         done
         cd obj
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         st=0
         time ./Mlucas -s m || st=$?
-        (( st != 1 ))
+        (( st == 0 || st == 2 ))
         if (( $(sysctl -n hw.optional.neon) )); then
             cd ../obj_NOSIMD
         fi
@@ -511,11 +511,11 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         st=0
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
-        (( st != 1 ))
+        (( st == 0 || st == 2 ))
         if ! (( $(sysctl -n hw.optional.neon) )); then
             bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         fi
@@ -541,11 +541,11 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         st=0
         time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
-        (( st != 1 ))
+        (( st == 0 || st == 2 ))
       continue-on-error: true
 
   Windows:
@@ -631,7 +631,7 @@ jobs:
         for s in tt t s m l; do
             time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
             st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         set -o pipefail
         (( rc == 0 ))
@@ -677,8 +677,8 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
-        # in the sibling jobs for why status 2 is tolerated for the moment.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
         time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
         (( ${PIPESTATUS[0]} != 1 ))
         bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
