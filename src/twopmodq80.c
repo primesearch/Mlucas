@@ -101,11 +101,7 @@ The key 3-operation sequence here is as follows:
 if(k == 7946076362870052)printf("In twopmodq78_3WORD_DOUBLE with i = %u, p = %u, k = %" PRIu64 "\n",i,p,k);
 */
 		q.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(q.d0, k,&q.d0,&q.d1);	// Common HLL C-code IMUL macro shared by both device and host-code compile passes
-	#else
 		MUL_LOHI64(q.d0, k, q.d0, q.d1);	// Common HLL C-code IMUL macro shared by both device and host-code compile passes
-	#endif
 		q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 		/* Convert q to floating form: */
@@ -328,18 +324,10 @@ z0 = 6272576; z12 = 898312175313603; z=z0+a*z12	<*** z0 is +1 too large ***
 		int fidx,gidx,hidx,iidx;
 
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 		MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		q2.d0 += 1;
@@ -402,12 +390,6 @@ z0 = 6272576; z12 = 898312175313603; z=z0+a*z12	<*** z0 is +1 too large ***
 		qinv2.d0 = qinv2.d0*((uint64)2 - tmp2);
 		qinv3.d0 = qinv3.d0*((uint64)2 - tmp3);
 		// 64->128-bit inverse, then truncate to the needed 78-bit:
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -417,7 +399,6 @@ z0 = 6272576; z12 = 898312175313603; z=z0+a*z12	<*** z0 is +1 too large ***
 		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + tmp1);
 		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + tmp2);
 		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + tmp3);
-	#endif
 		/* 64 bits: */
 		qinv0.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
 		qinv1.d1 &= 0x0000000000003fff;
@@ -761,12 +742,7 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 #endif
 	ASSERT((p >> 63) == 0, "twopmodq78_q2 : p must be < 2^63!");
 	q.d0 = p+p;
-#ifdef MUL_LOHI64_SUBROUTINE
-	// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-	MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-#else
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
-#endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	ASSERT((q.d1 >> 14) == 0, "twopmodq78 : (q.d1 >> 14) != 0");
 
@@ -855,12 +831,8 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 	but since the main action is in the j-loop below, don't bother with further speedups here.
 	*/
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, hi64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-#endif
 	qinv.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
 
 //	printf("twopmodq78_3WORD_DOUBLE with p = %u, pshift = %u, k = %" PRIu64 ", zshift = %u, start_index = %u\n", (uint32)p,(uint32)pshift,k,zshift,start_index);
@@ -970,18 +942,10 @@ if(~pshift != p+78) {
 	qmul /= qdiv;
 	qmul = DNINT(qmul);
 	// Use 96-bit variable to store q*qmul in preparation for exact-arithmetic subtract:
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64( x.d0, (uint64)kmul,&x.d0,&hi64);
-#else
 	MUL_LOHI64( x.d0, (uint64)kmul, x.d0, hi64);
-#endif
 	x.d1 = hi64 + kmul*x.d1;
 	lo = q;
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(lo.d0, (uint64)qmul,&lo.d0,&hi64);
-#else
 	MUL_LOHI64(lo.d0, (uint64)qmul, lo.d0, hi64);
-#endif
 	lo.d1 = hi64 + qmul*lo.d1;
 	lo.d0 -= FERMAT;
 	SUB96(x,lo,x);
@@ -1280,14 +1244,8 @@ if(~pshift != p+78) {
 
 		ASSERT((p >> 63) == 0, "twopmodq78_q2 : p must be < 2^63!");
 		q0.d0 = q1.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		ASSERT((q0.d1 >> 14) == 0, "twopmodq78_q2 : (q0.d1 >> 14) != 0");
@@ -1385,16 +1343,11 @@ if(~pshift != p+78) {
 
 		/* Now that have bottom 64 bits of qinv, do one more Newton iteration using full 96-bit operands.
 		qinv has 128 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 
 		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + tmp0);
 		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + tmp1);
-	#endif
 		qinv0.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
 		qinv1.d1 &= 0x0000000000003fff;
 
@@ -2129,18 +2082,10 @@ if(~pshift != p+78) {
 
 		ASSERT((p >> 63) == 0, "twopmodq78_q4 : p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 		MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		q2.d0 += 1;
@@ -2273,12 +2218,6 @@ if(~pshift != p+78) {
 		qinv2.d0 = qinv2.d0*((uint64)2 - tmp2);
 		qinv3.d0 = qinv3.d0*((uint64)2 - tmp3);
 		/* 64 bits: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -2288,7 +2227,6 @@ if(~pshift != p+78) {
 		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + tmp1);
 		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + tmp2);
 		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + tmp3);
-	#endif
 		/* 64 bits: */
 		qinv0.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
 		qinv1.d1 &= 0x0000000000003fff;
@@ -3027,18 +2965,10 @@ if(~pshift != p+78) {
 
 		ASSERT((p >> 63) == 0, "twopmodq78_q4 : p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 		MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		q2.d0 += 1;
@@ -3098,12 +3028,6 @@ if(~pshift != p+78) {
 			qinv3.d0 = qinv3.d0*((uint64)2 - tmp3);
 		}
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -3113,7 +3037,6 @@ if(~pshift != p+78) {
 		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + tmp1);
 		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + tmp2);
 		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + tmp3);
-	#endif
 		qinv0.d1 &= 0x0000000000003fff;	/* Only want the lower 14 bits here */
 		qinv1.d1 &= 0x0000000000003fff;
 		qinv2.d1 &= 0x0000000000003fff;
@@ -3518,9 +3441,6 @@ if(~pshift != p+78) {
 
 			ASSERT((p >> 63) == 0, "twopmodq78_q8 : p must be < 2^63!");
 			q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
-		#ifdef MUL_LOHI64_SUBROUTINE
-			#error MUL_LOHI64_SUBROUTINE defined!
-		#endif
 			MUL_LOHI64(q0.d0, k[0], q0.d0, q0.d1);
 			MUL_LOHI64(q1.d0, k[1], q1.d0, q1.d1);
 			MUL_LOHI64(q2.d0, k[2], q2.d0, q2.d1);
@@ -5049,9 +4969,6 @@ if(~pshift != p+78) {
 		= ax0 + 8*[0x64,0x8c) = ax0 + [0x320,0x460) = (ax0 + 0x320) + [0,0x140)  available for debug ***/
 		#endif
 
-		#ifdef MUL_LOHI64_SUBROUTINE
-			#error MUL_LOHI64_SUBROUTINE defined!
-		#endif
 			ASSERT((p >> 63) == 0, "twopmodq78_q16: p must be < 2^63!");
 			for(j = 0; j < 16; j++)
 			{
@@ -5697,9 +5614,6 @@ if(~pshift != p+78) {
 
 		#endif
 
-		#ifdef MUL_LOHI64_SUBROUTINE
-			#error MUL_LOHI64_SUBROUTINE defined!
-		#endif
 			ASSERT((p >> 63) == 0, "twopmodq78_q32: p must be < 2^63!");
 
 		#ifdef USE_AVX512_I
@@ -6446,9 +6360,6 @@ if(~pshift != p+78) {
 
 		#endif
 
-		#ifdef MUL_LOHI64_SUBROUTINE
-			#error MUL_LOHI64_SUBROUTINE defined!
-		#endif
 			ASSERT((p >> 63) == 0, "twopmodq78_q64: p must be < 2^63!");
 
 		#ifdef USE_AVX512_I
