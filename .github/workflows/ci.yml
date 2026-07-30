@@ -93,6 +93,10 @@ jobs:
         # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
         # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
         # to (( rc == 0 )) once those are fixed.
+        # pipefail is on in this job, so a self-test exiting 2 would abort the step through the pipe
+        # before the PIPESTATUS check below could classify it. Turn it off for the loops and read the
+        # real status out of PIPESTATUS[0] instead:
+        set +o pipefail
         rc=0
         for s in tt t s m l; do
             time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
@@ -104,6 +108,7 @@ jobs:
             st=${PIPESTATUS[0]}
             if (( st == 1 )); then rc=1; fi
         done
+        set -o pipefail
         (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
@@ -632,6 +637,10 @@ jobs:
         # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
         # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
         # to (( rc == 0 )) once those are fixed.
+        # pipefail is on in this job, so a self-test exiting 2 would abort the step through the pipe
+        # before the PIPESTATUS check below could classify it. Turn it off for the loops and read the
+        # real status out of PIPESTATUS[0] instead:
+        set +o pipefail
         rc=0
         for s in tt t s m l; do
             time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
@@ -643,6 +652,7 @@ jobs:
             st=${PIPESTATUS[0]}
             if (( st == 1 )); then rc=1; fi
         done
+        set -o pipefail
         (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
@@ -891,6 +901,10 @@ jobs:
         # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
         # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
         # to (( rc == 0 )) once those are fixed.
+        # pipefail is on in this job, so a self-test exiting 2 would abort the step through the pipe
+        # before the PIPESTATUS check below could classify it. Turn it off for the loops and read the
+        # real status out of PIPESTATUS[0] instead:
+        set +o pipefail
         rc=0
         for s in tt t s m l; do
             time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
@@ -902,6 +916,7 @@ jobs:
             st=${PIPESTATUS[0]}
             if (( st == 1 )); then rc=1; fi
         done
+        set -o pipefail
         (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
