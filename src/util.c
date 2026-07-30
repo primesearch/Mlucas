@@ -3100,7 +3100,6 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 			  #if 0
 				#error to-do!
 				double r1,r2, lo,hi;
-				uint64 i64r1,i64r2;
 				r1 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				r2 = rng_isaac_rand_double_norm_pm1() * pow2_dmult;	// in [-2^50, +2^50]
 				mul50x50_debug(r1,r2, &lo,&hi);
@@ -3228,7 +3227,7 @@ void	mul50x50_debug(double a, double b, double *lo, double *hi)
 	int cmp_fma_lohi_vs_exact(double dx, double dy, double dhi, double dlo, uint64 ix, uint64 iy, uint64 ihi, uint64 ilo)
 	{
 		int retval;
-		uint64 i64, e1,e0, m1,m0, u_dhi,u_dlo;
+		uint64 i64, e1,e0, m1,m0;
 		uint32 s1,s0;
 		const uint64 two52 = 0x0010000000000000ull, mmask = 0x000FFFFFFFFFFFFFull;
 		uint128 exact;
