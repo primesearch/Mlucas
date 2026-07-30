@@ -161,9 +161,6 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	value must map to a supported FFT length; for Mlucas these are of form k × 2^n, where k
 	is an odd integer in the set (1,3,5,7,9,11,13,15).
 
-	The minimum supported FFT length is 2K; 1K is not supported. A -fft request below the minimum
-	(or above the current maximum, 512M) is rejected at startup with an explicit range error.
-
 	If -fft is invoked with a user-supplied value of -iters but without a
 	user-supplied exponent, the program will do the specified number of iterations
 	using the default self-test Mersenne or Fermat-number exponent for that FFT length.
@@ -582,11 +579,6 @@ not made a special effort to optimize the computation of said product beyond use
 integer hardware multiply where available. (Speeding things by replacing the O(n^2) "grammar
 school" multiply with a subquadratic one is a possible future enhancement.) For a given
 stage 1 bound B1, the s1_prod file will be roughly 0.2*B1 bytes in size.
-
-o A p-1 stage 1 run resumes at the B1 bound it started with, even if the default B1 would now be
-different (Mlucas can auto-size B1 based on available memory). A restart recovers the original B1
-from the .s1_prod savefile; if that file is missing, the restart stops and asks you to either rerun
-with the original '-b1 <N>' or delete the exponent's p-1 savefiles to start fresh.
 
 ======================
 
