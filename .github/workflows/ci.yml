@@ -87,7 +87,7 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
@@ -188,7 +188,7 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
@@ -316,7 +316,7 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                 )
@@ -623,7 +623,7 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
@@ -721,7 +721,7 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
@@ -926,7 +926,7 @@ jobs:
                 # Mfactor build must also request no_gmp there, exactly as the main build above does:
                 bash -e -o pipefail -- makemake.sh mfac ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || '' }} $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
