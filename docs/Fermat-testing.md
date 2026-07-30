@@ -96,15 +96,14 @@ to be composite. However, the character of their cofactors is unknown so a Pépi
 necessary prerequisite for testing them; and as for _F_<sub>33</sub>, this is yet to be 
 tested for primality.
 
-The Pépin test uses Gerbicz error checking (GEC) to assure the reliability of the computation, however 
-residue shifting is not implemented for Fermat modular squaring with GEC. Thus when invoking Mlucas the 
-flag `-shift 0` _must_ be added to the Mlucas command line:
-```
-./Mlucas -shift 0
-```
-If non-zero residue shifting is used, the Pépin test will not be able to progress beyond the millionth 
-iteration (the default interval for GEC) as error checking will be unable to confirm whether or not the 
-computation is correct.
+The Pépin test uses Gerbicz error checking (GEC) to assure the reliability of the computation. Up to and 
+including v21.0.2, GEC and a nonzero residue shift were incompatible: the check applied a correction 
+factor that is only valid for the Mersenne-mod pure-shift-doubling case, so a Pépin test run with the 
+default (randomly chosen, nonzero) shift failed its first GEC at the millionth iteration and the 
+assignment was abandoned; `-shift 0` therefore had to be added to the command line. That restriction has 
+been lifted - the Fermat-mod GEC now maintains its own correction accumulator - and `-shift 0` is no 
+longer needed for GEC. It is still required for FFT lengths whose leading radix is less than 16 (see the 
+small-FFT note below) and for p-1 runs.
 
 ## Cofactor compositeness testing: Suyama’s test
 Suyama’s test is a Fermat probable primality test on the cofactor of a Fermat number. As a prerequisite, 
