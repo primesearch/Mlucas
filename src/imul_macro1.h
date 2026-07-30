@@ -5459,7 +5459,7 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
 		__w3 += __b >> 63;\
 		__w2 = (__b << 1) + (__a >> 63);\
 		__a <<= 1;\
-		__w1 += __a;	__w2 += (__w1 < __a);	/*          w1 done. */\
+		__w1 += __a;	__w2 += (__w1 < __a);	__w3 += (__w2 < (__w1 < __a));	/* carry out of __w2 reaches __w3: the +1 can wrap a __w2 of 2^64-1 */	/*          w1 done. */\
 		/* Now calculate (x1^2 + 2*x0*x2) and add into middle part (w2 and w3): */\
 		SQR_LOHI64(__x.d1,       &__a ,&__b );	/*   x1^2  */\
 		__w2 += __a;	__w3 += (__w2 < __a);\
@@ -5526,7 +5526,7 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
 		__w3 += __b >> 63;\
 		__w2 = (__b << 1) + (__a >> 63);\
 		__a <<= 1;\
-		__w1 += __a;	__w2 += (__w1 < __a);	/*          w1 done. */\
+		__w1 += __a;	__w2 += (__w1 < __a);	__w3 += (__w2 < (__w1 < __a));	/* carry out of __w2 reaches __w3: the +1 can wrap a __w2 of 2^64-1 */	/*          w1 done. */\
 		/* Now calculate (x1^2 + 2*x0*x2) and add into middle part (w2 and w3): */\
 		SQR_LOHI64(__x.d1,        __a , __b );	/*   x1^2  */\
 		__w2 += __a;	__w3 += (__w2 < __a);\
@@ -6017,11 +6017,11 @@ On 32-bit hardware, take advantage of the fact that x2 and y2 are only 32 bits w
 		\
 		/* Now add cross terms: */\
 		/* Add x0*y1 to w1-3: */\
-		__w1 += __a;	__w2 += (__w1 < __a);\
+		__w1 += __a;	__w2 += (__w1 < __a);	__w3 += (__w2 < (__w1 < __a));	/* carry out of __w2 reaches __w3: the +1 can wrap a __w2 of 2^64-1 */\
 		__w2 += __b;	__w3 += (__w2 < __b);\
 		\
 		/* Add x1*y0 to w1-3: */\
-		__w1 += __c;	__w2 += (__w1 < __c);\
+		__w1 += __c;	__w2 += (__w1 < __c);	__w3 += (__w2 < (__w1 < __c));	/* carry out of __w2 reaches __w3: the +1 can wrap a __w2 of 2^64-1 */\
 		__w2 += __d;	__w3 += (__w2 < __d);\
 		\
 		/* Add x0*y2 to w2-4: */\
@@ -6101,11 +6101,11 @@ On 32-bit hardware, take advantage of the fact that x2 and y2 are only 32 bits w
 		\
 		/* Now add cross terms: */\
 		/* Add x0*y1 to w1-3: */\
-		__w1 += __a;	__w2 += (__w1 < __a);\
+		__w1 += __a;	__w2 += (__w1 < __a);	__w3 += (__w2 < (__w1 < __a));	/* carry out of __w2 reaches __w3: the +1 can wrap a __w2 of 2^64-1 */\
 		__w2 += __b;	__w3 += (__w2 < __b);\
 		\
 		/* Add x1*y0 to w1-3: */\
-		__w1 += __c;	__w2 += (__w1 < __c);\
+		__w1 += __c;	__w2 += (__w1 < __c);	__w3 += (__w2 < (__w1 < __c));	/* carry out of __w2 reaches __w3: the +1 can wrap a __w2 of 2^64-1 */\
 		__w2 += __d;	__w3 += (__w2 < __d);\
 		\
 		/* Add x0*y2 to w2-4: */\
