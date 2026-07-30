@@ -834,15 +834,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-	#if THREE_OP128
-		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
-		than the 3-function version. */
-		THREE_OP128_q4(
-		  x0, qinv0, q0, lo0, hi0
-		, x1, qinv1, q1, lo1, hi1
-		, x2, qinv2, q2, lo2, hi2
-		, x3, qinv3, q3, lo3, hi3);
-	#else
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_q4(
 		  x0, hi0
@@ -899,7 +890,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		MULH128(lo2, q2, lo2);
 		MULH128(lo3, q3, lo3);
 		*/
-	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 		if(CMPULT128(hi0, lo0)) { SUB128(q0, lo0, lo0);	ADD128(lo0, hi0, x0); } else { SUB128(hi0, lo0, x0); }
 		if(CMPULT128(hi1, lo1)) { SUB128(q1, lo1, lo1);	ADD128(lo1, hi1, x1); } else { SUB128(hi1, lo1, x1); }
@@ -1128,19 +1118,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 #if FAC_DEBUG
 if(dbg) printf("A: x = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0,x0.d1);
 #endif
-	#if THREE_OP128
-		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
-		than the 3-function version. */
-		THREE_OP128_q8(
-		  x0, qinv0, q0, lo0, hi0
-		, x1, qinv1, q1, lo1, hi1
-		, x2, qinv2, q2, lo2, hi2
-		, x3, qinv3, q3, lo3, hi3
-		, x4, qinv4, q4, lo4, hi4
-		, x5, qinv5, q5, lo5, hi5
-		, x6, qinv6, q6, lo6, hi6
-		, x7, qinv7, q7, lo7, hi7);
-	#else
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_q8(
 		  x0, hi0
@@ -1244,7 +1221,6 @@ if(dbg) printf("C: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #if FAC_DEBUG
 if(dbg) printf("D: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
-	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 		if(CMPULT128(hi0, lo0)) { SUB128(q0, lo0, lo0);	ADD128(lo0, hi0, x0); } else { SUB128(hi0, lo0, x0); }
 		if(CMPULT128(hi1, lo1)) { SUB128(q1, lo1, lo1);	ADD128(lo1, hi1, x1); } else { SUB128(hi1, lo1, x1); }

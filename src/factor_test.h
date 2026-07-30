@@ -159,30 +159,6 @@ int test_fac()
 		printf("TRYQ = %u\n", i);
 	#endif
 
-	/* THREE_OP128: */
-	#ifndef THREE_OP128
-	//	printf("THREE_OP128 not defined\n");
-	#elif(THREE_OP128 == 0)
-		printf("THREE_OP128 = FALSE\n");
-	#else
-		i = THREE_OP128;
-		printf("THREE_OP128 = %u\n", i);
-		/* iF NONZERO, Must = 1 : */
-		ASSERT((THREE_OP128 == 1),"THREE_OP128 Must = 0 or 1!");
-		/* Only relevant for TRYQ = 4 or 8: */
-		#if(TRYQ != 4 && TRYQ != 8)
-			#error	THREE_OP128 Only relevant for TRYQ = 4 or 8!
-		#endif
-		/* Only relevant for factoring up to 128 bits: */
-		#if(defined(P3WORD) || defined(P4WORD))
-			#error	THREE_OP128 Only relevant for factoring up to 128 bits!
-		#endif
-		/* Only relevant if using fully 128-bit modmul routines: */
-		#if USE_128x96 != 0
-			#error	THREE_OP128 Only relevant if using fully 128-bit modmul routines - undef USE_128x96 or set = 0!
-		#endif
-	#endif
-
 	/* NUM_SIEVING_PRIME: */
 	#ifndef NUM_SIEVING_PRIME
 		/* This flag is required: */
