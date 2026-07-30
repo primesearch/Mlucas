@@ -3164,7 +3164,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					 ,[__binv] "m" (dptr2)\
 					 ,[__crnd50] "m" (dptr3)\
 					 ,[__prod1_adj] "m" (dptr4)\
-					: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+					: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 				);
 			//	printf("i = %u: x0 = %1.0f; x1 = %1.0f; p0-3 = %1.0f,%1.0f,%1.0f,%1.0f\n",i,*ax,*ay,*alo,*ahi);
 				// Update log2-range-bounds-storing vars:
