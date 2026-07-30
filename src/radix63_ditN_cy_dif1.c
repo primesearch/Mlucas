@@ -554,7 +554,12 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
 			target_set = target_idx / NDIVR;	// which of the RADIX(=63) independent carry sub-chains holds the target
 			target_idx -= target_set*NDIVR;		// target_idx now = index within that sub-chain
-			tidx_mod_stride = target_idx & (stride-1);	// stride a power of 2, so can use AND-minus-1 for mod
+			// Main-loop stride is 2*RE_IM_STRIDE and a power of 2, so AND-minus-1 does the mod. Derive it
+			// from RE_IM_STRIDE here rather than reading the function-scope 'stride': PR #210 deletes that
+			// declaration along with the physical-stride main-array loop it served (its loop advances by a
+			// logical 2 instead), and the two PRs merge without a git conflict, so a use that depends on
+			// the declaration compiles or not depending purely on which of them lands second.
+			tidx_mod_stride = target_idx & (((int)RE_IM_STRIDE << 1) - 1);
 			target_idx -= tidx_mod_stride;		// stride-align
 			target_set = (target_set << (L2_SZ_VD-2)) + tidx_mod_stride;	// non-SIMD: shift = 1; low bit selects Re/Im part
 			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
