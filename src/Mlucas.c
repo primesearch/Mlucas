@@ -147,6 +147,7 @@ const char *err_code[ERR_MAX] = {
 uint64 RES_SHIFT = 0xFFFFFFFFFFFFFFFFull;	// 0 is a valid value here, so init to UINT64_MAX, which value is treated as "uninited"
 uint64 GCHECK_SHIFT = 0ull;
 uint32 RES_SIGN = 0;	// Feb 2020: uint32 to keep track of shifted-residue sign flips, needed for rotated residue Fermat-mod arithmetic.
+int FERMAT_RANDBIT_MULT = TRUE;	// Fermat-mod Pépin: apply the random-bit residue-doubling? Only for the shift-carrying main chain; cf. Mdata.h.
 uint64 *BIGWORD_BITMAP = 0x0;
 uint32 *BIGWORD_NBITS = 0x0;
 
@@ -1574,7 +1575,13 @@ READ_RESTART_FILE:
 			}
 			// v19: G-check residue - we only create savefile for PRP-phase of any PRP-CF run, i.e. always expect a G-check residue:
 		  if(DO_GCHECK) {
-			if(!convert_res_bytewise_FP((uint8 *)e_uint64_ptr, b, n, p)) {
+			// Cf. the matching comment at the convert_res_FP_bytewise(b,...) write call: the G-check product
+			// carries no residue shift, so read it back without applying one (Fermat-mod only - see there):
+			uint64 sv_shift = RES_SHIFT; uint32 sv_sign = RES_SIGN;
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) { RES_SHIFT = 0ull; RES_SIGN = 0; }
+			i = convert_res_bytewise_FP((uint8 *)e_uint64_ptr, b, n, p);
+			RES_SHIFT = sv_shift; RES_SIGN = sv_sign;
+			if(!i) {
 				snprintf(cbuf,sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on Gerbicz-check residue read from savefile %s!\n",g_cstr);
 				mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 			} else {
@@ -1672,10 +1679,11 @@ READ_RESTART_FILE:
 			ASSERT((itmp64 & 255) < ceil((double)p/n), "Return value of shift_word(): bit-in-array-word value out of range!");
 		}
 	} else if(DO_GCHECK) {
-		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && !INTERACT) {	// Allow shift in timing-test mode
-			ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
-			// exit(1);
-		}
+		/* v21: The "Shifted residues unsupported for Pépin test with Gerbicz check!" assertion that used to sit
+		here is gone: the Fermat-mod G-check now carries its own (mod 2p) power-of-2 correction accumulator, so a
+		nonzero shift works. Note the assertion only ever guarded the *resume* path anyway (a from-scratch Pépin
+		run happily picked a random nonzero shift and then failed its first G-check), so it turned "wrong check"
+		into "cannot resume", rather than preventing the combination. */
 		memcpy(d, b, nbytes);	// If doing a PRP test, init redundant copy d[] Gerbicz residue-product accumulator b[].
 	}
 
@@ -1837,8 +1845,6 @@ READ_RESTART_FILE:
 		if(MLUCAS_KEEP_RUNNING && (ihi-ilo) >= ITERS_BETWEEN_GCHECK_UPDATES) {
 			i = ilo;	tdiff = 0.0;	// Need 2 timers here - tdif2 for the individual func_mod_square calls, accumulate in tdiff
 			while(!ierr && MLUCAS_KEEP_RUNNING && i < ihi) {
-				// See G-check code for why this logfile-print of initial-G-check-update residue shift value is needed in Fermat-mod case:
-				if(i == ITERS_BETWEEN_GCHECK_UPDATES) { sprintf(cbuf,"At iter ITERS_BETWEEN_GCHECK_UPDATES = %u: RES_SHIFT = %" PRIu64 "\n",i,RES_SHIFT); mlucas_fprint(cbuf,1); }
 				/* If restart-after-interrupt and thus ilo neither a non-multiple of ITERS_BETWEEN_CHECKPOINTS nor of
 				ITERS_BETWEEN_GCHECK_UPDATES, round first i-update > ilo to nearest multiple of ITERS_BETWEEN_GCHECK_UPDATES:
 				*/
@@ -1924,6 +1930,28 @@ READ_RESTART_FILE:
 					}
 				}
 			//	fprintf(stderr,"FFT(b)*FFT(c), mode = %u\n",mode_flag);
+				/* v21: Fermat-mod accumulation of the Gerbicz-check power-of-2 correction. With x_i the shifted
+				residue after i squarings, u_i = 3^(2^i) (mod Fm) the true one and s_i = RES_SHIFT, we have
+					x_i = (-1)^q_[i-1] . u_i . 2^s_i (mod Fm),  q_[i-1] = [s_[i-1] >= p/2] = RES_SIGN,
+				and the check-product b, which starts at the *unshifted* seed 3 and is multiplied by x_[kL] at
+				each of the check-product updates k = 1,2,3,..., therefore satisfies
+					b = 3 . [prod_k u_[kL]] . (-1)^[sum_k q_[kL-1]] . 2^[sum_k s_[kL]] .
+				The check squares an L-iterations-older copy of b L times, which - since 2^(2^L) == 1 (mod Fm)
+				for L >= m+1, i.e. with vast margin at the L = 1000 default - kills every one of those powers of
+				2 and leaves exactly [prod_k u_[kL]]. So the correction needed to bring the two sides back
+				together is 2^GCHECK_SHIFT with GCHECK_SHIFT the running sum below, taken (mod 2p) since
+				2^(2p) == 1 (mod Fm), and with the sign flips folded in via -1 == 2^p (mod Fm).
+				Contrast the Mersenne-mod case, where all q = 0 and s_[kL] = 2^L.s_[(k-1)L] (mod p) makes the sum
+				telescope down to the single term s_L - which is what the ihi == ITERS_BETWEEN_GCHECKS branch of
+				the check code below recovers, and which is *not* correct for Fermat-mod, because there the
+				shift update is 'mod-double *and add a random bit*' and thus does not telescope: */
+				if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+					// RES_SIGN is only maintained while the shift is being updated; with shift 0 there are no sign
+					// flips at all, and gating on update_shift also stops a stale 1 left over by a preceding shifted
+					// assignment of a multi-exponent run from perturbing an unshifted one:
+					GCHECK_SHIFT += RES_SHIFT + ((update_shift && RES_SIGN) ? p : 0ull);
+					GCHECK_SHIFT %= (p << 1);
+				}
 				// If not going to proceed to actual Gerbicz-check, save a post-updated copy of the checkproduct,
 				// in order to guard against single-bit or other data corruption in b[] (h/t George Woltman):
 				if(i % ITERS_BETWEEN_GCHECKS != 0) {
@@ -2034,7 +2062,19 @@ READ_RESTART_FILE:
 		// G-check residue...must not touch i1,i2,i3 again until ensuing write_ppm1_savefiles call!
 		if(DO_GCHECK) {
 			e_uint64_ptr[j-1] = 0ull;
+			/* The G-check product is *not* a shifted residue - it is a plain product (mod N) - so it must
+			round-trip through the savefile unchanged. convert_res_[FP_bytewise|bytewise_FP] read the shift
+			from the RES_SHIFT global, and in the Fermat-mod case they are not mutually inverse when it is
+			nonzero: the write does an lcshift by (p - RES_SHIFT) and a RES_SIGN-conditioned negation, the read
+			an lcshift by RES_SHIFT, composing to a full p-bit negacyclic rotation, i.e. multiplication by
+			2^p == -1 (mod Fm). For the main residue a[] that sign error is harmless (the next mod-squaring
+			wipes it), but b[] is compared, not squared, so it would corrupt the check on every resume.
+			Mersenne-mod is left alone: there 2^p == +1, the round-trip is exact as-is, and changing what goes
+			in the file would break every in-progress PRP savefile with a nonzero shift. */
+			uint64 sv_shift = RES_SHIFT; uint32 sv_sign = RES_SIGN;
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) { RES_SHIFT = 0ull; RES_SIGN = 0; }
 			convert_res_FP_bytewise(b, (uint8 *)e_uint64_ptr, n, p, &i1,&i2,&i3);
+			RES_SHIFT = sv_shift; RES_SIGN = sv_sign;
 		}
 
 		// In interactive-timing-test (e.g. self-tests) mode, do immediate-exit-sans-savefile-write on signal:
@@ -2111,58 +2151,60 @@ READ_RESTART_FILE:
 			j = (p+63)>>6;	/*** Jun 2021: cf. convert_res_FP_bytewise() for why we don't include the extra Fermat-modulus bit here ***/
 			c_uint64_ptr[j-1] = 0ull;
 			// [1] Convert b[],d[] to bytewise form, former assumed already in e[] doubles-array, latter into currently-unused c[] doubles-array:
-			convert_res_FP_bytewise(d, (uint8 *)c_uint64_ptr, n, p, 0x0,0x0,0x0);
-			// Only need to compute this for initial interval - after that the needed adjustment-shift remains constant
-			if(ihi == ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
-				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
-					/* d[] needs initial-shift applied prior to final scalar multiply, but don't explicitly,
-					store the initial shift, so need to recompute it from a current value s at iteration i:
-						s = s0.2^i (mod p)
-					Repeatedly div-by-2 (mod p) of y = 2.x (mod p):
-						y even: y = y>>1
-						y odd : y = (y+p)>>1
-					*/
-					itmp64 = RES_SHIFT;
-					for(i = ITERS_BETWEEN_GCHECK_UPDATES; i < ITERS_BETWEEN_GCHECKS; i++) {	// Recover shift at initial ITERS_BETWEEN_GCHECK_UPDATES-iteration subinterval from that at initial savefile-checkpoint
-						if(itmp64 & 1)	// y odd
-							itmp64 = (itmp64+p)>>1;
-						else			// y even
-							itmp64 >>= 1;
-					}
-				} else {
-					// In Fermat-mod case, with its random-bit shift offset, simple repeated-mod-halving does not work,
-					// need to also account for the said per-iter offset ... but that's no good either, since only store
-					// the random-offset bits for latest ITERS_BETWEEN_CHECKPOINTS iters in BASE_MULTIPLIER_BITS. So instead
-					// must write RES_SHIFT value at iter = ITERS_BETWEEN_GCHECKS to logfile and read back here:
-				#if 1
-					if(filegrep(STATFILE,"ITERS_BETWEEN_GCHECK_UPDATES",cbuf,0)) {
-						char_addr = strstr(cbuf,"RES_SHIFT = ") + 12;	// Skip ahead by length of search-substring
-						itmp64 = strtoull(char_addr, &cptr, 10);
-						ASSERT(itmp64 != -1ull, "strtoull() overflow detected.");
-					}
-				#else
-					itmp64 = RES_SHIFT;
-					// Unlike Mers-mod case, need to run this loop in reverse in order to duplicate
-					// the actual iteration counts and their corr. random-bit shift offsets:
-					for(i = ITERS_BETWEEN_GCHECKS; i >= ITERS_BETWEEN_GCHECK_UPDATES; i--) {	// Recover shift at initial ITERS_BETWEEN_GCHECK_UPDATES-iteration subinterval from that at initial savefile-checkpoint
-						uint32 nhalvings,curr_bit = ((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1);	// No mod needed on this add, since result of pvs line even and < p, which is itself even in the Fermat-mod case (p = 2^m)
-						// If current random-offset bit = 1, do 2 mod-halvings; otherwise do just one:
-						for(nhalvings = 0; nhalvings <= curr_bit; nhalvings++) {
-							if(itmp64 & 1)	// y odd
-								itmp64 = (itmp64+p)>>1;
-							else			// y even
-								itmp64 >>= 1;
-						}
-					}
-				#endif
+			// d[] holds the L-times-squared G-check product, which carries no residue shift - so, exactly as for the
+			// b[] savefile round-trip above, keep convert_res_FP_bytewise() from applying the main chain's shift and
+			// sign to it. (Mersenne-mod is deliberately left alone: there the shift removal is a plain cyclic
+			// rotation applied to b[] and d[] alike, so it cancels between the two sides of the comparison below,
+			// and suppressing it would change what goes into every in-progress PRP savefile.)
+			{
+				uint64 sv_shift = RES_SHIFT; uint32 sv_sign = RES_SIGN;
+				if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) { RES_SHIFT = 0ull; RES_SIGN = 0; }
+				convert_res_FP_bytewise(d, (uint8 *)c_uint64_ptr, n, p, 0x0,0x0,0x0);
+				RES_SHIFT = sv_shift; RES_SIGN = sv_sign;
+			}
+			/* Mersenne-mod: the correction is the single power of 2 whose exponent is the residue shift at the
+			ITERS_BETWEEN_GCHECK_UPDATESth iteration (see the derivation at the GCHECK_SHIFT update above), and since
+			that value is not stored explicitly we recover it from the current shift. Only need to compute this for
+			the initial interval - after that the needed adjustment-shift remains constant.
+			Fermat-mod: GCHECK_SHIFT is instead the running (mod 2p) accumulator maintained at each check-product
+			update, which genuinely changes from one check interval to the next, so nothing to do here. */
+			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && ihi == ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
+				/* d[] needs initial-shift applied prior to final scalar multiply, but don't explicitly,
+				store the initial shift, so need to recompute it from a current value s at iteration i:
+					s = s0.2^i (mod p)
+				Repeatedly div-by-2 (mod p) of y = 2.x (mod p):
+					y even: y = y>>1
+					y odd : y = (y+p)>>1
+				*/
+				itmp64 = RES_SHIFT;
+				for(i = ITERS_BETWEEN_GCHECK_UPDATES; i < ITERS_BETWEEN_GCHECKS; i++) {	// Recover shift at initial ITERS_BETWEEN_GCHECK_UPDATES-iteration subinterval from that at initial savefile-checkpoint
+					if(itmp64 & 1)	// y odd
+						itmp64 = (itmp64+p)>>1;
+					else			// y even
+						itmp64 >>= 1;
 				}
 				fprintf(stderr,"Recovered initial shift %" PRIu64 "\n",itmp64);
 				ASSERT((itmp64>>32) == 0ull,"Shift must be < 2^32!");
 				GCHECK_SHIFT = itmp64;
 			}
-			mi64_shlc(c_uint64_ptr, c_uint64_ptr, (uint32)p, (uint32)GCHECK_SHIFT, j, (MODULUS_TYPE == MODULUS_TYPE_FERMAT));
+			/* Apply the 2^GCHECK_SHIFT correction. In the Fermat-mod case GCHECK_SHIFT lives (mod 2p) rather than
+			(mod p), the high half encoding a sign flip via 2^p == -1 (mod Fm), so split it accordingly: */
+			itmp64 = GCHECK_SHIFT;	i = 0;	// i = "needs explicit negation" flag
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && itmp64 >= p) { itmp64 -= p; i = 1; }
+			ASSERT((itmp64>>32) == 0ull,"Shift must be < 2^32!");
+			mi64_shlc(c_uint64_ptr, c_uint64_ptr, (uint32)p, (uint32)itmp64, j, (MODULUS_TYPE == MODULUS_TYPE_FERMAT));
 			/*** Now that have undone shift, include extra modulus bit for Fermat-mod case ***/
-			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) { c_uint64_ptr[j++] = 0ull; }
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+				// Negation (mod Fm) is Fm - c = ~c + 2 over the low p bits; the add can only carry out in the
+				// c == 1 case, whose negative 2^p is then exactly represented by the extra high bit:
+				if(i) {
+					for(i = 0; i < j; i++) { c_uint64_ptr[i] = ~c_uint64_ptr[i]; }
+					c_uint64_ptr[j] = mi64_add_scalar(c_uint64_ptr, 2ull, c_uint64_ptr, j);
+					j++;
+				} else {
+					c_uint64_ptr[j++] = 0ull;
+				}
+			}
 			// Use mi64 routines to compute d[]*PRP_BASE and do ensuing equality check:
 			itmp64 = ((MODULUS_TYPE == MODULUS_TYPE_FERMAT) ? 3ull : (uint64)PRP_BASE);	// Fermat-mod uses PRP_BASE to store 2 for random-shift-offset scheme
 			c_uint64_ptr[j] = mi64_mul_scalar(c_uint64_ptr, itmp64, c_uint64_ptr, j);
