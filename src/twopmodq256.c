@@ -122,6 +122,7 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	if(nshift) {
 		x.d0 = (uint64)nshift; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,p);	// p >= nshift guaranteed here:
 		RSHIFT256(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+		RSHIFT_FAST256(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
 	#if FAC_DEBUG
 		if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint256_base10_char(char_buf,q)]);
 	#endif

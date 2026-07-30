@@ -87,6 +87,7 @@ uint192 twopmmodq192(uint192 p, uint192 q)
 	if(nshift) {
 		x.d0 = (uint64)nshift; x.d1 = x.d2 = 0ull; SUB192(p,x,p);	// p >= nshift guaranteed here:
 		RSHIFT192(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+		RSHIFT_FAST192(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
 	#if FAC_DEBUG
 		if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint192_base10_char(char_buf,q)]);
 	#endif
