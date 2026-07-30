@@ -224,9 +224,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
-#ifdef MULTITHREAD
 	double target_cy = 0;
-#endif
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
@@ -1488,11 +1486,9 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		if(RES_SHIFT) {
 			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
 			target_idx = (int)(itmp64 >>  8);	// This still needs to be (mod NDIVR)'ed, but first use unmodded form to compute needed DWT weights
-		#ifdef MULTITHREAD
 			// Compute wt = 2^(target_idx*sw % n)/n and its reciprocal:
 			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
 			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// 0.5*n2inv = 0.5/(n/2) = 1.0/n
-		#endif
 			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
 			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
 			/* v21: the SIMD-capable radices round target_idx down to a whole SIMD block here and encode the
@@ -1510,14 +1506,10 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			target_idx -= tidx_mod_stride;		// ...whose (even) logical index within the sub-chain is this
 		//	printf("Iter %d: cy_shift = %d, target_idx,tidx_mod_stride,target_set = %d,%d,%d\n",iter,(itmp64 & 255),target_idx,tidx_mod_stride,target_set);
 			target_set = (target_set<<1) + tidx_mod_stride;
-		#ifdef MULTITHREAD
 			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
-		#endif
 		} else {
 			target_idx = target_set = 0;
-		#ifdef MULTITHREAD
 			target_cy = -2.0;
-		#endif
 		}
 	}
 
