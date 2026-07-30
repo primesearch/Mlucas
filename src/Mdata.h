@@ -262,6 +262,12 @@ extern uint64 PMAX;	/* maximum exponent allowed */
 extern uint64 RES_SHIFT, GCHECK_SHIFT;
 // Feb 2020: added a uint32 to keep track of the shifted-residue sign, needed for rotated residue Fermat-mod arithmetic:
 extern uint32 RES_SIGN;
+/* Fermat-mod Pépin test only: the random-bit residue-doubling that accompanies the 'shift = 2*shift + randbit'
+update is a property of the *shift-carrying main residue chain*, not of the modulus. Set FALSE by
+fermat_mod_square() while it is squaring/multiplying one of the Gerbicz-check auxiliary arrays (which do not
+carry a shift), so that the carry routines skip the doubling for those. Cf. the prp_mult gate in the
+radix*_ditN_cy_dif1() routines and the update_shift arg of fermat_mod_square(). */
+extern int FERMAT_RANDBIT_MULT;
 extern uint64 *BIGWORD_BITMAP;	/* Needed for fast how-many-residue-bits-up-to-this-array-word lookup, which the carry routines
 								use to figure out where to inject the -2 in a rotated-residue LL test using Crandall/Fagin IBDWT.
 								A 1-bit means a bigword (p/n+1 bits); 0 means a smallword (p/n bits), where p/n is integer-div. */
