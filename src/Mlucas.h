@@ -90,7 +90,7 @@ int		cfgNeedsUpdating(const char *p_in_line);
 const char *returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
-uint32	Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 nsquares,
+uint32	Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 nsq,
 	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
 	int n, int scrnFlag, double *tdiff, char *const gcd_str);
 int		test_types_compatible(uint32 t1, uint32 t2);
