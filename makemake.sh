@@ -35,7 +35,7 @@ DIR=obj
 Mlucas=Mlucas
 Mfactor=Mfactor
 TARGET=$Mlucas
-ARGS=() # Optional compile args
+ARGS=(-DUSE_THREADS) # Optional compile args
 WORDS=''
 # Optional link args
 LD_ARGS=()
