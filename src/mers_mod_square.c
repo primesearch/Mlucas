@@ -338,22 +338,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			}
 		}
 
-	#ifdef USE_SSE2
-		/* Defence in depth for leading radix 992, whose carry routine is scalar-only (radix992_ditN_cy_dif1.c
-		#undefs the SIMD symbols at the top of the file), so in a SIMD build it fails to carry most of the
-		residue array. No currently-reachable path gets here: 992 divides n/2 only when the odd part of the
-		FFT length is 31, and get_fft_radices() now rejects those lengths in SIMD builds, which gates every
-		route that selects a radix set (-fft/-fftlen at Mlucas.c arg-parse time, -radset, the timing
-		self-test, and the mlucas.cfg scan). This guard is here so that a future table change, or a new
-		radix-set selection route, cannot silently reintroduce a wrong residue - hence the same soft-skip
-		treatment as the adjacent n/radix0 check rather than a hard abort: */
-		if(radix0 == 992)
-		{
-			sprintf(cbuf  ,"radix 992 has no SIMD carry implementation; skipping this radix combo (use a %u K or %u K FFT length, or a scalar-double build).\n", (n/(31<<10))*30, (n/(31<<10))*32);
-			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
-		}
-	#endif
-
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
 		for(i = 0; i < NRADICES; i++)
