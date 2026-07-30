@@ -1014,7 +1014,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	int jhi;
 #endif
 	// num_b is #buffers per unit of extended-pairing-window size M; wsize is #bytes needed per 'word' of the associated bitmap
-	uint32 bigstep_pow2,rsize, np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
+	uint32 bigstep_pow2,rsize, np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k=0,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
 #if USE_PP1_MULTS
 	uint32 word,bit;
 #elif defined(PM1_DEBUG)
@@ -1769,8 +1769,14 @@ MME = 0;
 			}
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			restart = TRUE;
-			if(qlo >= B2)	// qlo >= S2 upper limit - nothing to do but proceed to gcd
+			if(qlo >= B2) {	// qlo >= S2 upper limit - nothing to do but proceed to gcd
+				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile q[%" PRIu64 "] >= B2[%" PRIu64 "] ... stage 2 for this interval is complete; proceeding to GCD of the stage 2 residue.\n",func,qlo,B2);
+				mlucas_fprint(cbuf,pm1_standlone+1);
+				// k is used as a scratch variable by the MULTITHREAD setup code above, so (re)zero the
+				// bigstep-block counters to make the ensuing "#blocks/#modmul" summary print accurate:
+				k = k0 = 0;
 				goto S2_RETURN;
+			}
 		}
 	}
 
@@ -2519,7 +2525,9 @@ S2_RETURN:
 #endif
 	// (k - k0) = #bigstep-blocks (passes thru above loop) used in stage 2; np + ns + 2*(k - k0) = #modmul:
 	nmodmul = np + ns + 2*(k - k0);	// This is actually redundant, but just to spell it out
-	snprintf(cbuf,STR_MAX_LEN*2,"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,100.0*2*np/(2*np+ns),k-k0,nmodmul);
+	// Note the (2*np+ns) guard: on the 'savefile q >= B2, nothing left to do' early-return above we never
+	// entered the bigstep loop, so np = ns = 0 and the %-paired figure would otherwise print as nan:
+	snprintf(cbuf,sizeof(cbuf),"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,(2*np+ns) ? 100.0*2*np/(2*np+ns) : 0.0,k-k0,nmodmul);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 #ifndef PM1_STANDALONE
 
