@@ -2325,6 +2325,73 @@ READ_RESTART_FILE:
 			mlucas_fprint(cbuf,scrnFlag);
 		}
 
+		/* v21: Identically-zero-residue sanity guard, production runs only.
+		Rationale: the roundoff-error check is structurally blind to a zeroed residue. fracmax measures the
+		distance of the inverse-weighted data from the nearest integer, and zero *is* an integer, so a run
+		whose residue vector has been zeroed - by a miscompiled or defective FFT/carry routine, by failing
+		hardware, or by memory corruption - reports MaxErr/AvgMaxErr = 0, i.e. the health signal users rely
+		on reads maximally *good* precisely when the answer is entirely wrong. Absent this check nothing in
+		the program notices, and the wrong result is written to the savefile and eventually reported.
+
+		Why this state cannot occur in a healthy run of any test type which uses this loop:
+
+		o Pepin (Fermat primality), PRP (both moduli) and p-1 stage 1 all compute s^e (mod N) for a fixed
+		  seed s - 3 for Pepin, PRP_BASE (3 by default) for PRP and p-1 - and some exponent e. The seed is a
+		  unit for every N these paths can be handed: N = 2^p-1 is odd and == 1 (mod 3) for odd p, and
+		  N = F_m = 2^2^m+1 is odd and == 2 (mod 3) for m >= 1, so gcd(s,N) = 1 in both cases. A power of a
+		  unit is a unit, hence nonzero. Zero is *impossible*, at every iteration, not merely unlikely.
+
+		o LL is the one exception, and its zero residue is a *result*, not an error: M(p) is prime iff the
+		  residue after the final (p-2)nd squaring is identically zero. That is literally the isprime test a
+		  few hundred lines below, so ihi == maxiter is exempted. Before the last iteration a zero cannot
+		  occur when M(p) is prime: s_i == 0 forces s_(i+1) == -2, s_(i+2) == 2 and s_j == 2 thereafter, so
+		  s_(p-2) == 2 != 0, contradicting primality. When M(p) is composite an intermediate zero is not
+		  formally impossible, but it has heuristic probability 2^-p per checkpoint (~1e-4515000 at p = 15M),
+		  and such a run would have gone on to report the same "composite" verdict a rerun will reproduce.
+		  So the cost of that outcome is one restarted assignment, against catching a whole class of silent
+		  wrong answers.
+
+		No other test type has a distinguished zero: Pepin signals primality with residue N-1, PRP with
+		residue 1 (or PRP_BASE^2 for the Gerbicz-modified Mersenne form), and p-1 stage 1 has no
+		distinguished residue value at all.
+
+		Deliberately *not* part of the condition: MaxErr. Requiring MME == 0.0 as well would narrow the guard
+		for no safety gain - a zero residue is already impossible on its own - while letting through the cases
+		where the data are zeroed only part-way through the interval, or where a nonzero MME from earlier in
+		the interval survives. (MaxErr == 0.0 is in any case a legitimate value in its own right: it is what
+		the first few iterations of a healthy run report, while the residue is still a small integer.)
+
+		Deliberately not extended to a "residue looks too sparse" test, which would additionally catch the
+		failure mode where the residue collapses to a single power of two rather than to zero: that test is
+		probabilistic rather than impossible-by-construction, and it would need a final-iteration exemption
+		for *every* test type, because at ihi == maxiter the correct answer is exactly what it looks for -
+		0 for an LL prime, N-1 = 2^2^m for a Pepin prime, 1 or PRP_BASE^2 for a PRP. Three chances to abort a
+		multi-week run on its single most important iteration is not a trade worth making here.
+
+		Scope: !INTERACT only. In timing-test/self-test mode (-iters, -s) the residue is checked against the
+		built-in reference tables by the caller and a bad radix set must not abort the sweep; strengthening
+		that pass criterion is a separate matter. We fire before the savefile is written, so the last good
+		checkpoint survives and a restart resumes from known-good data.
+		*/
+		if(!INTERACT && mi64_iszero(arrtmp, j)
+			&& !(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_MERSENNE && ihi == maxiter))
+		{
+			snprintf(cbuf,sizeof(cbuf), "ERROR: %s at iteration %u: the residue is identically zero (Res64 = %016" PRIX64 ", MaxErr = %10.9f).\n"
+				"This is not a possible result. For a PRP, Pepin or p-1 stage-1 run every iterate is a power of\n"
+				"a unit (mod N) and so can never be 0; for an LL run a zero residue is the \"M(p) is prime\"\n"
+				"verdict, which can only arise at the final iteration %u, not here. It therefore indicates a\n"
+				"broken build (e.g. a miscompiled or defective FFT/carry routine), failing hardware, or memory\n"
+				"corruption.\n"
+				"Note that the roundoff-error check cannot detect this by construction: it measures distance from\n"
+				"the nearest integer, and zero is exactly an integer, so MaxErr/AvgMaxErr read healthy no matter\n"
+				"how wrong the residue is. That is why this is checked separately.\n"
+				"Aborting *before* the savefile update, so the last good checkpoint is preserved. Please report\n"
+				"this, quoting the above line and attaching the %s file.\n"
+				,PSTRING,ihi,Res64,MME,maxiter,STATFILE);
+			mlucas_fprint(cbuf,1);
+			ASSERT(0,"Residue is identically zero - see preceding message.");
+		}
+
 		// Do not save a final residue unless p-1 (if not, still leave penultimate residue file intact).
 		// We don't save "final residue" in cofactor-PRP mode, since in the (mod M(p)) case this is for p+1 squarings (G-check needs this),
 		// i.e. needs a mod-div-by-base^2 postprocessing step to put in form of the p-1 squarings of the standard Fermat-PRP test:
