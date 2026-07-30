@@ -38,6 +38,13 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	static int n8;
+  #ifdef USE_AVX512
+	const int jhi_wrap_mers = 15;
+	const int jhi_wrap_ferm = 15;
+  #else
+	const int jhi_wrap_mers =  7;
+	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
+  #endif
 	int i,j,j1,j2,jstart,jhi,full_pass,k1,k2,k,khi,l,outer;
 	// For some reason GCC treats these as possibly-uninited in cmplx_carry_norm_pow2_errcheck(), so init = 0;
 	int bjmodn0 = 0,bjmodn1 = 0,bjmodn2 = 0,bjmodn3 = 0,bjmodn4 = 0,bjmodn5 = 0,bjmodn6 = 0,bjmodn7 = 0;
@@ -319,7 +326,7 @@ for(outer=0; outer <= 1; outer++)
 
 			_jstart[ithread] = ithread*n8/CY_THREADS;
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -339,7 +346,7 @@ for(outer=0; outer <= 1; outer++)
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_ferm;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -391,7 +398,9 @@ for(outer=0; outer <= 1; outer++)
 		{
 			for(j = jstart; j < jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
 			{
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -736,11 +745,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if((MODULUS_TYPE == MODULUS_TYPE_GENFFTMUL) || (TRANSFORM_TYPE == RIGHT_ANGLE))
 	{
-		j_jhi =15;
+		j_jhi = jhi_wrap_ferm;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = jhi_wrap_mers;
 	}
 
     for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -830,7 +839,9 @@ void radix8_dif_pass1(double a[], int n)
 
     for(j = 0; j < n8; j += 2)
     {
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -948,7 +959,9 @@ void radix8_dit_pass1(double a[], int n)
 
     for(j=0; j < n8; j += 2)
     {
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
