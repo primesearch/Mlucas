@@ -1188,7 +1188,7 @@ extern "C" {
 			: [__fq0] "m" (Xfq0)	/* All inputs from memory addresses here */\
 			 ,[__pshift] "m" (Xpshift)	\
 			 ,[__j]		"m" (Xj)		\
-			: "cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 		}
 
@@ -1620,7 +1620,7 @@ extern "C" {
 			: [__fq0] "m" (Xfq0)	/* All inputs from memory addresses here */\
 			,[__pshift] "m" (Xpshift)	\
 			,[__j]		"m" (Xj)		\
-			: "cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 		}
 
@@ -1843,7 +1843,7 @@ extern "C" {
 			: [__fq0] "m" (Xfq0)	/* All inputs from memory addresses here */\
 			,[__pshift] "m" (Xpshift)	\
 			,[__j]		"m" (Xj)		\
-			: "cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 		}
 
