@@ -70,9 +70,15 @@ jobs:
                     if [[ -x Mfactor${word:+_$word} ]]; then
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        elif [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
                         else
-                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. Mfactor already
+                            # exits nonzero on a test_fac failure, so no extra check is needed here.
                             ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
@@ -163,9 +169,15 @@ jobs:
                     if [[ -x Mfactor${word:+_$word} ]]; then
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        elif [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
                         else
-                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. Mfactor already
+                            # exits nonzero on a test_fac failure, so no extra check is needed here.
                             ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
@@ -484,9 +496,15 @@ jobs:
                     if [[ -x Mfactor${word:+_$word} ]]; then
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        elif [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
                         else
-                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. Mfactor already
+                            # exits nonzero on a test_fac failure, so no extra check is needed here.
                             ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
@@ -574,9 +592,15 @@ jobs:
                     if [[ -x Mfactor${word:+_$word} ]]; then
                         if [[ "$mode" == AVX512 && "$run_avx512" == 0 ]]; then
                             echo "Skipping AVX-512 Mfactor${word:+_$word} run: this runner's CPU cannot execute AVX-512."
+                        elif [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
                         else
-                            # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                            # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. Mfactor already
+                            # exits nonzero on a test_fac failure, so no extra check is needed here.
                             ./Mfactor${word:+_$word} -m 127 -bmax 20
                         fi
                     fi
@@ -746,9 +770,17 @@ jobs:
                     make clean
                     mv -v build.log build_${word}.log
                     if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                        # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20
+                        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+                            # Mfactor trial-factoring (hence its test_fac self-test) is not supported on
+                            # ARMv8 - it asserts "No TF support on ARMv8!" - so just smoke-test the binary.
+                            ./Mfactor${word:+_$word} -h
+                        else
+                            # Exercise Mfactor's built-in self-tests (test_fac), which run during
+                            # factoring-init and validate the modpow/sieve machinery. M(127) has no
+                            # factors <= 2^20 so the trial-factoring pass is quick. Mfactor already
+                            # exits nonzero on a test_fac failure, so no extra check is needed here.
+                            ./Mfactor${word:+_$word} -m 127 -bmax 20
+                        fi
                     fi
                 )
             done
