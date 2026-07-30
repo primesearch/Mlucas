@@ -9613,6 +9613,18 @@ int mlucas_rename(const char *oldpath, const char *newpath)
 #endif
 }
 
+/* remove() with the MLUCAS_PATH prefix applied, for the same reason mlucas_rename() exists: every
+savefile in the tree is created through mlucas_fopen(), which prepends MLUCAS_PATH, so a bare
+remove(name) under a nonempty prefix looks in the wrong directory. It does not fail loudly - it
+returns nonzero for "no such file", which the call sites then report as an inability to delete a
+file that was in fact never looked at. */
+int mlucas_remove(const char *path)
+{
+	char buf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(buf, path, 0x0);
+	return remove(buf);
+}
+
 /* Open the scratch file in which a crash-safe replacement of savefile [path] is staged. Use exactly
 as mlucas_fopen(path,"wb"), but close the result with mlucas_fclose_atomic(path,fp) rather than
 fclose(fp); [path] must be the same string in both calls.

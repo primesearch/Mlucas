@@ -2755,7 +2755,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		re-using it would kibosh subsequent stage 2 continuation runs. Safer to start with s1 residue for those:
 		*/
 		strcpy(g_cstr, RESTARTFILE); strcat(g_cstr, ".s2");
-		if(remove(g_cstr)) {
+		if(mlucas_remove(g_cstr)) {
 			snprintf(cbuf,sizeof(cbuf),"INFO: Unable to remove stage 2 savefile %s.\n",g_cstr);
 			mlucas_fprint(cbuf,1);
 		}
@@ -2782,7 +2782,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 						snprintf(cbuf,sizeof(cbuf),"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
 						mlucas_fprint(cbuf,1);
 					}
-				} else if(remove(g_cstr))	// ...otherwise delete the secondary
+				} else if(mlucas_remove(g_cstr))	// ...otherwise delete the secondary
 					fprintf(stderr, "Unable to delete secondary restart file %s.\n",g_cstr);
 			}
 		} else
@@ -2793,7 +2793,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	}
 	// If completion of LL/PRP run, or secondary was not used as a backup for p-1 stage 1 savefile rename, delete it now:
 	RESTARTFILE[0] = 'q';
-	if(remove(RESTARTFILE))
+	if(mlucas_remove(RESTARTFILE))
 		fprintf(stderr, "Unable to delete secondary restart file %s\n",RESTARTFILE);
 
 	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
@@ -2823,7 +2823,7 @@ GET_NEXT_ASSIGNMENT:
 			ASSERT(0,cbuf);
 		}
 		/* Remove any WINI.TMP file that may be present: */
-		remove("WINI.TMP");
+		mlucas_remove("WINI.TMP");
 		fq = mlucas_fopen("WINI.TMP", "w");
 		if(!fq) {
 			sprintf(cbuf, "Unable to open WINI.TMP file for writing.\n");
@@ -2940,7 +2940,7 @@ GET_NEXT_ASSIGNMENT:
 
 			/*...Then remove the WINI.TMP file:	*/
 
-			remove("WINI.TMP");
+			mlucas_remove("WINI.TMP");
 		}
 		/* if one or more exponents left in rangefile, go back for more; otherwise exit. */
 		if (i > 0) {
