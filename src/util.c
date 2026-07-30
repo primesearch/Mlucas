@@ -36,6 +36,10 @@
 #endif
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>
+	#include <io.h>		// v21: _commit(), _fileno() - the Windows spellings of fsync(), fileno()
+#else
+	#include <fcntl.h>	// v21: open() of the savefile's containing directory, to fsync() a rename
+	#include <unistd.h>	// v21: fsync(), fileno(), close()
 #endif
 
 #if 0
@@ -9574,6 +9578,184 @@ FILE *mlucas_fopen(const char *path, const char *mode)
 
 	snprintf(mlucas_path, sizeof(mlucas_path), "%s%s", MLUCAS_PATH, path);
 	return fopen(mlucas_path, mode);
+}
+
+/**************************************************************************************************/
+/*** v21: Crash-safe (atomic) savefile replacement - see the mlucas_fopen_atomic() comment below ***/
+/**************************************************************************************************/
+
+/* Suffix appended to a savefile name to form the name of the scratch file its replacement is
+staged in. Deliberately a fixed string rather than a mkstemp()-style random one: it keeps the
+scratch file next to its target in the same directory (a hard requirement, since rename() is only
+atomic *within* a filesystem), it is unique per target because savefile names already are, and a
+leftover from a previous crash is simply reused rather than accumulating as litter: */
+#define SAVEFILE_TMP_SUFFIX	".new"
+
+/* MLUCAS_PATH-prefix [path] (+ optional [suffix]) into caller-supplied buffer [dest], which must
+have room for MLUCAS_PATH_BUFSIZE chars. Same length reasoning as mlucas_fopen(): */
+#define MLUCAS_PATH_BUFSIZE	(2*STR_MAX_LEN + sizeof(SAVEFILE_TMP_SUFFIX) + 1)
+
+static void mlucas_path_cat(char dest[], const char *path, const char *suffix)
+{
+	strcpy(dest, MLUCAS_PATH);
+	strcat(dest, path);
+	if(suffix) strcat(dest, suffix);
+}
+
+/* Rename [oldpath] ==> [newpath], both MLUCAS_PATH-relative, replacing [newpath] if it exists.
+Returns 0 on success, nonzero on failure. Two things this does which a bare rename() call does not:
+
+	[1] It applies the MLUCAS_PATH prefix. Every Mlucas file is *created* through mlucas_fopen(),
+	    which prefixes; the bare rename() calls this replaces did not, so under a nonempty
+	    MLUCAS_PATH (the "$HOME/.mlucas.d/" packaging layout, or the MLUCAS_PATH env var) they
+	    named files which do not exist, and the renames simply failed.
+
+	[2] It replaces an existing destination on Windows as well as POSIX. rename(2) is required to
+	    atomically replace the destination on POSIX, but the Windows CRT rename() fails with EEXIST
+	    if the destination exists - which is exactly the case here, since the whole point is to
+	    overwrite the previous savefile. MoveFileEx(...,MOVEFILE_REPLACE_EXISTING) is the Windows
+	    equivalent; MOVEFILE_WRITE_THROUGH additionally asks that the rename be flushed before the
+	    call returns, which is what makes it durable rather than merely atomic.
+
+Note the preprocessor gate: platform.h routes MinGW builds down its OS_TYPE_LINUX branch on purpose
+(see the "MinGW builds use the Linux codepath" comment there), so a bare #ifdef OS_TYPE_WINDOWS would
+miss MinGW - whose rename() is the same replace-hostile msvcrt one. Test both, as platform.h itself
+does wherever it needs "is this a Windows target?" rather than "is this an MSVC build?".
+*/
+int mlucas_rename(const char *oldpath, const char *newpath)
+{
+	char obuf[MLUCAS_PATH_BUFSIZE], nbuf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(obuf, oldpath, 0x0);
+	mlucas_path_cat(nbuf, newpath, 0x0);
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	return !MoveFileEx(obuf, nbuf, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+	return rename(obuf, nbuf);
+#endif
+}
+
+/* remove() with the MLUCAS_PATH prefix applied, for the same reason mlucas_rename() exists: every
+savefile in the tree is created through mlucas_fopen(), which prepends MLUCAS_PATH, so a bare
+remove(name) under a nonempty prefix looks in the wrong directory. It does not fail loudly - it
+returns nonzero for "no such file", which the call sites then report as an inability to delete a
+file that was in fact never looked at. */
+int mlucas_remove(const char *path)
+{
+	char buf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(buf, path, 0x0);
+	return remove(buf);
+}
+
+/* Open the scratch file in which a crash-safe replacement of savefile [path] is staged. Use exactly
+as mlucas_fopen(path,"wb"), but close the result with mlucas_fclose_atomic(path,fp) rather than
+fclose(fp); [path] must be the same string in both calls.
+
+Why this exists: a savefile write of the form
+
+	fp = mlucas_fopen(savefile,"wb");  ...write...  fclose(fp);
+
+truncates the target *before* writing a single byte of the replacement, so from the instant the file
+is opened until the instant the last byte lands, there is no complete copy of that checkpoint on
+disk. A crash, kill -9, power loss or full filesystem in that window leaves a short or garbage
+savefile behind and takes the previous good checkpoint with it. Measured, not theoretical: killing a
+p-1 run partway through a .s2 stage-2 checkpoint write leaves a truncated .s2 where the previous
+complete checkpoint used to be, and the next run then discards that stage-2 progress entirely and
+redoes the stage from its start. The p/q residue-savefile pair survives the same treatment only
+because there are two copies of it - the corrupt primary is detected and the secondary used instead.
+The .s2 checkpoint has no second copy, so there is nothing to fall back to.
+
+Staging the new contents in a sibling scratch file and rename()-ing it over the target closes that
+window: the target is only ever replaced by a rename, which is atomic, so at every instant the file
+on disk is either the complete old checkpoint or the complete new one - never a prefix of either.
+The scratch file must live in the same directory as its target for this to work, since rename() is
+only atomic within a filesystem; appending a suffix to the full target path guarantees that.
+*/
+FILE *mlucas_fopen_atomic(const char *path, const char *mode)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE];
+	ASSERT(mode != 0x0 && mode[0] == 'w', "mlucas_fopen_atomic: only write ('w'/'wb') modes make sense here!");
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	return fopen(tmp_path, mode);
+}
+
+/* Abandon a crash-safe savefile write begun with mlucas_fopen_atomic(path,...): close the scratch
+file and delete it, leaving [path] untouched. For callers which discover partway through - or after
+finishing - that the data they staged is not fit to be published: */
+void mlucas_discard_atomic(const char *path, FILE *fp)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE];
+	if(fp) fclose(fp);
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	remove(tmp_path);
+}
+
+/* Finish a crash-safe savefile write begun with mlucas_fopen_atomic(path,...): flush the stdio
+buffer, push the data to stable storage, close, then atomically rename the scratch file over [path].
+Returns 0 on success; on any failure returns nonzero having deleted the scratch file, so that [path]
+still holds the previous good checkpoint. Callers must check the return value - it is the analogue of
+a failed write, not of a failed fclose() nobody looks at.
+
+The fsync() is the difference between "a crash cannot corrupt the savefile" and "a *power loss*
+cannot corrupt the savefile". Without it the rename can reach the disk ahead of the data it is
+supposed to be publishing, leaving the target name pointing at a file whose contents never made it
+out of the page cache. Its failure is treated as a write failure, since a deferred ENOSPC/EIO is
+exactly how a filesystem reports that the data did not make it.
+*/
+int mlucas_fclose_atomic(const char *path, FILE *fp)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE], tmp_name[STR_MAX_LEN + sizeof(SAVEFILE_TMP_SUFFIX)];
+	int err = 0;
+	if(!fp) return -1;
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	strcpy(tmp_name, path);	strcat(tmp_name, SAVEFILE_TMP_SUFFIX);	// MLUCAS_PATH-relative, for mlucas_rename()
+	/* [1] stdio buffer ==> OS: */
+	if(fflush(fp) != 0)
+		err = 1;
+	/* [2] OS page cache ==> stable storage. EINVAL/ENOTSUP mean the fd is of a type which cannot be
+	synced (a pipe, or a filesystem lacking the operation) rather than that the data was lost, so do
+	not treat those as write failures: */
+	if(!err) {
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		if(_commit(_fileno(fp)) != 0 && errno != EINVAL && errno != EBADF)
+			err = 1;
+	#else
+		if(fsync(fileno(fp)) != 0 && errno != EINVAL && errno != ENOTSUP)
+			err = 1;
+	#endif
+	}
+	/* [3] Close. A failed fclose() means buffered data was dropped, i.e. the file is short: */
+	if(fclose(fp) != 0)
+		err = 1;
+	if(err) {
+		remove(tmp_path);	// Leave [path] holding the previous good checkpoint
+		return 1;
+	}
+	/* [4] Publish, atomically: */
+	if(mlucas_rename(tmp_name, path)) {
+		remove(tmp_path);
+		return 1;
+	}
+	/* [5] Make the rename itself durable by syncing the containing directory. Best-effort: a
+	failure here means the *name change* might not survive a power loss, in which case the target
+	simply still holds the previous good checkpoint - no corruption either way - so unlike the data
+	fsync above this one does not fail the write. No Windows equivalent, and none needed: the
+	MOVEFILE_WRITE_THROUGH flag passed to MoveFileEx() already covers it. */
+#if !defined(OS_TYPE_WINDOWS) && !defined(__MINGW32__)
+	{
+		char *slash;	int dfd;
+		strcpy(tmp_path, MLUCAS_PATH);	strcat(tmp_path, path);
+		slash = strrchr(tmp_path,'/');
+		if(slash == tmp_path)	// Target sits in the root directory
+			tmp_path[1] = '\0';
+		else if(slash)
+			*slash = '\0';
+		else					// No directory component at all ==> current working directory
+			strcpy(tmp_path,".");
+		dfd = open(tmp_path, O_RDONLY);
+		if(dfd >= 0) { fsync(dfd); close(dfd); }
+	}
+#endif
+	return 0;
 }
 
 /*********************/
