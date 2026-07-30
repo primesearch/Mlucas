@@ -351,6 +351,105 @@ jobs:
         cd ../obj_mfac_nosimd
         for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
 
+  ASan-SIMD-Linux:
+    name: AddressSanitizer SIMD Linux
+
+    # Deterministic, blocking, residue-checked AddressSanitizer coverage of the SIMD builds -
+    # the hand-written inline-asm kernels, which are where Mlucas's arithmetic actually lives.
+    #
+    # Not redundant with the ASan-Linux job above, on four counts. That job invokes makemake.sh
+    # with no mode argument, so it builds whatever /proc/cpuinfo reports plus -march=native:
+    # which SIMD mode gets sanitized is a property of the runner SKU, not of this file. It is
+    # wrapped in continue-on-error, so it cannot fail. Its check is ./Mlucas -s m, whose verdict
+    # is discarded - the self-test's DONE: path returns 0 unconditionally, so -s always exits 0
+    # even when it prints "PLEASE CHECK YOUR BUILD OPTIONS". And its gcc leg does not currently
+    # compile at all on an AVX2-or-better host (see the --param asan-stack=0 note below), which
+    # continue-on-error hides. This job pins the mode, has no continue-on-error, and asserts
+    # residues.
+    #
+    # The AVX-512 leg runs under Intel SDE rather than on the runner CPU, because otherwise it
+    # cannot run at all: GitHub's Azure runner SKUs are inconsistent about AVX-512. Note that
+    # the Mlucas Linux job above *builds* AVX512 but then runs its self-tests out of obj/, the
+    # auto-detected build - so as things stand no job in this workflow ever executes an
+    # explicitly-AVX-512 binary, and whether AVX-512 code runs at all depends on which SKU the
+    # job landed on. SDE removes that dependency entirely.
+    #
+    # There is deliberately no continue-on-error here: a masked sanitizer job is
+    # indistinguishable from a job that does not exist, which is how the ASan jobs in this
+    # workflow stayed dead behind a build break for years.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      # Pinned and checksummed on purpose: with a floating "latest" download, an emulator
+      # change would surface as an unexplained residue mismatch. Any SDE >= 9.x supports -skx.
+      SDE_URL: https://downloadmirror.intel.com/850782/sde-external-9.53.0-2025-03-16-lin.tar.xz
+      SDE_SHA256: f55138df53378198e8c0a89598351cdb3c5e7f8819e63e472b0bc179afaad34c
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install Intel SDE
+      run: |
+        set -x
+        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        mkdir -p "$HOME/sde"
+        tar -xf sde.tar.xz -C "$HOME/sde" --strip-components=1
+        rm -f sde.tar.xz
+        "$HOME/sde/sde64" -version
+    - name: Before script
+      run: |
+        $CC --version
+        # -O3, not the -Og used by the ASan-Linux job above: the undeclared-inline-asm-clobber
+        # defects this job exists to catch only appear once the compiler is actually keeping
+        # live values in registers across the asm blocks.
+        #
+        # address only, not address,undefined: UBSan's instrumentation duplicates asm blocks that
+        # carry hard-coded local labels, and clang then fails with
+        #   src/mi64.c:7353: error: symbol 'loop2d' is already defined
+        # at -O3 in the SIMD modes. UBSan coverage of these kernels needs those labels made unique
+        # first; plain -fsanitize=address builds clean on both compilers and both modes.
+        #
+        # NOT -fsanitize-recover=address. It is not a neutral convenience flag: adding it, and
+        # nothing else, makes a tree with the AVX-512 clobber defects produce *correct* results,
+        # so it disables the very thing this job checks. See .github/scripts/asan-simd-check.sh.
+        CFLAGS="-fdiagnostics-color -Wall -g -O3 -std=gnu99 -fsanitize=address -fno-omit-frame-pointer"
+        if [[ $CC == gcc ]]; then
+            # GCC cannot compile Mlucas's SIMD kernels with ASan's *stack* instrumentation on:
+            # the register-hungry macros in sse2_macro_gcc64.h clobber 14 GPRs, leaving nothing
+            # for ASan to reserve, and the build dies with "'asm' operand has impossible
+            # constraints". Measured on gcc 13.3 (ubuntu-24.04): 4 such errors at AVX2, 6 at
+            # AVX-512; same on gcc 16.1.1. --param asan-stack=0 is the only knob that fixes it
+            # (-fomit-frame-pointer, --param asan-globals=0, --param
+            # asan-instrumentation-with-call-threshold=0 and -fno-sanitize-address-use-after-scope
+            # were all measured not to).
+            #
+            # This is a real, named coverage loss for the gcc leg - stack-buffer-overflow,
+            # use-after-return and use-after-scope detection are off - and it is annotated rather
+            # than hidden. Heap/global overflow, use-after-free, double-free detection and, above
+            # all, the pinned-Res64 assertions are retained; the residue assertions are what
+            # actually catch this job's target defect class, and disabling stack instrumentation
+            # was verified not to hide it (the gcc-only carry-macro clobber defect still fails the
+            # 128K case with this flag in place).
+            #
+            # The gcc leg is NOT droppable as "clang covers it": the AVX-512 opmask/high-vector
+            # carry-macro clobbers reproduce only under gcc.
+            echo "::warning title=gcc ASan stack instrumentation disabled::gcc cannot build the SIMD kernels with -fsanitize=address stack instrumentation ('asm' operand has impossible constraints), so this leg adds --param asan-stack=0 and loses stack-buffer-overflow/use-after-return/use-after-scope detection. Heap, global and use-after-free detection plus all Res64 assertions are retained. The clang leg has full instrumentation."
+            CFLAGS="$CFLAGS --param asan-stack=0"
+        fi
+        echo "CFLAGS=$CFLAGS" >> "$GITHUB_ENV"
+        echo "LDFLAGS=-fsanitize=address" >> "$GITHUB_ENV"
+    - name: AVX2
+      run: bash -- .github/scripts/asan-simd-check.sh avx2
+    - name: AVX-512 under Intel SDE
+      # Runs even if the AVX2 leg failed: the AVX-512 leg is the one that covers the
+      # AVX-512-only clobber defects, and it must not be masked by an unrelated AVX2 failure.
+      if: ${{ !cancelled() }}
+      run: bash -- .github/scripts/asan-simd-check.sh avx512 "$HOME/sde/sde64" -skx --
+
   TSan-Linux:
     name: ThreadSanitizer Linux
 
