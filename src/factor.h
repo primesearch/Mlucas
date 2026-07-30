@@ -92,6 +92,24 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
   #endif
 #endif
 
+/* FMADD-based modmul is implemented only for one-word p. For multiword p, quietly fall back to the
+standard (non-FMADD) modmul instead of erroring out, so multiword factoring builds succeed on
+FMA-capable targets (where USE_FMADD is auto-defined per-platform, e.g. every FMA-x86 Mfactor build).
+The '#ifdef USE_FMADD' block below only validates - it defines nothing the rest of the file needs -
+so undefining USE_FMADD here cleanly routes multiword builds down the standard modmul path.
+This has to happen *ahead* of the TRYQ default below rather than inside it: done after, the
+'#ifndef TRYQ -> 2' has already fired, and TRYQ = 2 then survives into a build with neither
+USE_FLOAT nor USE_FMADD defined, which the guard at the foot of this file rejects outright:
+  factor.h: #error TRYQ = 2 and TRYQ > 8 only allowed if USE_FLOAT is defined
+so 2word/3word/4word Mfactor still failed to build on AVX2 and AVX-512 - and on ARM, where
+USE_FMADD is likewise auto-defined - just at a later line than before this PR. */
+#ifdef USE_FMADD
+	#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
+		#warning USE_FMADD is not implemented for multiword p; falling back to the standard (non-FMADD) modmul, so this build gets no FMADD speedup.
+		#undef USE_FMADD
+	#endif
+#endif
+
 #ifdef USE_FMADD
 	/* This will need to be made platform-dependent at some point: */
   #ifndef TRYQ
@@ -99,16 +117,6 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
   #elif(TRYQ != 1 && TRYQ != 2 && TRYQ != 4)
 	#error USE_FMADD option requires TRYQ = 1, 2 or 4
   #endif
-
-	/* FMADD-based modmul is implemented only for one-word p. For multiword p, quietly fall back to the
-	standard (non-FMADD) modmul instead of erroring out, so multiword factoring builds succeed on
-	FMA-capable targets (where USE_FMADD is auto-defined per-platform, e.g. every FMA-x86 Mfactor build).
-	The enclosing '#ifdef USE_FMADD' block only validates - it defines nothing the rest of the file needs -
-	so undefining USE_FMADD here cleanly routes multiword builds down the standard modmul path below: */
-	#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
-		#warning USE_FMADD is not implemented for multiword p; falling back to the standard (non-FMADD) modmul, so this build gets no FMADD speedup.
-		#undef USE_FMADD
-	#endif
 
 	#ifdef USE_FLOAT
 		#error USE_FLOAT may not be used together with USE_FMADD!
