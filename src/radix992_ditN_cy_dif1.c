@@ -30,6 +30,43 @@
 	#undef USE_AVX512
 #endif
 
+/* v21: The #undefs above switch off this file's (nonexistent) SIMD code paths, but they do NOT change the
+layout of the main residue array, which is fixed by the rest of the program: in a SIMD build a[] is a
+sequence of 2*RE_IM_STRIDE-double blocks laid out as [RE_IM_STRIDE reals | RE_IM_STRIDE imaginaries].
+Everything below which has to know the build's true vector width must therefore key off RE_IM_STRIDE /
+SZ_VD / L2_SZ_VD - object-like macros platform.h has already expanded to the real values and which the
+#undefs do not touch - rather than off '#ifdef USE_AVX512' and friends, which are now always false here.
+(Ditching the #undefs instead is not an option short of writing an actual SIMD carry for ODD_RADIX 31:
+radix992_main_carry_loop.h's USE_SSE2 arm is a bare '#error'.)
+
+RADIX992_J1(j) maps a *logical* (scalar-layout) index j into the physical array index of the same double,
+using the same br4/br8/br16 scramble arrays radix992_dif_pass1/radix992_dit_pass1 and every SIMD-aware
+sibling radix use. Called with an even j, it yields the physical index of the real part of complex datum
+j/2; that datum's imaginary part then lives at +RE_IM_STRIDE, which is what the DFT and carry macros here
+already expect. In a scalar-double build it is the identity, so nothing changes there. The mask0x/br*
+symbols are declared in Mdata.h, which Mlucas.h pulled in above the #undefs. */
+#if RE_IM_STRIDE == 8		// AVX-512
+	#define RADIX992_J1(j)	( (int)(((uint32)(j) & mask03) + br16[(j)&15]) )
+#elif RE_IM_STRIDE == 4		// AVX/AVX2
+	#define RADIX992_J1(j)	( (int)(((uint32)(j) & mask02) + br8 [(j)& 7]) )
+#elif RE_IM_STRIDE == 2		// SSE2
+	#define RADIX992_J1(j)	( (int)(((uint32)(j) & mask01) + br4 [(j)& 3]) )
+#else						// scalar-double: identity
+	#define RADIX992_J1(j)	(j)
+#endif
+
+/* Span of the wraparound-carry cleanup mini-pass and of the radix_inv rescale which follows it, in
+*physical* array indices. Must cover both the 4 (Mersenne) / 8 (Fermat, right-angle transform needs
+complex elements) leading complex data the cleanup assumes, and a whole number of SIMD blocks - so for
+AVX-512, where a block is 16 doubles, the Mersenne value has to grow from 7 to 15. Same constants as
+every SIMD-aware sibling, cf. radix64_ditN_cy_dif1.c:185-191. */
+#if RE_IM_STRIDE == 8
+	#define JHI_WRAP_MERS	15
+#else
+	#define JHI_WRAP_MERS	 7
+#endif
+#define JHI_WRAP_FERM	15
+
 #define RADIX 992	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 31	// ODD_RADIX = [radix >> trailz(radix)]
 
@@ -168,7 +205,6 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix992_ditN_cy_dif1";
-	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
 #ifndef MULTITHREAD
 	int j2,jp,ntmp;
@@ -1400,7 +1436,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				jstart = 0;
 				jhi = NDIVR/CY_THREADS;	// The earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, must double that here
 				// khi = 1 for Fermat-mod, thus no outer loop needed here
-				for(j = jstart; j < jhi; j += stride)
+				for(j = jstart; j < jhi; j += 2)	// v21: logical stride 2, matching the main carry loop
 				{
 					for(i = 0; i < ODD_RADIX; i++) {
 					#if 1//ndef USE_SSE2	// Scalar-double mode uses non-pointerized icycle values:
@@ -1459,18 +1495,21 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		#endif
 			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
 			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
-			// Now compute the doubles-pointer offset of the target double w.r.to the SIMD s1p00-... data layout:
-			tidx_mod_stride = target_idx & (stride-1);	// Stride a power of 2, so can use AND-minus-1 for mod
-			target_idx -= tidx_mod_stride;
+			/* v21: the SIMD-capable radices round target_idx down to a whole SIMD block here and encode the
+			target's within-block *physical* doubles-offset (via br4/br8/br16) in the low lg(2*RE_IM_STRIDE)
+			bits of target_set, because their carry macros consume one whole block per loop pass. This file's
+			carry loop is scalar - one complex datum per pass, see radix992_main_carry_loop.h - so it must
+			round down to the complex datum instead: rounding to the block would place the injection in a lane
+			belonging to a *later* pass, whose DIT would then overwrite it before it was ever carried. So keep
+			the scalar convention, target_set in [0,2*RADIX) with the low bit selecting [Re|Im]; the Re/Im
+			separation of RE_IM_STRIDE doubles is applied at the point of use. (The pre-v21 code here did the
+			block rounding and the target_set<<(L2_SZ_VD-2) packing but skipped the br scramble, since the
+			'#ifdef USE_AVX512 / #elif USE_AVX / #elif USE_SSE2' selecting it is dead in this file - the SIMD
+			symbols are #undef'd at the top - while L2_SZ_VD still carried the build's true vector width.) */
+			tidx_mod_stride = target_idx & 1;	// [0|1] = the target word is the [Re|Im] part of its complex datum
+			target_idx -= tidx_mod_stride;		// ...whose (even) logical index within the sub-chain is this
 		//	printf("Iter %d: cy_shift = %d, target_idx,tidx_mod_stride,target_set = %d,%d,%d\n",iter,(itmp64 & 255),target_idx,tidx_mod_stride,target_set);
-		#ifdef USE_AVX512
-			tidx_mod_stride = br16[tidx_mod_stride];
-		#elif defined(USE_AVX)
-			tidx_mod_stride = br8[tidx_mod_stride];
-		#elif defined(USE_SSE2)
-			tidx_mod_stride = br4[tidx_mod_stride];
-		#endif
-			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
+			target_set = (target_set<<1) + tidx_mod_stride;
 		#ifdef MULTITHREAD
 			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
 		#endif
@@ -1513,7 +1552,7 @@ for(outer=0; outer <= 1; outer++)
 		{
 			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + JHI_WRAP_MERS;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -1533,7 +1572,7 @@ for(outer=0; outer <= 1; outer++)
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + JHI_WRAP_FERM;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -1930,11 +1969,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
-		j_jhi =15;
+		j_jhi = JHI_WRAP_FERM;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = JHI_WRAP_MERS;
 	}
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -2094,13 +2133,11 @@ void radix992_dif_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
+		// v21: these arms were dead code - the SIMD symbols are #undef'd at the top of this file, so a SIMD
+		// build fell through to the scalar 'j1 = j' and read/wrote the interleaved array as if it were
+		// scalar-laid-out (and there was no USE_AVX512 arm at all). RADIX992_J1 keys off RE_IM_STRIDE, which
+		// the #undefs do not touch, and adds the missing AVX-512 (br16) case:
+		j1 = RADIX992_J1(j);
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		//j2 = j1+RE_IM_STRIDE;
 
@@ -2538,13 +2575,11 @@ void radix992_dit_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
+		// v21: these arms were dead code - the SIMD symbols are #undef'd at the top of this file, so a SIMD
+		// build fell through to the scalar 'j1 = j' and read/wrote the interleaved array as if it were
+		// scalar-laid-out (and there was no USE_AVX512 arm at all). RADIX992_J1 keys off RE_IM_STRIDE, which
+		// the #undefs do not touch, and adds the missing AVX-512 (br16) case:
+		j1 = RADIX992_J1(j);
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		//j2 = j1+RE_IM_STRIDE;
 	/*
@@ -2878,7 +2913,6 @@ void radix992_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
-		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3;
 		int poff[RADIX>>2];
 		int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop
