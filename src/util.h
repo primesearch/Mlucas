@@ -198,6 +198,7 @@ int		mlucas_fclose_atomic(const char *path, FILE *fp);
 void	mlucas_discard_atomic(const char *path, FILE *fp);
 /* MLUCAS_PATH-aware, replace-existing-destination rename; 0 = success: */
 int		mlucas_rename(const char *oldpath, const char *newpath);
+int		mlucas_remove(const char *path);
 // v20: Add simple utility to print the input string to the current-assignment logfile and/or to stderr:
 void	mlucas_fprint(char*const p_cstr, uint32 echo_to_stderr);
 double	mlucas_getOptVal(const char*fname, char*optname);
