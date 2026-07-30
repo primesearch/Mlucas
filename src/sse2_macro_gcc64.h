@@ -2928,7 +2928,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		 ,[__o2] "m" (Xo2)\
 		 ,[__o3] "m" (Xo3)\
 		 ,[__o4] "m" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm31"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -3019,7 +3019,7 @@ Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for ou
 		 ,[__o2] "m" (Xo2)\
 		 ,[__o3] "m" (Xo3)\
 		 ,[__o4] "m" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm31"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
