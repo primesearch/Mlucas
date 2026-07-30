@@ -234,7 +234,7 @@ void bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*
 		ASSERT(&vec[0] != &arr_scratch[0], "Array re-use not currently supported!");
 		tmp = arr_scratch;
 	} else {
-		tmp = (int *)malloc(n*sizeof(int));
+		tmp = (int *)MALLOC(n*sizeof(int));
 	}
 	memset(tmp, 0, n*sizeof(int));
 
