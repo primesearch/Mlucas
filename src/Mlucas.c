@@ -3810,15 +3810,23 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	BASE_MULTIPLIER_BITS[0] = 1ull;	lenf = 1;
 	// Multiply each known-factor with current partial product of factors.
 	// Use BASE_MULTIPLIER_BITS to store factor product here, but need curr_fac[] for intermediate partial products:
-	uint64 curr_fac[20];
-	for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
+	// curr_fac[] must hold the full product of the known factors: KNOWN_FACTORS[] is dimensioned for at most
+	// 10 factors of at most 4 limbs each, so that product needs up to 40 limbs, not 20. (curr_fac[] is also
+	// reused further down to hold the (A - B)/C quotient, which is < F and thus also fits in 40 limbs.)
+	const uint32 nlimb_kf = sizeof(KNOWN_FACTORS)/sizeof(KNOWN_FACTORS[0]);	// = 40
+	uint64 curr_fac[sizeof(KNOWN_FACTORS)/sizeof(KNOWN_FACTORS[0])];
+	// The i < nlimb_kf clause is needed because KNOWN_FACTORS[] has exactly nlimb_kf elts and thus no
+	// 0-sentinel past the last one: with all 10 factor-slots filled, the old loop read KNOWN_FACTORS[40]:
+	for(i = 0; i < nlimb_kf && KNOWN_FACTORS[i] != 0ull; i += 4) {
 		k = mi64_getlen(KNOWN_FACTORS+i,4);	// k = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
+		// mi64_mul_vector writes (lenf + k) limbs of curr_fac[], so bounds-check the write *before* it happens:
+		ASSERT(lenf+k <= nlimb_kf, "Product of known-factors too large to fit into curr_fac[]!");
 		// Multiply factor into current partial product of factors; use curr_fac[] array to store product to work around none-of-3-input-pointers-may-coincide restriction in mi64_mul_vector:
 		mi64_mul_vector(BASE_MULTIPLIER_BITS,lenf, KNOWN_FACTORS+i,k, curr_fac,&lenf);
 		mi64_set_eq(BASE_MULTIPLIER_BITS,curr_fac,lenf);
 	}
 	ASSERT((i>>2) == nfac, "Number of known-factors mismatch!");
-	ASSERT(lenf <= 20, "Product of known-factors too large to fit into curr_fac[]!");
+	ASSERT(lenf <= nlimb_kf, "Product of known-factors too large to fit into curr_fac[]!");
 	for(i = 0; i < lenf; i++) { curr_fac[i] = 0ull; }	// Re-zero the elts of curr_fac[] used as tmps in above loop
 	fbits = (lenf<<6) - mi64_leadz(BASE_MULTIPLIER_BITS, lenf);
 	// Now that have F stored in BASE_MULTIPLIER_BITS array, do powmod to get B = base^(F-1) (mod N):
@@ -3885,6 +3893,9 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 // R = (A - B) mod C in B-array (bi[]); store Q = (A - B)/C in curr_fac[] in case want to remultiply and verify Q*C + R = (A - B):
 	sprintf(cbuf,"(A - B) Res64 = %#016" PRIX64 ", C Res64 = %#016" PRIX64 "\n",ai[0],ci[0]);
 	mlucas_fprint(cbuf,1);
+	// mi64_div_binary writes at most (i - j + 1) limbs of quotient into curr_fac[]; bound that write before it happens.
+	// [(A - B) < N and C = N/F, so the quotient is < F and hence fits in nlimb_kf limbs, but check rather than assume:]
+	ASSERT(i < j || (i-j+1) <= nlimb_kf, "Quotient (A - B)/C too large to fit into curr_fac[]!");
 	mi64_div_binary(ai,ci, i,j, curr_fac,(uint32 *)&k, bi);	// On return, k has quotient length; curr_fac[] = quo, bi[] = rem
 	snprintf(cbuf,sizeof(cbuf),"(A - B)/C: Quotient = %s, Remainder Res64 = %#016" PRIX64 "\n",&g_cstr[convert_mi64_base10_char(g_cstr,curr_fac,k,0)],bi[0]);
 	mlucas_fprint(cbuf,1);
@@ -3898,7 +3909,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	snprintf(cbuf,sizeof(cbuf),"Suyama Cofactor-PRP test of %s",PSTRING);
 	// Base-2 log of cofactor = lg(Fm/F) = lg(Fm) - lg(F) ~= 2^m - lg(F). 2^m stored in p, sub lg(F) in loop below:
 	double lg_cof = p,lg_fac,log10_2 = 0.30102999566398119521;	// Use lg_fac to store log2 of each factor as we recompute it
-	for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
+	for(i = 0; i < nlimb_kf && KNOWN_FACTORS[i] != 0ull; i += 4) {	// i-bound: cf. the factor-product loop above
 		k = mi64_getlen(KNOWN_FACTORS+i,4);	// k = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
 		strcat( cbuf, " / " );
 		strcat( cbuf, &g_cstr[convert_mi64_base10_char(g_cstr, KNOWN_FACTORS+i, k, 0)] );
