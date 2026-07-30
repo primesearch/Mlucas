@@ -3984,6 +3984,9 @@ int 	main(int argc, char *argv[])
 								/* break, or an identically-zero residue */
 	uint32 nfail_unusable = 0;	/* #FFT lengths for which too few radix sets were usable to write */
 								/* a .cfg entry, i.e. lengths the sweep claimed but did not test */
+	uint32 ncase_pass = 0;		/* #(FFT length, radix set) cases which ran and gave the right answer */
+	uint32 ncase_skip = 0;		/* #cases which did not run, or ran and gave the wrong answer */
+	uint32 nfft_done = 0;		/* #FFT lengths for which a .cfg entry was written */
 	struct res_triplet new_res = {0ull,0ull,0ull};
 	struct testMers*MvecPtr = MersVec;	// Set this to point at either MersVec (the default) or MvecPRP, depending on test type
 
@@ -4832,6 +4835,7 @@ TIMING_TEST_LOOP:
 				|| (iters == 10000 && MME >=0.4375 ) ) )
 			{
 				fprintf(stderr, "***** Excessive level of roundoff error detected - this radix set will not be used. *****\n");
+				++ncase_skip;
 				if(radset >= 0) {	// If user-specified radix set, do only that one:
 					++nfail_unusable; goto DONE;
 				}
@@ -4847,6 +4851,7 @@ TIMING_TEST_LOOP:
 				// declined to run - excessive ROE, a bad carry, an unsupported feature. The former is
 				// always a defect in the program under test; the latter can be a legitimate property
 				// of this build/host. Score them separately so callers can gate on the former alone.
+				++ncase_skip;
 				if((retVal & 0xff) == ERR_INCORRECT_RES64)
 					++nfail_wrong;
 				if(radset >= 0) {	// If user-specified radix set, do only that one:
@@ -4857,7 +4862,7 @@ TIMING_TEST_LOOP:
 			}
 			else if(radset >= 0)	// If user-specified radix set, do only that one:
 			{
-				goto DONE;
+				++ncase_pass;	goto DONE;
 			}
 			else if(new_data)	// New self-test residues being computed - write to .cfg file if get a consensus value:
 			{
@@ -4891,12 +4896,13 @@ TIMING_TEST_LOOP:
 					fprintf(stderr, "  ***   Res64 disagrees with the consensus of the preceding radix set(s) at this FFT length   ***\n");
 					fprintf(stderr, " current   = %016" PRIX64 ", %11.0f, %11.0f\n", Res64      ,(double)Res35m1    ,(double)Res36m1    );
 					fprintf(stderr, " consensus = %016" PRIX64 ", %11.0f, %11.0f\n", new_res.sh0,(double)new_res.sh1,(double)new_res.sh2);
-					++nfail_wrong;
+					++nfail_wrong;	++ncase_skip;
 					runtime = 0.0; ++radix_set; continue;
 				}
 			} else {	// If not a new-data self-tests (i.e. it's a regular -s one), getting here means the current radset succeeded:
 				nradix_set_succeed++;
 			}
+			++ncase_pass;
 
 			/* 16 Dec 2007: Added the (runtime != 0) here to workaround the valid-timing-test-but-runtime = 0
 			issue on systems with round-to-nearest-second granularity of the clock() function: */
@@ -4936,7 +4942,7 @@ TIMING_TEST_LOOP:
 		else
 		{
 			sprintf(cbuf, "INFO: %d of %d radix-sets at FFT length %u K passed - writing cfg-file entry.\n",nradix_set_succeed,radix_set,iarg);
-			fprintf(stderr,"%s", cbuf);
+			fprintf(stderr,"%s", cbuf);	++nfft_done;
 
 			/* Divide by the number of iterations done in the self-test: */
 		#ifdef MULTITHREAD	// In || mode the mod_square routines use getRealTime() to accumulate wall-clock time, thus CLOCKS_PER_SEC not needed
@@ -5015,14 +5021,23 @@ DONE:
 
 	Callers wanting the strongest gate should treat any nonzero status as failure; callers on a host
 	with a known-marginal FFT length can gate on status 1 alone and still catch every wrong answer. */
-	if(selfTest && (nfail_wrong | nfail_unusable)) {
-		fprintf(stderr, "\n  Self-test FAILED:\n");
-		if(nfail_wrong)
-			fprintf(stderr, "    %u case(s) returned a wrong answer (residue mismatch, radix-set disagreement or zero residue).\n",nfail_wrong);
-		if(nfail_unusable)
-			fprintf(stderr, "    %u FFT length(s) had too few usable radix sets and were skipped - they were NOT tested.\n",nfail_unusable);
-		fprintf(stderr, "\n  Done ...\n\n");
-		return nfail_wrong ? 1 : 2;
+	if(selfTest) {
+		/* Always print a one-glance summary, pass or fail. Without it the only record of a radix set
+		having been skipped is a line buried thousands of lines up in the log, which is how e.g. the
+		fact that a stock AVX2 build fails every radix set at 1K and 2K went unremarked. */
+		fprintf(stderr, "\n  Self-test summary: %u of %u (FFT length, radix set) case(s) ran and gave the expected residue;\n",
+			ncase_pass,ncase_pass+ncase_skip);
+		fprintf(stderr, "  %u case(s) did not (excessive roundoff error, carry/assert failure, or a wrong residue);\n",ncase_skip);
+		fprintf(stderr, "  %u FFT length(s) got a .cfg entry, %u had too few usable radix sets and were NOT tested.\n",nfft_done,nfail_unusable);
+		if(nfail_wrong | nfail_unusable) {
+			fprintf(stderr, "\n  Self-test FAILED:\n");
+			if(nfail_wrong)
+				fprintf(stderr, "    %u case(s) returned a wrong answer (residue mismatch, radix-set disagreement or zero residue).\n",nfail_wrong);
+			if(nfail_unusable)
+				fprintf(stderr, "    %u FFT length(s) had too few usable radix sets and were skipped - they were NOT tested.\n",nfail_unusable);
+			fprintf(stderr, "\n  Done ...\n\n");
+			return nfail_wrong ? 1 : 2;
+		}
 	}
 	fprintf(stderr, "\n  Done ...\n\n");
 	return(0);
