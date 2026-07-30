@@ -52,6 +52,15 @@ from concurrent.futures import ThreadPoolExecutor
 # ---------------------------------------------------------------- ISA modes --
 # Flags mirror the per-mode 'ARGS+=(...)' lines in makemake.sh.
 COMMON_FLAGS = ["-E", "-std=gnu99", "-D_GNU_SOURCE", "-DUSE_THREADS"]
+# A few TUs are not built with the common flag set alone.  makemake.sh compiles the Mfactor
+# translation units with '-DFACTOR_STANDALONE $WORDS -DTRYQ=4'; without the TRYQ pin, factor.c
+# takes the USE_FMADD default of TRYQ = 2 on any FMA target, which factor.h rejects unless
+# USE_FLOAT is also set - so this lint would lose sight of factor.c in exactly the two modes
+# (avx2, avx512) where its asm matters most.  Mirror the real build rather than let coverage
+# shrink silently.
+PER_FILE_FLAGS = {
+    "factor.c": ["-DFACTOR_STANDALONE", "-DTRYQ=4"],
+}
 ISA_FLAGS = {
     "nosimd": [],
     "sse2":   ["-DUSE_SSE2", "-msse2"],
@@ -409,7 +418,7 @@ def pass_b(srcdir, modes, cc, jobs):
 
     def one(job):
         mode, f = job
-        flags = [cc] + COMMON_FLAGS + ISA_FLAGS[mode]
+        flags = [cc] + COMMON_FLAGS + ISA_FLAGS[mode] + PER_FILE_FLAGS.get(f, [])
         try:
             p = subprocess.run(flags + [f], cwd=srcdir,
                                capture_output=True, text=True, timeout=300)
