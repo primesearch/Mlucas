@@ -37,21 +37,6 @@
 
 // Specialized versions of MULL128, in which we multiply the
 // low half of the 256-bit input x with the high half of the 256-bit input y:
-#ifdef MUL_LOHI64_SUBROUTINE
-
-    #define MULL128_256lohihalf(__x, __y, __lo)\
-    {\
-		uint64 __w0,__w1,__a,__c;\
-		\
-		__a = __MULL64(__x.d0,__y.d3);\
-		__c = __MULL64(__y.d2,__x.d1);\
-		MUL_LOHI64(__x.d0,__y.d2,&__w0,&__w1);\
-		__w1 += __a;\
-		__w1 += __c;\
-		__lo.d0 =  __w0;	__lo.d1 = __w1;\
-    }
-
-#else
 
     #define MULL128_256lohihalf(__x, __y, __lo)\
     {\
@@ -65,7 +50,6 @@
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
     }
 
-#endif
 
 #define MONT_MUL256(__x,__y,__q,__qinv,__z)\
 {\
@@ -321,12 +305,8 @@ uint256 twopmodq256(uint256 p, uint256 q)
 
 	/* Now that have bottom 64 bits of qinv, do two more Newton iterations using 128-bit and full 256-bit operands, resp: */
 	// 64 -> 128 bits: CF. twopmodq128.c: qinv has 128 bits, but only the upper 64 get modified here:
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 	// 128 -> 256 bits:
 #if 1
 	MULH128(q, qinv, x);

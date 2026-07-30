@@ -125,12 +125,8 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	This needs a total of just 3 MUL instructions and 2 ALUs, compared to 8 MULs and 8 ALUs for the original sequence.
 	*/
 	// qinv is 128 bits wide, but only the upper 64 get modified here:
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 	/* Initialize binary powering = R*x (mod q), where R = binary radix (2^128 here);
 	at present don't care about optimizing this rarely-used function. */
 	// First compute R^2 (mod q) in prep. for Mont-mul with initial seed:
@@ -300,12 +296,8 @@ if(dbg) printf("twopmodq128:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -513,12 +505,8 @@ if(dbg) printf("twopmodq128x2:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128x2 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -669,12 +657,8 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -808,12 +792,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -823,7 +801,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + lo64_1);
 	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + lo64_2);
 	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + lo64_3);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -1081,16 +1058,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -1108,7 +1075,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + lo64_5);
 	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + lo64_6);
 	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + lo64_7);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
