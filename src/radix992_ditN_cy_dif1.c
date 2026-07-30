@@ -2924,6 +2924,12 @@ void radix992_dit_pass1(double a[], int n)
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
 		int khi    = thread_arg->khi;
+		// v21: these 3 are consumed by the rotated-residue carry injection in radix992_main_carry_loop.h;
+		// radix992's per-thread copies were missing, so a MULTITHREAD build failed to compile (cf. the
+		// identical lines in radix1008_ditN_cy_dif1.c):
+		int target_idx = thread_arg->target_idx;
+		int target_set = thread_arg->target_set;
+		double target_cy = thread_arg->target_cy;
 		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
 		int jstart = thread_arg->jstart;
 		int jhi    = thread_arg->jhi;
