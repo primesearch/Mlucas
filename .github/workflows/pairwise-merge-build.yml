@@ -1,0 +1,68 @@
+name: Pairwise merge-build
+
+# Finds open PRs that merge with zero conflicts and then do not compile -- the
+# failure mode git cannot warn about. Two verified shapes: one PR removes a
+# declaration whose only remaining use is added by the other, and a PR's new
+# code lands in a header that a second translation unit also includes.
+#
+# Separate workflow rather than a job in ci.yml, for one reason: this wants a
+# nightly cron, and ci.yml's 'on:' block is shared by all sixteen of its jobs,
+# so a nightly cron there would fire the whole twelve-way OS build matrix every
+# night. The trigger sets are disjoint, so the workflows are too.
+#
+# Not run per-PR. The full matrix is ~900 combinations; at the time of writing
+# CI is saturated with twelve PRs x 64 queued checks and adding a check to every
+# PR would make that worse. See plan-notes/hunt-2026-07-29/task115-pairwise-merge-build.md
+# for the per-PR variant, which is the higher-value wiring once the queue drains.
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated PR numbers to restrict the run to'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pairwise:
+    name: Open-PR pairwise merge and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libgmp-dev
+    - name: Each open PR against current main
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        python3 pairwise-merge-build.py --refresh --solo \
+          --jobs 2 --build-jobs 2 \
+          --only '${{ inputs.only }}' \
+          --json solo.json
+    - name: Every pair of open PRs sharing a file
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        python3 pairwise-merge-build.py --pairs \
+          --jobs 2 --build-jobs 2 \
+          --only '${{ inputs.only }}' \
+          --json pairs.json
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: pairwise-merge-build-results
+        path: |
+          solo.json
+          pairs.json
