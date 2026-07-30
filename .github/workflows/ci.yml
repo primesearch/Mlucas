@@ -93,9 +93,9 @@ jobs:
         # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
         # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
         # to (( rc == 0 )) once those are fixed.
-        # pipefail is on in this job, so a self-test exiting 2 would abort the step through the pipe
-        # before the PIPESTATUS check below could classify it. Turn it off for the loops and read the
-        # real status out of PIPESTATUS[0] instead:
+        # This job runs with pipefail set, so a self-test exiting 2 would propagate out of the pipe
+        # into tee and, with set -e, end the step before the PIPESTATUS check below classifies it.
+        # Turn pipefail off for the loop and take the self-test's own status from PIPESTATUS[0]:
         set +o pipefail
         rc=0
         for s in tt t s m l; do
@@ -637,9 +637,9 @@ jobs:
         # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
         # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
         # to (( rc == 0 )) once those are fixed.
-        # pipefail is on in this job, so a self-test exiting 2 would abort the step through the pipe
-        # before the PIPESTATUS check below could classify it. Turn it off for the loops and read the
-        # real status out of PIPESTATUS[0] instead:
+        # This job runs with pipefail set, so a self-test exiting 2 would propagate out of the pipe
+        # into tee and, with set -e, end the step before the PIPESTATUS check below classifies it.
+        # Turn pipefail off for the loop and take the self-test's own status from PIPESTATUS[0]:
         set +o pipefail
         rc=0
         for s in tt t s m l; do
@@ -901,9 +901,9 @@ jobs:
         # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
         # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
         # to (( rc == 0 )) once those are fixed.
-        # pipefail is on in this job, so a self-test exiting 2 would abort the step through the pipe
-        # before the PIPESTATUS check below could classify it. Turn it off for the loops and read the
-        # real status out of PIPESTATUS[0] instead:
+        # This job runs with pipefail set, so a self-test exiting 2 would propagate out of the pipe
+        # into tee and, with set -e, end the step before the PIPESTATUS check below classifies it.
+        # Turn pipefail off for the loop and take the self-test's own status from PIPESTATUS[0]:
         set +o pipefail
         rc=0
         for s in tt t s m l; do
