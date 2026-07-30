@@ -83,8 +83,25 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # The self-test exit status is 1 if any case returned a wrong answer (residue mismatch,
+        # radix-set disagreement or zero residue) and 2 if some FFT length had too few usable
+        # radix sets to be tested at all - see help.txt. Both used to be status 0, and both were
+        # additionally masked here by the pipe into tee, whose status is the one bash reports for
+        # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
+        # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
+        # to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m l; do
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -156,8 +173,18 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -285,8 +312,18 @@ jobs:
             )
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         cd ../obj_mfac_nosimd
         for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
@@ -319,7 +356,11 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        st=0
+        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+        (( st != 1 ))
       continue-on-error: true
 
   GCC-analyzer:
@@ -456,8 +497,25 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        # The self-test exit status is 1 if any case returned a wrong answer (residue mismatch,
+        # radix-set disagreement or zero residue) and 2 if some FFT length had too few usable
+        # radix sets to be tested at all - see help.txt. Both used to be status 0, and both were
+        # additionally masked here by the pipe into tee, whose status is the one bash reports for
+        # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
+        # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
+        # to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m l; do
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if (( $(sysctl -n hw.optional.neon) )); then
             cd ../obj_NOSIMD
         fi
@@ -526,8 +584,18 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if (( $(sysctl -n hw.optional.neon) )); then
             cd ../obj_NOSIMD
         fi
@@ -570,8 +638,18 @@ jobs:
             )
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         cd ../obj_mfac_nosimd
         for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
@@ -598,7 +676,11 @@ jobs:
         # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
         # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
         # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
-        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        st=0
+        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+        (( st != 1 ))
       continue-on-error: true
 
   Windows:
@@ -672,8 +754,25 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        # The self-test exit status is 1 if any case returned a wrong answer (residue mismatch,
+        # radix-set disagreement or zero residue) and 2 if some FFT length had too few usable
+        # radix sets to be tested at all - see help.txt. Both used to be status 0, and both were
+        # additionally masked here by the pipe into tee, whose status is the one bash reports for
+        # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
+        # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
+        # to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m l; do
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -726,8 +825,18 @@ jobs:
             )
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        # Fail on self-test status 1 (a wrong answer) only; see the note on the tt/t/s/m/l loop
+        # in the sibling jobs for why status 2 is tolerated for the moment.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         cd ../obj_mfac_nosimd
         for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
