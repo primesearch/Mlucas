@@ -343,24 +343,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			}
 		}
 
-	#ifdef USE_AVX512
-		/* radix1008 (= 63*16) and radix4032 (= 63*64) have no AVX-512 Mersenne-mod carry:
-		radix{1008,4032}_main_carry_loop.h carry the '#warning No avx-512 mers-mod carry support yet!',
-		and under USE_AVX512 + Mersenne the carry step emits no code whatsoever.
-
-		Without this check the run still fails, but further downstream and less clearly: the
-		thread-local half_arr memcheck reads '#ifdef USE_AVX', so in an AVX-512 build it probes the
-		4-lane AVX offsets +40/+56 and asserts. radix960, which does support AVX-512 Mersenne, carries
-		a no-op '#ifdef USE_AVX512' arm that silences exactly that assert. Do NOT add that arm here
-		while the carry is still missing: it would turn a loud failure into a silently wrong residue.
-
-		Remove this check when the AVX-512 Mersenne carry is implemented, not before. */
-		if(radix0 == 1008 || radix0 == 4032)
-		{
-			sprintf(cbuf  ,"Leading radix %u has no AVX-512 Mersenne-mod carry implementation; Skipping this leading radix.\n", (uint32)radix0);
-			WARN(HERE, cbuf, "", 1); return(ERR_RADIX0_UNAVAILABLE);
-		}
-	#endif
 
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
