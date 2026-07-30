@@ -25,9 +25,27 @@
 
 for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
-	for(j = jstart; j < jhi; j += stride)
+	// v21 bugfix: radix-992 has no SIMD code path - radix992_ditN_cy_dif1.c #undefs USE_SSE2/AVX/AVX2/AVX512
+	// at the top of the file, so the DIT, the carry step and the DIF below are all scalar, one complex datum
+	// per loop pass. But the #undefs do not change the *layout* of a[], which in a SIMD build is a sequence of
+	// 2*RE_IM_STRIDE-double blocks [RE_IM_STRIDE reals | RE_IM_STRIDE imags]. The former 'j += stride' (=
+	// 2*RE_IM_STRIDE) with j1 = j advanced by a whole SIMD block per pass but only ever touched a[j1] and
+	// a[j1+RE_IM_STRIDE] - i.e. lane 0 - so all but 1 of every RE_IM_STRIDE complex data were never
+	// transformed and never carry-normalized. They are not inert: the wrapper/square step does see them, so
+	// each such word was re-squared every iteration and roughly doubled in bit-length until it tripped a
+	// roundoff or exit-carry error a handful of iterations in. The same wrong step skipped RE_IM_STRIDE-1 of
+	// every RE_IM_STRIDE weight slots, since the Mersenne branch's l = j & (nwt-1) and the Fermat branch's
+	// root index l = (j + idx_offset)>>1 (cf. fermat_carry_norm_errcheckB, carry.h) both key off the logical
+	// j, and it under-rotated the Fermat icycle[] chain by the same factor.
+	// So: walk *logical* complex data (j += 2) and map the logical index into the physical layout via
+	// RADIX992_J1 (= the br4/br8/br16 scramble radix992_dif_pass1/radix992_dit_pass1 use). The DFT macros
+	// invoked below already take RE_IM_STRIDE as their re-to-im offset, so they need no change. In scalar
+	// mode this is bit-identical to the old code; in SIMD builds the loop-trip count grows by RE_IM_STRIDE,
+	// which is correct - it is the same total work the scalar build does, and radix992 has no SIMD DFT to be
+	// faster with. This is a correctness fix, not a performance one.
+	for(j = jstart; j < jhi; j += 2)
 	{
-		j1 =  j;
+		j1 = RADIX992_J1(j);
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1 + RE_IM_STRIDE;
 
@@ -129,9 +147,14 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			addr = (double *)s1p00 + target_set;
 			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
 		#else
-			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
-			l = target_set&1;	target_set >>= 1;
-			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
+			// target_set in [0,2*RADIX); its low bit [even|odd] means the shifted carry goes into the [Re|Im]
+			// part of the complex FFT datum at logical index j == target_idx. v21: the Re and Im parts of a
+			// complex datum are RE_IM_STRIDE doubles apart, not 1 - a[j1] and a[j2] = a[j1+RE_IM_STRIDE] are
+			// exactly what the carry macros below are handed - so the Re/Im selector must be scaled by
+			// RE_IM_STRIDE. No change in a scalar-double build, where RE_IM_STRIDE is 1.
+			l = target_set&1;	l *= RE_IM_STRIDE;
+			const int cy_chain = target_set >> 1;
+			a[j1+poff[cy_chain>>2]+p0123[cy_chain&3]+l] += target_cy*(n>>1);
 		#endif
 			target_idx = -1;
 		}
