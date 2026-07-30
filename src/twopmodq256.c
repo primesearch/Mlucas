@@ -128,8 +128,14 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	}
 	// Extract leftmost 8 bits of (p - 256):
 	x.d0 = 256ull; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,pshift); j = leadz256(pshift);
-	LSHIFT256(pshift,j,x);	leadb = x.d3 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
-	start_index = 256-8-j;
+	if(j > 248) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = (uint32)pshift.d0;	start_index = 0;
+	} else {
+		LSHIFT256(pshift,j,x);	leadb = x.d3 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
+		start_index = 256-8-j;
+	}
 #if FAC_DEBUG
 	if(dbg) {
 		printf("leadb = %u\n",j);
@@ -166,7 +172,9 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	if(leadb == 256)
 		x = rsqr;
 	else {
-		x.d0 = 1ull; LSHIFT256(x,leadb,x);	// x <<= leadb;
+		// x holds (2 - q*qinv) scratch from the Newton iteration above, whose high words are
+		// nonzero; must zero them before seeding with 2^leadb, else leadb < 192 shifts in garbage:
+		x.d0 = 1ull; x.d1 = x.d2 = x.d3 = 0ull;	LSHIFT256(x,leadb,x);	// x <<= leadb;
 		MONT_MUL256(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
  	}
 
