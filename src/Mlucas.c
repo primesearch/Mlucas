@@ -539,7 +539,8 @@ RANGE_BEG:
 	}
 
 /*  ...If multithreading enabled, set max. # of threads based on # of available (logical) processors,
-with the default #threads = 1 and affinity set to logical core 0, unless user overrides those via -nthread or -cpu:
+with the default #threads = 1 and affinity set to the first logical core this process is permitted to
+use, unless user overrides those via -nthread or -cpu:
 */
 #ifdef MULTITHREAD
 
@@ -559,9 +560,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	if(!NTHREADS) {
 		NTHREADS = 1;
 		fprintf(stderr,"No CPU set or threadcount specified ... running single-threaded.\n");
-		// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
-		sprintf(cbuf,"0:%d",NTHREADS-1);
-		parseAffinityString(cbuf);
+		// Use the same affinity-setting code here as for the -cpu option, but simply for the first
+		// NTHREADS cores of this process's inherited CPU-affinity mask (= cores [0:NTHREADS-1] unless
+		// that mask has been restricted by taskset/numactl/systemd/a batch scheduler):
+		setDefaultAffinity(NTHREADS);
 	} else if(NTHREADS > MAX_CORES) {
 		sprintf(cbuf,"ERROR: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
 		ASSERT(0, cbuf);
@@ -4587,9 +4589,10 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(!(i64arg>>32), "nthread argument must be < 2^32 ... halting.");
 			NTHREADS = (uint32)i64arg;
 			nthread = TRUE;
-			// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
-			sprintf(cbuf,"0:%d",NTHREADS-1);
-			parseAffinityString(cbuf);
+			// Use the same affinity-setting code here as for the -cpu option, but simply for the first
+			// NTHREADS cores of this process's inherited CPU-affinity mask (= cores [0:NTHREADS-1] unless
+			// that mask has been restricted by taskset/numactl/systemd/a batch scheduler):
+			setDefaultAffinity(NTHREADS);
 		#endif
 		}
 
