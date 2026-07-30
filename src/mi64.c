@@ -4317,7 +4317,13 @@ void mi64_modmul53_batch(const double a[], const double b[], const double m[], d
 	static double err[72], *eptr = err;	while((uint64)eptr & 0x3f) { ++eptr; }
 // ewm: wrap in AVX (not AVX2) prepro flag because my older gcc on the Haswell barfs on the MULXs in this file when built using USE_AVX2, but is OK with the FMA3 portion of AVX2
 #if defined(USE_AVX) && !defined(USE_IMCI512)
-  #ifdef USE_AVX512
+  // This AVX-512 path uses VRCP28PD, an AVX-512ER instruction that exists only on Knights Landing
+  // (KNL, built via 'avx512_knl' => -mavx512er). mi64_modmul53_batch() is currently unused (only a
+  // commented-out test harness references it), so rather than require an ER-capable assembler for every
+  // AVX-512 build - which breaks e.g. clang whose integrated assembler rejects VRCP28PD unless the target
+  // has ER - gate the ER code on __AVX512ER__. Plain AVX-512 builds (Skylake-X, Zen4, ...) fall through
+  // to the AVX path below, which is fine as the routine is not called. See #73.
+  #if defined(USE_AVX512) && defined(__AVX512ER__)
 	const double two = 2.0;
 	const double *ptwo = &two;
 	const uint32 ndata = 64;	uint32 i;
