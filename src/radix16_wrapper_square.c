@@ -165,7 +165,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #ifdef USE_AVX512
 	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7, *cdd4,*cdd5,*cdd6,*cdd7;
   #endif
-  #ifdef USE_PRECOMPUTED_TWIDDLES
+  #if defined(USE_PRECOMPUTED_TWIDDLES) || defined(USE_IMCI512)	// IMCI512 needs these in its non-vectorized on-the-fly sincos-indexing arm below:
 	vec_dbl *tmp,*tm1, *c_tmp,*s_tmp;
   #endif
 	vec_dbl *bpt0,*bpt1,*bpt2,*bpt3;

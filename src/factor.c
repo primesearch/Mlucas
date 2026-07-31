@@ -101,7 +101,7 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 		uint32 p_last_small;	//largest odd prime appearing in the product; that is; the (nclear)th odd prime.
 		uint32 nprime;			// #sieving primes (counting from 3)
 		uint32 MAX_SIEVING_PRIME;
-	#ifdef USE_AVX512
+	#ifdef USE_AVX512_SIEVE
 		uint32 *psmall;
 	#endif
 		uint8 *pdiff;
@@ -704,7 +704,7 @@ int main(int argc, char *argv[])
 
 // This stuff is for the small-primes sieve:
 	uint32 max_diff;
-  #ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+  #ifdef USE_AVX512_SIEVE	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 	uint32 *psmall;
   #endif
 	uint8 *pdiff;	/* Compact table storing the (difference/2) between adjacent odd primes.
@@ -1543,7 +1543,7 @@ ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passm
 	}
 printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that in bit_atlas]\n",len,i,TF_PASSES);
 
-  #ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+  #ifdef USE_AVX512_SIEVE	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 	psmall = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
 	if (psmall == NULL) {
 		fprintf(stderr,"Memory allocation failure for PSMALL array");
@@ -1602,7 +1602,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
 		pdiff[0] = 0;	pdiff[1] = pdiff[2] = 1;
 		ihi = curr_p = 11;
-	#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+	#ifdef USE_AVX512_SIEVE	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 		psmall[0] = 3; psmall[1] = 5; psmall[2] = 7;
 	#endif
 		/* Process chunks of length 30, starting with curr_p == 11 (mod 30). Applying the obvious divide-by-3,5 mini-sieve,
@@ -1642,7 +1642,7 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 					else	/* It's prime - add final increment to current pdiff[i] and then increment i: */
 					{
 						ihi = (curr_p + pdsum_8[j]);
-					#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+					#ifdef USE_AVX512_SIEVE	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 						psmall[i] = ihi;
 					#endif
 						pdiff[i] += pdiff_8[j];
@@ -2324,7 +2324,7 @@ candidate factors that survive sieving.	*/
 			targ->interval_lo = interval_lo;
 			targ->interval_hi = interval_hi;
 			targ->fbits_in_2p = fbits_in_2p;
-		#ifdef USE_AVX512
+		#ifdef USE_AVX512_SIEVE
 			targ->psmall = psmall;
 		#endif
 			targ->nclear = nclear;
@@ -2450,7 +2450,7 @@ candidate factors that survive sieving.	*/
 			p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
 			i,	// #sieving primes (counting from 3)
 			MAX_SIEVING_PRIME,
-		  #if defined(USE_AVX512) && !defined(USE_GPU)
+		  #if defined(USE_AVX512_SIEVE) && !defined(USE_GPU)
 			psmall,
 		  #endif
 			pdiff,
@@ -2627,7 +2627,7 @@ MFACTOR_HELP:
 		const uint32 p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
 		const uint32 nprime,	// #sieving primes (counting from 3)
 		const uint32 MAX_SIEVING_PRIME,
-	  #ifdef USE_AVX512
+	  #ifdef USE_AVX512_SIEVE
 		const uint32 *psmall,
 	  #endif
 		const uint8 *pdiff,
@@ -2665,7 +2665,7 @@ MFACTOR_HELP:
 											   || (!defined(P2WORD) && !(defined(USE_FLOAT) && defined(USE_SSE2) && (OS_BITS == 64))))))
 		double fbits_in_2p  = targ->fbits_in_2p;
 	#endif
-	#ifdef USE_AVX512
+	#ifdef USE_AVX512_SIEVE
 		uint32 *psmall = targ->psmall;
 	#endif
 		uint32 nclear       = targ->nclear;
@@ -3199,7 +3199,7 @@ MFACTOR_HELP:
 
 			/*   ...and clear the bits corresponding to the small primes.	*/
 
-		#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+		#ifdef USE_AVX512_SIEVE	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
 								// EWM: For pmax around the 'sweet spot', this 2-loop approach is barely faster than
 								// above pure-C scalar-int code, though AVX-512 asm is a clear winner for large pmax.
 			// Split our loop-over-primes into 2 parts, the 2nd of which handles primes > bit_len

@@ -17988,12 +17988,13 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		/* If aligned on 32-byte but not 64-byte boundary, our index-octet-to-be-written-back is in low half of zmm3, but needs
 		to get written to the high half of the 64-byte memory chunk at bjmod_0, while preserving the low half stored there: */\
 		"vpermf32x4	$78,%%zmm3,%%zmm3	\n\t"/* Swap lo,hi halves of zmm4. High half gets written to memory, low half writemasked-off: */\
-		"vmovapd	%%zmm3,(%%rsi){%%k5%}	\n\t"/* VMOVAPD here, since opmask is qword-granular */\
-	"jmp 2f	\n\t"
+		"vmovapd	%%zmm3,(%%rsi)%{%%k5%}	\n\t"/* VMOVAPD here, since opmask is qword-granular */\
+	"jmp 2f	\n\t"\
+	"1:		\n\t"\
 		/* Else if bjmodn0 aligned on 64-byte boundary, our index-octet-to-be-written-back is in low half of zmm3, and needs
 		to get written to the low half of the 64-byte memory chunk at bjmod_0, while preserving the high half stored there: */\
-		"vmovapd	%%zmm3,(%%rsi){%%k6%}	\n\t"
-	"2:		\n\t"
+		"vmovapd	%%zmm3,(%%rsi)%{%%k6%}	\n\t"\
+	"2:		\n\t"\
 		/* Store cy_out: */\
 		"movq		%[__cy] ,%%rbx			\n\t	vmovaps	%%zmm1,(%%rbx)	\n\t"\
 		/* Store maxerr: */\

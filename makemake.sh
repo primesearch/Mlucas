@@ -299,6 +299,13 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
 		k1om)
+			# Cross-build note: the Intel MPSS SDK's environment-setup-k1om-mpss-linux script exports
+			# CFLAGS and CPPFLAGS itself. The Makefile uses 'CFLAGS ?=', which defers to the environment,
+			# so merely sourcing the SDK script silently drops -O3 and -D_GNU_SOURCE and builds at -O0.
+			# At -O0 you get two failures that are NOT k1om defects: "impossible constraint in 'asm'" in
+			# radix16_dif_dit_pass_asm.h (the "e" constraint on pfetch_dist needs the optimiser), and
+			# threadpool.c losing CPU_ZERO/sched_setaffinity (that one is the missing -D_GNU_SOURCE).
+			# Re-export CFLAGS/CPPFLAGS *after* sourcing the SDK script.
 			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_IMCI512)
 			;;

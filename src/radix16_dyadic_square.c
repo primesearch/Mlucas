@@ -98,7 +98,7 @@ void radix16_dyadic_square(
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
 	int i,j,j1,iroot/* ,k */;
-#ifndef USE_AVX512
+#if !defined(USE_AVX512) || defined(USE_IMCI512)	// IMCI512 #defines USE_AVX512, but its non-vectorized sincos-indexing arm below needs these:
 	int l,k1,k2;
 #endif
 #ifdef USE_SSE2

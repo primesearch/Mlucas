@@ -88,7 +88,7 @@ void radix32_dyadic_square(
 #ifndef USE_SSE2
 	int j2;
 #endif
-#ifndef USE_AVX512
+#if !defined(USE_AVX512) || defined(USE_IMCI512)	// IMCI512 #defines USE_AVX512, but its non-vectorized sincos-indexing arm below needs these:
 	int l,k1,k2;
 #endif
 #ifdef USE_SSE2
