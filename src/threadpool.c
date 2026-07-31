@@ -228,10 +228,10 @@ static void * xcalloc(size_t num, size_t len) {
 	{
 		task_control_t * task;
 
-		if (pool->stop_flag) {
-			/* The pool should shut down return NULL. */
-			return NULL;
-		}
+		/* No unlocked early-out on stop_flag here: it is written by threadpool_free() under the mutex,
+		so reading it without one is a data race (volatile orders nothing between threads). Dropping
+		the fast path costs one uncontended lock on the shutdown path and changes no behaviour - with
+		stop_flag set, the wait loop below falls straight through to the locked check that returns NULL. */
 
 		/* Obtain a task */
 		if (pthread_mutex_lock(&(pool->mutex))) {
@@ -509,7 +509,16 @@ static void * xcalloc(size_t num, size_t len) {
 		while (1) {
 			task = threadpool_task_get_task(pool);
 			if (task == NULL) {
-				if (pool->stop_flag) {
+				/* Re-read the flag under the mutex - see the note in threadpool_task_get_task(). This
+				only selects which diagnostic to print; both arms exit the worker loop. */
+				int stopping = 0;
+				if (pthread_mutex_lock(&(pool->mutex)) == 0) {
+					stopping = pool->stop_flag;
+					if (pthread_mutex_unlock(&(pool->mutex))) {
+						perror("pthread_mutex_unlock: ");
+					}
+				}
+				if (stopping) {
 					/* Worker thr needs to exit (thread pool was shutdown). */
 					break;
 				}
@@ -605,8 +614,6 @@ static void * xcalloc(size_t num, size_t len) {
 	{
 		int i;
 
-		pool->stop_flag = 1;
-
 		/* Wakeup all worker threads (broadcast operation). */
 		if (pthread_mutex_lock(&(pool->mutex))) {
 			perror("pthread_mutex_lock: ");
@@ -614,6 +621,12 @@ static void * xcalloc(size_t num, size_t len) {
 			REPORT_ERROR("Warning: Some of the worker threads may have failed to exit.");
 			return;
 		}
+
+		/* Set the stop flag under the same mutex the workers hold when they read it, and before the
+		broadcast that wakes them. It is declared volatile, but volatile is not synchronisation: the
+		unlocked store here raced with the worker-side reads in threadpool_task_get_task(), which
+		ThreadSanitizer reports as a data race in threadpool_free() on every run. */
+		pool->stop_flag = 1;
 
 		if (pthread_cond_broadcast(&(pool->new_tasks_cond))) {
 			perror("pthread_cond_broadcast: ");
