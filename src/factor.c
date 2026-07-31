@@ -3409,7 +3409,7 @@ MFACTOR_HELP:
 									l += (pdiff[m] << 1);
 									// Is q % (current small sieving prime) == 0?
 									// Cast-to-32-bit-array means doubling the length argument, but THAT IS DONE AUTOMATICALLY INSIDE THE FUNCTION
-									if(mi64_is_div_by_scalar32((uint32 *)q, l, lenQ)) {
+									if(mi64_is_div_by_scalar32(q, l, lenQ)) {
 									#ifdef MULTITHREAD
 									//	if(tid != 0) break;	// Can make thread-specific by fiddling the rhs of the !=
 										printf("Thread %u, k = %" PRIu64 ": q = ",tid,k);
