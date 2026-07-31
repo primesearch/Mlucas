@@ -74,6 +74,7 @@ for fft in "${!FFTS[@]}"; do
 	args=("${ARGS[@]}")
 	# First we test the very fiddly F15 and then loop over F16 up to maximum
 	if [[ $f -eq 15 ]]; then
+		# shellcheck disable=SC2054 # '8,8,16' is one comma-separated Mlucas -radset argument, not three array elements
 		args+=(-radset 8,8,16)
 	fi
 	if [[ $f -le 17 || $f -ge 32 ]]; then
@@ -86,9 +87,9 @@ for fft in "${!FFTS[@]}"; do
 	# an un-caught 2 propagating out of the pipe would abort the whole run. The '|| st=...' also
 	# absorbs a no-match from the grep below, which would otherwise fail the pipeline the same way.
 	st=0
-	time $MLUCAS -f "$f" -fft "$fft" -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices' || st=${PIPESTATUS[0]}
+	time $MLUCAS -f "$f" -fft "$fft" -iters "$ITERS" "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices' || st=${PIPESTATUS[0]}
 	if (( st != 0 && st != 2 )); then
 		echo "$MLUCAS exited $st on F$f at FFT length ${fft}K - stopping." >&2
-		exit $st
+		exit "$st"
 	fi
 done
