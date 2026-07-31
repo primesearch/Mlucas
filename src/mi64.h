@@ -317,9 +317,9 @@ DEV uint64	mi64_div_by_scalar64_u4	(uint64 x[], uint64 a, uint32 lenX, uint64 q[
 	int		mi64_div_binary			(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint64 q[], uint32*lenQ, uint64 r[]);
 
 /* Fast is-divisible-by-scalar, div-by-scalar y]: */
-DEV int		mi64_is_div_by_scalar32 (const uint32 x[], uint32 a, uint32 len);
-DEV uint32	mi64_is_div_by_scalar32_x4(const uint32 x[], uint32 tryq0, uint32 tryq1, uint32 tryq2, uint32 tryq3, uint32 len);
-DEV uint32	mi64_is_div_by_scalar32_x8(const uint32 x[], uint32 tryq0, uint32 tryq1, uint32 tryq2, uint32 tryq3, uint32 tryq4, uint32 tryq5, uint32 tryq6, uint32 tryq7, uint32 len);
+DEV int		mi64_is_div_by_scalar32 (const uint64 x[], uint32 a, uint32 len);
+DEV uint32	mi64_is_div_by_scalar32_x4(const uint64 x[], uint32 tryq0, uint32 tryq1, uint32 tryq2, uint32 tryq3, uint32 len);
+DEV uint32	mi64_is_div_by_scalar32_x8(const uint64 x[], uint32 tryq0, uint32 tryq1, uint32 tryq2, uint32 tryq3, uint32 tryq4, uint32 tryq5, uint32 tryq6, uint32 tryq7, uint32 len);
 DEV int		mi64_is_div_by_scalar64	(const uint64 x[], uint64 a, uint32 len);
 DEV int		mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint32 len);
 DEV int		mi64_is_div_by_scalar64_u2	(const uint64 x[], uint64 a, uint32 len);	// 2-way interleaved-|| loop
