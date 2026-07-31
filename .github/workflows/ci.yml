@@ -279,6 +279,45 @@ jobs:
         grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
+  Linux-K1OM:
+    name: Mlucas K1OM
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Download
+      run: |
+          # https://web.archive.org/web/20210307201727/https://software.intel.com/content/www/us/en/develop/articles/intel-manycore-platform-software-stack-mpss.html
+          wget -nv 'https://web.archive.org/web/20200818141734id_/http://registrationcenter-download.intel.com/akdlm/irc_nas/15904/mpss-3.8.6-linux.tar'
+          tar -xvf mpss-3.8.6-linux.tar
+    - name: Script
+      run: |
+        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace centos:7 bash -s <<'EOF'
+        set -e -o pipefail
+        sed -i -e '/^mirrorlist/d;/^#baseurl=/{s,^#,,;s,/mirror,/vault,;}' /etc/yum.repos.d/CentOS*.repo
+        yum install -y make
+        yum localinstall -y mpss-3.8.6/mpss-sdk-k1om-*.x86_64.rpm
+        source /opt/mpss/3.8.6/environment-setup-k1om-mpss-linux
+
+        export CC=k1om-mpss-linux-gcc
+        $CC --version
+        k1om-mpss-linux-ld --version
+        $CC -dM -E - </dev/null
+
+        # The SDK environment-setup script exports CFLAGS and CPPFLAGS itself, and the Makefile uses
+        # 'CFLAGS ?=', which defers to the environment - so without re-exporting them here the build
+        # silently drops -O3 and -D_GNU_SOURCE and compiles at -O0. That is not a KNC defect, but it
+        # breaks the build: radix16_dif_dit_pass_asm.h needs the optimiser for the "e" constraint on
+        # pfetch_dist, and threadpool.c needs _GNU_SOURCE for CPU_ZERO/sched_setaffinity.
+        export CFLAGS="-Wall -g -O3 -std=gnu99 -m64 --sysroot=/opt/mpss/3.8.6/sysroots/k1om-mpss-linux"
+        export CPPFLAGS="-D_GNU_SOURCE -m64 --sysroot=/opt/mpss/3.8.6/sysroots/k1om-mpss-linux"
+
+        # Mlucas only - Mfactor is deliberately not cross-built for KNC. Trial factoring on
+        # first-gen Xeon Phi is not a workload anyone runs, and the six word-variant builds roughly
+        # quadruple the runtime of an already slow job (SDK download plus an emulated CentOS 7).
+        bash -e -o pipefail -- makemake.sh no_gmp k1om
+        EOF
+
   Clang-Tidy:
     name: Clang-Tidy
 
