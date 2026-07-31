@@ -28,6 +28,16 @@
 
 #include "util.h"
 
+/* IMCI-512 (1st-gen Xeon Phi / Knights Corner) shares AVX-512's zmm/k register names, and platform.h
+makes USE_IMCI512 imply USE_AVX512 - but it has none of the instructions the vectorized small-primes
+sieve needs: vprolvd, vmovups, kmovw and the register form of vpbroadcastd all fail to assemble for
+k1om. Gate that sieve - and the psmall[] table which exists solely to feed it - on a separate macro,
+so KNC falls back to the scalar bit-clearing loop (which is a live path in any case: the AVX-512 arm
+defers to it for small exponents). */
+#if defined(USE_AVX512) && !defined(USE_IMCI512)
+	#define USE_AVX512_SIEVE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -335,7 +345,7 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 		const uint32 p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
 		const uint32 nprime,		// #sieving primes (counting from 3)
 		const uint32 MAX_SIEVING_PRIME,
-	#if defined(USE_AVX512) && !defined(USE_GPU)
+	#if defined(USE_AVX512_SIEVE) && !defined(USE_GPU)
 		const uint32 *psmall,
 	#endif
 		const uint8 *pdiff,
