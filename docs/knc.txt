@@ -9,7 +9,7 @@ How to emulate vinsertf128 ?
 
 AVX-512 instructions unavailable in IMCI-512:
 o XORPD(use VPXOR[D|Q] instead),MOVHPD,MOVLPD,PADDQ,PCMPQ
-o radix-16 tangent-DIF: twiddles-precomputation needs VRCP14PD (but k10m has VRCP23PS, 16-way SP reciprocal to full 23-bit precision). On k1om: use non-tangent version simply to avoid major recode effort
+o radix-16 tangent-DIF: twiddles-precomputation needs VRCP14PD (but k1om has VRCP23PS, 16-way SP reciprocal to full 23-bit precision). On k1om: use non-tangent version simply to avoid major recode effort
 o PREFETCHT*
 o CMOV - replace with equivalent conditional-branch (I use mostly where branch should be easily predictable, 2 addresses whose relative magnitudes indicate "is modulus Mersenne or Fermat"?
 o VMOVUP[D|S] - In our case the address will at least be 0x10-byte-aligned, so emulate using 2 aligned loads and a VALIGND: 'VALIGND imm8,src1,src2,dest' means 'doubleword shift [src1,src2] rightward, with low (imm8) dwords of src2 shifted in at the high end of src1'

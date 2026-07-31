@@ -31,7 +31,7 @@
 	#define USE_SMALL_MACROS	1			// Can also manually set this flag at compile time, but note, SSE2_RADIX8_DIT_0TWIDDLE macro
 	#warning Defining USE_SMALL_MACROS = 1	// requires extra pointer-arg not set up for in the code, so only allow in SSE2 and AVX modes
 #elif defined(USE_AVX2) && defined(USE_SMALL_MACROS)
-	#error USE_SMALL_MACROS only allowed for 128-bit ARMv8 SIMD, x86 SSE2 and AVX, and k10m builds, not for AVX2 / AVX-512!
+	#error USE_SMALL_MACROS only allowed for 128-bit ARMv8 SIMD, x86 SSE2 and AVX, and k1om builds, not for AVX2 / AVX-512!
 #endif
 
 #ifndef PFETCH_DIST

@@ -18081,7 +18081,7 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 	}
 
 	#warning To-Do: For IMCI512 build, need to fuse 2-calls of AVX-512 version AVX_cmplx_carry_fast_errcheck_X4() into 1, use full ZMM!
-	// For now just define a stub macro and disable use of radix-[28,36,44,52,60] in k10m builds:
+	// For now just define a stub macro and disable use of radix-[28,36,44,52,60] in k1om builds:
 	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0, Xhalf_arr,Xdoff, Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
