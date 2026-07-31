@@ -110,6 +110,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			int l = target_set&1;	target_set >>= 1;
 			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
 		#endif
+			target_idx = -1;	// One-shot: the injection must not repeat on a later pass with the same j
 		}
 
 	#ifdef USE_AVX	// AVX: can select between carry macros processing 4 and 8 independent carries in LOACC mode:
