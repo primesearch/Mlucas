@@ -198,8 +198,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static double radix_inv, n2inv;
   #ifndef MULTITHREAD
 	double *addr;
-	double *addi;	// v21 build fix: must exist in SSE2 builds too - the MODULUS_TYPE_GENFFTMUL
-					// branch of radix32_main_carry_loop.h dereferences it unconditionally (regression from 2bf9930)
+	double *addi;	// Declared unconditionally: the MODULUS_TYPE_GENFFTMUL branch of
+					// radix32_main_carry_loop.h assigns and increments it in every build.
 	double temp,frac;
   #endif
 	double scale, dtmp, maxerr = 0.0;
@@ -255,8 +255,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
 		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
 		,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
-		,*cy_i	// v21 build fix: must exist in SSE2/MULTITHREAD builds too - radix32_main_carry_loop.h's
-				// MODULUS_TYPE_GENFFTMUL branch dereferences it unconditionally (regression from 2bf9930)
+		,*cy_i	// Declared unconditionally: radix32_main_carry_loop.h's MODULUS_TYPE_GENFFTMUL
+				// branch reads it in every build.
 		;
   #ifdef USE_AVX
 	static vec_dbl *base_negacyclic_root;
@@ -1994,7 +1994,7 @@ void radix32_dit_pass1(double a[], int n)
 			,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
 			,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
 			,*cy_r
-			,*cy_i	// v21 build fix: see the same declaration in radix32_ditN_cy_dif1() above
+			,*cy_i	// Declared unconditionally - see the same declaration in radix32_ditN_cy_dif1() above
 			;
 	  #ifdef USE_AVX
 		vec_dbl *base_negacyclic_root;
