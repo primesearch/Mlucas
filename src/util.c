@@ -20,6 +20,16 @@
 *                                                                              *
 *******************************************************************************/
 
+/* sched_getaffinity() and the CPU_* macros are GNU extensions: <sched.h> only declares them when
+_GNU_SOURCE is defined, and it must be defined before *any* libc header is pulled in - defining it
+just above '#include <sched.h>', as platform.h does, is too late once <pthread.h> has already
+included sched.h and left its include guard set. makemake.sh passes -D_GNU_SOURCE so ordinary
+builds are fine, but this file should not depend on that: the Clang-Tidy and GCC-analyzer CI jobs
+compile it with their own flag sets, where it failed with 'CPU_SETSIZE undeclared'. */
+#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+#endif
+
 #include "align.h"
 #include "util.h"
 #include "factor.h"	// Needed for twopmodq64() prototype
