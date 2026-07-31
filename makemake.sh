@@ -61,11 +61,11 @@ case $OSTYPE in
 		;;
 esac
 
-MAKE=make
-if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
+MAKE='make'
+if ! command -v "$MAKE" >/dev/null && command -v mingw32-make >/dev/null; then
 	MAKE=mingw32-make
 fi
-if ! command -v $MAKE >/dev/null; then
+if ! command -v "$MAKE" >/dev/null; then
 	echo "Error: This script requires Make" >&2
 	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
@@ -80,6 +80,13 @@ elif ! command -v gcc >/dev/null; then
 	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
 fi
+
+# The three try_* helpers below are feature *probes*: a nonzero return means "this toolchain does not
+# support that", which is an answer, not an error. They are therefore always called from an 'if'/'&&'/'!'
+# condition, which suppresses 'set -e' inside them - exactly what we want, and what they are written for
+# (each does its own error handling, e.g. 'mktemp -d || return 1'). ShellCheck's optional
+# check-set-e-suppressed check flags every such call as SC2310, so each call site below carries a narrow
+# '# shellcheck disable=SC2310'.
 
 # Returns success iff $CC (default gcc) accepts the given flag(s) for a full compile-and-link of a
 # trivial program - used below to auto-detect toolchain-version-dependent flag/feature support instead
@@ -303,6 +310,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 	# The AVX-512 kernels use "extended" register names (zmm16-31/xmm16-31/k0-7) that some older
 	# Clang releases reject even when otherwise AVX-512-aware; probe rather than let the user hit a
 	# wall of asm errors deep in the build:
+	# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 	if [[ $arg == avx512* ]] && ! try_avx512_asm; then
 		echo "Error: ${CC:-gcc}'s assembler does not support the AVX-512 extended register names (zmm16-31/xmm16-31/k0-7) needed for this build mode ... aborting. Try a newer compiler, or build with 'avx2' instead." >&2
 		exit 1
@@ -321,6 +329,7 @@ elif [[ $OSTYPE == darwin* ]]; then
 	avx1_0=$( sysctl -n hw.optional.avx1_0  2>/dev/null || echo 0)
 	sse2=$(   sysctl -n hw.optional.sse2    2>/dev/null || echo 0)
 	neon=$(   sysctl -n hw.optional.neon    2>/dev/null || echo 0)
+	# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 	if ((avx512f)) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
@@ -356,6 +365,7 @@ elif [[ $OSTYPE == darwin* ]]; then
 elif [[ $OSTYPE == linux* ]]; then
 
 	# Linux:
+	# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 	if grep -iq 'avx512' /proc/cpuinfo && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
@@ -443,6 +453,7 @@ EOF
 
 	case $output in
 		avx512)
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if try_avx512_asm; then
 				echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 				ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
@@ -467,6 +478,7 @@ EOF
 		asimd)
 			echo -e "The CPU supports the ASIMD build mode.\n"
 			ARGS+=(-DUSE_ARM_V8_SIMD)
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if try_flag -mcpu=native; then
 				ARGS+=(-mcpu=native)
 			elif try_flag -march=native; then
@@ -478,6 +490,7 @@ EOF
 		none_arm)
 			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 			echo "Warning: This likely means there is a bug in this script. Please report!" >&2
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if try_flag -mcpu=native; then
 				ARGS+=(-mcpu=native)
 			elif try_flag -march=native; then
@@ -491,6 +504,7 @@ EOF
 			;;
 		none)
 			echo -e "The CPU architecture is not recognized by this script ... building in scalar-double mode.\n"
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			try_flag -march=native && ARGS+=(-march=native)
 			;;
 		*)
@@ -527,7 +541,9 @@ CFLAGS_PROBED=(-Wall -g -O3)
 # unconditionally: every toolchain then compiles the same dialect, and gnu99 (vs plain c99) keeps the GNU
 # extensions enabled. -D_GNU_SOURCE (set in CPPFLAGS below) still exposes the POSIX/GNU library surface:
 CFLAGS_PROBED+=(-std=gnu99)
+# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
+# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 if try_lto -flto=auto; then
 	CFLAGS_PROBED+=(-flto=auto)
 elif try_lto -flto; then
