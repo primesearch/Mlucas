@@ -92,6 +92,18 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			prp_mult = PRP_BASE;
 	}
 
+	/* v21: the residue-shift carry injection added below covers the Mersenne/LL path only. Fermat-mod
+	seeds two carry sub-chains (bjmodn[0] and bjmodn[15]) rather than one, and getting the injection
+	into the right one needs the icycle-based scheme this routine does not have (cf. radix63, and the
+	matching rejection in radix15_ditN_cy_dif1.c). Until that is ported here, reject a *shifted*
+	Fermat-mod run cleanly rather than returning a wrong answer: measured at F18, FFT length 15K,
+	radix set (30,16,16) gives Res64 7C6B681485EB86DB at shift 0 - agreeing with radix set (60,8,16) -
+	and a different, wrong value at every nonzero shift. Unshifted Fermat-mod runs are unaffected. */
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && RES_SHIFT) {
+		WARN(HERE, "radix30_ditN_cy_dif1: Fermat-mod with a nonzero residue shift needs the icycle-based carry scheme; this radix set is unshifted-Fermat- and Mersenne-only.", "", 1);
+		return(ERR_ASSERT);
+	}
+
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
 	NDIVR   = n/RADIX;
 	n_div_nwt = NDIVR >> nwt_bits;
