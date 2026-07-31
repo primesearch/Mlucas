@@ -410,33 +410,29 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			nradices_radix0 = 2;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		*/
-		case 5:
-//			nradices_radix0 = 1;
-			radix_prim[l++] = 5; break;
-		case 6:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 3; radix_prim[l++] = 2; break;
+		/* Leading radices 5,6,9,10,11,12,13,18,20,22,24,25,26 are deliberately absent below. Their
+		carry routines have no Fermat-mod branch - the dispatch switch further down calls them
+		*without* the rn0/rn1 Fermat trig tables, unlike every radix that is supported - yet this
+		switch used to accept them, so a run that reached one dereferenced the si[] array this
+		routine passes as 0x0 and died. On stock main,
+			./Mlucas -f 18 -fft 18 -radset 4 -iters 100      (leading radix 9)
+		segfaults. Three of the thirteen (12, 20, 24) happened to hit an assert first; the rest
+		crashed. Letting the default arm below reject them turns those crashes into the clean
+		"radix N not available for Fermat-mod transform" message it already prints.
+
+		This matters more with the < 16 shift-forcing this PR adds: those routines' own
+		'if(RES_SHIFT) { WARN; return ERR_ASSERT; }' guard used to catch such runs by accident,
+		the shift being nonzero. Forcing it to zero removes that accidental protection.
+
+		Automatic radix selection never picks these for Fermat-mod - get_fft_radices() only offers
+		lengths whose odd part is 1, 7, 15 or 63 - so this is reachable only via an explicit
+		-radset. */
 		case 7:
 //			nradices_radix0 = 1;
 			radix_prim[l++] = 7; break;
 		case 8:
 //			nradices_radix0 = 3;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 9:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 3; radix_prim[l++] = 3; break;
-		case 10:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 5; radix_prim[l++] = 2; break;
-		case 11:
-//			nradices_radix0 = 1;
-			radix_prim[l++] = 11; break;
-		case 12:
-//			nradices_radix0 = 3;
-			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 13:
-//			nradices_radix0 = 1;
-			radix_prim[l++] = 13; break;
 		case 14:
 //			nradices_radix0 = 2;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; break;
@@ -446,26 +442,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		case 16:
 //			nradices_radix0 = 4;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 18:
-//			nradices_radix0 = 3;
-			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; break;
-		case 20:
-//			nradices_radix0 = 3;
-			radix_prim[l++] = 5; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 22:
-//			nradices_radix0 = 2;
-			radix_prim[l++] =11; radix_prim[l++] = 2; break;
-		case 24:
-//			nradices_radix0 = 4;
-			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		/*
-		case 25:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 5; radix_prim[l++] = 5; break;
-		*/
-		case 26:
-//			nradices_radix0 = 2;
-			radix_prim[l++] =13; radix_prim[l++] = 2; break;
 		case 28:
 //			nradices_radix0 = 3;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -535,7 +511,10 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 //			nradices_radix0 = 12;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default:
-			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
+			// This arm names the leading radix the switch just failed to match, i.e. radix0 - it used to
+			// print RADIX_VEC[i], whose i is left over from an earlier loop, so a rejected radix0 of 18
+			// was reported as "radix 16". Only visible now that the arm is reachable in practice:
+			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",radix0);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(0,cbuf);
 		}
