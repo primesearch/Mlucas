@@ -2339,12 +2339,40 @@ READ_RESTART_FILE:
 		/* MSVC/.NET incorrectly output these when using uint64 and %20" PRIu64 " format, so cast to double and print: */
 		fprintf(stderr, "Res mod 2^35 - 1 = %20.0f\n",(double)Res35m1);
 		fprintf(stderr, "Res mod 2^36 - 1 = %20.0f\n",(double)Res36m1);
-		/* If they are provided, check the Selfridge-Hurwitz residues: */
+
+		/* v21: Reference-free sanity check - an identically-zero residue is a hard failure here.
+		The roundoff-error check cannot see this: fracmax measures distance from the nearest integer,
+		and zero *is* an integer, so a run whose residue vector has been zeroed by a defective FFT or
+		carry routine reports AvgMaxErr = MaxErr = 0, i.e. the numerical-health signal reads perfect
+		precisely when the answer is entirely wrong. Nor do the Selfridge-Hurwitz comparisons below
+		catch it when *sh0 == 0, i.e. whenever this (FFT length, #iters) combination has no stored
+		reference - which is the case for every FFT length absent from the MersVec/MvecPRP/FermVec
+		tables, for all 42 reference-free rows of MvecPRP, and for the 10000-iter column of the 17
+		largest MersVec rows. In those cases the zero is silently *adopted* as the new reference.
+
+		Zero cannot be a legitimate result of anything reachable from here save one case: an LL test
+		run to exactly p-2 iterations on a prime M(p), which is the "M(p) is prime" verdict. That is
+		exempted below. Every other test type has a nonzero unit as its iterate - Pepin, PRP and p-1
+		stage 1 all compute s^e (mod N) for a seed s coprime to N - so zero is impossible, not merely
+		improbable. Testing all three SH residues rather than Res64 alone makes a false positive on a
+		genuinely-nonzero residue a ~2^-135 event.
+		This complements, and does not overlap, the production-run (!INTERACT) guard: that one aborts
+		a real assignment before it writes a savefile, this one fails a self-test case. */
+		if( !(Res64 | Res35m1 | Res36m1)
+		 && !(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_MERSENNE && (uint64)timing_test_iters == p-2ull) )
+		{
+			resFlag = 1;	/* False */
+			fprintf(stderr, "  ***   Residue is identically zero   ***\n");
+			fprintf(stderr, " This is not a possible result for this test type, and the roundoff-error check cannot\n");
+			fprintf(stderr, " detect it (it measures distance from the nearest integer, and zero is an integer).\n");
+		}
+
+		/* If they are provided, check the Selfridge-Hurwitz residues.
+		NB: each of the three checks below may only *set* resFlag, never clear it. Prior to v21 the
+		match arms did 'resFlag = 0', so a Res64 mismatch was erased by a subsequent Res35m1 match. */
 		if(sh0) {
 			if(*sh0 != 0) {
-				if (Res64 == *sh0)
-					resFlag = 0;
-				else {
+				if (Res64 != *sh0) {
 					resFlag = 1;	/* False */
 					fprintf(stderr, "  ***   Res64 Error   ***\n");
 					fprintf(stderr, " current   = %20.0f\n", (double)Res64);
@@ -2355,9 +2383,7 @@ READ_RESTART_FILE:
 		}
 		if(sh1) {
 			if(*sh1 != 0) {
-				if (Res35m1 == *sh1)
-					resFlag = 0;
-				else {
+				if (Res35m1 != *sh1) {
 					resFlag = 1;	/* False */
 					fprintf(stderr, "  ***   Res35m1 Error   ***\n");
 					fprintf(stderr, " current   = %20.0f\n", (double)Res35m1);
@@ -2368,9 +2394,7 @@ READ_RESTART_FILE:
 		}
 		if(sh2) {
 			if(*sh2 != 0) {
-				if (Res36m1 == *sh2)
-					resFlag = 0;
-				else {
+				if (Res36m1 != *sh2) {
 					resFlag = 1;	/* False */
 					fprintf(stderr, "  ***   Res36m1 Error   ***\n");
 					fprintf(stderr, " current   = %20.0f\n", (double)Res36m1);
@@ -3935,7 +3959,10 @@ int 	main(int argc, char *argv[])
 	double	darg;
 	int		new_cfg = FALSE;
 	int		i,j, idum, nargs, scrnFlag, maxAllocSet = FALSE, nbufSet = FALSE;
-	int		start = -1, finish = -1, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
+	int		start = -1, finish = -1, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0, xRow = 0;
+	/* v21: '-s c' coverage sweep - see the block which fills sweepVec[] below for the rationale. */
+	int		sweepMode = 0, nsweep = 0;
+	uint32	sweepVec[64];
 #ifdef MULTITHREAD
 	// Vars for mgmt of mutually exclusive arg sets; 'core' is specifically for hwloc-including builds:
 	int		nthread = 0, cpu = 0, core = 0;
@@ -3949,6 +3976,17 @@ int 	main(int argc, char *argv[])
 
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
 	uint32 new_data;
+	/* v21: Self-test failure accounting. Prior to v21 the -s/-iters paths always returned 0, so no
+	caller - the CI self-test steps in particular - could tell a clean sweep from one in which every
+	radix set at an FFT length errored out. See the summary block at DONE: for the exit-code contract. */
+	uint32 nfail_wrong = 0;		/* #cases which returned a demonstrably wrong answer: a residue */
+								/* mismatch vs. the reference tables, an inter-radix-set consensus */
+								/* break, or an identically-zero residue */
+	uint32 nfail_unusable = 0;	/* #FFT lengths for which too few radix sets were usable to write */
+								/* a .cfg entry, i.e. lengths the sweep claimed but did not test */
+	uint32 ncase_pass = 0;		/* #(FFT length, radix set) cases which ran and gave the right answer */
+	uint32 ncase_skip = 0;		/* #cases which did not run, or ran and gave the wrong answer */
+	uint32 nfft_done = 0;		/* #FFT lengths for which a .cfg entry was written */
 	struct res_triplet new_res = {0ull,0ull,0ull};
 	struct testMers*MvecPtr = MersVec;	// Set this to point at either MersVec (the default) or MvecPRP, depending on test type
 
@@ -4027,6 +4065,13 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			for(;;) {
 				if(STREQ(stFlag, "a") || STREQ(stFlag, "all")) {	/* all, which really means all the non-Huge-and-larger sets */
 					start = 0; finish = numTeensy + numTiny + numSmall + numMedium + numLarge;
+					break;
+				}
+				/* v21: coverage sweep over the legal FFT lengths which have no row in the reference-
+				residue table above and which therefore no other -s tier can ever reach - see the
+				sweepVec[]-filling block further down for why this needs no new reference data. */
+				if(STREQ(stFlag, "c") || STREQ(stFlag, "cover") || STREQ(stFlag, "coverage")) {
+					sweepMode = TRUE; start = 0; finish = 0;	/* finish set once sweepVec[] is built */
 					break;
 				}
 
@@ -4471,7 +4516,16 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			for(j = 0; j < numTest; j++) {
 				if(i == MvecPtr[j].fftLength) break;
 			}
-			if(i != MvecPtr[j].fftLength) {
+			// v21: the not-found test used to be (i != MvecPtr[j].fftLength), which can never be true:
+			// on fall-through j == numTest, and MvecPtr[numTest] is the scratch slot into which the
+			// -fft argument was just copied, so MvecPtr[j].fftLength == i by construction. The effect
+			// was that this whole auto-pick-an-exponent branch was dead and `-fft L -iters N` for an L
+			// absent from the reference table exited with "nor user-supplied command-line exponent"
+			// instead of running - which is precisely why the 17 legal FFT lengths that have no table
+			// row (all the 31*2^k and 63*2^k ones) had never been self-tested by anybody. The
+			// equivalent loop ~30 lines above, in the ERR_RUN_SELFTEST_FORLENGTH handler, gets this
+			// right with (i == numTest); match it.
+			if(j == numTest) {
 				hi = (99*given_N_get_maxP(i<<10)/100) | 0x1;	// Make sure starting value is odd. v21: Cut to 99% of pmax_rec
 				lo = hi - 1000;	if(lo < PMIN) lo = PMIN;
 				for(expo = hi; expo >=lo; expo -= 2) {
@@ -4631,12 +4685,82 @@ TIMING_TEST_LOOP:
 	else
 		FILE_ACCESS_MODE[0] = FILE_ACCESS_APPEND;
 
+	/* v21: Build the '-s c' coverage-sweep list.
+
+	Motivation: every -s tier steps through rows of the MersVec[]/MvecPRP[] reference-residue tables, so
+	the set of FFT lengths the self-test can ever exercise is exactly the set of lengths appearing in
+	those tables. It is not all the legal ones. In a SIMD build get_fft_radices() accepts 153 distinct
+	FFT lengths offering 603 (length, radix set) pairs, of which the tables reach 136 lengths / 564 pairs.
+	The 17 lengths with no table row are precisely the odd-31 and odd-63 families - 992, 1008, 1984, 2016,
+	3968, 4032, 7936, 8064, 15872, 16128, 31744, 32256, 63488, 64512, 129024, 258048, 516096 - and they
+	are the only place leading radices 63, 992, 1008 and 4032 are ever used. Four of the 34 leading radices
+	a SIMD build can select thus had, before this, no self-test coverage of any kind; the silent-wrong-
+	residue defects found in radix992 and in the ODD_RADIX==63 carry paths (radix63/1008/4032) all lived
+	there, which is why they survived for years of green self-tests.
+
+	Why this needs no new reference data: the Res64/Res35m1/Res36m1 triplet after a fixed number of
+	iterations is a function of the exponent and the iteration count *only*. It is invariant under the
+	choice of FFT length and radix set - that invariance is the whole basis of the "N of M radix-sets
+	passed" consensus already implemented below. So for an uncovered length L we can borrow the exponent
+	AND the stored residues of the nearest table row at a length L0 <= L: the exponent is guaranteed to
+	fit (it fits at the smaller L0, and roundoff error only improves with the extra headroom), and the
+	stored triplet is the correct answer for it at L just as it is at L0. Every uncovered length thereby
+	gets a fully reference-anchored test, with no new data to generate and nothing to get wrong.
+
+	Scope: lengths up to the largest one in the Large tier. The five uncovered lengths above that
+	(63488K and up, the largest needing a 4 GB residue array) are left to explicit '-fft L -iters 100'
+	invocations, which do now work for an off-table L - see the comment on the not-in-table test above. */
+	if(sweepMode) {
+		const uint32 odd_ok[] = {1,3,5,7,9,11,13,15,31,63};	// Legal odd components, per get_fft_radices()
+		uint32 lmax = MersVec[numTeensy+numTiny+numSmall+numMedium+numLarge-1].fftLength, len;
+		for(i = 0; i < (int)(sizeof(odd_ok)/sizeof(odd_ok[0])); i++) {
+			for(len = odd_ok[i]; len <= lmax; len <<= 1) {
+				if(get_fft_radices(len, 0, 0x0, 0x0, 0) != 0) continue;	// Not a supported length
+				for(j = 0; j < numTest; j++) { if(MvecPtr[j].fftLength == len) break; }
+				if(j < numTest) continue;								// Already covered by some tier
+				ASSERT(nsweep < (int)(sizeof(sweepVec)/sizeof(sweepVec[0])), "sweepVec[] overflow");
+				sweepVec[nsweep++] = len;
+			}
+		}
+		// Insertion-sort ascending, so the sweep runs cheapest-first and mlucas.cfg comes out ordered:
+		for(i = 1; i < nsweep; i++) {
+			len = sweepVec[i];
+			for(j = i; j > 0 && sweepVec[j-1] > len; j--) sweepVec[j] = sweepVec[j-1];
+			sweepVec[j] = len;
+		}
+		if(!nsweep) {
+			fprintf(stderr,"INFO: every supported FFT length has a reference-table row - nothing to sweep.\n");
+			goto DONE;
+		}
+		finish = nsweep;
+		fprintf(stderr,"Coverage sweep over the %d supported FFT length(s) with no reference-table row:\n   ",nsweep);
+		for(i = 0; i < nsweep; i++) fprintf(stderr," %u",sweepVec[i]);
+		fprintf(stderr,"\n\n");
+	}
+
 	/* What's the max. FFT length (in K) for the set of self-tests? */
-	maxFFT = MvecPtr[finish-1].fftLength;
+	if(sweepMode)
+		maxFFT = sweepVec[nsweep-1];
+	else
+		maxFFT = MvecPtr[finish-1].fftLength;
 
 	for (xNum = start; xNum < finish; xNum++)    /* Step through the exponents */
 	{
 		new_data = FALSE;	Res64 = Res36m1 = Res35m1 = 0ull;
+
+		/* v21: Which reference-table row supplies this pass's exponent and residues? Normally xNum
+		itself; in coverage-sweep mode, the scratch row at index numTest, filled from the nearest
+		table row at or below the swept FFT length (see the sweepVec[] block above). */
+		xRow = xNum;
+		if(sweepMode) {
+			for(j = numTest-1; j >= 0; j--) { if(MvecPtr[j].fftLength <= (int)sweepVec[xNum]) break; }
+			ASSERT(j >= 0, "coverage sweep: no reference-table row at or below the swept FFT length!");
+			MvecPtr[numTest] = MvecPtr[j];		// Struct copy: exponent + all three residue triplets
+			MvecPtr[numTest].fftLength = sweepVec[xNum];
+			xRow = numTest;
+			fprintf(stderr,"Coverage sweep: FFT length %u K, using exponent %" PRIu64 " and reference residues from the %d K table row.\n",
+				sweepVec[xNum],MvecPtr[numTest].exponent,MvecPtr[j].fftLength);
+		}
 
 		/* If it's a self-test [i.e. timing test] and user hasn't specified #iters, set to default: */
 		if(selfTest && !iters) {
@@ -4650,7 +4774,7 @@ TIMING_TEST_LOOP:
 			mvec_res_t_idx = NINT( log((double)iters)/log(10.) ) - 2;	/* log10(iters) - 2, use slower NINT rather than DNINT here since latter needs correct rounding mode */
 			ASSERT(mvec_res_t_idx < 3,"main: mvec_res_t_idx out of range!");
 			// Use empty-data-slot at top of MersVec[] or MvecPRP[], respectively, for primality & prp single-case tests:
-			if( (modType == MODULUS_TYPE_MERSENNE && MvecPtr[xNum].res_t[mvec_res_t_idx].sh0 == 0)
+			if( (modType == MODULUS_TYPE_MERSENNE && MvecPtr[xRow].res_t[mvec_res_t_idx].sh0 == 0)
 			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[xNum].res_t[mvec_res_t_idx].sh0 == 0) )
 			{	// New self-test residue being computed:
 				new_data = TRUE;
@@ -4670,7 +4794,7 @@ TIMING_TEST_LOOP:
 			radix_set = 0;
 
 		if(modType == MODULUS_TYPE_MERSENNE)
-			iarg = MvecPtr[xNum].fftLength;
+			iarg = MvecPtr[xRow].fftLength;
 		else if(modType == MODULUS_TYPE_FERMAT)
 			iarg = FermVec[xNum].fftLength;
 
@@ -4690,13 +4814,13 @@ TIMING_TEST_LOOP:
 			}
 			else if(modType == MODULUS_TYPE_MERSENNE)
 			{
-				Res64   = MvecPtr[xNum].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = MvecPtr[xNum].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = MvecPtr[xNum].res_t[mvec_res_t_idx].sh2;
-				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+				Res64   = MvecPtr[xRow].res_t[mvec_res_t_idx].sh0;
+				Res35m1 = MvecPtr[xRow].res_t[mvec_res_t_idx].sh1;
+				Res36m1 = MvecPtr[xRow].res_t[mvec_res_t_idx].sh2;
+				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xRow].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else if(testType == TEST_TYPE_PM1) {
-				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xRow].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else
 				ASSERT(0,"Unsupported modulus and/or test type!");
@@ -4711,8 +4835,10 @@ TIMING_TEST_LOOP:
 				|| (iters == 10000 && MME >=0.4375 ) ) )
 			{
 				fprintf(stderr, "***** Excessive level of roundoff error detected - this radix set will not be used. *****\n");
-				if(radset >= 0)	// If user-specified radix set, do only that one:
-					goto DONE;
+				++ncase_skip;
+				if(radset >= 0) {	// If user-specified radix set, do only that one:
+					++nfail_unusable; goto DONE;
+				}
 				runtime = 0.0; ++radix_set; continue;
 			}
 			else if(retVal)	// Bzzzzzzzzzzzt!!! That answer is incorrect. The penalty is death:
@@ -4720,17 +4846,34 @@ TIMING_TEST_LOOP:
 				printMlucasErrCode(retVal);
 				if( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
 					fprintf(stderr, "Error detected - this radix set will not be used.\n");
-				if(radset >= 0)	// If user-specified radix set, do only that one:
+				// v21: A wrong *answer* (ERR_INCORRECT_RES64, which ernstMain also returns for an
+				// identically-zero residue) is categorically different from a radix set which merely
+				// declined to run - excessive ROE, a bad carry, an unsupported feature. The former is
+				// always a defect in the program under test; the latter can be a legitimate property
+				// of this build/host. Score them separately so callers can gate on the former alone.
+				++ncase_skip;
+				if((retVal & 0xff) == ERR_INCORRECT_RES64)
+					++nfail_wrong;
+				if(radset >= 0) {	// If user-specified radix set, do only that one:
+					if((retVal & 0xff) != ERR_INCORRECT_RES64) ++nfail_unusable;
 					goto DONE;
+				}
 				runtime = 0.0; ++radix_set; continue;
 			}
 			else if(radset >= 0)	// If user-specified radix set, do only that one:
 			{
-				goto DONE;
+				++ncase_pass;	goto DONE;
 			}
 			else if(new_data)	// New self-test residues being computed - write to .cfg file if get a consensus value:
 			{
-				if(!new_res.sh0)	// First of the available radix sets:
+				// v21: the "have we anchored the consensus yet?" test used to be (!new_res.sh0), which
+				// conflates "no anchor yet" with "the anchor is 0". If the first radix set to get this
+				// far returned Res64 == 0 - the exact signature of the radix1008/4032 and AVX-512
+				// radix1024 silent-wrong-answer defects - the anchor stayed falsy, so *every* radix set
+				// re-took the "first" arm and was counted as having succeeded, whatever it computed,
+				// and a .cfg entry was written asserting a 0 consensus residue. Anchor on the count of
+				// radix sets which have reached this point instead, which cannot be spoofed by a value.
+				if(!nradix_set_succeed)	// First of the available radix sets:
 				{
 					new_res.sh0 = Res64  ;
 					new_res.sh1 = Res35m1;
@@ -4747,11 +4890,19 @@ TIMING_TEST_LOOP:
 				{
 					nradix_set_succeed++;
 				} else {
+					// Res64 is invariant under choice of radix set, so a mismatch here means one of the
+					// two radix sets is computing the wrong answer. With no stored reference we cannot
+					// say which, but we can say the build is broken - score it as a wrong answer.
+					fprintf(stderr, "  ***   Res64 disagrees with the consensus of the preceding radix set(s) at this FFT length   ***\n");
+					fprintf(stderr, " current   = %016" PRIX64 ", %11.0f, %11.0f\n", Res64      ,(double)Res35m1    ,(double)Res36m1    );
+					fprintf(stderr, " consensus = %016" PRIX64 ", %11.0f, %11.0f\n", new_res.sh0,(double)new_res.sh1,(double)new_res.sh2);
+					++nfail_wrong;	++ncase_skip;
 					runtime = 0.0; ++radix_set; continue;
 				}
 			} else {	// If not a new-data self-tests (i.e. it's a regular -s one), getting here means the current radset succeeded:
 				nradix_set_succeed++;
 			}
+			++ncase_pass;
 
 			/* 16 Dec 2007: Added the (runtime != 0) here to workaround the valid-timing-test-but-runtime = 0
 			issue on systems with round-to-nearest-second granularity of the clock() function: */
@@ -4785,12 +4936,13 @@ TIMING_TEST_LOOP:
 		{
 			sprintf(cbuf, "WARNING: %d of %d radix-sets at FFT length %u K passed - skipping it. PLEASE CHECK YOUR BUILD OPTIONS.\n",nradix_set_succeed,radix_set,iarg);
 			fprintf(stderr,"%s", cbuf);
+			++nfail_unusable;	// v21: this length was claimed by the sweep but not actually tested
 		}
 		/* If get a nonzero best-runtime, write the corresponding radix set index to the .cfg file: */
 		else
 		{
 			sprintf(cbuf, "INFO: %d of %d radix-sets at FFT length %u K passed - writing cfg-file entry.\n",nradix_set_succeed,radix_set,iarg);
-			fprintf(stderr,"%s", cbuf);
+			fprintf(stderr,"%s", cbuf);	++nfft_done;
 
 			/* Divide by the number of iterations done in the self-test: */
 		#ifdef MULTITHREAD	// In || mode the mod_square routines use getRealTime() to accumulate wall-clock time, thus CLOCKS_PER_SEC not needed
@@ -4851,6 +5003,42 @@ TIMING_TEST_LOOP:
 	}
 
 DONE:
+	/* v21: Self-test exit-code contract. Before this, main() returned 0 unconditionally from here,
+	including after printing "WARNING: 0 of N radix-sets at FFT length L K passed - PLEASE CHECK YOUR
+	BUILD OPTIONS" - so no script or CI step invoking `Mlucas -s <tier>` could distinguish a clean
+	sweep from a build in which nothing at all worked. The diagnosis was being printed and discarded.
+
+		0 - clean: every radix set tried either matched its reference / the cross-radix-set consensus,
+			or was skipped for a reason that does not impugn the answer (excessive ROE, unsupported
+			feature, bad carry), and every FFT length in the requested range yielded a .cfg entry.
+		1 - at least one case returned a WRONG ANSWER: a residue mismatch against the built-in
+			reference tables, a disagreement between radix sets at the same FFT length (Res64 is
+			invariant under choice of radix set, so a disagreement is a defect by construction), or an
+			identically-zero residue. This is never a legitimate outcome and always indicates a bug in
+			the program, the compiler, or the hardware.
+		2 - no wrong answers, but at least one FFT length in the requested range had too few usable
+			radix sets to write a .cfg entry, i.e. the sweep silently did not test what it claimed.
+
+	Callers wanting the strongest gate should treat any nonzero status as failure; callers on a host
+	with a known-marginal FFT length can gate on status 1 alone and still catch every wrong answer. */
+	if(selfTest) {
+		/* Always print a one-glance summary, pass or fail. Without it the only record of a radix set
+		having been skipped is a line buried thousands of lines up in the log, which is how e.g. the
+		fact that a stock AVX2 build fails every radix set at 1K and 2K went unremarked. */
+		fprintf(stderr, "\n  Self-test summary: %u of %u (FFT length, radix set) case(s) ran and gave the expected residue;\n",
+			ncase_pass,ncase_pass+ncase_skip);
+		fprintf(stderr, "  %u case(s) did not (excessive roundoff error, carry/assert failure, or a wrong residue);\n",ncase_skip);
+		fprintf(stderr, "  %u FFT length(s) got a .cfg entry, %u had too few usable radix sets and were NOT tested.\n",nfft_done,nfail_unusable);
+		if(nfail_wrong | nfail_unusable) {
+			fprintf(stderr, "\n  Self-test FAILED:\n");
+			if(nfail_wrong)
+				fprintf(stderr, "    %u case(s) returned a wrong answer (residue mismatch, radix-set disagreement or zero residue).\n",nfail_wrong);
+			if(nfail_unusable)
+				fprintf(stderr, "    %u FFT length(s) had too few usable radix sets and were skipped - they were NOT tested.\n",nfail_unusable);
+			fprintf(stderr, "\n  Done ...\n\n");
+			return nfail_wrong ? 1 : 2;
+		}
+	}
 	fprintf(stderr, "\n  Done ...\n\n");
 	return(0);
 }
