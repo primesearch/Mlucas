@@ -198,9 +198,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static double radix_inv, n2inv;
   #ifndef MULTITHREAD
 	double *addr;
-   #ifndef USE_SSE2
-	double *addi;
-   #endif
+	double *addi;	// Declared unconditionally: the MODULUS_TYPE_GENFFTMUL branch of
+					// radix32_main_carry_loop.h assigns and increments it in every build.
 	double temp,frac;
   #endif
 	double scale, dtmp, maxerr = 0.0;
@@ -256,9 +255,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
 		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
 		,*cy_r	// Need RADIX slots for sse2 carries, RADIX/2 for avx
-	  #if !defined(MULTITHREAD) && defined(USE_AVX)
-		,*cy_i
-	  #endif
+		,*cy_i	// Declared unconditionally: radix32_main_carry_loop.h's MODULUS_TYPE_GENFFTMUL
+				// branch reads it in every build.
 		;
   #ifdef USE_AVX
 	static vec_dbl *base_negacyclic_root;
@@ -551,7 +549,7 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 96 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
-		cy_r = tmp;	/* cy_i = tmp+0x10; */	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 32 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
@@ -1996,9 +1994,7 @@ void radix32_dit_pass1(double a[], int n)
 			,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
 			,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E */
 			,*cy_r
-		#ifdef USE_AVX
-			,*cy_i
-		#endif
+			,*cy_i	// Declared unconditionally - see the same declaration in radix32_ditN_cy_dif1() above
 			;
 	  #ifdef USE_AVX
 		vec_dbl *base_negacyclic_root;
@@ -2143,7 +2139,7 @@ void radix32_dit_pass1(double a[], int n)
 		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 		base_negacyclic_root = half_arr + RADIX;	// Only used for Fermat-mod
 	  #else
-		cy_r = tmp;	/* cy_i = tmp+0x10; */	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
