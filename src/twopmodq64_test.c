@@ -29,6 +29,16 @@
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define YES_ASM
 #endif
+// AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
+// all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); the
+// non-YES_ASM code paths (in twopmodq.c) provide a portable-C fallback, so disable under ASan:
+#if defined(__SANITIZE_ADDRESS__)
+	#undef YES_ASM
+#elif defined(__has_feature)
+	#if __has_feature(address_sanitizer)	/* older Clang: no __SANITIZE_ADDRESS__ predefine */
+		#undef YES_ASM
+	#endif
+#endif
 
 #ifdef __CUDACC__
 
@@ -61,11 +71,7 @@
 		j = start_index-1;
 		// MULL64(zstart,qinv) simply amounts to a left-shift of the bits of qinv:
 		x = qinv << zshift;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		x = __MULH64(q,x);
-	#else
 		MULH64(q,x,x);
-	#endif
 		// hi = 0 in this instance, which simplifies things.
 		y = q - x;
 
@@ -83,15 +89,9 @@
 		for(j = start_index-2; j >= 0; j--)
 		{
 			// 3-MUL sequence to effect x = MONT_SQR64(x,q,qinv):
-		#ifdef MUL_LOHI64_SUBROUTINE
-			SQR_LOHI64(x,&x,&y);	// Lo half of x^2 overwrites x, hi half into y
-			MULL64(qinv,x,x);
-			x = MULH64(q,x);
-		#else
 			SQR_LOHI64(x, x, y);
 			MULL64(qinv,x,x);
 			MULH64(q,x,x);
-		#endif
 			x = y - x + ((-(int64)(y < x)) & q);	/* did we have a borrow from (y-x)? */
 
 			if((pshift >> j) & 1)
@@ -158,17 +158,10 @@
 		x2 = qinv2 << zshift;
 		x3 = qinv3 << zshift;
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		x0 = __MULH64(q0,x0);
-		x1 = __MULH64(q1,x1);
-		x2 = __MULH64(q2,x2);
-		x3 = __MULH64(q3,x3);
-	#else
 		MULH64(q0,x0,x0);
 		MULH64(q1,x1,x1);
 		MULH64(q2,x2,x2);
 		MULH64(q3,x3,x3);
-	#endif
 		// hi = 0 in this instance, which simplifies things.
 		y0 = q0 - x0;
 		y1 = q1 - x1;
@@ -426,8 +419,8 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $2,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd4			\n\t"/* Skip if n < 0 */\
-	"LoopBeg4:								\n\t"\
+		"jl LoopEnd4%=			\n\t"/* Skip if n < 0 */\
+	"LoopBeg4%=:								\n\t"\
 	/* SQR_LOHI_q4(x*, lo*, hi*): */\
 		"movq	%%r12,%%rax	\n\t"/* x0-3 in r8-11. */\
 		"mulq	%%rax		\n\t"\
@@ -490,7 +483,7 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movq	%[__pshift],%%rax	\n\t"/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
-	"je	twopmodq64_q4_pshiftjmp			\n\t"\
+	"je	twopmodq64_q4_pshiftjmp%=			\n\t"\
 		"\n\t"\
 		"movq	%%r12,%%r8 	\n\t"/* r8  <- Copy of x */\
 		"movq	%%r12,%%rax	\n\t"/* rax <- Copy of x */\
@@ -520,12 +513,12 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"addq	%%rax,%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-	"twopmodq64_q4_pshiftjmp:	\n\t"\
+	"twopmodq64_q4_pshiftjmp%=:	\n\t"\
 		/* } endif((pshift >> j) & (uint64)1) */\
 		"subq	$1,%%rcx	\n\t"/* j-- */\
 		"cmpq	$0,%%rcx	\n\t"/* compare j vs 0 */\
-		"jge	LoopBeg4	\n\t"/* if (j >= 0), Loop */\
-	"LoopEnd4:			\n\t"\
+		"jge	LoopBeg4%=	\n\t"/* if (j >= 0), Loop */\
+	"LoopEnd4%=:			\n\t"\
 		"movq	%%r12,%[__x0]	\n\t"\
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
@@ -697,8 +690,8 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $2,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd8		\n\t"/* Skip if n < 0 */\
-	"LoopBeg8:								\n\t"\
+		"jl LoopEnd8%=		\n\t"/* Skip if n < 0 */\
+	"LoopBeg8%=:								\n\t"\
 	/* SQR_LOHI_q4(x*, lo*, hi*): */\
 		"movq	%%r8 ,%%rax		\n\t"\
 		"mulq	%%rax			\n\t"\
@@ -832,7 +825,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movq	%[__pshift],%%rax	\n\t"/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\
 		"shrq	%%cl,%%rax			\n\t"\
 		"andq	$0x1,%%rax			\n\t"\
-	"je	twopmodq64_q8_pshiftjmp		\n\t"\
+	"je	twopmodq64_q8_pshiftjmp%=		\n\t"\
 		"\n\t"\
 		"movq	%[__q0],%%rax  	\n\t"/* rax <- Copy of q */\
 		"leaq (%%r8 ,%%r8 ),%%rbx	\n\t"/* rbx <- x+x, no CF set, leave r8 (x) intact */\
@@ -882,12 +875,12 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"subq	%%rax,%%r15		\n\t"\
 		"cmovcq %%rbx,%%r15		\n\t"\
 		"\n\t"\
-	"twopmodq64_q8_pshiftjmp:	\n\t"\
+	"twopmodq64_q8_pshiftjmp%=:	\n\t"\
 		/* } endif((pshift >> j) & (uint64)1) */\
 		"subq	$1,%%rcx	\n\t"/* j-- */\
 		"cmpq	$0,%%rcx	\n\t"/* compare j vs 0 */\
-		"jge	LoopBeg8	\n\t"/* if (j >= 0), Loop */\
-	"LoopEnd8:			\n\t"\
+		"jge	LoopBeg8%=	\n\t"/* if (j >= 0), Loop */\
+	"LoopEnd8%=:			\n\t"\
 		"movq	%%r8 ,%[__x0]	\n\t"\
 		"movq	%%r9 ,%[__x1]	\n\t"\
 		"movq	%%r10,%[__x2]	\n\t"\

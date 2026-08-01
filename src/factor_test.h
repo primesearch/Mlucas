@@ -159,30 +159,6 @@ int test_fac()
 		printf("TRYQ = %u\n", i);
 	#endif
 
-	/* THREE_OP128: */
-	#ifndef THREE_OP128
-	//	printf("THREE_OP128 not defined\n");
-	#elif(THREE_OP128 == 0)
-		printf("THREE_OP128 = FALSE\n");
-	#else
-		i = THREE_OP128;
-		printf("THREE_OP128 = %u\n", i);
-		/* iF NONZERO, Must = 1 : */
-		ASSERT((THREE_OP128 == 1),"THREE_OP128 Must = 0 or 1!");
-		/* Only relevant for TRYQ = 4 or 8: */
-		#if(TRYQ != 4 && TRYQ != 8)
-			#error	THREE_OP128 Only relevant for TRYQ = 4 or 8!
-		#endif
-		/* Only relevant for factoring up to 128 bits: */
-		#if(defined(P3WORD) || defined(P4WORD))
-			#error	THREE_OP128 Only relevant for factoring up to 128 bits!
-		#endif
-		/* Only relevant if using fully 128-bit modmul routines: */
-		#if USE_128x96 != 0
-			#error	THREE_OP128 Only relevant if using fully 128-bit modmul routines - undef USE_128x96 or set = 0!
-		#endif
-	#endif
-
 	/* NUM_SIEVING_PRIME: */
 	#ifndef NUM_SIEVING_PRIME
 		/* This flag is required: */
@@ -201,12 +177,6 @@ int test_fac()
 		printf("TF_CLASSES = %u\n", i);
 	#endif
 
-	/* MUL_LOHI64_SUBROUTINE: */
-	#ifndef MUL_LOHI64_SUBROUTINE
-	//	printf("MUL_LOHI64_SUBROUTINE not defined\n");
-	#else
-		printf("MUL_LOHI64_SUBROUTINE = true\n");
-	#endif
 
 	/* MULH64_FAST: */
 	#ifndef MULH64_FAST
@@ -469,13 +439,13 @@ int test_fac()
 	q[1] = mi64_mul_scalar( p, 2*56474845800ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 56474845800ull, q, lenQ, q2) != 1) {
-		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
+		printf("ERROR: res = %s != 1\n", &cbuf0[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
 		ASSERT(0, "MM31 known-factor (k = 56474845800) test failed!");
 	}
 	q[1] = mi64_mul_scalar( p, 2*41448832329225ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	if(mi64_twopmodq(p, lenP, 41448832329225ull, q, lenQ, q2) != 1) {
-		printf("ERROR: res = %s != 1\n", &cbuf[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
+		printf("ERROR: res = %s != 1\n", &cbuf0[convert_mi64_base10_char(cbuf0, q2, lenQ, 0)]);
 		ASSERT(0, "MM31 known-factor (k = 41448832329225) test failed!");
 	}
 	free((void*)p);	free((void*)q);	free((void*)q2);	p = q = q2 = 0x0;
@@ -735,8 +705,10 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	for(i = 0; ffac256[i].n != 0; i++)
 	{
 		p64 = ffac256[i].n;	// Fermat index n
-		p256.d2 = p256.d1 = 0ull; p256.d0 = 1ull;	LSHIFT256(p256,p64,p256);	// p256 holds powering exponent 2^n
-		q256.d2 = q256.d1 = 0ull; q256.d0 = ffac256[i].k;	// q256 holds k (As of 2015, no k > 64-bit known)
+		// v21: Must zero .d3 as well - it was left uninitialized here, so LSHIFT256 and twopmodq256
+		// read stack garbage in the top word; benign only on hosts whose stack slot happens to be 0:
+		p256.d3 = p256.d2 = p256.d1 = 0ull; p256.d0 = 1ull;	LSHIFT256(p256,p64,p256);	// p256 holds powering exponent 2^n
+		q256.d3 = q256.d2 = q256.d1 = 0ull; q256.d0 = ffac256[i].k;	// q256 holds k (As of 2015, no k > 64-bit known)
 		LSHIFT256(q256,(p64+2),q256);	q256.d0 += 1ull;	// ...and now q256 holds q = k.2^(n+2) + 1 .
 
 		/* This uses the generic 256-bit mod function to calculate q%(2*p): */
@@ -764,12 +736,18 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		ASSERT(l >= (j+2), "Power of 2 appearing in factor of Fn must be >= [n+2]!");
 		k =         ffacBig[i].d0;	// Factor k; must be odd in this schema
 		ASSERT(1ull == (k & 1ull), "k must be odd!");
+		// p,q are calloc'd once above and only word 0 is reseeded below; fully re-zero them each pass so
+		// mi64_shl's in-place shift-in doesn't pick up stale nonzero high words from a previous iteration
+		// (harmless overhead here - 2*640 words over ~10 iterations of a self-test):
+		memset(p, 0, 640*sizeof(uint64));
+		memset(q, 0, 640*sizeof(uint64));
 		lenP = (j+63)>>6;	// Assume Fermat index increases as we traverse ffacBig array, thus this overwrites previous
 		p[0] = 1ull;	p[lenP] = mi64_shl(p,p,j,lenP);	lenP += (p[lenP] != 0ull);	// case's p = (1 << j) array elements.
 		lenQ = (l+63)>>6;
 		q[0] = k;		q[lenQ] = mi64_shl(q,q,l,lenQ);	lenQ += (q[lenQ] != 0ull);
 		q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	//printf("Testing F%u, q = %" PRIu64 " * 2^%u + 1, lenQ = %u...\n",j,k,l,lenQ);
+		ASSERT(l-j-1 < 64, "k << (l-j-1) requires l-j-1 < 64!");	// Defensive: shift count must stay in-range for a uint64
 		uint32 res1 = mi64_twopmodq(p, lenP, k << (l-j-1), q, lenQ, q2);	// Fiddle k to put q in Mersenne-like form = 2.k'.2^j + 1
 			//	res1 = mi64_twopmodq_qferm(j, k << (l-j), q2);
 		if(res1 != 1) {
@@ -779,6 +757,9 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 			ASSERT(0,"0");
 		}
 	}
+	free((void *)p ); p  = 0x0;	// Done with the ffacBig scratch arrays; p/q/q2 are not used past this loop
+	free((void *)q ); q  = 0x0;
+	free((void *)q2); q2 = 0x0;
 
 	/* Test 63-bit factors using the 63, 64 and 96-bit modmul routines */
 #ifdef FACTOR_STANDALONE
@@ -1365,12 +1346,8 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 			pinv128.d0 = pinv128.d0*((uint64)2 - hi64);
 		}
 		/* pinv128 has 128 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		pinv128.d1 = -pinv128.d0*__MULH64(p64, pinv128.d0);
-	#else
 		MULH64(p64, pinv128.d0, hi64);
 		pinv128.d1 = -pinv128.d0*hi64;
-	#endif
 		/* k is simply the bottom 128 bits of ((q-1)/2)*pinv128: */
 		x128.d0	= ((q128.d0-1) >> 1) + (q128.d1 << 63);	x128.d1	= (q128.d1 >> 1);	/* (q-1)/2. */
 		MULL128(x128, pinv128, x128);
@@ -1661,12 +1638,8 @@ if((q128.d1 >> 14) == 0) {
 			pinv128.d0 = pinv128.d0*((uint64)2 - hi64);
 		}
 		/* pinv128 has 128 bits, but only the upper 64 get modified here. */
-		#ifdef MUL_LOHI64_SUBROUTINE
-			pinv128.d1 = -pinv128.d0*__MULH64(p64, pinv128.d0);
-		#else
 			MULH64(p64, pinv128.d0, hi64);
 			pinv128.d1 = -pinv128.d0*hi64;
-		#endif
 		/* k is simply the bottom 128 bits of ((q-1)/2)*pinv128: */
 		x128.d0 = ((q128.d0-1) >> 1) + (q128.d1 << 63); x128.d1 = (q128.d1 >> 1);       /* (q-1)/2. */
 		MULL128(x128, pinv128, x128);
@@ -1868,11 +1841,7 @@ if((q128.d1 >> 14) == 0) {
 			continue;
 
 		p64 = (uint64)fac63[i].p * (uint64)fac64[i2].p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac64[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac64[i2].q, q128.d0, q128.d1);
-	#endif
 
 		/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
 		to composite factors which are a product of prime factors of
@@ -1921,11 +1890,7 @@ if((q128.d1 >> 14) == 0) {
 			continue;
 
 		p64 = (uint64)fac64[i].p * (uint64)fac64[i2].p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac64[i].q, fac64[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac64[i].q, fac64[i2].q, q128.d0, q128.d1);
-	#endif
 
 		/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
 		to composite factors which are a product of prime factors of
@@ -1975,11 +1940,7 @@ if((q128.d1 >> 14) == 0) {
 
 		p64 = (uint64)fac63[i].p * (uint64)fac65[i2].p;
 		x128.d0 = fac65[i2].q;	x128.d1 = 1;	/* Store full q65 in a 128-bit temp for printing purposes */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac65[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac65[i2].q, q128.d0, q128.d1);
-	#endif
 		/* fac65.q's assumed to have (hidden) 65th bit = 1, so need
 		to add 2^64*fac63.q to the output of MUL_LOHI64 here: */
 		q128.d1 += fac63[i].q;
@@ -2060,6 +2021,74 @@ if((q128.d1 >> 14) == 0) {
 
 #if(defined(P3WORD) || defined(P4WORD))
 
+	/* Test <= 96-bit factors using the 192-bit modmul routines.
+	This is NOT redundant with the 96- and 128-bit testing above, and it is the only coverage the
+	192-bit q-pipelined routines get below 2^90. A P3WORD build of factor.c feeds *every* candidate
+	to twopmodq192_q4 (factor.c:3599), including sub-2^64 ones - the runtime bit-length narrowing
+	which would hand those off to a narrower modpow is commented out at factor.c:3667-3671 - so
+	twopmodq192_q4 has to be correct for small q, not just for q near 2^128.
+	Before this loop existed the only twopmodq192_q4 coverage in test_fac() was the fac128x2 loop
+	below (q = 90...127 bits); the fac160/fac192 loops further down cannot supply any, since all of
+	their entries have k >= 2^64 and those routines take a 64-bit k. The carry-layer approximation
+	that MULH192_FAST used to apply on every non-x86_64-GCC platform lost 1458 of 1742 known
+	Mersenne factors that way, and passed the self-test unnoticed. fac96[] spans q = 60...96 bits,
+	with 158 entries at 65-66 bits, which is exactly where such small-q breakage shows up first;
+	build with -DPIPELINE_MUL192=1 to route these through the q-pipelined MUL macros. */
+#ifdef FACTOR_STANDALONE
+	printf("Testing 96-bit factors using the 192-bit modmul routines...\n");
+#endif
+	for(i = 0; fac96[i].p != 0; i++)
+	{
+		p64 = fac96[i].p;
+		p192.d0 = p64;	p192.d1 = p192.d2 = 0;		ADD192(p192, p192, two_p192);
+		q192.d2 = 0;	q192.d1 = (uint64)fac96[i].d1;	q192.d0 = fac96[i].d0;
+
+		// Compute k = (q-1)/2p, while verifying that q%2p = 1:
+		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
+		if(!CMPEQ192(res192, ONE192))
+		{
+			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
+					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
+			ASSERT(0,"0");
+		}
+		/* A handful of the fac96 entries have p > 2^32 and k >= 2^64; the q-pipelined routines
+		take a 64-bit k, so those simply are not expressible as inputs to them: */
+		if(x192.d2 != 0 || x192.d1 != 0)
+			continue;
+
+		res192 = twopmodq192(p192, q192);
+		if(!CMPEQ192(res192, ONE192))
+		{
+			fprintf(stderr,"ERROR: twopmodq192( %s, %s ) returns non-unity result %s\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
+					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
+			ASSERT(0,"0");
+		}
+
+	#if(TRYQ == 4)
+		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
+		if(res64 != 15)
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
+			ASSERT(0,"0");
+		}
+	#elif(TRYQ == 8)
+		res64 = twopmodq192_q8((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
+		if(res64 != 255)
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
+			ASSERT(0,"0");
+		}
+	#endif
+	}
+
 	/* Test 128-bit factors using the 160 and 192-bit modmul routines */
 #ifdef FACTOR_STANDALONE
 	printf("Testing 128x2-bit factors using 160 and 192-bit modmul routines...\n");
@@ -2129,6 +2158,70 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
+			ASSERT(0,"0");
+		}
+	#endif
+	}
+
+	/* Test factors > 128 bits using the 192-bit modmul routines.
+
+	This is the only coverage twopmodq192_q4/_q8 get above 2^128, which is the size range the
+	192-bit modpow exists for. The fac128x2 loop just above tops out at q = 127 bits; the fac160
+	and fac192 loops just below contribute nothing, because those routines take a 64-bit k and
+	every fac160/fac192 entry has k >= 2^64. Closing the gap needs constructed vectors - see the
+	fac192p[] comment in fac_test_dat192.h for why no catalogued factor can supply one, and for
+	why the expected result is a per-lane mask rather than the usual all-ones.
+
+	The regimes this reaches and the fac128x2 loop does not: q with a nonzero top word throughout
+	the modmul, exponents p that are themselves multiword (both the pshift.d1 and the pshift.d2
+	arms of the leading-bit extraction above are otherwise never taken - fac128x2's p is 128-bit
+	and everything else here is 64-bit), and q within a few bits of the 2^192 ceiling. */
+#ifdef FACTOR_STANDALONE
+	printf("Testing >128-bit factors using the 192-bit modmul routines...\n");
+#endif
+	for(i = 0; fac192p[i].res != 0; i++)
+	{
+		p192.d2 = fac192p[i].p2;	p192.d1 = fac192p[i].p1;	p192.d0 = fac192p[i].p0;
+		ADD192(p192, p192, two_p192);
+
+		/* Cross-check each lane that is supposed to be a genuine factor against the scalar
+		192-bit modpow, which takes q directly rather than deriving it from k: */
+		for(j = 0; j < 4; j++)
+		{
+			if(((fac192p[i].res >> j) & 1) == 0)	continue;
+			ASSERT(!mi64_mul_scalar((uint64*)&two_p192, fac192p[i].k[j], (uint64*)&q192, 3), "q = 2.k.p+1 must be < 2^192!");
+			q192.d0 += 1;	/* 2.k.p is even, so this cannot carry */
+			res192 = twopmodq192(p192, q192);
+			if(!CMPEQ192(res192, ONE192))
+			{
+				fprintf(stderr,"ERROR: twopmodq192( %s, %s ) returns non-unity result %s\n",
+						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+						&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
+						&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
+				ASSERT(0,"0");
+			}
+		}
+
+	#if(TRYQ == 4)
+		res64 = twopmodq192_q4((uint64*)&p192, fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]);
+		if(res64 != (uint64)fac192p[i].res)
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q4( %s, k = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 " ) returns %#1X, expected %#1X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3],
+					(uint32)res64, fac192p[i].res);
+			ASSERT(0,"0");
+		}
+	#elif(TRYQ == 8)
+		/* Feed the same four k twice, so the expected mask is simply doubled up: */
+		res64 = twopmodq192_q8((uint64*)&p192, fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]
+											 , fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]);
+		if(res64 != (uint64)(fac192p[i].res + (fac192p[i].res << 4)))
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q8( %s, k = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 " x2 ) returns %#2X, expected %#2X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3],
+					(uint32)res64, fac192p[i].res + (fac192p[i].res << 4));
 			ASSERT(0,"0");
 		}
 	#endif
@@ -2375,11 +2468,7 @@ if((q128.d1 >> 14) == 0) {
 
 		p64 = (uint64)fac63[i].p * (uint64)fac65[i2].p;
 		x128.d0 = fac65[i2].q;	x128.d1 = 1;	/* Store full q65 in a 128-bit temp for printing purposes */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac65[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac65[i2].q, q128.d0, q128.d1);
-	#endif
 		/* fac65.q's assumed to have (hidden) 65th bit = 1, so need
 		to add 2^64*fac63.q to the output of MUL_LOHI64 here: */
 		q128.d1 += fac63[i].q;
@@ -2396,27 +2485,23 @@ if((q128.d1 >> 14) == 0) {
 		/*for(i3 = 0; fac64[i3].p != 0; i3++)*/
 		for(i3 = 0; i3 < 100; i3++)
 		{
+			/* This whole #if(0) block is disabled; tmp64 is undeclared elsewhere in test_fac(),
+			so declare it locally here (scoped to this loop body) so the block would compile if
+			re-enabled, without risking a redeclaration clash with the unrelated tmp64 declared
+			under "#if TEST_256" at the top of test_fac(): */
+			uint64 tmp64;
 			if(fac64[i3].p == fac63[i].p || fac64[i3].p == fac65[i2].p)
 				continue;
 
 			/* Since the product of three test exponents will generally
 			overflow 64-bits, store that in the lower 2 words of the p192 variable:
 			*/
-		#ifdef MUL_LOHI64_SUBROUTINE
-			/* Multiply to get 3-exponent product: */
-			MUL_LOHI64(p64, fac64[i3].p,&p192.d0,&p192.d1);	p192.d2 = 0;
-			/* Low  128 bits of the 192-bit 3-factor product: */
-			MUL_LOHI64(q128.d0,fac64[i3].q,&q192.d0,&q192.d1);
-			/* High 128 bits of the 192-bit 3-factor product: */
-			MUL_LOHI64(q128.d1,fac64[i3].q,  &tmp64,&q192.d2);	q192.d1 += tmp64;	q192.d2 += (q192.d1 < tmp64);
-		#else
 			/* Multiply to get 3-exponent product: */
 			MUL_LOHI64(p64, fac64[i3].p, p192.d0, p192.d1);	p192.d2 = 0;
 			/* Low  128 bits of the 192-bit 3-factor product: */
 			MUL_LOHI64(q128.d0,fac64[i3].q, q192.d0, q192.d1);
 			/* High 128 bits of the 192-bit 3-factor product: */
 			MUL_LOHI64(q128.d1,fac64[i3].q,   tmp64, q192.d2);	q192.d1 += tmp64;	q192.d2 += (q192.d1 < tmp64);
-		#endif
 
 			/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
 			to composite factors which are a product of prime factors of
@@ -2537,6 +2622,12 @@ if((q128.d1 >> 14) == 0) {
 	*/
 	#define NTEST256	1000000
 
+	/* p63 holds the 63x65-bit exponent product (analogous to p64 below, which holds
+	the 64x64-bit exponent product); cbuf3-cbuf6 are scratch print buffers, same
+	size/convention as cbuf0-cbuf2 declared at the top of test_fac(): */
+	uint64 p63;
+	char cbuf3[STR_MAX_LEN], cbuf4[STR_MAX_LEN], cbuf5[STR_MAX_LEN], cbuf6[STR_MAX_LEN];
+
    #ifdef FACTOR_STANDALONE
 	printf("Testing 63*64*64*65-bit factors...");
    #endif
@@ -2551,11 +2642,7 @@ if((q128.d1 >> 14) == 0) {
 
 		p63 = (uint64)fac63[i].p * (uint64)fac65[i2].p;
 		x128.d0 = fac65[i2].q;	x128.d1 = 1;	/* Store full q65 in a 128-bit temp for printing purposes */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac65[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac65[i2].q, q128.d0, q128.d1);
-	#endif
 		/* fac65.q's assumed to have (hidden) 65th bit = 1, so need
 		to add 2^64*fac63.q to the output of MUL_LOHI64 here: */
 		q128.d1 += fac63[i].q;

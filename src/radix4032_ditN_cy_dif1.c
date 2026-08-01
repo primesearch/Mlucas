@@ -176,6 +176,13 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	double wi_re,wi_im;
 #endif
+  #ifdef USE_AVX512	// AVX-512: main-array loop stride = 2*RE_IM_STRIDE = 16, so the wraparound-carry
+	const int jhi_wrap_mers = 15;	// cleanup pass must cover 16 words, not 8. Cf. radix56/radix960.
+	const int jhi_wrap_ferm = 15;
+  #else
+	const int jhi_wrap_mers =  7;
+	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
+  #endif
 	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	int j2,jp;
@@ -255,7 +262,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
 #endif
-#if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
+#if !defined(MULTITHREAD) && defined(USE_AVX)
 	int *itm2;
 #endif
 	int err;
@@ -386,7 +393,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy4032_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy4032_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -425,7 +432,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
-	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT && FERMAT_RANDBIT_MULT)
 	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
 		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
@@ -445,7 +452,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 
 	if(p != psave || n != nsave
 	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si || tdat[0].rn0 != rn0))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
@@ -515,7 +522,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	  #ifdef USE_PTHREAD
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
-			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -640,7 +647,11 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		ASSERT((radix4032_creals_in_local_store << L2_SZ_VD) >= ((intptr_t)half_arr - (intptr_t)r00) + (j << L2_SZ_VD), "radix4032_creals_in_local_store checksum failed!");
 
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		sse2_rnd->d0 = base[0]; sse2_rnd->d1 = baseinv[1]; sse2_rnd->d2 = wts_mult[1]; sse2_rnd->d3 = inv_mult[0];
+	  #else
 		VEC_DBL_INIT(sse2_rnd, crnd);
+	  #endif
 
 	// Init-mode calls to these functions which maintain an internal local-alloc static store:
 		thr_id = -1;	// Use this special thread id for any macro-required thread-local-data inits...
@@ -1353,7 +1364,11 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 				jhi = NDIVR/CY_THREADS;	// Earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, need 2x that here
 				// Get value of (negative) increment resulting from (jhi-jstart)/stride execs of *cycle[] += wts_idx_inc* (mod nwt*):
 			#ifndef USE_SSE2
-				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt16);	// []>>(L2_SZ_VD-2) is fast subst. for []/stride
+				// Scalar-double mode: icycle[] holds plain (non-pointerized) cycle indices in [0,nwt), and the
+				// negative-wrap correction on the next line adds nwt, so this increment must be reduced mod nwt -
+				// NOT mod nwt16 (= nwt*sizeof(vec_dbl)), which is the SIMD/pointerized modulus. Cf. radix28/56/
+				// 60/224/240/960, which all use nwt here.
+				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt);	// []>>(L2_SZ_VD-2) is fast subst. for []/stride
 			#else
 				j = ((int64)wts_idx_inc2 * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt16);	// Cast wts_idx_inc* to signed 64-bit to avoid
 						// overflow of product; further compute (jhi-jstart)/stride prior to multiply to gain more bits-to-spare.
@@ -1481,7 +1496,7 @@ for(outer=0; outer <= 1; outer++)
 		{
 			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -1501,7 +1516,7 @@ for(outer=0; outer <= 1; outer++)
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_ferm;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -1642,11 +1657,18 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(tdat[ithread].wts_idx_inc2 == wts_idx_inc2, "thread-local memcheck fail!");
 		ASSERT(tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		ASSERT(((tmp-1)->d0 == base[0] && (tmp-1)->d1 == baseinv[1] && (tmp-1)->d2 == wts_mult[1] && (tmp-1)->d3 == inv_mult[0]), "thread-local memcheck failed!");
+	  #else
 		ASSERT(((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
+	  #endif
 	#endif
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			/* No-Op: in AVX-512 Mersenne mode there are no base/baseinv mini-tables in half_arr - the
+			carry macros use opmasked conditional-doubling of broadcast consts instead. Cf. radix960. */
+		#elif defined(USE_AVX)
 			// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 			dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 			dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -1889,13 +1911,7 @@ for(outer=0; outer <= 1; outer++)
 
   #endif
 
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-	}
+	if(tpool) ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -1977,11 +1993,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
-		j_jhi =15;
+		j_jhi = jhi_wrap_ferm;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = jhi_wrap_mers;
 	}
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -2883,8 +2899,8 @@ void radix4032_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy4032_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	cy4032_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
@@ -2960,7 +2976,7 @@ void radix4032_dit_pass1(double a[], int n)
 		vec_dbl *tm0;
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
-	  #if defined(USE_AVX) && !defined(USE_AVX512)
+	  #if defined(USE_AVX)
 		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
@@ -3095,11 +3111,15 @@ void radix4032_dit_pass1(double a[], int n)
 
 		ASSERT((r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT((half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+	  #ifndef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
 		ASSERT((sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+	  #endif
 		tmp = half_arr;
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		/* No-Op: see the corr. comment in the main routine. */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -3368,7 +3388,7 @@ void radix4032_dit_pass1(double a[], int n)
 		{
 			thread_arg->maxerr = maxerr;
 		}
-		return 0x0;
+		return;
 	}
 #endif
 

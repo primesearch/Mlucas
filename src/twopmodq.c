@@ -26,6 +26,16 @@
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define YES_ASM
 #endif
+// AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
+// all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); the
+// #ifndef YES_ASM branches provide a portable-C fallback, so disable the asm under ASan:
+#if defined(__SANITIZE_ADDRESS__)
+	#undef YES_ASM
+#elif defined(__has_feature)
+	#if __has_feature(address_sanitizer)	/* older Clang: no __SANITIZE_ADDRESS__ predefine */
+		#undef YES_ASM
+	#endif
+#endif
 
 #if FAC_DEBUG
 #error !!!
@@ -53,19 +63,11 @@ uint64 test_modsqr64(uint64 x, uint64 q)
 		qinv = qinv*((uint64)2 - q*qinv);
 	}
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	SQR_LOHI64(x,&lo,&hi);
-#else
 	SQR_LOHI64(x,lo,hi);
-#endif
 
 /*...x*y mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 	lo *= qinv;
-#ifdef MUL_LOHI64_SUBROUTINE
-	lo = __MULH64(q,lo);
-#else
 	MULH64(q,lo,lo);
-#endif
 
 	t = hi - lo;
 
@@ -226,11 +228,7 @@ uint32 test_twopmodq64(uint32 imax)
 	#warning modinv64 fails for some 64-bit inputs - needs investigation.
 	//	uint64 inv = modinv64(neg,q);
 		// As a workaround for the modinv64 issue, instead compute 128-bit product pos*neg and check that pos*neg == 1 (mod q):
-	  #ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(pos,neg,prod128+0 ,prod128+1 );
-	  #else
 		MUL_LOHI64(pos,neg,prod128[0],prod128[1]);
-	  #endif
 		mi64_div(prod128, &q, 2,1, 0x0,&rem);	// Omit quotient computation; remainder in rem
 		if(rem != 1) {
 			fprintf(stderr,"Mismatch in test_twopmodq64: p = %" PRIu64 "; q = %" PRIu64 ": 2^[+|-p] (mod q) = %" PRIu64 ", %" PRIu64 ".\n",p,q,pos,neg);
@@ -397,11 +395,7 @@ uint64 twopmodq63(uint64 p, uint64 q)
 	// Since zshift is a power of two < 2^128, use streamlined code sequence for 1st iteration:
 	j = start_index-1;
 	x = qinv << zshift;	// MULL64(1 << zshift, qinv, lo) simply amounts to a left-shift of the bits of qinv
-  #ifdef MUL_LOHI64_SUBROUTINE
-	x = __MULH64(q,x);
-  #else
 	MULH64(q,x,x);
-  #endif
 	// hi =  in this instance, which simplifies things:
 	x = q - x;
 	if((pshift >> j) & (uint64)1)
@@ -416,20 +410,12 @@ uint64 twopmodq63(uint64 p, uint64 q)
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x,&lo,&hi);
-	#else
 		SQR_LOHI64(x,lo,hi);
-	#endif
 
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 
 		MULL64(qinv,lo,lo);
-	#ifdef MUL_LOHI64_SUBROUTINE
-		lo = __MULH64(q,lo);
-	#else
 		MULH64(q,lo,lo);
-	#endif
 		x = hi - lo + q;
 		if(x >= q) x -= q;
 
@@ -527,17 +513,10 @@ uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	x1 = qinv1 << zshift;
 	x2 = qinv2 << zshift;
 	x3 = qinv3 << zshift;
-  #ifdef MUL_LOHI64_SUBROUTINE
-	x0 = __MULH64(q0,x0);
-	x1 = __MULH64(q1,x1);
-	x2 = __MULH64(q2,x2);
-	x3 = __MULH64(q3,x3);
-  #else
 	MULH64(q0,x0,x0);
 	MULH64(q1,x1,x1);
 	MULH64(q2,x2,x2);
 	MULH64(q3,x3,x3);
-  #endif
 
 	/* hi = 0 in this instance, which simplifies things. */
 	x0 = q0 - x0;
@@ -556,34 +535,20 @@ uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	for(j = start_index-2; j >= 0; j--)
 	{
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
-	  #ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&x0,&y0);
-		SQR_LOHI64(x1,&x1,&y1);
-		SQR_LOHI64(x2,&x2,&y2);
-		SQR_LOHI64(x3,&x3,&y3);
-	  #else
 		SQR_LOHI64(x0,x0,y0);
 		SQR_LOHI64(x1,x1,y1);
 		SQR_LOHI64(x2,x2,y2);
 		SQR_LOHI64(x3,x3,y3);
-	  #endif
 	// x *= qinv:
 		MULL64(x0,qinv0,x0);
 		MULL64(x1,qinv1,x1);
 		MULL64(x2,qinv2,x2);
 		MULL64(x3,qinv3,x3);
 
-	  #ifdef MUL_LOHI64_SUBROUTINE
-		x0 = __MULH64(q0,x0);
-		x1 = __MULH64(q1,x1);
-		x2 = __MULH64(q2,x2);
-		x3 = __MULH64(q3,x3);
-	  #else
 		MULH64(q0,x0,x0);
 		MULH64(q1,x1,x1);
 		MULH64(q2,x2,x2);
 		MULH64(q3,x3,x3);
-	  #endif
 
 		x0 = y0 - x0 + q0;
 		x1 = y1 - x1 + q1;
@@ -729,16 +694,6 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	x6 = qinv6 << zshift;
 	x7 = qinv7 << zshift;
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	x0 = __MULH64(q0,x0);
-	x1 = __MULH64(q1,x1);
-	x2 = __MULH64(q2,x2);
-	x3 = __MULH64(q3,x3);
-	x4 = __MULH64(q4,x4);
-	x5 = __MULH64(q5,x5);
-	x6 = __MULH64(q6,x6);
-	x7 = __MULH64(q7,x7);
-#else
 	MULH64(q0,x0,x0);
 	MULH64(q1,x1,x1);
 	MULH64(q2,x2,x2);
@@ -747,7 +702,6 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	MULH64(q5,x5,x5);
 	MULH64(q6,x6,x6);
 	MULH64(q7,x7,x7);
-#endif
 	/* hi = 0 in this instance, which simplifies things. */
 	x0 = q0 - x0;
 	x1 = q1 - x1;
@@ -792,16 +746,6 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	for(j = start_index-2; j >= 0; j--)
 	{
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&x0,&y0);
-		SQR_LOHI64(x1,&x1,&y1);
-		SQR_LOHI64(x2,&x2,&y2);
-		SQR_LOHI64(x3,&x3,&y3);
-		SQR_LOHI64(x4,&x4,&y4);
-		SQR_LOHI64(x5,&x5,&y5);
-		SQR_LOHI64(x6,&x6,&y6);
-		SQR_LOHI64(x7,&x7,&y7);
-	#else
 		SQR_LOHI64(x0,x0,y0);
 		SQR_LOHI64(x1,x1,y1);
 		SQR_LOHI64(x2,x2,y2);
@@ -810,7 +754,6 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		SQR_LOHI64(x5,x5,y5);
 		SQR_LOHI64(x6,x6,y6);
 		SQR_LOHI64(x7,x7,y7);
-	#endif
 		MULL64(x0,qinv0,x0);
 		MULL64(x1,qinv1,x1);
 		MULL64(x2,qinv2,x2);
@@ -819,16 +762,6 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		MULL64(x5,qinv5,x5);
 		MULL64(x6,qinv6,x6);
 		MULL64(x7,qinv7,x7);
-	#ifdef MUL_LOHI64_SUBROUTINE
-		x0 = __MULH64(q0,x0);
-		x1 = __MULH64(q1,x1);
-		x2 = __MULH64(q2,x2);
-		x3 = __MULH64(q3,x3);
-		x4 = __MULH64(q4,x4);
-		x5 = __MULH64(q5,x5);
-		x6 = __MULH64(q6,x6);
-		x7 = __MULH64(q7,x7);
-	#else
 		MULH64(q0,x0,x0);
 		MULH64(q1,x1,x1);
 		MULH64(q2,x2,x2);
@@ -837,7 +770,6 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		MULH64(q5,x5,x5);
 		MULH64(q6,x6,x6);
 		MULH64(q7,x7,x7);
-	#endif
 
 		x0 = y0 - x0 + q0;
 		x1 = y1 - x1 + q1;
@@ -1014,16 +946,6 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 	lo7 = qinv7 << zshift7;
 
 	/* lo = MULH64(q, lo): */
-#ifdef MUL_LOHI64_SUBROUTINE
-	lo0 = __MULH64(q0,lo0);
-	lo1 = __MULH64(q1,lo1);
-	lo2 = __MULH64(q2,lo2);
-	lo3 = __MULH64(q3,lo3);
-	lo4 = __MULH64(q4,lo4);
-	lo5 = __MULH64(q5,lo5);
-	lo6 = __MULH64(q6,lo6);
-	lo7 = __MULH64(q7,lo7);
-#else
 	MULH64(q0,lo0,lo0);
 	MULH64(q1,lo1,lo1);
 	MULH64(q2,lo2,lo2);
@@ -1032,7 +954,6 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 	MULH64(q5,lo5,lo5);
 	MULH64(q6,lo6,lo6);
 	MULH64(q7,lo7,lo7);
-#endif
 	/* hi = 0 in this instance, which simplifies things. */
 	x0 = q0 - lo0;
 	x1 = q1 - lo1;
@@ -1068,16 +989,6 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&lo0,&hi0);
-		SQR_LOHI64(x1,&lo1,&hi1);
-		SQR_LOHI64(x2,&lo2,&hi2);
-		SQR_LOHI64(x3,&lo3,&hi3);
-		SQR_LOHI64(x4,&lo4,&hi4);
-		SQR_LOHI64(x5,&lo5,&hi5);
-		SQR_LOHI64(x6,&lo6,&hi6);
-		SQR_LOHI64(x7,&lo7,&hi7);
-	#else
 		SQR_LOHI64(x0,lo0,hi0);
 		SQR_LOHI64(x1,lo1,hi1);
 		SQR_LOHI64(x2,lo2,hi2);
@@ -1086,7 +997,6 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 		SQR_LOHI64(x5,lo5,hi5);
 		SQR_LOHI64(x6,lo6,hi6);
 		SQR_LOHI64(x7,lo7,hi7);
-	#endif
 
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 
@@ -1108,16 +1018,6 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 		x6 = hi6 + q6;
 		x7 = hi7 + q7;
 
-#ifdef MUL_LOHI64_SUBROUTINE
-		lo0 = __MULH64(q0,lo0);
-		lo1 = __MULH64(q1,lo1);
-		lo2 = __MULH64(q2,lo2);
-		lo3 = __MULH64(q3,lo3);
-		lo4 = __MULH64(q4,lo4);
-		lo5 = __MULH64(q5,lo5);
-		lo6 = __MULH64(q6,lo6);
-		lo7 = __MULH64(q7,lo7);
-#else
 		MULH64(q0,lo0,lo0);
 		MULH64(q1,lo1,lo1);
 		MULH64(q2,lo2,lo2);
@@ -1126,7 +1026,6 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 		MULH64(q5,lo5,lo5);
 		MULH64(q6,lo6,lo6);
 		MULH64(q7,lo7,lo7);
-#endif
 
 		x0 -= lo0;
 		x1 -= lo1;
@@ -1207,19 +1106,32 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	// If get here, p > 64: set up for Montgomery-mul-based powering loop:
 	nshift = trailz64(q);
 	if(nshift) {
-		// p >= nshift guaranteed here:
+		// p >= nshift guaranteed here, since p > 64 > nshift:
 		q >>= nshift; p -= nshift;	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
 		if(debug) printf("Removed power-of-2 from q: q' = (q >> %u) = %" PRIu64 "\n",nshift,q);
+		// The (p <= 64) early-out above was taken against the *unshifted* exponent, so for
+		// p in (64, 64+nshift) the subtraction just dropped p below 64 and the (pshift = p - 64)
+		// computed below would wrap. Redo the direct computation, now against the odd part q',
+		// and restore the off-shifted power of 2 on the way out.  p = 64 needs no special case:
+		// it gives pshift = 0, hence leadb = 0 and start_index = 0, which the main path handles.
+		if(p < 64)
+			return ((1ull << p) % q) << nshift;
 	}
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 	// Extract leftmost 7 bits of (p - 64); if > 64, use leftmost 6 instead:
 	pshift = p - 64;	j = leadz64(pshift);
-	leadb = (pshift<<j) >> 57;	// No (pshift = ~pshift) step in positive-power algorithm!
-	if(leadb > 64) {
-		start_index = 58-j;
-		leadb >>= 1;
+	if(j > 57) {	// pshift < 64, i.e. fewer than 7 significant bits: the 7-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = pshift;	start_index = 0;
 	} else {
-		start_index = 57-j;
+		leadb = (pshift<<j) >> 57;	// No (pshift = ~pshift) step in positive-power algorithm!
+		if(leadb > 64) {
+			start_index = 58-j;
+			leadb >>= 1;
+		} else {
+			start_index = 57-j;
+		}
 	}
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT((q & 0x1) && (q > 1), "q must be odd > 1!");
@@ -1269,31 +1181,6 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 
 #ifndef YES_ASM	/* Use x86_64-optimized asm version if available */
 
-  #ifdef MUL_LOHI64_SUBROUTINE
-
-	#define MONT_SQR64_q4(__x0,__x1,__x2,__x3,__q0,__q1,__q2,__q3,__qinv0,__qinv1,__qinv2,__qinv3,__z0,__z1,__z2,__z3)\
-	{\
-		uint64 lo0,lo1,lo2,lo3,hi0,hi1,hi2,hi3;					\
-		SQR_LOHI64(__x0,&lo0,&hi0);								\
-		SQR_LOHI64(__x1,&lo1,&hi1);								\
-		SQR_LOHI64(__x2,&lo2,&hi2);								\
-		SQR_LOHI64(__x3,&lo3,&hi3);								\
-		MULL64(__qinv0,lo0,lo0);								\
-		MULL64(__qinv1,lo1,lo1);								\
-		MULL64(__qinv2,lo2,lo2);								\
-		MULL64(__qinv3,lo3,lo3);								\
-		lo0 = __MULH64(__q0,lo0);								\
-		lo1 = __MULH64(__q1,lo1);								\
-		lo2 = __MULH64(__q2,lo2);								\
-		lo3 = __MULH64(__q3,lo3);								\
-		/* did we have a borrow from (hi-lo)? */				\
-		__z0 = hi0 - lo0 + ((-(int64)(hi0 < lo0)) & __q0);		\
-		__z1 = hi1 - lo1 + ((-(int64)(hi1 < lo1)) & __q1);		\
-		__z2 = hi2 - lo2 + ((-(int64)(hi2 < lo2)) & __q2);		\
-		__z3 = hi3 - lo3 + ((-(int64)(hi3 < lo3)) & __q3);		\
-	}
-
-  #else
 
 	#define MONT_SQR64_q4(__x0,__x1,__x2,__x3,__q0,__q1,__q2,__q3,__qinv0,__qinv1,__qinv2,__qinv3,__z0,__z1,__z2,__z3)\
 	{\
@@ -1317,7 +1204,6 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 		__z3 = hi3 - lo3 + ((-(int64)(hi3 < lo3)) & __q3);		\
 	}
 
-  #endif
 
 #endif
 
@@ -1333,8 +1219,14 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 	uint32 leadb, start_index;
 
 	// Extract leftmost 6 bits of p and subtract from 64:
-	leadb = (p<<j) >> 58;
-	start_index = 58-j;
+	if(j > 58) {	// p < 32, i.e. fewer than 6 significant bits: the 6-bit extraction below would
+					// left-pad p with zeros (leadb != p) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of p as the lead chunk:
+		leadb = p;	start_index = 0;
+	} else {
+		leadb = (p<<j) >> 58;
+		start_index = 58-j;
+	}
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
@@ -1407,8 +1299,8 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $1,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd4a		/* Skip if n < 0 */	\n\t"\
-	"LoopBeg4a:								\n\t"\
+		"jl LoopEnd4a%=		/* Skip if n < 0 */	\n\t"\
+	"LoopBeg4a%=:								\n\t"\
 	"/* SQR_LOHI_q4(x*, lo*, hi*): */	\n\t"\
 		"movq	%%r12,%%rax	/* x0-3 in r8-11. */\n\t"\
 		"mulq	%%rax		\n\t"\
@@ -1476,7 +1368,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"movl	%[__p],%%eax	/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\n\t"\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
-	"je	twopmmodq64_q4_pjmp			\n\t"\
+	"je	twopmmodq64_q4_pjmp%=			\n\t"\
 		"\n\t"\
 		"movq	%%r12,%%r8 	/* r8  <- Copy of x */\n\t"\
 		"movq	%%r12,%%rax	/* rax <- Copy of x */\n\t"\
@@ -1506,12 +1398,12 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"addq	%%rax,%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-	"twopmmodq64_q4_pjmp:					\n\t"\
+	"twopmmodq64_q4_pjmp%=:					\n\t"\
 		"/* } endif((p >> j) & (uint64)1) */						\n\t"\
 		"subq	$1,%%rcx	/* j-- */		\n\t"\
 		"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
-		"jge	LoopBeg4a	/* if (j >= 0), Loop */	\n\t"\
-	"LoopEnd4a:							\n\t"\
+		"jge	LoopBeg4a%=	/* if (j >= 0), Loop */	\n\t"\
+	"LoopEnd4a%=:							\n\t"\
 		"movq	%%r12,%[__x0]	\n\t"\
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
@@ -1583,11 +1475,7 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	// Since zshift is a power of two < 2^128, use streamlined code sequence for 1st iteration:
 	j = start_index-1;
 	x = qinv << zshift;	// MULL64(1 << zshift, qinv, lo) simply amounts to a left-shift of the bits of qinv
-  #ifdef MUL_LOHI64_SUBROUTINE
-	x = __MULH64(q,x);
-  #else
 	MULH64(q,x,x);
-  #endif
 	// hi =  in this instance, which simplifies things:
 	x = q - x;
 	if((pshift >> j) & (uint64)1)
@@ -1704,17 +1592,10 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	lo2 = qinv2 << zshift;
 	lo3 = qinv3 << zshift;
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	lo0 = __MULH64(q0,lo0);
-	lo1 = __MULH64(q1,lo1);
-	lo2 = __MULH64(q2,lo2);
-	lo3 = __MULH64(q3,lo3);
-#else
 	MULH64(q0,lo0,lo0);
 	MULH64(q1,lo1,lo1);
 	MULH64(q2,lo2,lo2);
 	MULH64(q3,lo3,lo3);
-#endif
 	/* hi = 0 in this instance, which simplifies things. */
 	y0 = q0 - lo0;
 	y1 = q1 - lo1;
@@ -1744,32 +1625,18 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	for(j = start_index-2; j >= 0; j--)
 	{
 	//	MONT_SQR64_q4(x0,x1,x2,x3,q0,q1,q2,q3,qinv0,qinv1,qinv2,qinv3,y0,y1,y2,y3);
-	  #ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&x0,&y0);
-		SQR_LOHI64(x1,&x1,&y1);
-		SQR_LOHI64(x2,&x2,&y2);
-		SQR_LOHI64(x3,&x3,&y3);
-	  #else
 		SQR_LOHI64(x0, x0, y0);
 		SQR_LOHI64(x1, x1, y1);
 		SQR_LOHI64(x2, x2, y2);
 		SQR_LOHI64(x3, x3, y3);
-	  #endif
 		MULL64(qinv0,x0,x0);
 		MULL64(qinv1,x1,x1);
 		MULL64(qinv2,x2,x2);
 		MULL64(qinv3,x3,x3);
-	  #ifdef MUL_LOHI64_SUBROUTINE
-		x0 = MULH64(q0,x0);
-		x1 = MULH64(q1,x1);
-		x2 = MULH64(q2,x2);
-		x3 = MULH64(q3,x3);
-	  #else
 		MULH64(q0,x0,x0);
 		MULH64(q1,x1,x1);
 		MULH64(q2,x2,x2);
 		MULH64(q3,x3,x3);
-	  #endif
 		/* did we have a borrow from (y-x)? */
 		y0 = y0 - x0 + ((-(int64)(y0 < x0)) & q0);
 		y1 = y1 - x1 + ((-(int64)(y1 < x1)) & q1);
@@ -1905,16 +1772,6 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	x6 = qinv6 << zshift;
 	x7 = qinv7 << zshift;
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	x0 = __MULH64(q0,x0);
-	x1 = __MULH64(q1,x1);
-	x2 = __MULH64(q2,x2);
-	x3 = __MULH64(q3,x3);
-	x4 = __MULH64(q4,x4);
-	x5 = __MULH64(q5,x5);
-	x6 = __MULH64(q6,x6);
-	x7 = __MULH64(q7,x7);
-#else
 	MULH64(q0,x0,x0);
 	MULH64(q1,x1,x1);
 	MULH64(q2,x2,x2);
@@ -1923,7 +1780,6 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	MULH64(q5,x5,x5);
 	MULH64(q6,x6,x6);
 	MULH64(q7,x7,x7);
-#endif
 	/* hi = 0 in this instance, which simplifies things. */
 	y0 = q0 - x0;
 	y1 = q1 - x1;
@@ -1968,16 +1824,6 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&x0,&y0);
-		SQR_LOHI64(x1,&x1,&y1);
-		SQR_LOHI64(x2,&x2,&y2);
-		SQR_LOHI64(x3,&x3,&y3);
-		SQR_LOHI64(x4,&x4,&y4);
-		SQR_LOHI64(x5,&x5,&y5);
-		SQR_LOHI64(x6,&x6,&y6);
-		SQR_LOHI64(x7,&x7,&y7);
-	#else
 		SQR_LOHI64(x0,x0,y0);
 		SQR_LOHI64(x1,x1,y1);
 		SQR_LOHI64(x2,x2,y2);
@@ -1986,7 +1832,6 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		SQR_LOHI64(x5,x5,y5);
 		SQR_LOHI64(x6,x6,y6);
 		SQR_LOHI64(x7,x7,y7);
-	#endif
 		MULL64(x0,qinv0,x0);
 		MULL64(x1,qinv1,x1);
 		MULL64(x2,qinv2,x2);
@@ -1995,16 +1840,6 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		MULL64(x5,qinv5,x5);
 		MULL64(x6,qinv6,x6);
 		MULL64(x7,qinv7,x7);
-	#ifdef MUL_LOHI64_SUBROUTINE
-		x0 = __MULH64(q0,x0);
-		x1 = __MULH64(q1,x1);
-		x2 = __MULH64(q2,x2);
-		x3 = __MULH64(q3,x3);
-		x4 = __MULH64(q4,x4);
-		x5 = __MULH64(q5,x5);
-		x6 = __MULH64(q6,x6);
-		x7 = __MULH64(q7,x7);
-	#else
 		MULH64(q0,x0,x0);
 		MULH64(q1,x1,x1);
 		MULH64(q2,x2,x2);
@@ -2013,7 +1848,6 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		MULH64(q5,x5,x5);
 		MULH64(q6,x6,x6);
 		MULH64(q7,x7,x7);
-	#endif
 
 		/* did we have a borrow from (y-x)? */
 		y0 = y0 - x0 + ((-(int64)(y0 < x0)) & q0);
@@ -2121,11 +1955,7 @@ if(dbg)printf("twopmodq65:\n");
 #endif
 	for(j = start_index-1; j >= 0; j--)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x,&lo,&hi);
-	#else
 		SQR_LOHI64(x, lo, hi);
-	#endif
 		if(A > 0) {
 			y  = (-A & x);
 			hi += y; A += (hi < y);
@@ -2135,11 +1965,7 @@ if(dbg)printf("twopmodq65:\n");
 		/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 		lo *= qinv;
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		y = __MULH64(q,lo);
-	#else
 		MULH64(q,lo,y);	/* Need original lo for a few more steps here, so store MULH result in y. */
-	#endif
 		B = 0;
 		y += lo; B += (y < lo);	/* Upper (65th) bit of q guaranteed to be 1. */
 	/*
@@ -2272,17 +2098,10 @@ uint64 twopmodq65_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	for(j = start_index-1; j >= 0; j--)
 	{
-	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&lo0,&hi0);
-		SQR_LOHI64(x1,&lo1,&hi1);
-		SQR_LOHI64(x2,&lo2,&hi2);
-		SQR_LOHI64(x3,&lo3,&hi3);
-	#else
 		SQR_LOHI64(x0,lo0,hi0);
 		SQR_LOHI64(x1,lo1,hi1);
 		SQR_LOHI64(x2,lo2,hi2);
 		SQR_LOHI64(x3,lo3,hi3);
-	#endif
 
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 
@@ -2291,17 +2110,10 @@ uint64 twopmodq65_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		MULL64(lo2,qinv2,lo2);
 		MULL64(lo3,qinv3,lo3);
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		y0 = __MULH64(q0,lo0);
-		y1 = __MULH64(q1,lo1);
-		y2 = __MULH64(q2,lo2);
-		y3 = __MULH64(q3,lo3);
-	#else
 		MULH64(q0,lo0,y0);
 		MULH64(q1,lo1,y1);
 		MULH64(q2,lo2,y2);
 		MULH64(q3,lo3,y3);
-	#endif
 
 		/* Use B0-3 as temporaries here... */
 	#ifdef NOBRANCH
@@ -2431,16 +2243,6 @@ uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 
 	for(j = start_index-1; j >= 0; j--)
 	{
-#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&lo0,&hi0);
-		SQR_LOHI64(x1,&lo1,&hi1);
-		SQR_LOHI64(x2,&lo2,&hi2);
-		SQR_LOHI64(x3,&lo3,&hi3);
-		SQR_LOHI64(x4,&lo4,&hi4);
-		SQR_LOHI64(x5,&lo5,&hi5);
-		SQR_LOHI64(x6,&lo6,&hi6);
-		SQR_LOHI64(x7,&lo7,&hi7);
-#else
 		SQR_LOHI64(x0,lo0,hi0);
 		SQR_LOHI64(x1,lo1,hi1);
 		SQR_LOHI64(x2,lo2,hi2);
@@ -2449,7 +2251,6 @@ uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		SQR_LOHI64(x5,lo5,hi5);
 		SQR_LOHI64(x6,lo6,hi6);
 		SQR_LOHI64(x7,lo7,hi7);
-#endif
 
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 
@@ -2462,16 +2263,6 @@ uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		MULL64(lo6,qinv6,lo6);
 		MULL64(lo7,qinv7,lo7);
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		y0 = __MULH64(q0,lo0);
-		y1 = __MULH64(q1,lo1);
-		y2 = __MULH64(q2,lo2);
-		y3 = __MULH64(q3,lo3);
-		y4 = __MULH64(q4,lo4);
-		y5 = __MULH64(q5,lo5);
-		y6 = __MULH64(q6,lo6);
-		y7 = __MULH64(q7,lo7);
-	#else
 		MULH64(q0,lo0,y0);
 		MULH64(q1,lo1,y1);
 		MULH64(q2,lo2,y2);
@@ -2480,7 +2271,6 @@ uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		MULH64(q5,lo5,y5);
 		MULH64(q6,lo6,y6);
 		MULH64(q7,lo7,y7);
-	#endif
 
 		/* Use B0-3 as temporaries here... */
 	#ifdef NOBRANCH

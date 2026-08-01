@@ -236,12 +236,17 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)mers_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, mers_process_chunk, NULL, 0x0};
 
 #endif
 
 	radix0 = RADIX_VEC[0];
-	nchunks = radix0>>1;
+	nchunks = (radix0+1)>>1;	// v21 bugfix: for ODD radix0 the number of independent work units is
+			// ceil(radix0/2), not floor: the last unit processes the final pair of data blocks (e.g. blocks
+			// {5,6} of the radix0 = 9 pairing {0,-},{1,2},{3,8},{4,7},{5,6}). The old radix0>>1 value meant
+			// that in threaded builds (task tid -> ii = 2*tid) the ii = radix0-1 chunk-pass simply never ran,
+			// leaving those blocks un-transformed and un-squared every iteration - i.e. all Mersenne runs with
+			// an odd leading radix silently computed garbage. (The serial fallback loop was correct.)
 	ASSERT(TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
 
 /*...initialize things upon first entry */
@@ -337,6 +342,26 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				ASSERT(0,cbuf);
 			}
 		}
+
+	#ifdef USE_AVX
+		/* The AVX/AVX-512 radix16|32_wrapper_square routines read RE_IM_STRIDE (=4|8)
+		sincos-index sets per SIMD pass from the length-(N2/radix_final) index[] array. For FFT
+		lengths so small that the final-block schedule leaves a partial chunk with fewer than
+		RE_IM_STRIDE sets, those wide-SIMD code paths read past the end of index[] (garbage
+		twiddles, or SIGSEGV under ASan / when the slack falls on an unmapped page). This is
+		independent of the DAT_BITS/array-padding logic above (which is disabled - DAT_BITS=31 -
+		for the runlengths <= 32K where this bites). Such lengths are sub-1-Mdigit toy sizes with
+		no production use; they compute correctly in scalar/SSE2 builds but not the wide-SIMD ones,
+		so soft-skip here (self-test moves on to the next radix set instead of crashing). The
+		bound is empirical: the overrun occurs only for N2/radix_final <= 32 in AVX (stride 4)
+		builds; require >= 16*RE_IM_STRIDE for margin (and 2x that for the stride-8 AVX-512 path). */
+		if((N2 / (uint32)RADIX_VEC[NRADICES-1]) < (uint32)(16*RE_IM_STRIDE))
+		{
+			snprintf(cbuf,STR_MAX_LEN*2,"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
+				(uint32)(n>>10), N2/(uint32)RADIX_VEC[NRADICES-1], (uint32)(16*RE_IM_STRIDE));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
 
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
@@ -1323,9 +1348,9 @@ for(i=0; i < NRT; i++) {
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(nchunks, sizeof(int));
-		thread  = (pthread_t *)calloc(nchunks, sizeof(pthread_t));
-		tdat    = (struct mers_thread_data_t *)calloc(nchunks, sizeof(struct mers_thread_data_t));
+		thr_ret = (int *)CALLOC(nchunks, sizeof(int));
+		thread  = (pthread_t *)CALLOC(nchunks, sizeof(pthread_t));
+		tdat    = (struct mers_thread_data_t *)CALLOC(nchunks, sizeof(struct mers_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);
@@ -1805,17 +1830,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	}
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
-	while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
-	//		sleep(1);	//*** too granular ***
-		// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
-	//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	}
+	ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 //	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
 #else
@@ -2019,21 +2034,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	clock1 = clock2;
 #endif
 #ifndef NO_USE_SIGNALS
-	// Listen for interrupts:
-	if (signal(SIGINT, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGINT.\n");
-	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGTERM.\n");
-	#ifndef __MINGW32__
-	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGHUP.\n");
-	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGALRM.\n");
-	else if (signal(SIGUSR1, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR1.\n");
-	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR2.\n");
-	#endif
+	// Listen for interrupts. Install-once, async-signal-safe handler (see Mlucas.c); this runs on the
+	// main thread, and the FFT worker threads block these signals so the handler only ever fires here:
+	mlucas_install_signal_handlers();
 #endif
 }	/* End of main for(iter....) loop	*/
 
@@ -2142,7 +2145,10 @@ undo_initial_ffft_pass:
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	// *** v19: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
 	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
-		ASSERT((ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
+		// On normal loop-completion iter = ihi+1; the early-exit-on-interrupt case is filtered out by the
+		// ERR_INTERRUPT return above, *except* for a signal arriving during the final iteration, in which
+		// case the interval did complete but the post-loop iter-- leaves iter = ihi - hence 2nd clause:
+		ASSERT((ierr == 0) && (iter == ihi+1 || !MLUCAS_KEEP_RUNNING), "[2a] sanity check failed!");
 		ROE_ITER = 0;
 		ROE_VAL = 0.0;
 		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
@@ -2155,8 +2161,8 @@ undo_initial_ffft_pass:
 
 #ifdef MULTITHREAD
 
-void*
-mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+void
+mers_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct mers_thread_data_t* thread_arg = targ;
 	int thr_id = thread_arg->tid, ii = thr_id<<1;	// Since mers-mod processes 2 data blocks per thread, ii-value = 2x unique thread identifying number
@@ -2265,6 +2271,13 @@ void mers_process_chunk(
 	for(j = 0; j < jhi; j++)
 	{
 		l = ii + j;
+		// v21 bugfix: for ODD radix0 the last chunk-pass (ii = radix0-1) has jhi = 2 because its DIF/DIT
+		// loops must process both blocks of the final block_index pair, but the wrapper/square step covers
+		// that entire pair via the single call for slot l = radix0-1 (one block via the j1-indices, its
+		// partner via the mirrored j2-indices). There is no state-slot l = radix0 - reading ws_*[radix0]
+		// would run off the end of those arrays - so skip the second wrapper call:
+		if(l >= radix0)
+			continue;
 
 		switch(RADIX_VEC[NRADICES-1])
 		{
@@ -2287,10 +2300,8 @@ void mers_process_chunk(
 	if(fwd_fft == 1) {
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
-		return 0x0;
-	#else
-		return;
 	#endif
+		return;
 	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
@@ -2357,7 +2368,6 @@ void mers_process_chunk(
 #ifdef MULTITHREAD
 	*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 //	printf("Return from Thread %d ... ", ii);
-	return 0x0;
 #endif
 }
 

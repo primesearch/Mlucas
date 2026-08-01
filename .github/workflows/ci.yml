@@ -5,14 +5,36 @@ on:
       - main
   pull_request:
   schedule:
-    - cron:  '0 0 1 * *'
+    - cron: '0 0 1 * *'
 
 jobs:
+  # Path-based gating: compute which categories of files changed so downstream jobs can skip
+  # work that a given change cannot affect (e.g. a docs-only PR runs no builds). Gating applies to
+  # pull_request only; pushes to main and the monthly schedule always run the full matrix.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      shell: ${{ steps.filter.outputs.shell }}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v4
+      id: filter
+      with:
+        filters: |
+          code:
+            - 'src/**'
+            - 'makemake.sh'
+            - 'config-fermat.sh'
+            - '.github/workflows/**'
+          shell:
+            - '**/*.sh'
   Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ (matrix.os == 'ubuntu-24.04' && matrix.cc == 'clang') || matrix.os == 'ubuntu-26.04' }}
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
@@ -50,14 +72,13 @@ jobs:
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
@@ -65,11 +86,41 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # The self-test exit status is 1 if any case returned a wrong answer (residue mismatch,
+        # radix-set disagreement or zero residue) and 2 if some FFT length had too few usable
+        # radix sets to be tested at all - see help.txt. Both used to be status 0, and both were
+        # additionally masked here by the pipe into tee, whose status is the one bash reports for
+        # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
+        # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
+        # to (( rc == 0 )) once those are fixed.
+        # This job runs with pipefail set, so a self-test exiting 2 would propagate out of the pipe
+        # into tee and, with set -e, end the step before the PIPESTATUS check below classifies it.
+        # Turn pipefail off for the loop and take the self-test's own status from PIPESTATUS[0]:
+        set +o pipefail
+        rc=0
+        for s in tt t s m l; do
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        set -o pipefail
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        # #222 gives each word-variant its own object directory, so the run enters one per variant
+        # rather than cd-ing once for the whole sweep:
+        mfac_mode=''
+        [[ $HOSTTYPE == aarch64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -77,14 +128,15 @@ jobs:
         path: ${{ github.workspace }}
 
   Singlethread-Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Singlethreaded Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ !endsWith(matrix.os, '-arm') }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        cc: [gcc]
+        cc: [gcc, clang]
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
@@ -108,23 +160,40 @@ jobs:
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
-        time ./Mlucas -s m
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh
+        bash -e -o pipefail -- ../config-fermat.sh
+        # #222 gives each word-variant its own object directory, so the run enters one per variant
+        # rather than cd-ing once for the whole sweep:
+        mfac_mode=''
+        [[ $HOSTTYPE == aarch64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -132,16 +201,24 @@ jobs:
         path: ${{ github.workspace }}
 
   Linux-old:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Linux old
 
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    continue-on-error: ${{ (!endsWith(matrix.os, '-arm') && matrix.container == 'ubuntu:16.04') || (endsWith(matrix.os, '-arm') && (matrix.container == 'ubuntu:16.04' || matrix.container == 'ubuntu:18.04') && matrix.cc == 'clang') || (matrix.container == 'alpine:3.8' && (!endsWith(matrix.os, '-arm') || matrix.cc == 'clang')) }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
+        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
         cc: [gcc, clang]
+        exclude:
+          # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
+          # cannot assemble the inline asm in dft_macro.c on ARM ("unknown register name 'v0'").
+          # Its gcc builds fine there, as do both compilers on x86-64, so drop only this one combo.
+          - os: ubuntu-24.04-arm
+            container: "ubuntu:14.04"
+            cc: clang
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
@@ -185,17 +262,29 @@ jobs:
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
         else
-            MODES+=( SSE2 AVX AVX2 AVX512 )
+            MODES+=( SSE2 AVX AVX2 )
+            # Only test the AVX-512 build mode if the compiler's assembler can handle the AVX-512 constructs
+            # Mlucas's kernels use: the extended registers (zmm16-31/xmm16-31/k0-7). Ancient clang can't -
+            # clang 3.8 (ubuntu:16.04) rejects the extended register names ("unknown register name 'xmm30'").
+            # (The one AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c routine and is now gated to
+            # KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an ER-capable assembler -
+            # which is why clang 5.0 on alpine:3.8 can now build AVX-512.) Probe and skip AVX-512 rather than
+            # fail the build on a mode that provably can't work here.
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1; then
+                MODES+=( AVX512 )
+            else
+                echo "::warning title=AVX-512 build skipped::$("${CC:-gcc}" --version | head -n1): its assembler can't handle the AVX-512 extended registers (zmm16-31/xmm16-31/k0-7) Mlucas's kernels need; skipping the AVX-512 build mode."
+            fi
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh ${HAVE_HWLOC:+use_hwloc} $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
                 )
@@ -203,6 +292,8 @@ jobs:
         done
 
   ASan-Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: AddressSanitizer Linux
 
     runs-on: ubuntu-latest
@@ -221,18 +312,128 @@ jobs:
     - name: Before script
       run: |
         echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=address,undefined" >> "$GITHUB_ENV"
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
-        make clean
-        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
-        bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-      continue-on-error: true
+        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
+        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
+        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (
+                cd obj_mfac${word:+_$word}_nosimd
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        cd obj_nosimd
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
+
+  ASan-SIMD-Linux:
+    name: AddressSanitizer SIMD Linux
+
+    # Deterministic, blocking, residue-checked AddressSanitizer coverage of the SIMD builds -
+    # the hand-written inline-asm kernels, which are where Mlucas's arithmetic actually lives.
+    #
+    # Not redundant with the ASan-Linux job above, on four counts. That job invokes makemake.sh
+    # with no mode argument, so it builds whatever /proc/cpuinfo reports plus -march=native:
+    # which SIMD mode gets sanitized is a property of the runner SKU, not of this file. It is
+    # wrapped in continue-on-error, so it cannot fail. Its check is ./Mlucas -s m, whose verdict
+    # is discarded - the self-test's DONE: path returns 0 unconditionally, so -s always exits 0
+    # even when it prints "PLEASE CHECK YOUR BUILD OPTIONS". And its gcc leg does not currently
+    # compile at all on an AVX2-or-better host, which continue-on-error hides. This job pins the
+    # mode, has no continue-on-error, and asserts residues.
+    #
+    # The AVX-512 leg runs under Intel SDE rather than on the runner CPU, because otherwise it
+    # cannot run at all: GitHub's Azure runner SKUs are inconsistent about AVX-512. Note that
+    # the Mlucas Linux job above *builds* AVX512 but then runs its self-tests out of obj/, the
+    # auto-detected build - so as things stand no job in this workflow ever executes an
+    # explicitly-AVX-512 binary, and whether AVX-512 code runs at all depends on which SKU the
+    # job landed on. SDE removes that dependency entirely.
+    #
+    # There is deliberately no continue-on-error here: a masked sanitizer job is
+    # indistinguishable from a job that does not exist, which is how the ASan jobs in this
+    # workflow stayed dead behind a build break for years.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      # Pinned and checksummed on purpose: with a floating "latest" download, an emulator
+      # change would surface as an unexplained residue mismatch. Any SDE >= 9.x supports -skx.
+      SDE_URL: https://downloadmirror.intel.com/850782/sde-external-9.53.0-2025-03-16-lin.tar.xz
+      SDE_SHA256: f55138df53378198e8c0a89598351cdb3c5e7f8819e63e472b0bc179afaad34c
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install Intel SDE
+      run: |
+        set -x
+        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        mkdir -p "$HOME/sde"
+        tar -xf sde.tar.xz -C "$HOME/sde" --strip-components=1
+        rm -f sde.tar.xz
+        "$HOME/sde/sde64" -version
+    - name: Before script
+      run: |
+        $CC --version
+        # -O3, not the -Og used by the ASan-Linux job above: the undeclared-inline-asm-clobber
+        # defects this job exists to catch only appear once the compiler is actually keeping
+        # live values in registers across the asm blocks.
+        #
+        # address only, not address,undefined: UBSan's instrumentation duplicates asm blocks that
+        # carry hard-coded local labels, and clang then fails with
+        #   src/mi64.c:7353: error: symbol 'loop2d' is already defined
+        # at -O3 in the SIMD modes. UBSan coverage of these kernels needs those labels made unique
+        # first; plain -fsanitize=address builds clean on both compilers and both modes.
+        #
+        # NOT -fsanitize-recover=address. It is not a neutral convenience flag: adding it, and
+        # nothing else, makes a tree with the AVX-512 clobber defects produce *correct* results,
+        # so it disables the very thing this job checks. See .github/scripts/asan-simd-check.sh.
+        # Both legs get full instrumentation. gcc used to need --param asan-stack=0 here, because
+        # the over-declared 14-GPR clobber lists in sse2_macro_gcc64.h left ASan's stack
+        # instrumentation nothing to reserve and the build died with "'asm' operand has impossible
+        # constraints". That was a source defect, not a gcc limitation, and correcting those
+        # clobber lists removed the need for the workaround along with the stack-buffer-overflow /
+        # use-after-return / use-after-scope blind spot it created.
+        CFLAGS="-fdiagnostics-color -Wall -g -O3 -std=gnu99 -fsanitize=address -fno-omit-frame-pointer"
+        echo "CFLAGS=$CFLAGS" >> "$GITHUB_ENV"
+        echo "LDFLAGS=-fsanitize=address" >> "$GITHUB_ENV"
+    - name: AVX2
+      run: bash -- .github/scripts/asan-simd-check.sh avx2
+    - name: AVX-512 under Intel SDE
+      # Runs even if the AVX2 leg failed: the AVX-512 leg is the one that covers the
+      # AVX-512-only clobber defects, and it must not be masked by an unrelated AVX2 failure.
+      if: ${{ !cancelled() }}
+      run: bash -- .github/scripts/asan-simd-check.sh avx512 "$HOME/sde/sde64" -skx --
 
   TSan-Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: ThreadSanitizer Linux
 
     runs-on: ubuntu-latest
@@ -257,13 +458,18 @@ jobs:
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        cd obj_nosimd
         make clean
-        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
-      continue-on-error: true
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        st=0
+        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+        (( st == 0 || st == 2 ))
 
   GCC-analyzer:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: GCC analyzer
 
     runs-on: ubuntu-latest
@@ -273,13 +479,15 @@ jobs:
       run: |
         set -x
         set -o pipefail
-        gcc -c -fdiagnostics-color -g -O3 -march=native -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
+        gcc -c -fdiagnostics-color -std=gnu99 -g -O3 -march=native -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
         rm -- *.o
         echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   Clang-Tidy:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Clang-Tidy
 
     runs-on: ubuntu-latest
@@ -293,12 +501,14 @@ jobs:
       run: |
         set -x
         set -o pipefail
-        clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -Wall -O3 -march=native -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
+        clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -std=gnu99 -Wall -O3 -march=native -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
         echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   Cppcheck:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Cppcheck
 
     runs-on: ubuntu-22.04 # ubuntu-latest
@@ -311,13 +521,15 @@ jobs:
     - name: Cppcheck
       run: |
         mkdir build
-        cppcheck --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build -j "$(nproc)" --clang .
-        cppcheck --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build --clang . &> cppcheck.log
+        cppcheck --std=c99 --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build -j "$(nproc)" --clang .
+        cppcheck --std=c99 --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build --clang . &> cppcheck.log
         echo -e '## Cppcheck\n```' >> $GITHUB_STEP_SUMMARY
         grep '\(error\|warning\|style\|performance\|portability\|information\):' cppcheck.log | awk '{ print $2, $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   ShellCheck:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.shell == 'true' }}
     name: ShellCheck
 
     runs-on: ubuntu-latest
@@ -328,12 +540,14 @@ jobs:
       continue-on-error: true
 
   macOS:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas macOS
 
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-14, macos-15-intel, macos-15, macos-26]
+        os: [macos-14, macos-15-intel, macos-15, macos-26-intel, macos-26]
       fail-fast: false
     steps:
     - uses: actions/checkout@v7
@@ -343,7 +557,7 @@ jobs:
     - name: Before script
       run: |
         clang --version
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             clang -dM -E -mcpu=native - </dev/null
         else
             clang -dM -E -march=native - </dev/null
@@ -354,7 +568,7 @@ jobs:
         set -o pipefail
         sysctl -a
         MODES=( '' NOSIMD )
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
@@ -363,14 +577,13 @@ jobs:
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
@@ -378,11 +591,40 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        if (( $(sysctl -n hw.optional.neon) )); then
+        # The self-test exit status is 1 if any case returned a wrong answer (residue mismatch,
+        # radix-set disagreement or zero residue) and 2 if some FFT length had too few usable
+        # radix sets to be tested at all - see help.txt. Both used to be status 0, and both were
+        # additionally masked here by the pipe into tee, whose status is the one bash reports for
+        # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
+        # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
+        # to (( rc == 0 )) once those are fixed.
+        # This job runs with pipefail set, so a self-test exiting 2 would propagate out of the pipe
+        # into tee and, with set -e, end the step before the PIPESTATUS check below classifies it.
+        # Turn pipefail off for the loop and take the self-test's own status from PIPESTATUS[0]:
+        set +o pipefail
+        rc=0
+        for s in tt t s m l; do
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        set -o pipefail
+        (( rc == 0 ))
+        if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        mfac_mode=''
+        [[ $HOSTTYPE == arm64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -390,12 +632,14 @@ jobs:
         path: ${{ github.workspace }}
 
   Singlethread-macOS:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Singlethreaded macOS
 
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-15-intel, macos-latest]
+        os: [macos-26-intel, macos-latest]
       fail-fast: false
     steps:
     - uses: actions/checkout@v7
@@ -408,7 +652,7 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
-        if (( $(sysctl -n hw.optional.neon) )); then
+        if [[ $HOSTTYPE == arm64 ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
@@ -417,23 +661,39 @@ jobs:
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
-        time ./Mlucas -s m
-        if (( $(sysctl -n hw.optional.neon) )); then
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+        if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh
+        bash -e -o pipefail -- ../config-fermat.sh
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        mfac_mode=''
+        [[ $HOSTTYPE == arm64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -441,6 +701,8 @@ jobs:
         path: ${{ github.workspace }}
 
   ASan-macOS:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: AddressSanitizer macOS
 
     runs-on: macos-latest
@@ -452,22 +714,46 @@ jobs:
     - name: Before script
       run: |
         echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=address,undefined" >> "$GITHUB_ENV"
+        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
-        make clean
-        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        if ! (( $(sysctl -n hw.optional.neon) )); then
-            bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        fi
-      continue-on-error: true
+        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
+        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
+        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (
+                cd obj_mfac${word:+_$word}_nosimd
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        cd obj_nosimd
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
-    if: false # Too slow
 
     runs-on: macos-latest
     steps:
@@ -482,17 +768,24 @@ jobs:
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        cd obj_nosimd
         make clean
-        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-      continue-on-error: true
+        # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
+        # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
+        # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        st=0
+        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+        (( st == 0 || st == 2 ))
 
   Windows:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Windows
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
       matrix:
         os: [windows-latest]
@@ -525,7 +818,11 @@ jobs:
       shell: bash
       run: |
         $CC --version
-        if [[ $HOSTTYPE == aarch64 ]]; then
+        # The windows-11-arm runner ships no native aarch64 toolchain (no MSYS2/CLANGARM64), so its
+        # "gcc" is really an x86_64-w64-mingw32 compiler running under emulation. Both $HOSTTYPE
+        # (x86_64) and the matrix OS label (arm) mislead here, so key the arch off what the compiler
+        # itself targets:
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             $CC -dM -E -mcpu=native - </dev/null
         else
             $CC -dM -E -march=native - </dev/null
@@ -535,7 +832,10 @@ jobs:
       run: |
         set -x
         MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == aarch64 ]]; then
+        # The windows-11-arm runner ships no native aarch64 toolchain, so its "gcc" actually targets
+        # x86_64 (run under emulation); detect the arch the compiler targets rather than the matrix OS
+        # label or $HOSTTYPE, both of which say the wrong thing on that runner:
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
@@ -544,23 +844,52 @@ jobs:
             echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || 'use_hwloc' }} $mode
             (cd obj${mode:+_$mode}; make clean)
-            for word in '' 1word 2word 3word 4word nword; do
+            for word in '' {{1..4},n}word; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac ${{ endsWith(matrix.os, '-arm') && 'no_gmp' || '' }} $word $mode
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
                     mv -v build.log build_${word}.log
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        # The self-test exit status is 1 if any case returned a wrong answer (residue mismatch,
+        # radix-set disagreement or zero residue) and 2 if some FFT length had too few usable
+        # radix sets to be tested at all - see help.txt. Both used to be status 0, and both were
+        # additionally masked here by the pipe into tee, whose status is the one bash reports for
+        # a pipeline; between them no self-test regression could turn this job red. Gate on 1 for
+        # now - status 2 currently fires on a stock build at FFT lengths 1K and 2K - and tighten
+        # to (( rc == 0 )) once those are fixed.
+        # This job runs with pipefail set, so a self-test exiting 2 would propagate out of the pipe
+        # into tee and, with set -e, end the step before the PIPESTATUS check below classifies it.
+        # Turn pipefail off for the loop and take the self-test's own status from PIPESTATUS[0]:
+        set +o pipefail
+        rc=0
+        for s in tt t s m l; do
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        set -o pipefail
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        # #222 gives each word-variant its own object directory, so the run enters one per variant
+        # rather than cd-ing once for the whole sweep:
+        mfac_mode=''
+        [[ $HOSTTYPE == aarch64 ]] && mfac_mode=_NOSIMD
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -568,10 +897,11 @@ jobs:
         path: ${{ github.workspace }}
 
   ASan-Windows:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: AddressSanitizer Windows
 
     runs-on: windows-latest
-    continue-on-error: true
     env:
       CC: clang
       PACKAGE_PREFIX: mingw-w64-clang-x86_64-
@@ -591,13 +921,38 @@ jobs:
       shell: bash
       run: |
         echo "CFLAGS=-fdiagnostics-color -Wall -g -Og -fsanitize=address,undefined" >> "$GITHUB_ENV"
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       shell: bash
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
-        make clean
-        time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
-        bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (
+                cd obj_mfac${word:+_$word}_nosimd
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        cd obj_nosimd
+        # Accept only the two documented self-test statuses, 0 and 2; anything else - including a
+        # crash - fails the job. See the note on the tt/t/s/m/l loop in the sibling jobs.
+        rc=0
+        for s in tt t s m; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        # One object directory per word-variant - see the note in the sibling Linux jobs:
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done

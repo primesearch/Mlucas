@@ -235,18 +235,12 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int n_div_nwt;
   #ifndef MULTITHREAD
 	int col,co2,co3;
-  #endif
-  #ifdef USE_AVX512
-   #ifndef MULTITHREAD
+   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
 	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-   #endif
-  #elif defined(USE_AVX)
-   #ifndef MULTITHREAD
+   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-   #endif
-  #else
-   #ifndef MULTITHREAD
+   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
    #endif
@@ -321,7 +315,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy24_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy24_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -385,7 +379,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	if(p != psave || n != nsave
 	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
@@ -455,7 +449,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #ifdef USE_PTHREAD
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
-			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -1606,13 +1600,7 @@ for(outer=0; outer <= 1; outer++)
 
   #endif
 
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-	}
+	if(tpool) ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 //	printf("radix32_ditN_cy_dif1 end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
 	/* Copy the thread-specific output carry data back to shared memory: */
@@ -2024,8 +2012,8 @@ void radix24_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy24_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	cy24_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 	#ifdef USE_SSE2
 		const int pfetch_dist = PFETCH_DIST;
@@ -2553,7 +2541,7 @@ void radix24_dit_pass1(double a[], int n)
 			thread_arg->maxerr = maxerr;
 		}
 
-		return 0x0;
+		return;
 	}
 #endif
 

@@ -127,19 +127,20 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			target_idx = -1;
 		}
 
-	#ifdef USE_AVX512
-
-		#warning No avx-512 mers-mod carry support yet!
-		(void)n_minus_sil; (void)n_minus_silp1; (void)sinwt; (void)add0; (void)add1; (void)add2; (void)add3; (void)col; (void)co2; (void)co3; (void)wt0; (void)wt1; (void)sw; (void)si; (void)itmp; // silence warnings
-
-	#elif defined(USE_AVX)
+	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
-
-		l= j & (nwt-1);						tmp = half_arr + 128;	/* ptr to local storage for the doubled wtl,wtn terms: */
-		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+		/* ptr to local storage for the doubled wtl,wtn terms: */
+	  #ifdef USE_AVX512
+		tmp = half_arr +  64;	// No lookup-tables used in avx-512; instead use opmasked conditional-doubling;
+								// 1st 64 slots hold outputs of wtsinit call. Only half of said slots used in 8-way-init mode.
+	  #else
+		tmp = half_arr + 128;	// 1st 64 slots are basic-4 LUTs, next 32 are the additional 2 LOACC LUTs, next 32 hold outputs of wtsinit call
+	  #endif
+		l= j & (nwt-1);						// These rcol wts-terms are for individual-double-broadcast-to-full-vector-width,
+		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];	// hence the mixing of fwd/inv wts, which is normally taboo.
 		n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d0 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
@@ -161,38 +162,93 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+	  #ifdef USE_AVX512
+		l= (j+8) & (nwt-1);					tmp -= 3;	// Reset to same tmp-startval as above, now copy data into d4-7 slots of vec_dbl
+		n_minus_sil  ->d4 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d4 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d4 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d4 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
 
+		l= (j+10) & (nwt-1);				++tmp;
+		n_minus_sil  ->d5 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d5 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d5 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d5 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+
+		l= (j+12) & (nwt-1);				++tmp;
+		n_minus_sil  ->d6 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d6 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d6 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d6 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+
+		l= (j+14) & (nwt-1);				++tmp;
+		n_minus_sil  ->d7 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d7 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d7 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d7 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+	  #endif
+
+	#ifdef USE_AVX512
+	  // carry_gcc64.h:16296: "For AVX512, support only the fast [i.e. LOACC] Mers-carry macros" - there is no
+	  // AVX-512 analog of AVX_cmplx_carry_norm_errcheck_X4, so *every* USE_SHORT_CY_CHAIN setting must be routed
+	  // through the chained-weights path below (cf. radix960/radix56, which achieve the same by forcing their
+	  // LOACC-selector nonzero under AVX-512). The chain length is still varied with USE_SHORT_CY_CHAIN so the
+	  // runtime chain-shortening ROE fallback in mers_mod_square.c still has an effect.
+	  if(1) {
+	#else
 	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
+	#endif
 
 		uint32 ii,incr,loop,nloop = RADIX>>3, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;
+		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 unused in AVX-512 mode
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass:
+		// *** incr must divide nloop = RADIX/8 = 504, and be <= 8. The inner l-loop below runs [loop,loop+incr)
+		// unclamped, so a non-dividing incr overruns poff[RADIX>>2] and writes past cy_r/bjmodn - see the
+		// radix1008 sibling, where incr = 4 vs nloop = 126 silently zeroed the residue. 504 = 2^3*3^2*7, so the
+		// legal (i.e. nloop-dividing) chain lengths <= 8 are {1,2,3,4,6,7,8}. ***
+	  #ifdef USE_AVX512
+		if(USE_SHORT_CY_CHAIN == 0)			incr = 8;	// [long]
+		else if(USE_SHORT_CY_CHAIN == 1)	incr = 6;	// [med]
+		else if(USE_SHORT_CY_CHAIN == 2)	incr = 4;	// [short]
+		else								incr = 2;	// [hiacc] - no true HIACC macro in AVX-512, use shortest legal chain
+	   #if ((RADIX>>3) % 8) || ((RADIX>>3) % 6) || ((RADIX>>3) % 4) || ((RADIX>>3) % 2)
+		#error carry-chain length incr must divide nloop = RADIX>>3 !
+	   #endif
+	  #else
 		incr = 4;	// incr must divide RADIX/8!
+	   #if ((RADIX>>3) % 4)
+		#error carry-chain length incr must divide nloop = RADIX>>3 !
+	   #endif
+	  #endif
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 			ii = loop << 3;	// Reflects 8 independent carry chains being done in each AVX_cmplx_carry_fast_pow2_errcheck_X8 call
-			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
-			add2 = &wt1[co2-1-ii];
-			add3 = &wt1[co3-1-ii];
+			add1 = &wt1[col  +(int)ii];	/* Don't use add0 here, to avoid need to reload main-array address */
+			add2 = &wt1[co2-1-(int)ii];
+			add3 = &wt1[co3-1-(int)ii];
+			ASSERT(col+(int)ii >= 0 && co2-1-(int)ii >= 0 && co3-1-(int)ii >= 0, "wt1[] carry-weight index underflow - carry-chain state corrupted");
 
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 			// *But*: since the init macro does an on-the-fly version of this between j,j+2 portions, external code co2=co3 must come *after* both ctmp-data octets are inited.
-		  #ifdef USE_AVX512
-			ASSERT(0, "AVX-512 version of AVX_cmplx_carry_fast_wtsinit_X8 not yet ported!");
-		  #endif
 			AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, itmp, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
 
 			for(l = loop; l < loop+incr; l++) {
 				// Each AVX carry macro call also processes 8 prefetches of main-array data
 				add0 = a + j1 + pfetch_dist + poff[l+l];
+			  // In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwise-unused sse2_rnd vec_dbl:
+			  #ifdef USE_AVX512
+				AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
+				tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
+			  #else
 				AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 16; tm1 += 2; tm2 += 2; itmp += 8; itm2 += 8; i = 0;
+			  #endif
 			}
 		}
 
@@ -268,9 +324,10 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
 
-			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
-			add2 = &wt1[co2-1-ii];
-			add3 = &wt1[co3-1-ii];
+			add1 = &wt1[col  +(int)ii];	/* Don't use add0 here, to avoid need to reload main-array address */
+			add2 = &wt1[co2-1-(int)ii];
+			add3 = &wt1[co3-1-(int)ii];
+			ASSERT(col+(int)ii >= 0 && co2-1-(int)ii >= 0 && co3-1-(int)ii >= 0, "wt1[] carry-weight index underflow - carry-chain state corrupted");
 
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -490,61 +547,74 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		// Oct 2014: Try getting most of the LOACC speedup with better accuracy by breaking the complex-roots-of-(-1)
 		// chaining into 2 or more equal-sized subchains, each starting with 'fresh' (unchained) complex roots:
+		// *** RADIX 4032 is 4x RADIX 1008, so for a given LOACC setting it needs 2 EXTRA folds to obtain the
+		// same complex-roots-of(-1) subchain length that radix1008 uses. The ladder below was copy-pasted verbatim
+		// from radix1008 (note the stale radix1008 filename in the #error text), which left the subchain 4x too
+		// long: at LOACC=0 the single subchain ran the full 1008 carry-macro calls and tripped a roundoff error
+		// at iteration 25. NFOLD = LOACC+2 restores parity with radix1008. ***
 		#if (LOACC == 0)
 			#warning LOACC = 0
-			#define NFOLD 0
+			#define NFOLD 2
 		#elif (LOACC == 1)
 			#warning LOACC = 1
-			#define NFOLD 1
+			#define NFOLD 3
 		#elif (LOACC == 2)
 			#warning LOACC = 2
-			#define NFOLD 2
+			#define NFOLD 4
 		#elif (LOACC == 3)
 			#warning LOACC = 3
-			#define NFOLD 3
+			#define NFOLD 5
 		#elif (LOACC == 4)
 			#warning LOACC = 4
-			#define NFOLD 4
+			#define NFOLD 6
 		#elif (LOACC == 5)
 			#warning LOACC = 5
-			#define NFOLD 5
+			#define NFOLD 7
 		#else
-			#error If LOACC defined for build of radix1008_ditN_cy_dif1.c, must be given value 0,1,2,3,4 or 5!
+			#error If LOACC defined for build of radix4032_ditN_cy_dif1.c, must be given value 0,1,2,3,4 or 5!
 		#endif
 
 		#ifdef USE_AVX512
 		// For NFOLD > 3,  RADIX not divisible by 2^(3+NFOLD), so use a more-general inner-loop scheme which can handle that:
 		  #if NFOLD == 0
-			const int nexec[] = {126};
+			const int nexec[] = {504};
 		  #elif NFOLD == 1
-			const int nexec[] = {63,63};
+			const int nexec[] = {252,252};
 		  #elif NFOLD == 2
-			const int nexec[] = {32,31,32,31};
+			const int nexec[] = {126,126,126,126};
 		  #elif NFOLD == 3
-			const int nexec[] = {16,16,16,15,16,16,16,15};
+			const int nexec[] = {63,63,63,63,63,63,63,63};
 		  #elif NFOLD == 4
-			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
+			const int nexec[] = {32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31};
 		  #elif NFOLD == 5
-			const int nexec[] = {4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3};
+			const int nexec[] = {16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15};
+		  #elif NFOLD == 6
+			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
+		  #elif NFOLD == 7
+			const int nexec[] = {4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3};
 		  #else
-			#error NFOLD may only range from 0-5!
+			#error NFOLD may only range from 0-7!
 		  #endif
 		#elif defined(USE_AVX)
 		// For NFOLD > 3,  RADIX not divisible by 2^(3+NFOLD), so use a more-general inner-loop scheme which can handle that:
 		  #if NFOLD == 0
-			const int nexec[] = {252};
+			const int nexec[] = {1008};
 		  #elif NFOLD == 1
-			const int nexec[] = {126,126};
+			const int nexec[] = {504,504};
 		  #elif NFOLD == 2
-			const int nexec[] = {63,63,63,63};
+			const int nexec[] = {252,252,252,252};
 		  #elif NFOLD == 3
-			const int nexec[] = {32,31,32,31,32,31,32,31};
+			const int nexec[] = {126,126,126,126,126,126,126,126};
 		  #elif NFOLD == 4
-			const int nexec[] = {16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15};
+			const int nexec[] = {63,63,63,63,63,63,63,63,63,63,63,63,63,63,63,63};
 		  #elif NFOLD == 5
-			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
+			const int nexec[] = {32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31};
+		  #elif NFOLD == 6
+			const int nexec[] = {16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15};
+		  #elif NFOLD == 7
+			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
 		  #else
-			#error NFOLD may only range from 0-5!
+			#error NFOLD may only range from 0-7!
 		  #endif
 		#endif
 
@@ -593,7 +663,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x7e00, 0x1f80,0x3f00,0x5e80, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
+				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x7e00, 0xfc0,0x1f80,0x2f40, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
 				tm0 += 16; tm1++;
 				MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
@@ -615,7 +685,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x7e00, 0x1f80,0x3f00,0x5e80, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
+				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x7e00, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
 				tm0 += 8; tm1++;
 				MOD_ADD32(ic_idx, 4, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 4, ODD_RADIX, jc_idx);

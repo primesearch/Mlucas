@@ -262,7 +262,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)fermat_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, fermat_process_chunk, NULL, 0x0};
 
 #endif
 
@@ -391,7 +391,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(index) {
 			free((void *)index); index = 0x0;
 		}
-		index = (int *)calloc(k,sizeof(int));
+		index = (int *)CALLOC(k,sizeof(int));
 	//	printf("Alloc index[%u]...\n",k);
 		/*...Forward (DIF) FFT sincos data are in bit-reversed order. We define a separate last-pass twiddles
 		array within the routine wrapper_square, since that allows us to merge those nicely with the wrapper sincos data.	*/
@@ -410,33 +410,29 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			nradices_radix0 = 2;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		*/
-		case 5:
-//			nradices_radix0 = 1;
-			radix_prim[l++] = 5; break;
-		case 6:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 3; radix_prim[l++] = 2; break;
+		/* Leading radices 5,6,9,10,11,12,13,18,20,22,24,25,26 are deliberately absent below. Their
+		carry routines have no Fermat-mod branch - the dispatch switch further down calls them
+		*without* the rn0/rn1 Fermat trig tables, unlike every radix that is supported - yet this
+		switch used to accept them, so a run that reached one dereferenced the si[] array this
+		routine passes as 0x0 and died. On stock main,
+			./Mlucas -f 18 -fft 18 -radset 4 -iters 100      (leading radix 9)
+		segfaults. Three of the thirteen (12, 20, 24) happened to hit an assert first; the rest
+		crashed. Letting the default arm below reject them turns those crashes into the clean
+		"radix N not available for Fermat-mod transform" message it already prints.
+
+		This matters more with the < 16 shift-forcing this PR adds: those routines' own
+		'if(RES_SHIFT) { WARN; return ERR_ASSERT; }' guard used to catch such runs by accident,
+		the shift being nonzero. Forcing it to zero removes that accidental protection.
+
+		Automatic radix selection never picks these for Fermat-mod - get_fft_radices() only offers
+		lengths whose odd part is 1, 7, 15 or 63 - so this is reachable only via an explicit
+		-radset. */
 		case 7:
 //			nradices_radix0 = 1;
 			radix_prim[l++] = 7; break;
 		case 8:
 //			nradices_radix0 = 3;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 9:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 3; radix_prim[l++] = 3; break;
-		case 10:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 5; radix_prim[l++] = 2; break;
-		case 11:
-//			nradices_radix0 = 1;
-			radix_prim[l++] = 11; break;
-		case 12:
-//			nradices_radix0 = 3;
-			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 13:
-//			nradices_radix0 = 1;
-			radix_prim[l++] = 13; break;
 		case 14:
 //			nradices_radix0 = 2;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; break;
@@ -446,26 +442,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		case 16:
 //			nradices_radix0 = 4;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 18:
-//			nradices_radix0 = 3;
-			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; break;
-		case 20:
-//			nradices_radix0 = 3;
-			radix_prim[l++] = 5; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 22:
-//			nradices_radix0 = 2;
-			radix_prim[l++] =11; radix_prim[l++] = 2; break;
-		case 24:
-//			nradices_radix0 = 4;
-			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		/*
-		case 25:
-//			nradices_radix0 = 2;
-			radix_prim[l++] = 5; radix_prim[l++] = 5; break;
-		*/
-		case 26:
-//			nradices_radix0 = 2;
-			radix_prim[l++] =13; radix_prim[l++] = 2; break;
 		case 28:
 //			nradices_radix0 = 3;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -535,7 +511,10 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 //			nradices_radix0 = 12;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default:
-			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
+			// This arm names the leading radix the switch just failed to match, i.e. radix0 - it used to
+			// print RADIX_VEC[i], whose i is left over from an earlier loop, so a rejected radix0 of 18
+			// was reported as "radix 16". Only visible now that the arm is reachable in practice:
+			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",radix0);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(0,cbuf);
 		}
@@ -613,7 +592,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		{
 			/* If power-of-2 runlength, no IBDWT gets done, make bases the same: */
 			base   [0] = (double)(1 << bits_small);	base   [1] = base[0]	;
-			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[1]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
+			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[0]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
 		}
 		else
 		{
@@ -708,6 +687,44 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		NRT = 1 << NRT_BITS;
 		if(n%NRT){ sprintf(cbuf,"ERROR: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 		NRTM1 = NRT - 1;
+
+		/* The radix{16|32}_dyadic_square final-pass twiddle computation indexes the rt1 sincos table
+		(length n/(2*NRT), allocated just below) with the high bits of the twiddle index; for the final
+		radix RADIX_VEC[NRADICES-1] those indices range up to that radix. When the FFT length is so small
+		that rt1 has fewer than RADIX_VEC[NRADICES-1] entries, the (multithreaded) dyadic-square reads past
+		rt1 - garbage twiddles, or a SIGSEGV under ASan / on an unmapped page. This bites e.g. the (32,32)
+		radix set at a 2K Fermat FFT: n = 1024 gives rt1 length n/(2*NRT) = 16 < 32. Such tiny length/radix
+		combos are toy sizes with no production use (and cannot represent the corresponding F_m regardless),
+		so soft-skip - the self-test then moves on to the next radix set - exactly as the n/radix0 checks
+		above do. (Unlike those, this bound is not gated on DAT_BITS, since it bites the small, DAT_BITS==31
+		lengths.) The (8,8,16) set at 2K is retained: final radix 16 <= rt1 length 16. */
+		if((n / (2*NRT)) < (uint32)RADIX_VEC[NRADICES-1]) {
+			sprintf(cbuf,"rt1 sincos-table length n/(2*NRT) = %u is too small for final radix %u at FFT length %u K! Skipping this radix combo.\n", n/(2*NRT), (uint32)RADIX_VEC[NRADICES-1], (uint32)(n>>10));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+
+	#if defined(USE_AVX512) || (defined(USE_SSE2) && !defined(MULTITHREAD))
+		/* KNOWN-BROKEN: the SIMD Fermat-mod path is broken for the 63*2^k leading radices - radix63,
+		radix1008 (= 63*16) and radix4032 (= 63*64), which all share the ODD_RADIX = 63 RADIX_63/
+		SSE2_RADIX_63 sub-transform and its carry macro. Two distinct failure modes, both confirmed for
+		F24 @ 1008K FFT (radices 1008,16,32):
+		  - AVX-512 (threaded or not): the carry step miscomputes, producing a nonzero exit carry / corrupted
+		    residue after a couple of iterations, and SIGSEGVs outright on real AVX-512 hardware.
+		  - single-threaded SIMD builds of any tier (SSE2/AVX/AVX2/AVX-512, i.e. -DUSE_SSE2 without
+		    -DUSE_THREADS): SIGSEGV inside SSE2_RADIX_63_DIT (out-of-range index offsets into the DFT
+		    scratch), reproduced on AVX2.
+		By contrast nosimd, and *threaded* SSE2/AVX/AVX2 builds, handle these radices correctly (threaded
+		AVX2 gives the same residue as nosimd). The neighbouring 15*2^k / 7*2^k leading radices are fine in
+		all builds (e.g. radix960 @ 960K and the radix-896 set @ 896K both pass for F24), so this is specific
+		to the radix-63-based sub-transform, not to odd-composite radices in general. Until the RADIX_63 SIMD
+		DFT/carry is fixed, soft-skip these radix sets in the affected build configurations - the self-test/
+		driver then selects a working one - rather than returning wrong residues or crashing. (Odd part of
+		leading radix == 63  <=>  radix in {63, 1008, 4032}.) */
+		if(((uint32)RADIX_VEC[0] >> trailz32((uint32)RADIX_VEC[0])) == 63) {
+			sprintf(cbuf,"radix %u (63*2^k) has a broken SIMD Fermat-mod carry step in this build config; skipping this radix combo (build nosimd, or a threaded non-AVX-512 SIMD build, or use a non-63 radix set).\n", (uint32)RADIX_VEC[0]);
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
 
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
 		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
@@ -1118,9 +1135,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(radix0, sizeof(int));
-		thread  = (pthread_t *)calloc(radix0, sizeof(pthread_t));
-		tdat    = (struct ferm_thread_data_t *)calloc(radix0, sizeof(struct ferm_thread_data_t));
+		thr_ret = (int *)CALLOC(radix0, sizeof(int));
+		thread  = (pthread_t *)CALLOC(radix0, sizeof(pthread_t));
+		tdat    = (struct ferm_thread_data_t *)CALLOC(radix0, sizeof(struct ferm_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);
@@ -1350,17 +1367,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	}
 
 //	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
-	while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
-	//		sleep(1);	//*** too granular ***
-		// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
-	//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	}
+	ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 //	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
 #else
@@ -1375,6 +1382,13 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 
 	if(fwd_fft == 1)
 		return 0;	// Skip carry step [and preceding inverse-FFT] in this case
+
+	/* The Pépin-test random-bit residue-doubling done by the carry routines is the multiplicative partner of the
+	'shift = 2*shift + randbit' update just below: it belongs to the shift-carrying main residue chain and to nothing
+	else. Tell the carry routines whether the array we are about to process is that chain. Without this, the doubling
+	also gets applied to the Gerbicz check-product update and to the check's squaring chain - neither of which carries
+	a shift - which multiplies those by unaccounted-for powers of 2 and makes the Gerbicz check fail: */
+	FERMAT_RANDBIT_MULT = update_shift;
 
 	// Update RES_SHIFT via mod-doubling, *** BUT ONLY IF IT'S AN AUTOSQUARE ***:
 	if(update_shift) {
@@ -1549,21 +1563,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	clock1 = clock2;
 #endif
 #ifndef NO_USE_SIGNALS
-	// Listen for interrupts:
-	if (signal(SIGINT, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGINT.\n");
-	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGTERM.\n");
-	#ifndef __MINGW32__
-	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGHUP.\n");
-	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGALRM.\n");
-	else if (signal(SIGUSR1, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR1.\n");
-	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
-		fprintf(stderr,"Can't catch SIGUSR2.\n");
-	#endif
+	// Listen for interrupts. Install-once, async-signal-safe handler (see Mlucas.c); this runs on the
+	// main thread, and the FFT worker threads block these signals so the handler only ever fires here:
+	mlucas_install_signal_handlers();
 #endif
 }	/* End of main for(iter....) loop	*/
 
@@ -1704,7 +1706,7 @@ undo_initial_ffft_pass:
 
 			atmp  = a[j2]*radix_inv;
 			a[j2] = DNINT(atmp);
-			k += (fabs(2*a[j1]) > base[ii]);
+			k += (fabs(2*a[j2]) > base[ii]);
 			frac_fp = fabs(a[j2]-atmp);
 			if(frac_fp > max_fp)
 				max_fp = frac_fp;
@@ -1727,7 +1729,10 @@ undo_initial_ffft_pass:
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	// *** v20: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
 	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
-		ASSERT((ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
+		// On normal loop-completion iter = ihi+1; the early-exit-on-interrupt case is filtered out by the
+		// ERR_INTERRUPT return above, *except* for a signal arriving during the final iteration, in which
+		// case the interval did complete but the post-loop iter-- leaves iter = ihi - hence 2nd clause:
+		ASSERT((ierr == 0) && (iter == ihi+1 || !MLUCAS_KEEP_RUNNING), "[2a] sanity check failed!");
 		ROE_ITER = 0;
 		ROE_VAL = 0.0;
 		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
@@ -1740,8 +1745,8 @@ undo_initial_ffft_pass:
 
 #ifdef MULTITHREAD
 
-void*
-fermat_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+void
+fermat_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct ferm_thread_data_t* thread_arg = targ;
 	int ii = thread_arg->tid, thr_id = ii;	// ii-value same as unique thread identifying number
@@ -1840,10 +1845,8 @@ void fermat_process_chunk(
 	if(fwd_fft == 1) {
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
-		return 0x0;
-	#else
-		return;
 	#endif
+		return;
 	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
@@ -1894,7 +1897,6 @@ void fermat_process_chunk(
 #ifdef MULTITHREAD
 	*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 //	printf("Return from Thread %d ... ", ii);
-	return 0x0;
 #endif
 }
 

@@ -64,6 +64,12 @@
 				rest for the lg2(pow2(r0)) term. Thus e.g. r0 = 4032 = 63*64 would map to a [63,6] pair,
 				needing just 6+3 = 9 bits to store, as opposed to 11 bits for (r0-1) = 4095 = 0b11111111111 .
 			***>
+			Until that reworking happens, a .cfg-file entry for a *larger-than-requested* FFT length whose
+			leading radix exceeds 1024 - which the 63*2^k lengths 4032K,8064K,...,516096K all use, r0 = 4032 -
+			simply cannot be encoded. Such entries are skipped (with an informational message) rather than
+			encoded incorrectly; worst case we forgo a faster larger-FFT-length option. Note this restriction
+			applies *only* to the encoding of larger lengths: an entry for the requested length itself is
+			written straight into the NRADICES/RADIX_VEC[] globals and so has no leading-radix limit.
 		- Bits <10:13> store (number of FFT radices);
 		- Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: Since
 		  our smallest permitted intermediate FFT radix is 8 and these must be powers of 2, this
@@ -89,7 +95,7 @@
 */
 uint32	get_preferred_fft_radix(uint32 kblocks)
 {
-	uint32 i, j, k, kprod, found, retval = 0;
+	uint32 i, j, k, kprod, found, unencodable, retval = 0;
 	double tbest = 0, tcurr;
 	char *char_addr;
 
@@ -111,9 +117,13 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 			any line not of that form is ignored, thus allowing pretty much any common comment-format: */
 			if(sscanf(g_in_line, "%d", &i) == 1) {
 				/* Consider any entry with an FFT length >= target, which further contains
-				a per-iteration timing datum in the form 'msec/iter = [float arg]' in non-exponential form:
+				a per-iteration timing datum in the form 'msec/iter = [float arg]' in non-exponential form.
+				Cap the upper end at 2x the target length: the caller (Mlucas.c) refuses to accept any
+				returned length beyond that, so scanning past it can only waste time chasing a cfg entry
+				we'd have to reject anyway - or worse, cause us to skip a usable smaller "better" entry
+				within range in favor of an out-of-range one that later trips the caller's ASSERT:
 				*/
-				if((i >= kblocks) && (char_addr = strstr(g_in_line, "msec/iter =")) != 0) {
+				if((i >= kblocks) && (i <= (kblocks<<1)) && (char_addr = strstr(g_in_line, "msec/iter =")) != 0) {
 					/* Stores whether we found an entry for the requested FFT length
 					(whether that proves to have the best timing for lengths >= kblocks or not): */
 					if(i == kblocks) {
@@ -127,14 +137,15 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 						ASSERT(tcurr >= 0, "tcurr < 0!");
 						if((tbest == 0.0) || ((tcurr > 0.0) && (tcurr < tbest))) {
 							if((char_addr = strstr(g_in_line, "radices =")) == 0x0) {
-								snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, g_in_line);
+								snprintf(cbuf, sizeof(cbuf),"get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, g_in_line);
 								ASSERT(0, cbuf);
 							}
 							char_addr += 9;	// 9 chars in "radices ="
 							kprod = 1;	/* accumulate product of radices */
+							unencodable = FALSE;	/* Set if this entry's leading radix won't fit the compact encoding */
 							for(j = 0; j < 10; j++) {	/* Read in the radices */
 								if(sscanf(char_addr, "%d", &k) != 1) {
-									snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, g_in_line);
+									snprintf(cbuf, sizeof(cbuf),"get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, g_in_line);
 									ASSERT(0, cbuf);
 								} else {
 									// Advance to next WS char following the current numeric token - since sscanf skips leading WS,
@@ -144,11 +155,15 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 									// we have current radix k = 8, an opening while( isspace(*char_addr++)) increments char_addr to the WS
 									// *following* the 8, and the loop continues, causing us to "lose the current radix",
 									// leading to an eventual ASSERT in the kprod-based looping sanity checks.
+									// The 2nd loop must also stop at the terminating NUL: if the .cfg file's last line
+									// lacks a trailing newline, the final radix token ends at end-of-string and an
+									// unguarded !isspace() scan runs off the end of g_in_line[] (ASan: global-buffer-
+									// overflow). Stopping on '\0' leaves char_addr on the terminator, which the leading
+									// isspace()-skip above then also stops on, so a truncated final line simply parses
+									// as far as its data goes.
 									while( isspace(*char_addr)) char_addr++;	// 1. First skip any WS preceding current numeric token
-									while(!isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
-									if(j == 0)
-										ASSERT(k <= 1024, "get_preferred_fft_radix: Leading radix > 1024: out of range!");
-									else if(k) {
+									while(*char_addr && !isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
+									if(j && k) {
 										ASSERT(k <= 32  , "get_preferred_fft_radix: Intermediate radix > 32: out of range!");
 										ASSERT(isPow2(k), "get_preferred_fft_radix: Intermediate FFT radix not a power of 2!");
 									}
@@ -163,6 +178,14 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 											RADIX_VEC[j] = k;
 										}
 									} else {	/* Otherwise, store radix-set data into retval in above-described compact form */
+										/* Bits <0:9> hold (leading radix - 1), so a leading radix > 1024 - as used by the
+										63*2^k FFT lengths, all of which lead with radix 4032 - cannot be encoded. Rather
+										than abort the run (which is what the ASSERT that used to live here did, even for
+										a perfectly valid self-test-generated .cfg entry), just decline to offer this
+										longer length as an alternative to the requested one: */
+										if(j == 0 && k > 1024) {
+											unencodable = TRUE;	break;
+										}
 										if(k == 0) {	/* Bits <10:13> store (number of FFT radices): */
 											if(!((retval >> 10) & 0xf))	/* Set based only position of first zero in the list */
 												retval += (j << 10);
@@ -179,12 +202,16 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 									}
 								}
 							}
+							if(unencodable) {
+								fprintf(stderr,"INFO: %s entry for FFT length %u K has leading radix %u > 1024, which the compact 32-bit radix encoding cannot represent - ignoring this entry as a longer-but-faster alternative to the requested %u K.\n", CONFIGFILE, i, k, kblocks);
+								continue;
+							}
 							/* Product of real-FFT radices (kblocks) must be divisible by 1K = 1024
 							Since (kprod) here is product of complex radices, first multiply it by 2:
 							*/
 							kprod *= 2;
 							if((kprod & 1023) != 0) {
-								snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, g_in_line);
+								snprintf(cbuf, sizeof(cbuf),"get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, g_in_line);
 								ASSERT(0, cbuf);
 							}
 							kprod >>= 10;
@@ -192,7 +219,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 							if(i == kblocks) {
 								/* Product of radices must equal complex vector length (n/2): */
 								if(kprod != kblocks) {
-									snprintf(cbuf,STR_MAX_LEN*2,"get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, g_in_line);
+									snprintf(cbuf, sizeof(cbuf),"get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, g_in_line);
 									ASSERT(0, cbuf);
 								}
 								retval = i;			/* Preferred FFT length */

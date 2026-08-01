@@ -1,6 +1,6 @@
 [***** This file best-viewed with a 4-column tab setting, with line-wrapping *****]
 
-================= Mlucas v20.1.1 command line options listing =================
+================= Mlucas v21.0.2 command line options listing =================
 
 Note: besides the basic post-build self-test flags covered by the online README page
 ( http://www.mersenneforum.org/mayer/README.html ),
@@ -132,6 +132,21 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 
  -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
  -s a		This will take around 12 hours on a fast CPU.
+
+ -s cover	Coverage sweep: runs 100 or 1000-iteration self-tests at the supported FFT lengths
+ -s c		which have NO row in the built-in reference-exponent table and which the tiers above
+			therefore never reach - the odd-31 and odd-63 families, 992K through 32M. These are
+			the only lengths at which leading FFT radices 63, 992, 1008 and 4032 are ever used.
+			No new reference data is needed: the residue after a fixed number of iterations
+			depends only on the exponent and the iteration count, not on the FFT length, so each
+			swept length borrows the exponent and stored residues of the nearest tabulated length
+			at or below it. Roughly the cost of '-s l'.
+
+	Exit status of any of the above: 0 if every radix set tried either matched its reference or
+	was skipped for a reason that does not impugn the answer; 1 if any case returned a wrong
+	answer (residue mismatch, disagreement between radix sets at one FFT length, or an
+	identically-zero residue); 2 if there were no wrong answers but some FFT length had too few
+	usable radix sets to be tested at all. A one-line summary is printed at the end either way.
 
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
  -s h		of 16 M(p), covering FFT lengths 64M-240M. This will take several days on a fast CPU.
@@ -421,7 +436,7 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
  -nthread {int}
 	For multithread-enabled builds, run with this many threads.
 	If the user does not specify a thread count, the default is to run single-threaded
-	with that thread's affinity set to logical core 0.
+	with that thread's affinity set to the first logical core available to the process.
 
 	AFFINITY: The code will attempt to set the affinity of the resulting threads
 	0:n-1 to the same-indexed processor cores - whether this means distinct physical
@@ -429,6 +444,16 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	but AMD does not. For this reason as of v17 this option is deprecated in favor of
 	the -cpu flag, whose usage is detailed below, with the online README page providing
 	guidance for the core-numbering schemes of popular CPU vendors.
+
+	EXTERNALLY-IMPOSED AFFINITY: On Linux, "available" above means "within the CPU-affinity
+	mask this process inherited". If the process was launched under a restricted mask - via
+	taskset, numactl, systemd 'CPUAffinity=', a batch scheduler such as SLURM, or a container
+	cpuset - then -nthread n uses the first n logical cores of *that* mask rather than cores
+	0:n-1, so that several instances pinned to disjoint core groups do not all pile onto the
+	same low-numbered cores. With an unrestricted mask this is exactly cores 0:n-1, as before.
+	An explicit -cpu/-core core set always wins, but naming a core outside the inherited mask
+	now draws a warning, since pinning a thread there overrides the operator's placement (and
+	fails outright under a cgroup cpuset).
 
 	If n exceeds the available number of logical processor cores (call it #cpu), the
 	program will halt with an error message.
@@ -602,6 +627,11 @@ mersenneforum.org thread specific to the release you are using in the mersennefo
 Mlucas subforum at https://www.mersenneforum.org/forumdisplay.php?f=118.
 If you don't find anything, make a post describing your problem.
 
+o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation (e.g. -maxalloc set too high for the
+actual available RAM, or too little free RAM for the requested FFT length or p-1 stage 2 buffer count),
+Mlucas exits with a clear out-of-memory message. If you see this, lower -maxalloc, use fewer p-1 stage 2
+buffers (via -pm1_s2_nbuf), or free up system RAM.
+
 [14a]: How to safely interrupt a running instance:
 
 Note that halting (as opposed to merely suspending using 'kill -CONT' as described below) an Mlucas
@@ -635,7 +665,8 @@ Once you have identified the desired process IDs:
 	interval completes, i.e. until the latest savefile update occurs.
 
 For the current list of signal types which the program listens for, see the sig_handler() function near
-the top of Mlucas.c . As of this writing (v20.1.1), the program listens for INT,TERM,HUP,ALRM,USR1 and USR2.
+the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2 on
+Linux/macOS; native Windows/MinGW builds only catch INT and TERM.
 
 ======================
 

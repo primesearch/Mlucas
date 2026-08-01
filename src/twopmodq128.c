@@ -65,6 +65,23 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	if(dbg) printf("twopmmodq128: computing 2^%s (mod %s)\n",&char_buf[convert_uint128_base10_char(char_buf,p)],&g_cstr[convert_uint128_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
+	/* If p > 128 we need the Montgomery-mul powering loop, which needs an odd modulus, so strip
+	any power of 2 from q *here*, ahead of the (p <= 128) early-out below: the strip lowers p by
+	nshift and can drop it into the early-out range. Doing the early-out first instead leaves
+	p in (128, 128+nshift) falling through to (pshift = p - 128), which wraps. The (p > 128)
+	guard keeps p >= nshift, so the identity 2^p mod q = 2^nshift * (2^(p-nshift) mod q') holds. */
+	nshift = 0;
+	if(!(p.d1 == 0 && p.d0 <= 128)) {
+		nshift = trailz128(q);
+		if(nshift) {
+			x.d0 = (uint64)nshift; x.d1 = 0ull; SUB128(p,x,p);	// p >= nshift guaranteed here:
+			RSHIFT128(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+			RSHIFT_FAST128(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
+		#if FAC_DEBUG
+			if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint128_base10_char(char_buf,q)]);
+		#endif
+		}
+	}
 	// If p <= 128, directly compute 2^p (mod q):
 	if(p.d1 == 0 && p.d0 <= 128) {
 		// Lshift (1 << j) to align with leading bit of q, then do (p - j) repeated mod-doublings:
@@ -75,30 +92,36 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 			LSHIFT128(x,(uint32)p.d0,x);
 		} else {
 			LSHIFT128(x,j,x);
+			// 2^j <= q < 2^(j+1), so the aligned seed is < q *except* when q is an exact power
+			// of 2, where 2^j == q and the seed needs reducing to 0 - the doublings below never
+			// reduce it otherwise, and the routine would return q (or 2^nshift) in place of 0:
+			if(CMPEQ128(x, q)) { x.d0 = x.d1 = 0ull; }
 		}
 		for( ; j < p.d0; j++) {
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT128(x, qhalf)){ ADD128(x, x, x); SUB128(x, q, x); }else{ ADD128(x, x, x); }
 		}
+		// Restore any power of 2 stripped from the modulus above:
+		if(nshift) {
+			LSHIFT128(x,nshift,x);
+		}
 		return x;
 	}
-	// If get here, p > 128: set up for Montgomery-mul-based powering loop:
-	nshift = trailz128(q);
-	if(nshift) {
-		x.d0 = (uint64)nshift; x.d1 = 0ull; SUB128(p,x,p);	// p >= nshift guaranteed here:
-		RSHIFT128(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
-	#if FAC_DEBUG
-		if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint128_base10_char(char_buf,q)]);
-	#endif
-	}
+	// If get here, p > 128 and q is odd: set up for Montgomery-mul-based powering loop.
 	// Extract leftmost 8 bits of (p - 128); if > 128, use leftmost 7 instead:
 	x.d0 = 128ull; x.d1 = 0ull; SUB128(p,x,pshift); j = leadz128(pshift);
-	LSHIFT128(pshift,j,x);	leadb = x.d1 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
-	if(leadb > 128) {
-		start_index = 128-7-j;
-		leadb >>= 1;
+	if(j > 120) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = (uint32)pshift.d0;	start_index = 0;
 	} else {
-		start_index = 128-8-j;
+		LSHIFT128(pshift,j,x);	leadb = x.d1 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
+		if(leadb > 128) {
+			start_index = 128-7-j;
+			leadb >>= 1;
+		} else {
+			start_index = 128-8-j;
+		}
 	}
 #if FAC_DEBUG
 	if(dbg) {
@@ -125,12 +148,8 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	This needs a total of just 3 MUL instructions and 2 ALUs, compared to 8 MULs and 8 ALUs for the original sequence.
 	*/
 	// qinv is 128 bits wide, but only the upper 64 get modified here:
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 	/* Initialize binary powering = R*x (mod q), where R = binary radix (2^128 here);
 	at present don't care about optimizing this rarely-used function. */
 	// First compute R^2 (mod q) in prep. for Mont-mul with initial seed:
@@ -141,7 +160,8 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	if(leadb == 128)
 		x = rsqr;
 	else {
-		x.d0 = 1ull; LSHIFT128(x,leadb,x);	// x <<= leadb;
+		// x is reused as scratch above, so must zero its high words before seeding with 2^leadb:
+		x.d0 = 1ull; x.d1 = 0ull;	LSHIFT128(x,leadb,x);	// x <<= leadb;
 		MONT_MUL128(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
  	}
 
@@ -301,12 +321,8 @@ if(dbg) printf("twopmodq128:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -514,12 +530,8 @@ if(dbg) printf("twopmodq128x2:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128x2 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -670,12 +682,8 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -809,12 +817,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -824,7 +826,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + lo64_1);
 	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + lo64_2);
 	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + lo64_3);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -858,15 +859,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-	#if THREE_OP128
-		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
-		than the 3-function version. */
-		THREE_OP128_q4(
-		  x0, qinv0, q0, lo0, hi0
-		, x1, qinv1, q1, lo1, hi1
-		, x2, qinv2, q2, lo2, hi2
-		, x3, qinv3, q3, lo3, hi3);
-	#else
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_q4(
 		  x0, hi0
@@ -923,7 +915,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		MULH128(lo2, q2, lo2);
 		MULH128(lo3, q3, lo3);
 		*/
-	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 		if(CMPULT128(hi0, lo0)) { SUB128(q0, lo0, lo0);	ADD128(lo0, hi0, x0); } else { SUB128(hi0, lo0, x0); }
 		if(CMPULT128(hi1, lo1)) { SUB128(q1, lo1, lo1);	ADD128(lo1, hi1, x1); } else { SUB128(hi1, lo1, x1); }
@@ -1082,16 +1073,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -1109,7 +1090,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + lo64_5);
 	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + lo64_6);
 	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + lo64_7);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -1163,19 +1143,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 #if FAC_DEBUG
 if(dbg) printf("A: x = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0,x0.d1);
 #endif
-	#if THREE_OP128
-		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
-		than the 3-function version. */
-		THREE_OP128_q8(
-		  x0, qinv0, q0, lo0, hi0
-		, x1, qinv1, q1, lo1, hi1
-		, x2, qinv2, q2, lo2, hi2
-		, x3, qinv3, q3, lo3, hi3
-		, x4, qinv4, q4, lo4, hi4
-		, x5, qinv5, q5, lo5, hi5
-		, x6, qinv6, q6, lo6, hi6
-		, x7, qinv7, q7, lo7, hi7);
-	#else
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_q8(
 		  x0, hi0
@@ -1279,7 +1246,6 @@ if(dbg) printf("C: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #if FAC_DEBUG
 if(dbg) printf("D: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
-	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 		if(CMPULT128(hi0, lo0)) { SUB128(q0, lo0, lo0);	ADD128(lo0, hi0, x0); } else { SUB128(hi0, lo0, x0); }
 		if(CMPULT128(hi1, lo1)) { SUB128(q1, lo1, lo1);	ADD128(lo1, hi1, x1); } else { SUB128(hi1, lo1, x1); }
