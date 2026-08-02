@@ -2558,7 +2558,10 @@ S2_RETURN:
 #endif
 ERR_RETURN:
 	// Free the memory:
-	free((void *)a_ptmp); a_ptmp = a = 0x0; buf = 0x0;
+	// v21: buf[] is its own calloc'ed array of pointers - freeing a_ptmp releases the vectors those
+	// pointers address, but not the pointer array itself, which was leaked on every Stage-2 call:
+	free((void *)a_ptmp); a_ptmp = a = 0x0;
+	free((void *)buf); buf = 0x0;
 	free((void *)b); b = 0x0;
 	free((void *)map); map = 0x0;
   #ifdef MULTITHREAD
