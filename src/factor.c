@@ -2683,7 +2683,11 @@ MFACTOR_HELP:
 		// Proper init (as opposed to no-init) key to avoiding deadlock here.
 		// Started with 2 separate _checkpoint and _foundfactor mutexes here, but since both code sections
 		// in question call some of the same mi64 functions, replaced with 'one mutex to rule them all' model:
-		pthread_mutex_t mutex_mi64        = PTHREAD_MUTEX_INITIALIZER,
+		/* These MUST be static. PerPass_tfSieve() is itself the per-thread worker entry point, so a
+		non-static local here gives every thread its own private mutex on its own stack: each
+		pthread_mutex_lock() below then succeeds immediately against a lock no other thread can even
+		name, and the critical sections serialise nothing at all. */
+		static pthread_mutex_t mutex_mi64        = PTHREAD_MUTEX_INITIALIZER,
 						mutex_updatecount = PTHREAD_MUTEX_INITIALIZER;	// No mi64 calls here.
 	#endif
 		FILE *fp = 0x0;
