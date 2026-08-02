@@ -1207,19 +1207,32 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	// If get here, p > 64: set up for Montgomery-mul-based powering loop:
 	nshift = trailz64(q);
 	if(nshift) {
-		// p >= nshift guaranteed here:
+		// p >= nshift guaranteed here, since p > 64 > nshift:
 		q >>= nshift; p -= nshift;	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
 		if(debug) printf("Removed power-of-2 from q: q' = (q >> %u) = %" PRIu64 "\n",nshift,q);
+		// The (p <= 64) early-out above was taken against the *unshifted* exponent, so for
+		// p in (64, 64+nshift) the subtraction just dropped p below 64 and the (pshift = p - 64)
+		// computed below would wrap. Redo the direct computation, now against the odd part q',
+		// and restore the off-shifted power of 2 on the way out.  p = 64 needs no special case:
+		// it gives pshift = 0, hence leadb = 0 and start_index = 0, which the main path handles.
+		if(p < 64)
+			return ((1ull << p) % q) << nshift;
 	}
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 	// Extract leftmost 7 bits of (p - 64); if > 64, use leftmost 6 instead:
 	pshift = p - 64;	j = leadz64(pshift);
-	leadb = (pshift<<j) >> 57;	// No (pshift = ~pshift) step in positive-power algorithm!
-	if(leadb > 64) {
-		start_index = 58-j;
-		leadb >>= 1;
+	if(j > 57) {	// pshift < 64, i.e. fewer than 7 significant bits: the 7-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = pshift;	start_index = 0;
 	} else {
-		start_index = 57-j;
+		leadb = (pshift<<j) >> 57;	// No (pshift = ~pshift) step in positive-power algorithm!
+		if(leadb > 64) {
+			start_index = 58-j;
+			leadb >>= 1;
+		} else {
+			start_index = 57-j;
+		}
 	}
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT((q & 0x1) && (q > 1), "q must be odd > 1!");
@@ -1333,8 +1346,14 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 	uint32 leadb, start_index;
 
 	// Extract leftmost 6 bits of p and subtract from 64:
-	leadb = (p<<j) >> 58;
-	start_index = 58-j;
+	if(j > 58) {	// p < 32, i.e. fewer than 6 significant bits: the 6-bit extraction below would
+					// left-pad p with zeros (leadb != p) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of p as the lead chunk:
+		leadb = p;	start_index = 0;
+	} else {
+		leadb = (p<<j) >> 58;
+		start_index = 58-j;
+	}
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
