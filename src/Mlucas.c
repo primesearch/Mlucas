@@ -6417,6 +6417,9 @@ uint32 extract_known_factors(uint64 p, char *fac_start) {
 				}
 			}
 		}
+		// v21: convert_base10_char_mi64() allocs the fac[] vector and hands ownership to us, so release it
+		// before converting the next factor - otherwise each factor of each PRP-CF/p-1 assignment leaks:
+		free((void *)fac);	fac = 0x0;
 		cptr = char_addr+1;	// Advance 1-char past the current , or "
 	}
 	if(char_addr != 0x0) {
@@ -6565,8 +6568,9 @@ gcd_return:
 	clock2 = getRealTime(); tdiff = clock2 - clock1;
 	snprintf(cbuf,sizeof(cbuf),"Time for GCD =%s\n",get_time_str(tdiff));
 	mlucas_fprint(cbuf,1);
-	// Done with the GMP arrays:
-	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2); mpz_clear(gmp_d); mpz_clear(gmp_r); mpz_clear(gmp_q);
+	// Done with the GMP arrays ... note gmp_one is inited via mpz_init_set_ui(), which unlike mpz_init()
+	// does allocate limb storage, thus needs clearing just like the rest:
+	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2); mpz_clear(gmp_one); mpz_clear(gmp_d); mpz_clear(gmp_r); mpz_clear(gmp_q);
 	return retval;
 #endif	// INCLUDE_GMP ?
 }
@@ -6636,8 +6640,8 @@ void modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb) {
 	for(i = inv_limbs; i < nlimb; i++) {
 		vec2[i] = 0ull;
 	}
-	// Done with the GMP arrays:
-	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2);
+	// Done with the GMP arrays ... gmp_one needs clearing as well, cf. the comment in gcd():
+	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2); mpz_clear(gmp_one);
 #endif	// INCLUDE_GMP ?
 }
 
