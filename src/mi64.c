@@ -5763,6 +5763,20 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 }
 #endif	// __CUDA_ARCH__ ?
 
+/* Extract the i'th 32-bit word of a uint64 array, least-significant half of each limb first.
+Reading the limb and shifting keeps this a by-value operation: no (uint32 *) view of a uint64
+object - which is a strict-aliasing violation, and was silently miscompiled under -flto by at
+least one clang - and no dependence on host byte order, since the shift addresses the value
+rather than the storage. Contrast trailz32() in util.c, which needs a USE_BIG_ENDIAN arm
+precisely because it inspects storage.  */
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+static uint32 mi64_word32(const uint64 x[], uint32 i)
+{
+	return (uint32)(x[i>>1] >> ((i&1)<<5));
+}
+
 /// Fast is-divisible-by-32-bit-scalar using Montgomery modmul and right-to-left modding:
 /*** NOTE *** Routine assumes x[] is a uint64 array cast to uint32[], hence the doubling-of-len
 is done HERE, i.e. user must supply uint64-len just as for the 'true 64-bit' mi64 functions!
@@ -5775,7 +5789,7 @@ In other words, these kinds of compiler warnings are expected:
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-int mi64_is_div_by_scalar32(const uint32 x[], uint32 q, uint32 len)
+int mi64_is_div_by_scalar32(const uint64 x[], uint32 q, uint32 len)
 {
 	uint32 i,j,nshift,dlen,qinv,tmp,cy;
 
@@ -5786,7 +5800,7 @@ int mi64_is_div_by_scalar32(const uint32 x[], uint32 q, uint32 len)
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift = trailz32(q);
 	if(nshift) {
-		if(trailz32(x[0]) < nshift) return FALSE;
+		if(trailz32(mi64_word32(x,0)) < nshift) return FALSE;
 		q >>= nshift;
 	}
 
@@ -5797,11 +5811,12 @@ int mi64_is_div_by_scalar32(const uint32 x[], uint32 q, uint32 len)
 	cy = (uint32)0;
 	dlen = len+len;	/* Since are processing a uint64 array cast to uint32[], double the #words parameter */
 	for(i = 0; i < dlen; ++i) {
-		tmp  = x[i] - cy;
+		const uint32 xcur = mi64_word32(x,i);
+		tmp  = xcur - cy;
 		/* Add q if had a borrow - Since we low=half multiply tmp by qinv below and q*qinv == 1 (mod 2^32),
 		   can simply add 1 to tmp*qinv result instead of adding q to the difference here:
 		*/
-		cy = (cy > x[i]); /* Comparing this rather than (tmp > x[i]) frees up tmp for the multiply */
+		cy = (cy > xcur); /* Comparing this rather than (tmp > x[i]) frees up tmp for the multiply */
 		/* Now do the Montgomery mod: cy = umulh( q, mulq(tmp, qinv) ); */
 		tmp *= qinv;
 		tmp += cy;
@@ -5811,7 +5826,7 @@ int mi64_is_div_by_scalar32(const uint32 x[], uint32 q, uint32 len)
 }
 
 /* Same as above, but assumes q and its modular inverse have been precomputed: */
-int		mi64_is_div_by_scalar32p(const uint32 x[], uint32 q, uint32 qinv, uint32 len)
+int		mi64_is_div_by_scalar32p(const uint64 x[], uint32 q, uint32 qinv, uint32 len)
 {
 	uint32 i,dlen,tmp,cy;
 
@@ -5819,11 +5834,12 @@ int		mi64_is_div_by_scalar32p(const uint32 x[], uint32 q, uint32 qinv, uint32 le
 	cy = (uint32)0;
 	dlen = len+len;	/* Since are processing a uint64 array cast to uint32[], double the #words parameter */
 	for(i = 0; i < dlen; ++i) {
-		tmp  = x[i] - cy;
+		const uint32 xcur = mi64_word32(x,i);
+		tmp  = xcur - cy;
 		/* Add q if had a borrow - Since we low=half multiply tmp by qinv below and q*qinv == 1 (mod 2^32),
 		   can simply add 1 to tmp*qinv result instead of adding q to the difference here:
 		*/
-		cy = (cy > x[i]); /* Comparing this rather than (tmp > x[i]) frees up tmp for the multiply */
+		cy = (cy > xcur); /* Comparing this rather than (tmp > x[i]) frees up tmp for the multiply */
 		/* Now do the Montgomery mod: cy = umulh( q, mulq(tmp, qinv) ); */
 		tmp *= qinv;
 		tmp += cy;
@@ -5928,7 +5944,7 @@ int		mi64_is_div_by_scalar32p_x8(
 }
 
 #ifndef __CUDA_ARCH__
-uint32	mi64_is_div_by_scalar32_x4(const uint32 x[], uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 len)
+uint32	mi64_is_div_by_scalar32_x4(const uint64 x[], uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 len)
 {
 	uint32 i,j,nshift0,nshift1,nshift2,nshift3;
 	uint32 retval=0,dlen = len+len, qinv0,qinv1,qinv2,qinv3,tmp0,tmp1,tmp2,tmp3,cy0,cy1,cy2,cy3;
@@ -5938,7 +5954,7 @@ uint32	mi64_is_div_by_scalar32_x4(const uint32 x[], uint32 q0, uint32 q1, uint32
 	if(q0 + q1 + q2 + q3 == 4) return TRUE;
 	if(len == 0) return TRUE;
 
-	trailx = trailz32(x[0]);
+	trailx = trailz32(mi64_word32(x,0));
 
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift0 = trailz32(q0);
@@ -5966,7 +5982,7 @@ uint32	mi64_is_div_by_scalar32_x4(const uint32 x[], uint32 q0, uint32 q1, uint32
 	cy2 = (uint32)0;
 	cy3 = (uint32)0;
 	for(i = 0; i < dlen; ++i) {
-		xcur = x[i];
+		xcur = mi64_word32(x,i);
 
 		tmp0 = xcur - cy0;
 		tmp1 = xcur - cy1;
@@ -6001,7 +6017,7 @@ uint32	mi64_is_div_by_scalar32_x4(const uint32 x[], uint32 q0, uint32 q1, uint32
 	return retval;
 }
 
-uint32	mi64_is_div_by_scalar32_x8(const uint32 x[], uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 q4, uint32 q5, uint32 q6, uint32 q7, uint32 len)
+uint32	mi64_is_div_by_scalar32_x8(const uint64 x[], uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 q4, uint32 q5, uint32 q6, uint32 q7, uint32 len)
 {
 	uint32 i,j,nshift0,nshift1,nshift2,nshift3,nshift4,nshift5,nshift6,nshift7;
 	uint32 retval=0,dlen = len+len, qinv0,qinv1,qinv2,qinv3,qinv4,qinv5,qinv6,qinv7,tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7,cy0,cy1,cy2,cy3,cy4,cy5,cy6,cy7;
@@ -6011,7 +6027,7 @@ uint32	mi64_is_div_by_scalar32_x8(const uint32 x[], uint32 q0, uint32 q1, uint32
 	if(q0 + q1 + q2 + q3 + q4 + q5 + q6 + q7 == 8) return TRUE;
 	if(len == 0) return TRUE;
 
-	trailx = trailz32(x[0]);
+	trailx = trailz32(mi64_word32(x,0));
 
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift0 = trailz32(q0);						nshift4 = trailz32(q4);
@@ -6039,7 +6055,7 @@ uint32	mi64_is_div_by_scalar32_x8(const uint32 x[], uint32 q0, uint32 q1, uint32
 	cy2 = (uint32)0;							cy6 = (uint32)0;
 	cy3 = (uint32)0;							cy7 = (uint32)0;
 	for(i = 0; i < dlen; ++i) {
-		xcur = x[i];
+		xcur = mi64_word32(x,i);
 
 		tmp0 = xcur - cy0;						tmp4 = xcur - cy4;
 		tmp1 = xcur - cy1;						tmp5 = xcur - cy5;
@@ -8109,7 +8125,7 @@ uint32 mi64_div_y32(const uint64 x[], uint32 y, uint64 q[], uint32 len)
 		rem = tsum%y;
 	}
 	if(rem == 0 && x != q) {	// If overwrote input with quotient in above loop, skip this
-		ASSERT(mi64_is_div_by_scalar32((const uint32 *)x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
+		ASSERT(mi64_is_div_by_scalar32(x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
 		return 0;
 	}
 	return (uint32)rem;
