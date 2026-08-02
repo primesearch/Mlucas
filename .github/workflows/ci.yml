@@ -67,6 +67,11 @@ jobs:
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            if echo 'int main(void){return 0;}' | $CC -march=knl -mavx512er -x c -o /dev/null -; then
+                MODES+=( AVX512_KNL )
+            else
+                echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
+            fi
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -155,6 +160,11 @@ jobs:
             MODES+=( ASIMD )
         else
             MODES+=( SSE2 AVX AVX2 AVX512 )
+            if echo 'int main(void){return 0;}' | $CC -march=knl -mavx512er -x c -o /dev/null -; then
+                MODES+=( AVX512_KNL )
+            else
+                echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
+            fi
         fi
         for mode in "${MODES[@]}"; do
             echo -e "\n$mode\n"
@@ -206,11 +216,10 @@ jobs:
     name: Mlucas Linux old
 
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
+        container: ["ubuntu:12.04", "ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
         cc: [gcc, clang]
         exclude:
           # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
@@ -219,50 +228,58 @@ jobs:
           - os: ubuntu-24.04-arm
             container: "ubuntu:14.04"
             cc: clang
+          - os: ubuntu-24.04-arm
+            container: "ubuntu:12.04"
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
     steps:
-    # - uses: actions/checkout@v7
-    - name: Install
-      if: ${{ startsWith(matrix.container, 'ubuntu:') }}
-      run: |
-        apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y wget build-essential libgmp-dev libhwloc-dev
-        echo 'HAVE_HWLOC=1' >> "$GITHUB_ENV"
-    - name: Install Clang
-      if: ${{ startsWith(matrix.container, 'ubuntu:') && matrix.cc == 'clang' }}
-      run: |
-        apt-get install -y clang
-    - name: Install
-      if: ${{ startsWith(matrix.container, 'alpine:') }}
-      run: |
-        apk update
-        apk add bash wget build-base gmp-dev
-        if apk add hwloc-dev; then
-            echo 'HAVE_HWLOC=1' >> "$GITHUB_ENV"
-        fi
-    - name: Install Clang
-      if: ${{ startsWith(matrix.container, 'alpine:') && matrix.cc == 'clang' }}
-      run: |
-        apk add clang
-    - name: Download
-      run: |
-        wget "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz"
-        tar -xzvf "$GITHUB_SHA.tar.gz" --strip-components=1
+    - uses: actions/checkout@v7
     - name: Before script
       run: |
+        sed -i 's/^MAX=29/MAX=25/' config-fermat.sh
+    - name: Script
+      run: |
+        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace -e CC=$CC "${{ matrix.container }}" ${{ startsWith(matrix.container, 'alpine:') && 'sh -c "apk add bash; exec bash -s"' || 'bash -s' }} <<'EOF'
+        set -ex -o pipefail
+        if [[ "${{ matrix.container }}" == ubuntu:* ]]; then
+            if [[ "${{ matrix.container }}" == ubuntu:12.04 ]]; then
+                sed -i 's/archive\.\|security\./old-releases./g' /etc/apt/sources.list
+            fi
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential libgmp-dev libhwloc-dev
+            HAVE_HWLOC=1
+            if [[ $CC == clang ]]; then
+                apt-get install -y clang
+            fi
+        elif [[ "${{ matrix.container }}" == alpine:* ]]; then
+            apk update
+            apk add build-base gmp-dev
+            if apk add hwloc-dev; then
+                HAVE_HWLOC=1
+            fi
+            if [[ $CC == clang ]]; then
+                apk add clang
+            fi
+        fi
+
         $CC --version
         ldd --version || true
-    - name: Script
-      shell: bash
-      run: |
-        set -x
-        MODES=( '' NOSIMD )
+
+        MODES=()
+        if [[ "${{ matrix.container }}" != ubuntu:12.04 ]]; then
+            MODES+=( '' )
+        fi
+        MODES+=( NOSIMD )
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
         else
-            MODES+=( SSE2 AVX AVX2 )
+            MODES+=( SSE2 AVX )
+            if echo 'int main(void){return 0;}' | $CC -mavx2 -mfma -x c -o /dev/null - && [[ "${{ matrix.container }}" != ubuntu:12.04 ]]; then
+                MODES+=( AVX2 )
+            else
+                echo "::warning::Skipping the AVX2 build mode as '$($CC --version | head -n1)' does not support AVX2."
+            fi
             # Only test the AVX-512 build mode if the compiler's assembler can handle the AVX-512 constructs
             # Mlucas's kernels use: the extended registers (zmm16-31/xmm16-31/k0-7). Ancient clang can't -
             # clang 3.8 (ubuntu:16.04) rejects the extended register names ("unknown register name 'xmm30'").
@@ -270,10 +287,15 @@ jobs:
             # KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an ER-capable assembler -
             # which is why clang 5.0 on alpine:3.8 can now build AVX-512.) Probe and skip AVX-512 rather than
             # fail the build on a mode that provably can't work here.
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | "${CC:-gcc}" -mavx512f -x c -o /dev/null - >/dev/null 2>&1; then
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma -x c -o /dev/null -; then
                 MODES+=( AVX512 )
             else
-                echo "::warning title=AVX-512 build skipped::$("${CC:-gcc}" --version | head -n1): its assembler can't handle the AVX-512 extended registers (zmm16-31/xmm16-31/k0-7) Mlucas's kernels need; skipping the AVX-512 build mode."
+                echo "::warning::Skipping the AVX512 build mode as the '$($CC --version | head -n1)' assembler cannot handle the required AVX512 extended registers (zmm16-31/xmm16-31/k0-7)."
+            fi
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -march=knl -mavx512f -mavx512cd -mavx512er -mfma -x c -o /dev/null -; then
+                MODES+=( AVX512_KNL )
+            else
+                echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
             fi
         fi
         for mode in "${MODES[@]}"; do
@@ -290,6 +312,86 @@ jobs:
                 )
             done
         done
+        mode=''
+        [[ "${{ matrix.container }}" == ubuntu:12.04 ]] && mode=_AVX
+        cd "obj$mode"
+        rc=0
+        for s in tt t s; do
+            st=0; time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t; do
+            st=0; time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_NOSIMD
+        fi
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        mfac_mode=''
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            mfac_mode=_NOSIMD
+        elif [[ "${{ matrix.container }}" == ubuntu:12.04 ]]; then
+            mfac_mode=_AVX
+        fi
+        for word in '' {{1..4},n}word; do
+            ( cd "../obj_mfac${word:+_$word}$mfac_mode" && time ./Mfactor${word:+_$word} -m 127 -bmax 20 )
+        done
+        EOF
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        # ${{ matrix.container }}_${{ matrix.cc }}_mlucas
+        name: container-${{ strategy.job-index }}_${{ matrix.cc }}_mlucas
+        path: ${{ github.workspace }}
+
+  Linux-K1OM:
+    name: Mlucas K1OM
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Download
+      run: |
+          # https://web.archive.org/web/20210307201727/https://software.intel.com/content/www/us/en/develop/articles/intel-manycore-platform-software-stack-mpss.html
+          wget -nv 'https://web.archive.org/web/20200818141734id_/http://registrationcenter-download.intel.com/akdlm/irc_nas/15904/mpss-3.8.6-linux.tar'
+          tar -xvf mpss-3.8.6-linux.tar
+    - name: Script
+      run: |
+        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace centos:7 bash -s <<'EOF'
+        set -e -o pipefail
+        sed -i '/^mirrorlist/d;/^#baseurl=/{s|^#||;s|/mirror|/vault|;}' /etc/yum.repos.d/CentOS*.repo
+        # yum update -y
+        yum install -y make
+        yum localinstall -y mpss-3.8.6/mpss-sdk-k1om-*.x86_64.rpm
+        source /opt/mpss/3.8.6/environment-setup-k1om-mpss-linux
+
+        export CC=k1om-mpss-linux-gcc
+        unset CFLAGS CPPFLAGS
+        $CC --version
+        k1om-mpss-linux-ld --version
+        $CC -dM -E - </dev/null
+
+        bash -e -o pipefail -- makemake.sh no_gmp k1om
+        (cd obj_k1om; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh no_gmp mfac $word k1om
+            (
+                cd obj_mfac${word:+_$word}_k1om
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        EOF
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux_k1om_mlucas
+        path: |
+          ${{ github.workspace }}
+          !mpss-*
 
   ASan-Linux:
     needs: changes
@@ -484,45 +586,6 @@ jobs:
         echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-
-  Linux-K1OM:
-    name: Mlucas K1OM
-
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Download
-      run: |
-          # https://web.archive.org/web/20210307201727/https://software.intel.com/content/www/us/en/develop/articles/intel-manycore-platform-software-stack-mpss.html
-          wget -nv 'https://web.archive.org/web/20200818141734id_/http://registrationcenter-download.intel.com/akdlm/irc_nas/15904/mpss-3.8.6-linux.tar'
-          tar -xvf mpss-3.8.6-linux.tar
-    - name: Script
-      run: |
-        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace centos:7 bash -s <<'EOF'
-        set -e -o pipefail
-        sed -i -e '/^mirrorlist/d;/^#baseurl=/{s,^#,,;s,/mirror,/vault,;}' /etc/yum.repos.d/CentOS*.repo
-        yum install -y make
-        yum localinstall -y mpss-3.8.6/mpss-sdk-k1om-*.x86_64.rpm
-        source /opt/mpss/3.8.6/environment-setup-k1om-mpss-linux
-
-        export CC=k1om-mpss-linux-gcc
-        $CC --version
-        k1om-mpss-linux-ld --version
-        $CC -dM -E - </dev/null
-
-        # The SDK environment-setup script exports CFLAGS and CPPFLAGS itself, and the Makefile uses
-        # 'CFLAGS ?=', which defers to the environment - so without re-exporting them here the build
-        # silently drops -O3 and -D_GNU_SOURCE and compiles at -O0. That is not a KNC defect, but it
-        # breaks the build: radix16_dif_dit_pass_asm.h needs the optimiser for the "e" constraint on
-        # pfetch_dist, and threadpool.c needs _GNU_SOURCE for CPU_ZERO/sched_setaffinity.
-        export CFLAGS="-Wall -g -O3 -std=gnu99 -m64 --sysroot=/opt/mpss/3.8.6/sysroots/k1om-mpss-linux"
-        export CPPFLAGS="-D_GNU_SOURCE -m64 --sysroot=/opt/mpss/3.8.6/sysroots/k1om-mpss-linux"
-
-        # Mlucas only - Mfactor is deliberately not cross-built for KNC. Trial factoring on
-        # first-gen Xeon Phi is not a workload anyone runs, and the six word-variant builds roughly
-        # quadruple the runtime of an already slow job (SDK download plus an emulated CentOS 7).
-        bash -e -o pipefail -- makemake.sh no_gmp k1om
-        EOF
 
   Clang-Tidy:
     needs: changes
