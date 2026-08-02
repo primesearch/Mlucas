@@ -835,7 +835,7 @@ char* qf2str(struct qfloat q)
 	const char pm[2] = {'+','-'};
 	os[0] = pm[sgn];	os[1] = '\0';
 	if(!u) {	// Allocate scratch space
-		u = (uint64 *)calloc(32, sizeof(uint64));
+		u = (uint64 *)CALLOC(32, sizeof(uint64));
 	}
 	mi64_clear(u,32);
 	if(qfiszero(q)) {	// +-0.0
@@ -1016,24 +1016,15 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	a = (hi1<<11) + (lo1>>53);
 	c = (hi2<<11) + (lo2>>53);
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(a,c,&lo,&hi);	/* start the integer product ASAP, since it will generally have a large latency. */
-#else
 	MUL_LOHI64(a,c,lo,hi);
-#endif
 
 	b = (lo1 << 11) >> 11;
 	d = (lo2 << 11) >> 11;
 
 #ifndef USE_FMUL_FOR_LOW_WORD
 
-  #ifdef MUL_LOHI64_SUBROUTINE
-	adhi = __MULH64(a,d);
-	bchi = __MULH64(b,c);
-  #else
 	MULH64(a,d,adhi);
 	MULH64(b,c,bchi);
-  #endif
 
 #else	// USE_FMUL_FOR_LOW_WORD
 
@@ -3007,9 +2998,6 @@ int qtest(void)
 	double td = 0, tdiff, cycles, cycles_for_qfdbl;
 #endif
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	printf("INFO: qfloat routines using subroutine form of MUL_LOHI\n");
-#endif
 
 #ifdef X87_ASM
 	// Test long-double interface used for high-precision inits of NR seeds for certain transcendental functions:
@@ -3799,7 +3787,7 @@ int qtest(void)
 
 	q = qfmul_pow2(QPI, 125);	/* This gives pi*2^125, which should still fit into a signed 128-bit int. */
 	i128 = qfnint(q);
-	ASSERT((i128.d1 = (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
+	ASSERT((i128.d1 == (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
 
 #if TIMING_TEST
 	exit(0);

@@ -61,11 +61,11 @@ case $OSTYPE in
 		;;
 esac
 
-MAKE=make
-if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
+MAKE='make'
+if ! command -v "$MAKE" >/dev/null && command -v mingw32-make >/dev/null; then
 	MAKE=mingw32-make
 fi
-if ! command -v $MAKE >/dev/null; then
+if ! command -v "$MAKE" >/dev/null; then
 	echo "Error: This script requires Make" >&2
 	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
@@ -80,6 +80,13 @@ elif ! command -v gcc >/dev/null; then
 	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
 fi
+
+# The three try_* helpers below are feature *probes*: a nonzero return means "this toolchain does not
+# support that", which is an answer, not an error. They are therefore always called from an 'if'/'&&'/'!'
+# condition, which suppresses 'set -e' inside them - exactly what we want, and what they are written for
+# (each does its own error handling, e.g. 'mktemp -d || return 1'). ShellCheck's optional
+# check-set-e-suppressed check flags every such call as SC2310, so each call site below carries a narrow
+# '# shellcheck disable=SC2310'.
 
 # Returns success iff $CC (default gcc) accepts the given flag(s) for a full compile-and-link of a
 # trivial program - used below to auto-detect toolchain-version-dependent flag/feature support instead
@@ -155,6 +162,29 @@ if "$MAKE" --help 2>/dev/null | grep -wq -- '-O'; then
 fi
 MAKE_ARGS+=(-j "$CPU_THREADS")
 
+# Windows/MinGW gcc (observed on both 15.2 and 16.1) has a longstanding x86-64 codegen bug: when
+# autovectorization creates 256/512-bit temporaries, gcc spills them with ALIGNED stores (vmovdqa,
+# needing 32/64-byte alignment) into stack frames it never dynamically realigns - but the Win64 ABI
+# only guarantees 16-byte alignment at function entry, and Windows randomizes the initial thread
+# stack phase per run. Result: plain C code (no inline asm involved) faults on ~half of all runs,
+# at a stable instruction but "moving" whenever the code is recompiled - observed as Mfactor's
+# test_fac() SIGSEGVing intermittently in CI (vmovdqa %ymm0,0x170(%rsp) with rsp = 0 mod 32, where
+# gcc assumed 16 mod 32). Linux and Wine always start with the compatible phase, which is why this
+# never reproduced off real Windows. -mstackrealign does NOT help (it realigns only to the 16-byte
+# preferred boundary). Instead, keep compiler-GENERATED vector code to 128 bits so no 32/64-byte-
+# aligned spill slots exist at all; Mlucas's hand-written SIMD asm is unaffected (the assembler
+# needs no -m flags), so AVX2/AVX-512 build modes lose nothing but gcc's autovectorization width:
+if [[ $OSTYPE == msys || $OSTYPE == cygwin ]] && ! "${CC:-gcc}" --version 2>/dev/null | grep -qi clang; then
+	pvw_tmp=$(mktemp -d)
+	printf 'int main(void){return 0;}\n' >"$pvw_tmp/t.c"
+	# Compile a real temp file to a real output: native MinGW gcc misparses '-o /dev/null' as C:\dev\null.
+	if "${CC:-gcc}" -mprefer-vector-width=128 "$pvw_tmp/t.c" -o "$pvw_tmp/t.out" >/dev/null 2>&1; then
+		echo -e "MinGW gcc detected: adding -mprefer-vector-width=128 to work around gcc's unaligned-AVX-spill bug on Windows.\n"
+		ARGS+=(-mprefer-vector-width=128)
+	fi
+	rm -rf "$pvw_tmp"
+fi
+
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
 echo "Total number of input parameters = $#"
 
@@ -223,10 +253,22 @@ if [[ -n $WORDS ]]; then
 		fi
 		Mfactor+="_$arg"
 		TARGET=$Mfactor
+		# The word-size macro is a property of the whole build, not just factor.c: factor.h keys
+		# PIPELINE_MUL192 and the TRYQ default off it, and Mdata.h keys MAX_BITS_P|Q off it. Pass it
+		# to every translation unit (see WORDS_TU below), and give each word-variant its own object
+		# directory so a mode switch cannot silently relink objects built for a different variant.
+		DIR+="_$arg"
 	else
 		echo "Error: The argument '$WORDS' requires 'mfac'." >&2
 		exit 1
 	fi
+fi
+
+# Macros that must be seen by *every* Mfactor translation unit, not just factor.c. Mdata.h rejects
+# the PxWORD/NWORD macros unless FACTOR_STANDALONE is also set, so the two travel together.
+WORDS_TU=''
+if [[ -n $WORDS ]]; then
+	WORDS_TU="$WORDS -DFACTOR_STANDALONE"
 fi
 
 if [[ $OSTYPE == msys || $OSTYPE == cygwin ]]; then
@@ -264,6 +306,13 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
 		k1om)
+			# Cross-build note: the Intel MPSS SDK's environment-setup-k1om-mpss-linux script exports
+			# CFLAGS and CPPFLAGS itself. The Makefile uses 'CFLAGS ?=', which defers to the environment,
+			# so merely sourcing the SDK script silently drops -O3 and -D_GNU_SOURCE and builds at -O0.
+			# At -O0 you get two failures that are NOT k1om defects: "impossible constraint in 'asm'" in
+			# radix16_dif_dit_pass_asm.h (the "e" constraint on pfetch_dist needs the optimiser), and
+			# threadpool.c losing CPU_ZERO/sched_setaffinity (that one is the missing -D_GNU_SOURCE).
+			# Re-export CFLAGS/CPPFLAGS *after* sourcing the SDK script.
 			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_IMCI512)
 			;;
@@ -296,6 +345,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 	# The AVX-512 kernels use "extended" register names (zmm16-31/xmm16-31/k0-7) that some older
 	# Clang releases reject even when otherwise AVX-512-aware; probe rather than let the user hit a
 	# wall of asm errors deep in the build:
+	# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 	if [[ $arg == avx512* ]] && ! try_avx512_asm; then
 		echo "Error: ${CC:-gcc}'s assembler does not support the AVX-512 extended register names (zmm16-31/xmm16-31/k0-7) needed for this build mode ... aborting. Try a newer compiler, or build with 'avx2' instead." >&2
 		exit 1
@@ -314,6 +364,7 @@ elif [[ $OSTYPE == darwin* ]]; then
 	avx1_0=$( sysctl -n hw.optional.avx1_0  2>/dev/null || echo 0)
 	sse2=$(   sysctl -n hw.optional.sse2    2>/dev/null || echo 0)
 	neon=$(   sysctl -n hw.optional.neon    2>/dev/null || echo 0)
+	# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 	if ((avx512f)) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
@@ -349,6 +400,7 @@ elif [[ $OSTYPE == darwin* ]]; then
 elif [[ $OSTYPE == linux* ]]; then
 
 	# Linux:
+	# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 	if grep -iq 'avx512' /proc/cpuinfo && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
@@ -436,6 +488,7 @@ EOF
 
 	case $output in
 		avx512)
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if try_avx512_asm; then
 				echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 				ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
@@ -460,6 +513,7 @@ EOF
 		asimd)
 			echo -e "The CPU supports the ASIMD build mode.\n"
 			ARGS+=(-DUSE_ARM_V8_SIMD)
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if try_flag -mcpu=native; then
 				ARGS+=(-mcpu=native)
 			elif try_flag -march=native; then
@@ -471,6 +525,7 @@ EOF
 		none_arm)
 			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 			echo "Warning: This likely means there is a bug in this script. Please report!" >&2
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if try_flag -mcpu=native; then
 				ARGS+=(-mcpu=native)
 			elif try_flag -march=native; then
@@ -484,6 +539,7 @@ EOF
 			;;
 		none)
 			echo -e "The CPU architecture is not recognized by this script ... building in scalar-double mode.\n"
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			try_flag -march=native && ARGS+=(-march=native)
 			;;
 		*)
@@ -520,7 +576,9 @@ CFLAGS_PROBED=(-Wall -g -O3)
 # unconditionally: every toolchain then compiles the same dialect, and gnu99 (vs plain c99) keeps the GNU
 # extensions enabled. -D_GNU_SOURCE (set in CPPFLAGS below) still exposes the POSIX/GNU library surface:
 CFLAGS_PROBED+=(-std=gnu99)
+# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
+# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 if try_lto -flto=auto; then
 	CFLAGS_PROBED+=(-flto=auto)
 elif try_lto -flto; then
@@ -552,7 +610,7 @@ $Mfactor: \$(OBJS_MFAC)
 factor.o: ../src/factor.c
 	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS -DTRYQ=4 \$<
 %.o: ../src/%.c
-	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} \$<
+	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} $WORDS_TU \$<
 clean:
 	rm -f \$(OBJS) \$(OBJS_MFAC)
 

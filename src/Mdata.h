@@ -70,8 +70,13 @@ extern uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max
 
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 extern int REINIT_LOCAL_DATA_TABLES;
-// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
-extern int MLUCAS_KEEP_RUNNING;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action.
+// Must be volatile sig_atomic_t: it is written from the async signal handler and polled by the main control loop;
+// this is the only type the C standard guarantees can be safely shared with a signal handler (see signal-safety(7)).
+extern volatile sig_atomic_t MLUCAS_KEEP_RUNNING;
+// Records the signal number that requested the graceful quit, so the main thread (not the async-unsafe handler)
+// can print the human-readable "received <signal>" message at the next safe check point. 0 = none received.
+extern volatile sig_atomic_t MLUCAS_INTERRUPT_SIGNO;
 typedef void sigfunc(int);
 sigfunc *signal(int, sigfunc*);
 
@@ -91,7 +96,7 @@ extern const int CHAROFFSET;
 extern int len_a;
 
 /* These must match the smallest and largest values in the switch() in get_fft_radices(): */
-#define MIN_FFT_LENGTH_IN_K			1
+#define MIN_FFT_LENGTH_IN_K			2	/* 1K is unsupported (needs >= 3 radices; see get_fft_radices() and issue #101), so 2K is the smallest usable length */
 #define MAX_FFT_LENGTH_IN_K			524288
 /* This next one should be set to log2(MAX_FFT_LENGTH_IN_K) + 10 + 4,
 i.e. max. 16 bits per digit of the transform vector: */
@@ -262,6 +267,12 @@ extern uint64 PMAX;	/* maximum exponent allowed */
 extern uint64 RES_SHIFT, GCHECK_SHIFT;
 // Feb 2020: added a uint32 to keep track of the shifted-residue sign, needed for rotated residue Fermat-mod arithmetic:
 extern uint32 RES_SIGN;
+/* Fermat-mod Pépin test only: the random-bit residue-doubling that accompanies the 'shift = 2*shift + randbit'
+update is a property of the *shift-carrying main residue chain*, not of the modulus. Set FALSE by
+fermat_mod_square() while it is squaring/multiplying one of the Gerbicz-check auxiliary arrays (which do not
+carry a shift), so that the carry routines skip the doubling for those. Cf. the prp_mult gate in the
+radix*_ditN_cy_dif1() routines and the update_shift arg of fermat_mod_square(). */
+extern int FERMAT_RANDBIT_MULT;
 extern uint64 *BIGWORD_BITMAP;	/* Needed for fast how-many-residue-bits-up-to-this-array-word lookup, which the carry routines
 								use to figure out where to inject the -2 in a rotated-residue LL test using Crandall/Fagin IBDWT.
 								A 1-bit means a bigword (p/n+1 bits); 0 means a smallword (p/n bits), where p/n is integer-div. */

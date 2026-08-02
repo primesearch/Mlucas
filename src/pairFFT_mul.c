@@ -235,7 +235,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			nradices_radix0 = 5;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default :
-			sprintf(char_str, "radix[0] = %d not available.\n",RADIX_VEC[i]);
+			sprintf(char_str, "radix[0] = %d not available.\n",radix_vec0);
 			ASSERT(0, char_str);
 		}
 
@@ -679,7 +679,9 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 	double atmp, frac_fp, max_fp = 0.0;
 	for(i=0; i < n; i++)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j = (i & mask03) + br16[i&15];
+	#elif defined(USE_AVX)
 		j = (i & mask02) + br8[i&7];
 	#elif defined(USE_SSE2)
 		j = (i & mask01) + br4[i&3];

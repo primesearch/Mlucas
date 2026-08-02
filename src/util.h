@@ -188,6 +188,17 @@ char	*quote_spaces(char *dest, char *src); /* Double-quote spaces in string  */
 int		mkdir_p(char *path); /* Emulate `mkdir -p path'  */
 char	*shell_quote(char *dest, char *src); /* Escape shell meta characters  */
 FILE	*mlucas_fopen(const char *path, const char *mode); /* fopen() wrapper  */
+/* v21: Crash-safe savefile replacement. mlucas_fopen_atomic() stages the new contents in a sibling
+scratch file; mlucas_fclose_atomic() syncs it and renames it over the target, which is thus replaced
+atomically rather than truncated in place. Both take the same MLUCAS_PATH-relative [path]; the close
+returns 0 on success and nonzero (target left holding the previous good checkpoint) on failure: */
+FILE	*mlucas_fopen_atomic(const char *path, const char *mode);
+int		mlucas_fclose_atomic(const char *path, FILE *fp);
+/* Abandon a staged write: close and delete the scratch file, leaving the target untouched: */
+void	mlucas_discard_atomic(const char *path, FILE *fp);
+/* MLUCAS_PATH-aware, replace-existing-destination rename; 0 = success: */
+int		mlucas_rename(const char *oldpath, const char *newpath);
+int		mlucas_remove(const char *path);
 // v20: Add simple utility to print the input string to the current-assignment logfile and/or to stderr:
 void	mlucas_fprint(char*const p_cstr, uint32 echo_to_stderr);
 double	mlucas_getOptVal(const char*fname, char*optname);
@@ -205,6 +216,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
 #ifdef MULTITHREAD
 
 	int		get_num_cores(void);
+	int		get_avail_cores(uint64 avail[], int nword);
 	int		test_pthreads(int ncpu, int verbose);
 	void* 	ex_loop(void* data);
 	void*	PrintHello(void *threadid);
@@ -215,6 +227,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
   #endif
 	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
+	void	setDefaultAffinity(uint32 ncore);
 
 #endif	// MULTITHREAD ?
 
@@ -234,6 +247,18 @@ void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stde
 #endif
 
 #define ASSERT(expr, assert_string) (void)((expr) || (ABORT(#expr, __FILE__, __LINE__, __func__, assert_string),0))
+
+/* Checked heap-allocation macros: they do the malloc/calloc/realloc inline (no per-call wrapper-
+function overhead on the success path) and, only on failure, call alloc_fail() (defined in util.c) to
+print the file:line:function of the call site plus the requested size and abort - rather than returning
+NULL for the caller to dereference. __func__ names the failing function, as in ASSERT above. These use
+the statement-expression form ({ ...; value; }), a GCC/Clang extension already relied on throughout
+Mlucas, so the macro yields the resulting pointer. The align.h ALLOC_* macros route through REALLOC. */
+__attribute__ ((__noreturn__)) void alloc_fail(const char*what, size_t nbytes, const char*file, int line, const char*func);
+#define MALLOC(n)		({ size_t _mn = (n);               void *_mp = malloc(_mn);       if(!_mp && _mn)          alloc_fail("malloc" , _mn,      __FILE__, __LINE__, __func__); _mp; })
+#define CALLOC(nm,sz)	({ size_t _cn = (nm), _cs = (sz);  void *_cp = calloc(_cn, _cs);  if(!_cp && _cn && _cs)   alloc_fail("calloc" , _cn*_cs,  __FILE__, __LINE__, __func__); _cp; })
+#define REALLOC(p,n)	({ size_t _rn = (n);               void *_rp = realloc((p), _rn); if(!_rp && _rn)          alloc_fail("realloc", _rn,      __FILE__, __LINE__, __func__); _rp; })
+
 
 void	byte_bitstr(const uint8  byte, char*ostr);
 void	ui32_bitstr(const uint32 ui32, char*ostr);

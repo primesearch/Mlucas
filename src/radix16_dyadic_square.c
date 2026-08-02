@@ -98,7 +98,7 @@ void radix16_dyadic_square(
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
 	int i,j,j1,iroot/* ,k */;
-#ifndef USE_AVX512
+#if !defined(USE_AVX512) || defined(USE_IMCI512)	// IMCI512 #defines USE_AVX512, but its non-vectorized sincos-indexing arm below needs these:
 	int l,k1,k2;
 #endif
 #ifdef USE_SSE2
@@ -964,7 +964,7 @@ void radix16_dyadic_square(
 			 ,[__index1_mod] "m" (index1_mod)	\
 			 ,[__k1_arr] "m" (k1_arr)	\
 			 ,[__k2_arr] "m" (k2_arr)	\
-			: "cc","memory","cl","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	/* Clobbered registers */\
+			: "cc","memory","k1","k2","cl","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm8"	/* Clobbered registers */\
 		);
 	   #if 0	// Set = 1 to enable timing-loop
 		}	tdiff = (double)(clock() - clock1);	printf("Time for %u 8x8 execs of AVX-512 twiddle-index macro =%s\n",l,get_time_str(tdiff));	exit(0);

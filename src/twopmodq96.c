@@ -66,12 +66,7 @@ other compiler or configuration is affected. */
 		uint64 hi64;
 		uint96 q, qhalf, qinv, x, lo, hi;
 		q.d0 = (uint64)p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-	#else
 		MUL_LOHI64(q.d0, k, q.d0, q.d1);
-	#endif
 		q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		RSHIFT_FAST96(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -90,12 +85,8 @@ other compiler or configuration is affected. */
 		qinv.d0 = qinv.d0*((uint64)2 - hi64);
 		// Now that have bottom 64 bits of qinv, do one more Newton iteration using full 96-bit operands:
 		// qinv has 96 bits, but only the upper 32 get modified here:
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-	#else
 		MULH64(q.d0, qinv.d0, hi64);
 		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-	#endif
 
 		/* Since zstart is a power of two < 2^96, use a streamlined code sequence for the first iteration: */
 		j = start_index-1;
@@ -245,12 +236,7 @@ if(dbg)printf("twopmodq96:\n");
 #endif
 	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;
-#ifdef MUL_LOHI64_SUBROUTINE
-	// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-	MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-#else
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
-#endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST96(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
@@ -304,12 +290,8 @@ if(dbg)printf("twopmodq96:\n");
 	ASSERT(x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0, "x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0");
 #endif
 	/* qinv has 96 bits, but only the upper 32 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, hi64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-#endif
 	qinv.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 
 #ifdef FAC_DEBUG
@@ -703,8 +685,8 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movslq	%[__start_index], %%rcx		\n\t"\
 			"subq $2,%%rcx						\n\t"\
 			"test %%rcx, %%rcx					\n\t"\
-			"jl LoopEnd		/* Skip if n < 0 */	\n\t"\
-		"LoopBeg:								\n\t"\
+			"jl LoopEnd%=		/* Skip if n < 0 */	\n\t"\
+		"LoopBeg%=:								\n\t"\
 		"/* SQR_LOHI96_q4(x*, lo*, hi*): */	\n\t"\
 			"movq	%%r8 ,%%rax	/* Low 64 bits of x0-3 in r8-11. */\n\t"\
 			"mulq	%%rax		\n\t"\
@@ -961,7 +943,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movq	%[__pshift],%%rax		\n\t"\
 			"shrq	%%cl,%%rax				\n\t"\
 			"andq	$0x1,%%rax				\n\t"\
-		"je	twopmodq96_q4_pshiftjmp			\n\t"\
+		"je	twopmodq96_q4_pshiftjmp%=			\n\t"\
 			"\n\t"\
 		"/* if h<l carryout of low 64 bits gives hi=2^32 = 0x100000000, need to zero upper 32 bits prior to double step: */\n\t"\
 			"movq	$-1,%%rdi	\n\t"\
@@ -1021,7 +1003,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"andq	%%rdi,%%rdx	\n\t"\
 			"addq	%%rax,%%r11	\n\t"\
 			"adcq	%%rdx,%%r15	\n\t"\
-		"twopmodq96_q4_pshiftjmp:					\n\t"\
+		"twopmodq96_q4_pshiftjmp%=:					\n\t"\
 			"/* } endif((pshift >> j) & (uint64)1) */						\n\t"\
 			"movq	%%r8 ,0x80(%%rsi)	/* Write lo 64 bits into [__x.d0] */\n\t"\
 			"movq	%%r12,0x88(%%rsi)	/* Write hi 32 bits into [__x.d1] */\n\t"\
@@ -1033,8 +1015,8 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movq	%%r15,0xb8(%%rsi)	\n\t"\
 			"subq	$1,%%rcx	/* j-- */		\n\t"\
 			"cmpq	$0,%%rcx	/* compare decremented j vs 0 */\n\t"\
-			"jge	LoopBeg	/* if (j >= 0), Loop */	\n\t"\
-		"LoopEnd:							\n\t"\
+			"jge	LoopBeg%=	/* if (j >= 0), Loop */	\n\t"\
+		"LoopEnd%=:							\n\t"\
 			:	/* outputs: none */\
 			: [__q0] "m" (qptr0)	/* All inputs from memory addresses here */\
 			 ,[__pshift] "m" (pshift)	\
@@ -1126,18 +1108,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 		MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		q2.d0 += 1;
@@ -1200,12 +1174,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		using full 96-bit operands. See twopmodq96 for details on streamlining here.
 		*/
 		/* qinv has 96 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -1220,7 +1188,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		qinv1.d1 &= 0x00000000ffffffff;
 		qinv2.d1 &= 0x00000000ffffffff;
 		qinv3.d1 &= 0x00000000ffffffff;
-	#endif
 	  #ifdef FAC_DEBUG
 		if(dbg)
 		{
@@ -1547,6 +1514,14 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 /*** 8-trial-factor version ***/
 /******************************/
 #if 0//YES_ASM	*** Disable until regain GCC 4.6+ functionality ***
+/******************************************************************************************
+ * WARNING: twopmodq96_q8 below remains DEAD and UNTESTED. Its local-store layout
+ * arithmetic was repaired (2026: alloc/stride units reconciled to 0x64 uint64 = 0x32
+ * uint96 slots/thread, x/lo pointer groups de-aliased from qhlf/hi, perm_mask init and
+ * ASSERT fixed) so that it would no longer perform OOB writes if re-enabled, but the
+ * routine has NOT been compiled into a working build or numerically validated. Do not
+ * trust it until it has been exercised end-to-end.
+ ******************************************************************************************/
 
 	// The'init_sse2' arg is ill-named here as it refers to 'init any local-mem needed for inline-asm routines' whether SSE/AVX used or
 	// not - here we use just x86_64 non-vector instructions - but use same name as in vector-radix* code to show analogous mem-handling:
@@ -1576,7 +1551,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			,*perm_mask;
 	#endif
 		 int32 j;
-		uint32 jshift, leadb, start_index, zshift, *ptr32_a, *ptr32_b;
+		uint32 jshift, leadb, start_index, zshift, *ptr32, *ptr32_a, *ptr32_b;
 		uint64 tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, r, pshift;
 		uint96 *ptr96;
 		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
@@ -1594,7 +1569,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			#else
 				max_threads = init_sse2;
 			#endif
-				fprintf(stderr, "twopmodq96_q4: Setting up for as many as %d threads...\n",max_threads);
+				fprintf(stderr, "twopmodq96_q8: Setting up for as many as %d threads...\n",max_threads);
 			#ifndef COMPILER_TYPE_GCC
 				ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 			#endif
@@ -1605,16 +1580,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				free((void *)sm_arr);	sm_arr=0x0;
 			}
 			// Alloc the local-memory block - use uint64 allooc/align macros here, but underlying data are all uint96 = [uint64,uint32] pairs:
-			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x4a*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
+			// Per-thread layout is 0x32 uint96 slots (q..hi = 0x30 slots + a 32-byte permute-index register = 2 more slots) = 0x64 uint64 = 800 bytes:
+			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x64*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
 			sm_ptr = (uint96*)ALIGN_UINT64(sm_arr);	ASSERT(((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
 			ptr32 = (uint32*)(sm_ptr + 0x30);	// perm_mask ptr to permute-index register containing dwords 0-7 = [0,7,1,7,2,7,3,7]
 			for(j = 0; j < max_threads; ++j) {
 				// These data fixed within each thread's local store:
-				*ptr32 = 0;	*(ptr32+1) = 7;	*(ptr32+1) = 1;	*(ptr32+1) = 7;	*(ptr32+1) = 2;	*(ptr32+1) = 7;	*(ptr32+1) = 3;	*(ptr32+1) = 7;
+				*ptr32 = 0;	*(ptr32+1) = 7;	*(ptr32+2) = 1;	*(ptr32+3) = 7;	*(ptr32+4) = 2;	*(ptr32+5) = 7;	*(ptr32+6) = 3;	*(ptr32+7) = 7;
 			//	printf("INIT: Thr %d perm_mask address = %" PRIX64 "; data.d0-7 = %" PRIu64 ",%u\n",thr_id,(uint64)ptr96,((uint96 *)ptr96)->d0,((uint96 *)ptr96)->d1);
-				ptr32 += 3 * 0x4a;	// Move on to next thread's local store; 3x accounts for size differntial between uint32 and uint96
+				ptr32 += 4 * 0x32;	// Move on to next thread's local store; 4x accounts for size differential between uint32 and uint96 (0x32 uint96 = 0xc8 uint32 slots)
 			}
 		#else
 			/*
@@ -1632,10 +1608,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			q0    = sm_ptr + 0x00; q1    = sm_ptr + 0x01; q2    = sm_ptr + 0x02; q3    = sm_ptr + 0x03; q4    = sm_ptr + 0x04; q5    = sm_ptr + 0x05; q6    = sm_ptr + 0x06; q7    = sm_ptr + 0x07;
 			qinv0 = sm_ptr + 0x08; qinv1 = sm_ptr + 0x09; qinv2 = sm_ptr + 0x0a; qinv3 = sm_ptr + 0x0b; qinv4 = sm_ptr + 0x0c; qinv5 = sm_ptr + 0x0d; qinv6 = sm_ptr + 0x0e; qinv7 = sm_ptr + 0x0f;
 			qhlf0 = sm_ptr + 0x10; qhlf1 = sm_ptr + 0x11; qhlf2 = sm_ptr + 0x12; qhlf3 = sm_ptr + 0x13; qhlf4 = sm_ptr + 0x14; qhlf5 = sm_ptr + 0x15; qhlf6 = sm_ptr + 0x16; qhlf7 = sm_ptr + 0x17;
-			x0    = sm_ptr + 0x10; x1    = sm_ptr + 0x11; x2    = sm_ptr + 0x12; x3    = sm_ptr + 0x1b; x4    = sm_ptr + 0x14; x5    = sm_ptr + 0x15; x6    = sm_ptr + 0x16; x7    = sm_ptr + 0x17;
-			lo0   = sm_ptr + 0x28; lo1   = sm_ptr + 0x29; lo2   = sm_ptr + 0x2a; lo3   = sm_ptr + 0x23; lo4   = sm_ptr + 0x2c; lo5   = sm_ptr + 0x2d; lo6   = sm_ptr + 0x2e; lo7   = sm_ptr + 0x2f;
+			x0    = sm_ptr + 0x18; x1    = sm_ptr + 0x19; x2    = sm_ptr + 0x1a; x3    = sm_ptr + 0x1b; x4    = sm_ptr + 0x1c; x5    = sm_ptr + 0x1d; x6    = sm_ptr + 0x1e; x7    = sm_ptr + 0x1f;
+			lo0   = sm_ptr + 0x20; lo1   = sm_ptr + 0x21; lo2   = sm_ptr + 0x22; lo3   = sm_ptr + 0x23; lo4   = sm_ptr + 0x24; lo5   = sm_ptr + 0x25; lo6   = sm_ptr + 0x26; lo7   = sm_ptr + 0x27;
 			hi0   = sm_ptr + 0x28; hi1   = sm_ptr + 0x29; hi2   = sm_ptr + 0x2a; hi3   = sm_ptr + 0x2b; hi4   = sm_ptr + 0x2c; hi5   = sm_ptr + 0x2d; hi6   = sm_ptr + 0x2e; hi7   = sm_ptr + 0x2f;
-			perm_mask = sm_ptr + 0x30;	// (0x30 * 3/2) + 2 gives 0x4a uint64 in above alloc
+			perm_mask = sm_ptr + 0x30;	// perm_mask at uint96-slot 0x30 = uint64 index 0x60; + 4 uint64 for the 32-byte permute register = 0x64 uint64/thread in above alloc
 		#endif
 			if(init_sse2) return 0;
 		}	/* end of inits */
@@ -1643,15 +1619,15 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
 		ASSERT((uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-		ptr96 = ((uint64*)__r0) + thr_id*0x4a;
+		ptr96 = __r0 + thr_id*0x32;	// 0x32 uint96 slots/thread (matches the 0x64 uint64/thread alloc)
 		q0    = ptr96 + 0x00; q1    = ptr96 + 0x01; q2    = ptr96 + 0x02; q3    = ptr96 + 0x03; q4    = ptr96 + 0x04; q5    = ptr96 + 0x05; q6    = ptr96 + 0x06; q7    = ptr96 + 0x07;
 		qinv0 = ptr96 + 0x08; qinv1 = ptr96 + 0x09; qinv2 = ptr96 + 0x0a; qinv3 = ptr96 + 0x0b; qinv4 = ptr96 + 0x0c; qinv5 = ptr96 + 0x0d; qinv6 = ptr96 + 0x0e; qinv7 = ptr96 + 0x0f;
 		qhlf0 = ptr96 + 0x10; qhlf1 = ptr96 + 0x11; qhlf2 = ptr96 + 0x12; qhlf3 = ptr96 + 0x13; qhlf4 = ptr96 + 0x14; qhlf5 = ptr96 + 0x15; qhlf6 = ptr96 + 0x16; qhlf7 = ptr96 + 0x17;
-		x0    = ptr96 + 0x10; x1    = ptr96 + 0x11; x2    = ptr96 + 0x12; x3    = ptr96 + 0x1b; x4    = ptr96 + 0x14; x5    = ptr96 + 0x15; x6    = ptr96 + 0x16; x7    = ptr96 + 0x17;
-		lo0   = ptr96 + 0x28; lo1   = ptr96 + 0x29; lo2   = ptr96 + 0x2a; lo3   = ptr96 + 0x23; lo4   = ptr96 + 0x2c; lo5   = ptr96 + 0x2d; lo6   = ptr96 + 0x2e; lo7   = ptr96 + 0x2f;
+		x0    = ptr96 + 0x18; x1    = ptr96 + 0x19; x2    = ptr96 + 0x1a; x3    = ptr96 + 0x1b; x4    = ptr96 + 0x1c; x5    = ptr96 + 0x1d; x6    = ptr96 + 0x1e; x7    = ptr96 + 0x1f;
+		lo0   = ptr96 + 0x20; lo1   = ptr96 + 0x21; lo2   = ptr96 + 0x22; lo3   = ptr96 + 0x23; lo4   = ptr96 + 0x24; lo5   = ptr96 + 0x25; lo6   = ptr96 + 0x26; lo7   = ptr96 + 0x27;
 		hi0   = ptr96 + 0x28; hi1   = ptr96 + 0x29; hi2   = ptr96 + 0x2a; hi3   = ptr96 + 0x2b; hi4   = ptr96 + 0x2c; hi5   = ptr96 + 0x2d; hi6   = ptr96 + 0x2e; hi7   = ptr96 + 0x2f;
-		ptr32 = perm_mask = ptr96 + 0x30;	// (0x30 * 3/2) + 2 gives 0x4a uint64 in above alloc
-		ASSERT((*ptr32 == 0) && (*(ptr32+1) == 7) && (*(ptr32+1) == 1) && (*(ptr32+1) == 7) && (*(ptr32+1) == 2) && (*(ptr32+1) == 7) && (*(ptr32+1) == 3) && (*(ptr32+1) == 7), "Bad data at perm_mask address!");
+		ptr32 = (uint32*)(perm_mask = ptr96 + 0x30);	// perm_mask at uint96-slot 0x30 = uint64 index 0x60; + 4 uint64 for the 32-byte permute register = 0x64 uint64/thread in above alloc
+		ASSERT((*ptr32 == 0) && (*(ptr32+1) == 7) && (*(ptr32+2) == 1) && (*(ptr32+3) == 7) && (*(ptr32+4) == 2) && (*(ptr32+5) == 7) && (*(ptr32+6) == 3) && (*(ptr32+7) == 7), "Bad data at perm_mask address!");
 	#endif
 
 		pshift = p + 96;
@@ -2004,7 +1980,7 @@ start_index = 2;	// debug - just one loop exec
 			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);
 		/* endfor() */
-uint32 *ptr32 = (uint32*)x0;
+ptr32 = (uint32*)x0;
 printf("ax.lo = %10u, %10u, %10u, %10u, %10u, %10u, %10u, %10u\n",*ptr32,*(ptr32+1),*(ptr32+2),*(ptr32+3),*(ptr32+4),*(ptr32+5),*(ptr32+6),*(ptr32+7));	ptr32 += 32;
 printf("ax.hi = %10u, %10u, %10u, %10u, %10u, %10u, %10u, %10u\n",*ptr32,*(ptr32+1),*(ptr32+2),*(ptr32+3),*(ptr32+4),*(ptr32+5),*(ptr32+6),*(ptr32+7));	ptr32 += 32;
 printf("ay.lo = %10u, %10u, %10u, %10u, %10u, %10u, %10u, %10u\n",*ptr32,*(ptr32+1),*(ptr32+2),*(ptr32+3),*(ptr32+4),*(ptr32+5),*(ptr32+6),*(ptr32+7));	ptr32 += 32;
@@ -2123,17 +2099,6 @@ exit(0);
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-		MUL_LOHI64(q4.d0, k4,&q4.d0,&tmp0);	q4.d1 = tmp0;
-		MUL_LOHI64(q5.d0, k5,&q5.d0,&tmp0);	q5.d1 = tmp0;
-		MUL_LOHI64(q6.d0, k6,&q6.d0,&tmp0);	q6.d1 = tmp0;
-		MUL_LOHI64(q7.d0, k7,&q7.d0,&tmp0);	q7.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
@@ -2142,7 +2107,6 @@ exit(0);
 		MUL_LOHI64(q5.d0, k5, q5.d0, q5.d1);
 		MUL_LOHI64(q6.d0, k6, q6.d0, q6.d1);
 		MUL_LOHI64(q7.d0, k7, q7.d0, q7.d1);
-	#endif
 
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
@@ -2217,16 +2181,6 @@ exit(0);
 		using full 96-bit operands. See twopmodq96 for details on streamlining here.
 		*/
 		/* qinv has 96 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-		qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-		qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-		qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-		qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -2244,7 +2198,6 @@ exit(0);
 		qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + tmp5);
 		qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + tmp6);
 		qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + tmp7);
-	#endif
 		qinv0.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 		qinv1.d1 &= 0x00000000ffffffff;
 		qinv2.d1 &= 0x00000000ffffffff;

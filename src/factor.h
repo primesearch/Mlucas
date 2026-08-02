@@ -28,6 +28,16 @@
 
 #include "util.h"
 
+/* IMCI-512 (1st-gen Xeon Phi / Knights Corner) shares AVX-512's zmm/k register names, and platform.h
+makes USE_IMCI512 imply USE_AVX512 - but it has none of the instructions the vectorized small-primes
+sieve needs: vprolvd, vmovups, kmovw and the register form of vpbroadcastd all fail to assemble for
+k1om. Gate that sieve - and the psmall[] table which exists solely to feed it - on a separate macro,
+so KNC falls back to the scalar bit-clearing loop (which is a live path in any case: the AVX-512 arm
+defers to it for small exponents). */
+#if defined(USE_AVX512) && !defined(USE_IMCI512)
+	#define USE_AVX512_SIEVE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,7 +46,7 @@ extern "C" {
 PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 
 	(except for FACTOR_PASS_MAX and MAX_BITS_P|Q, which are defined in Mdata.h,
-	 and MAX_IMUL_WORDS and MUL_LOHI64_SUBROUTINE, defined in imul_macro.h).
+	 and MAX_IMUL_WORDS, defined in imul_macro.h).
 ********/
 
 #undef P1WORD
@@ -84,12 +94,24 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#ifdef USE_95BIT
 		#error USE_65BIT may not be used together with USE_FLOAT!
 	#endif
-#elif defined(MUL_LOHI64_SUBROUTINE)
-  #ifndef TRYQ
-	#define TRYQ	4
-  #elif(TRYQ != 1 && TRYQ != 4 && TRYQ != 4)
-	#error MUL_LOHI64_SUBROUTINE option requires TRYQ = 1, 4 or 8
-  #endif
+#endif
+
+/* FMADD-based modmul is implemented only for one-word p. For multiword p, quietly fall back to the
+standard (non-FMADD) modmul instead of erroring out, so multiword factoring builds succeed on
+FMA-capable targets (where USE_FMADD is auto-defined per-platform, e.g. every FMA-x86 Mfactor build).
+The '#ifdef USE_FMADD' block below only validates - it defines nothing the rest of the file needs -
+so undefining USE_FMADD here cleanly routes multiword builds down the standard modmul path.
+This has to happen *ahead* of the TRYQ default below rather than inside it: done after, the
+'#ifndef TRYQ -> 2' has already fired, and TRYQ = 2 then survives into a build with neither
+USE_FLOAT nor USE_FMADD defined, which the guard at the foot of this file rejects outright:
+  factor.h: #error TRYQ = 2 and TRYQ > 8 only allowed if USE_FLOAT is defined
+so 2word/3word/4word Mfactor still failed to build on AVX2 and AVX-512 - and on ARM, where
+USE_FMADD is likewise auto-defined - just at a later line than before this PR. */
+#ifdef USE_FMADD
+	#if defined(P2WORD) || defined(P3WORD) || defined(P4WORD)
+		#warning USE_FMADD is not implemented for multiword p; falling back to the standard (non-FMADD) modmul, so this build gets no FMADD speedup.
+		#undef USE_FMADD
+	#endif
 #endif
 
 #ifdef USE_FMADD
@@ -99,17 +121,6 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
   #elif(TRYQ != 1 && TRYQ != 2 && TRYQ != 4)
 	#error USE_FMADD option requires TRYQ = 1, 2 or 4
   #endif
-
-	/* FMADD-based modmul currently only supported for one-word p's: */
-	#ifdef P2WORD
-		#error P2WORD may not be used together with USE_FMADD!
-	#endif
-	#ifdef P3WORD
-		#error P3WORD may not be used together with USE_FMADD!
-	#endif
-	#ifdef P4WORD
-		#error P4WORD may not be used together with USE_FMADD!
-	#endif
 
 	#ifdef USE_FLOAT
 		#error USE_FLOAT may not be used together with USE_FMADD!
@@ -315,8 +326,8 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 	// Top-level routines for CPU-parallel and GPU-side sieving and testing of resulting factor candidates:
 #ifdef MULTITHREAD
 
-	void*				// Thread-arg pointer *must* be cast to void and specialized inside the function
-	PerPass_tfSieve(void*thread_arg);
+	void				// Thread-arg pointer *must* be cast to void and specialized inside the function
+	PerPass_tfSieve(void*thread_arg, int thread_num);
 
 #else
 
@@ -335,7 +346,7 @@ uint32	CHECK_PKMOD4620(uint64 *p, uint32 lenP, uint64 k, uint32*incr);
 		const uint32 p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
 		const uint32 nprime,		// #sieving primes (counting from 3)
 		const uint32 MAX_SIEVING_PRIME,
-	#if defined(USE_AVX512) && !defined(USE_GPU)
+	#if defined(USE_AVX512_SIEVE) && !defined(USE_GPU)
 		const uint32 *psmall,
 	#endif
 		const uint8 *pdiff,

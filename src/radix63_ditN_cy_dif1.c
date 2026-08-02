@@ -47,8 +47,22 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix63_ditN_cy_dif1";
-	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+	// v21 bugfix: the wraparound-carry mini-pass and the radix_inv rescale that follows it walk *physical*
+	// array indices, so the number of them that spans the first 4 complex data of a block is 2*RE_IM_STRIDE-1,
+	// not a constant 7. Under AVX-512 (RE_IM_STRIDE == 8) the old hardcoded 7 covered only the 8 real parts
+	// re0..re7 and none of the imaginary parts, so the mini-pass and the rescale disagreed about which data
+	// they had touched. Same constants as every SIMD-aware sibling, cf. radix64_ditN_cy_dif1.c:185-191.
+  #ifdef USE_AVX512
+	const int jhi_wrap_mers = 15;
+	const int jhi_wrap_ferm = 15;
+  #else
+	const int jhi_wrap_mers =  7;
+	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
+  #endif
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer;
+	int target_idx = -1, target_set = 0, tidx_mod_stride;	// v21: residue-shift carry-injection support
+	double target_cy = 0;
+	uint64 itmp64;
 
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
 	// In order to ease the ptr-access for the || routine, lump these 4*ODD_RADIX doubles together with copies of
@@ -193,7 +207,11 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	col=co2=co3=-1;
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
-	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+	// v18: If use residue shift in context of Pepin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]'
+	// update of the residue shift has a set random bit. radix63 was missing this Fermat arm entirely - see #232, which
+	// adds it against main; the FERMAT_RANDBIT_MULT gate is this PR's, matching the 15 sibling routines swept below.
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT && FERMAT_RANDBIT_MULT)
+	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
 		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
 			prp_mult = PRP_BASE;
@@ -253,7 +271,7 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #ifdef USE_PTHREAD
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
-			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -495,7 +513,7 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 				jstart = 0;
 				jhi = NDIVR/CY_THREADS;	// The earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, must double that here
 				// khi = 1 for Fermat-mod, thus no outer loop needed here
-				for(j = jstart; j < jhi; j += stride)
+				for(j = jstart; j < jhi; j += 2)	// v21: logical stride 2, matching the main carry loop
 				{
 					for(i = 0; i < ODD_RADIX; i++) {
 						icycle[i] += wts_idx_incr;		icycle[i] += ( (-(int)((uint32)icycle[i] >> 31)) & nwt);
@@ -526,10 +544,33 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			_cy_i[i][ithread] = 0;
 		}
 	}
-	/* If an LL test, init the subtract-2: */
+	// v21: If an LL test, compute the target index for the residue-shift carry injection. This routine
+	// formerly did an unconditional '_cy_r[0][0] = -2' (inject the LL subtract-2 into word 0), silently
+	// ignoring RES_SHIFT - so any nonzero shift (the v20 Fermat/Mersenne default) yielded a wrong residue.
+	// Now we mirror the >= 16 power-of-2 radices' machinery (see e.g. radix60_ditN_cy_dif1.c); the actual
+	// injection lives at the top of the Mersenne branch of radix63_main_carry_loop.h:
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
-		_cy_r[0][0] = -2;
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, pexp, RES_SHIFT, 0.0);	// high 7 bytes = unpadded target word index; low byte = within-word bit-shift
+			target_idx = (int)(itmp64 >> 8);
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// n is 32-bit; use 64-bit only for the intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
+			target_set = target_idx / NDIVR;	// which of the RADIX(=63) independent carry sub-chains holds the target
+			target_idx -= target_set*NDIVR;		// target_idx now = index within that sub-chain
+			// Main-loop stride is 2*RE_IM_STRIDE and a power of 2, so AND-minus-1 does the mod. Derive it
+			// from RE_IM_STRIDE here rather than reading the function-scope 'stride': PR #210 deletes that
+			// declaration along with the physical-stride main-array loop it served (its loop advances by a
+			// logical 2 instead), and the two PRs merge without a git conflict, so a use that depends on
+			// the declaration compiles or not depending purely on which of them lands second.
+			tidx_mod_stride = target_idx & (((int)RE_IM_STRIDE << 1) - 1);
+			target_idx -= tidx_mod_stride;		// stride-align
+			target_set = (target_set << (L2_SZ_VD-2)) + tidx_mod_stride;	// non-SIMD: shift = 1; low bit selects Re/Im part
+			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
 	}
 
 	*fracmax=0;	/* init max. fractional error	*/
@@ -552,7 +593,7 @@ for(outer=0; outer <= 1; outer++)
 		{
 			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -572,7 +613,7 @@ for(outer=0; outer <= 1; outer++)
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_ferm;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -734,13 +775,7 @@ for(outer=0; outer <= 1; outer++)
 
   #endif
 
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-	}
+	if(tpool) ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -824,11 +859,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
-		j_jhi =15;
+		j_jhi = jhi_wrap_ferm;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = jhi_wrap_mers;
 	}
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -942,8 +977,10 @@ void radix63_dif_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];	// v21: this arm was missing - USE_AVX512 implies USE_AVX
+	#elif defined(USE_AVX)					// (platform.h), so AVX-512 builds silently took the 4-complex
+		j1 = (j & mask02) + br8[j&7];		// br8 arm while RE_IM_STRIDE == 8.
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
@@ -1093,8 +1130,10 @@ void radix63_dit_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];	// v21: this arm was missing - USE_AVX512 implies USE_AVX
+	#elif defined(USE_AVX)					// (platform.h), so AVX-512 builds silently took the 4-complex
+		j1 = (j & mask02) + br8[j&7];		// br8 arm while RE_IM_STRIDE == 8.
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else

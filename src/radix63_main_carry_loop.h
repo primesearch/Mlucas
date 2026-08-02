@@ -25,9 +25,29 @@
 
 for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
-	for(j = jstart; j < jhi; j += stride)
+	// v21 bugfix: radix-63 has no SIMD code path - the DIT, the carry step and the DIF below are all
+	// scalar, one complex datum per loop pass. The loop must therefore advance one *complex datum* at a
+	// time (logical stride 2) and map the logical index into the SIMD-interleaved physical layout
+	// [RE_IM_STRIDE reals | RE_IM_STRIDE imags] with the same br4/br8/br16 scramble radix63_dif_pass1 /
+	// radix63_dit_pass1 use. The former 'j += stride' (= 2*RE_IM_STRIDE) with j1 = j advanced by a whole
+	// SIMD block per pass but only ever touched a[j1] and a[j1+RE_IM_STRIDE] - i.e. lane 0 - so in any
+	// SIMD build all but 1 of every RE_IM_STRIDE complex data were never transformed, never squared-back
+	// [the wrapper/square step does see them] and never carry-normalized. Those words then simply kept
+	// getting re-squared every iteration, doubling in size until they tripped a roundoff/carry error.
+	// It also mis-stepped the per-datum weight indices: the Mersenne branch's l = j & (nwt-1) and the
+	// Fermat branch's root index l = (j + idx_offset)>>1 (cf. fermat_carry_norm_errcheckB, carry.h) both
+	// key off the *logical* j, so they must see every value of j, not every RE_IM_STRIDE'th.
+	for(j = jstart; j < jhi; j += 2)
 	{
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
+		j1 = (j & mask01) + br4[j&3];
+	#else
 		j1 =  j;
+	#endif
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1 + RE_IM_STRIDE;
 
@@ -60,6 +80,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
+		// v21: inject the LL residue-shift target carry when the main loop reaches the target word
+		// (replaces the old unconditional '_cy_r[0][0] = -2' seed in the caller); fires exactly once:
+		if(target_idx == j) {
+			const int p0123[4] = {0,p1,p2,p3};
+			l = target_set&1;	target_set >>= 1;	// low bit of target_set selects Re (+0) or Im (+1) part
+			a[j1 + p[target_set & ~3] + p0123[target_set&3] + l] += target_cy*(n>>1);
+			target_idx = -1;
+		}
+
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
 		n_minus_silp1 = n-si[l+1];

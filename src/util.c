@@ -20,6 +20,16 @@
 *                                                                              *
 *******************************************************************************/
 
+/* sched_getaffinity() and the CPU_* macros are GNU extensions: <sched.h> only declares them when
+_GNU_SOURCE is defined, and it must be defined before *any* libc header is pulled in - defining it
+just above '#include <sched.h>', as platform.h does, is too late once <pthread.h> has already
+included sched.h and left its include guard set. makemake.sh passes -D_GNU_SOURCE so ordinary
+builds are fine, but this file should not depend on that: the Clang-Tidy and GCC-analyzer CI jobs
+compile it with their own flag sets, where it failed with 'CPU_SETSIZE undeclared'. */
+#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+#endif
+
 #include "align.h"
 #include "util.h"
 #include "factor.h"	// Needed for twopmodq64() prototype
@@ -36,6 +46,10 @@
 #endif
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>
+	#include <io.h>		// v21: _commit(), _fileno() - the Windows spellings of fsync(), fileno()
+#else
+	#include <fcntl.h>	// v21: open() of the savefile's containing directory, to fsync() a rename
+	#include <unistd.h>	// v21: fsync(), fileno(), close()
 #endif
 
 #if 0
@@ -93,6 +107,20 @@ void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stder
 	}
 
 #endif	// __CUDA_ARCH__ ?
+
+/**********************************/
+/****** CHECKED ALLOCATION ********/
+/**********************************/
+/* Common failure path for the checked-allocation macros (MALLOC/CALLOC/REALLOC in util.h and the
+ALLOC_* macros in align.h): print the file:line:function of the call site plus the requested size,
+then abort - so an out-of-memory condition yields a clear diagnostic instead of a later SIGSEGV from a
+caller dereferencing a NULL pointer. The success-path malloc/calloc/realloc is done inline in the
+macros; this is only ever reached on failure, so a function call here costs nothing on the hot path. */
+__attribute__ ((__noreturn__)) void alloc_fail(const char*what, size_t nbytes, const char*file, int line, const char*func) {
+	char msg[STR_MAX_LEN];
+	snprintf(msg, sizeof(msg), "%s of %" PRIu64 " bytes failed - out of memory", what, (uint64)nbytes);
+	ABORT("ptr != 0x0", file, line, func, msg);
+}
 
 /***************/
 
@@ -157,7 +185,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		// to the same memory, bounce successive-divide results between 2 arrays, x and y:
 		lenX = (p>>6);
 	//	x = (uint64 *)calloc(lenX + 1, sizeof(uint64));
-		x = (uint64 *)calloc(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
+		x = (uint64 *)CALLOC(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
 		memset(x,ONES64,(lenX<<3));	x[lenX++] = (1ull << (p&63)) - 1;
 		nchars = ceil(p * log(2.0)/log(10.));
 		fprintf(stderr,"Generating decimal printout of M(%u), which has [%u] decimal digits; will write results to file '%s'...\n",p,nchars,fname);
@@ -165,12 +193,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		// Until have generic-FFT-based mi64_divrem algo in place, use mod-10^27, the largest power of 10 whose
 		// odd factor (5^27) fits in a uint64, thus allowing the core div-and-mod loops to use 1-word arguments:
 		nc = nchars + (nchars/27) + 1;	// Add newlines to count
-		str = (char *)calloc(nc, sizeof(char));
-		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+		str = (char *)CALLOC(nc, sizeof(char));
+		y = (uint64 *)CALLOC(lenX + 1, sizeof(uint64));
 		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
 		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
 		lenD = 0; ASSERT(0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
-		r = (uint64 *)calloc(lenD, sizeof(uint64));
+		r = (uint64 *)CALLOC(lenD, sizeof(uint64));
 		nc -= 28;		// starting char of first 27-digit chunk
 		for(i = 0; ; i+=2) {	// i = #divides counter; do 2 divs per loop exec in attempt to get some modest pipelining
 			mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
@@ -475,12 +503,12 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		uint32 curr_p,fbase2psp_idx,i,ihi,itmp32,j,jlo,jhi,k,max_diff,m,nfac,np,pm1;
 		const uint32 pdiff_8[8] = {2,1,2,1,2,3,1,3}, pdsum_8[8] = { 0, 2, 6, 8,12,18,20,26};
 		// Compact table storing the (difference/2) between adjacent odd primes.
-		unsigned char *pdiff = (unsigned char *)calloc(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
+		unsigned char *pdiff = (unsigned char *)CALLOC(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
 		// Struct used for storing smoothness data ... make big enough to store all primes in [p - pm_gap, p + pm_gap] with a safety factor
 		struct psmooth sdat;
 		// .../10 here is an approximation based on prime density for primes > 100000;
 		// note the code uses an interval [p-pm_gap, p+pm_gap], i.e. of length 2*pm_gap, so the calloc needs to be twice pm_gap/10:
-		struct psmooth*psmooth_vec = (struct psmooth *)calloc(2*pm_gap/10, sizeof(struct psmooth));
+		struct psmooth*psmooth_vec = (struct psmooth *)CALLOC(2*pm_gap/10, sizeof(struct psmooth));
 
 		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
 		pdiff[1] = pdiff[2] = 1;
@@ -720,11 +748,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			// Debug-print results sample:
 			for(i = 0; i < N; ++i) {
 				iax = ABS(h_A[i]);	iay = ABS(h_B[i]);
-			#ifdef MUL_LOHI64_SUBROUTINE
-				MUL_LOHI64(iax,iay,&ialo,&iahi);
-			#else
 				MUL_LOHI64(iax,iay, ialo, iahi);
-			#endif
 			//	printf("I = %d: x = %f; y = %f; hi,lo = %f,%f\n",i, h_A[i],h_B[i],h_D[i],h_C[i]);
 				if(cmp_fma_lohi_vs_exact(h_A[i],h_B[i],h_D[i],h_C[i], iax,iay,iahi,ialo)) {
 					printf("ERROR: pow2 = %d, I = %d, outputs differ!\n",pow2,i);
@@ -1101,12 +1125,8 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			hi64 = (uint64)p * pinv96.d0;
 			pinv96.d0 = pinv96.d0*((uint64)2 - hi64);
 			// pinv96 has 96 bits, but only the upper 64 get modified here:
-		#ifdef MUL_LOHI64_SUBROUTINE
-			pinv96.d1 = -pinv96.d0*__MULH64((uint64)p, pinv96.d0);
-		#else
 			MULH64((uint64)p, pinv96.d0, hi64);
 			pinv96.d1 = -pinv96.d0*hi64;
-		#endif
 			// k is simply the bottom 96 bits of ((q-1)/2)*pinv96:
 			x96.d0	= ((q96.d0-1) >> 1) + ((uint64)q96.d1 << 63);	x96.d1	= (q96.d1 >> 1);	// (q-1)/2
 			MULL96(x96, pinv96, x96);
@@ -1817,6 +1837,16 @@ exit(0);
 	ASSERT(MAX_THREADS > 0,"Mlucas.c: MAX_THREADS must be > 0");
 
 	printf("INFO: System has %d available processor cores.\n", MAX_THREADS);
+	/* If some external agency (taskset/numactl/systemd/batch scheduler/container cpuset) has restricted
+	this process's CPU-affinity mask, say so: the default core set is then taken from that mask rather
+	than from the system-wide core count, so the user needs to see which of the two is in play. Note we
+	deliberately leave MAX_THREADS as the system-wide logical-CPU count, since it doubles as the upper
+	bound on legal -cpu core *indices* - which remain OS-wide indices, not offsets into the mask:
+	*/
+	uint64 avail_cores[MAX_CORES>>6];
+	int navail_cores = get_avail_cores(avail_cores,MAX_CORES>>6);
+	if(navail_cores > 0 && navail_cores < MAX_THREADS)
+		printf("INFO: Inherited CPU-affinity mask permits use of only %d of those cores.\n", navail_cores);
 
 	/* Test Multithreading via simple pthreading self-test: */
   #if 0
@@ -1962,12 +1992,14 @@ uint32 get_system_ram(void) {
 		char in_line[STR_MAX_LEN];
 		FILE*fp = mlucas_fopen("/proc/cpuinfo", "r");
 		ASSERT(fp != 0x0, "/proc/cpuinfo file not found!");
+		int retval = 0;
 		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
-			if(strstr(in_line, "asimd") != 0)
-				return 1;
+			if(strstr(in_line, "asimd") != 0) {
+				retval = 1;	break;
+			}
 		}
 		fclose(fp);	fp = 0x0;
-		return 0;
+		return retval;
 	}
 
   #elif __ARM_ARCH >= 8 // Rest of the preprocessor-conditional is the old version:
@@ -2196,11 +2228,7 @@ void print_host_info(void)
 	printf("INFO: Using prefetch.\n");
 #endif
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	printf("INFO: Using subroutine form of MUL_LOHI64.\n");
-#else
 	printf("INFO: Using inline-macro form of MUL_LOHI64.\n");
-#endif
 
 #ifdef USE_FMADD
 	printf("INFO: Using FMADD-based 100-bit modmul routines for factoring.\n");
@@ -3074,17 +3102,10 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					if(dblo) { dblo = log(dblo)*ILG2;	if(dblo > l2lo) l2lo = dblo; }
 					if(dbhi) { dbhi = log(dbhi)*ILG2;	if(dbhi > l2hi) l2hi = dbhi; }
 				}
-			  #ifdef MUL_LOHI64_SUBROUTINE
-				MUL_LOHI64(iax,iay,&ialo,&iahi);
-				MUL_LOHI64(ibx,iby,&iblo,&ibhi);
-				MUL_LOHI64(icx,icy,&iclo,&ichi);
-				MUL_LOHI64(idx,idy,&idlo,&idhi);
-			  #else
 				MUL_LOHI64(iax,iay, ialo, iahi);
 				MUL_LOHI64(ibx,iby, iblo, ibhi);
 				MUL_LOHI64(icx,icy, iclo, ichi);
 				MUL_LOHI64(idx,idy, idlo, idhi);
-			  #endif
 			  /*
 				if(pow2 == 53 && i < 100) {
 					printf("I = %d: ax = %" PRIu64 " ay = %" PRIu64 " ahi,alo = %f,%f\n",i, *ax,*ay, *ahi,*alo);
@@ -3164,7 +3185,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					 ,[__binv] "m" (dptr2)\
 					 ,[__crnd50] "m" (dptr3)\
 					 ,[__prod1_adj] "m" (dptr4)\
-					: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+					: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 				);
 			//	printf("i = %u: x0 = %1.0f; x1 = %1.0f; p0-3 = %1.0f,%1.0f,%1.0f,%1.0f\n",i,*ax,*ay,*alo,*ahi);
 				// Update log2-range-bounds-storing vars:
@@ -5280,9 +5301,9 @@ double	convert_base10_char_double (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5312,11 +5333,7 @@ double	convert_base10_char_double (const char*char_buf)
 		curr_digit = (uint64)(c - CHAROFFSET);
 		ASSERT(curr_digit < 10,"convert_base10_char_double: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
-	#else
 		MUL_LOHI64((uint64)10,curr_sum, curr_sum, hi);
-	#endif
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_double: Offending input string = %s\n", char_buf);
@@ -5360,9 +5377,9 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5385,11 +5402,7 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 		curr_digit = (uint64)(c - CHAROFFSET);
 		ASSERT(curr_digit < 10,"convert_base10_char_uint64: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
-	#else
 		MUL_LOHI64((uint64)10,curr_sum, curr_sum, hi);
-	#endif
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_uint64: Offending input string = %s\n", char_buf);
@@ -5428,9 +5441,9 @@ uint128	convert_base10_char_uint128(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5491,9 +5504,9 @@ uint192	convert_base10_char_uint192(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5555,9 +5568,9 @@ uint256	convert_base10_char_uint256(const char*char_buf)
 	for(i=0; i != 0xffffffff; i++)
 	{
 		c = char_buf[i];
-		if(!isdigit(c))
+		if(!isdigit((unsigned char)c))
 		{
-			if(isspace(c))
+			if(isspace((unsigned char)c))
 			{
 				if(done_with_leading_whitespace)
 					break;
@@ -5921,7 +5934,7 @@ ftmp0 = ftmp;
 		__asm__ volatile (\
 			"movl	$0xaaaa,%%eax	\n\t	kmov	%%eax,%%k1	\n\t"/* k1 = 0b1010101010101010 */\
 			: :
-			: "cc","memory","rax"
+			: "cc","memory","k1","rax"
 		);
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
@@ -5942,7 +5955,7 @@ ftmp0 = ftmp;
 				:	// outputs: none
 				: [__dhalf] "m" (*i64ptr)
 				 ,[__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
+				: "cc","memory","k1","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
 			);
 		}
 		clock2 = getRealTime();
@@ -5975,7 +5988,7 @@ ftmp0 = ftmp;
 			/* No write-back-to-memory - just want to be able to examine contents of zmm2,4,0,3 in debugger. */\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
+				: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
 			);
 		}
 		clock2 = getRealTime();
@@ -6053,7 +6066,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:				// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+				: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
 			);
 		}
 		clock2 = getRealTime();
@@ -6083,7 +6096,7 @@ ftmp0 = ftmp;
 			"valignq			$4,%%zmm2,%%zmm2,%%zmm2	\n\t"/* 04 05 06 07 00 01 02 03 */\
 			:						// outputs: none
 			: [__data] "m" (data)	// All inputs from memory addresses here
-			: "cc","memory","rax","xmm0"
+			: "cc","memory","rax","xmm0","xmm1","xmm2"
 		);
 		// Test out side-by-side 4x4 transpose algorithm - On KNL 15 cycles/loop,
 		// drops to 12 cycles when pull inits of index-registers zmm30,zmm31 out into 1-pass init step:
@@ -6287,7 +6300,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm3,0x1c0(%%rax)	\n\t"\
 				:				// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+				: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
 			);
 		}
 		clock2 = getRealTime();
@@ -6455,7 +6468,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm7,0x1c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","k2","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6528,7 +6541,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm4, 0x1c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6657,7 +6670,7 @@ ftmp0 = ftmp;
 				:						// outputs: none
 				: [__data] "m" (data)	/* All inputs from memory addresses here */\
 				 ,[__gatherindex] "m" (gatherindex)
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6716,7 +6729,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6800,7 +6813,7 @@ ftmp0 = ftmp;
 				:						// outputs: none
 				: [__data] "m" (data)	/* All inputs from memory addresses here */\
 				 ,[__gatherindex] "m" (gatherindex)
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","k2","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6892,7 +6905,7 @@ ftmp0 = ftmp;
 																"vmovaps	%%zmm17,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6986,7 +6999,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm4, 0x1c0(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -7873,7 +7886,9 @@ ftmp0 = ftmp;
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
 		/* The normal index-munging takes way too many cycles in this context, so inline it via 8-way loop unroll:
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -8172,7 +8187,9 @@ printf("DIF: nerr = %u, ",nerr);
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
 		/* The normal index-munging takes way too many cycles in this context, so inline it via 8-way loop unroll:
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -8909,6 +8926,65 @@ exit(0);
 
   #endif
 
+	/* Does this platform give us a way to ask which CPUs the process is actually *allowed* to use?
+	sched_getaffinity() is Linux-specific, so the guard here deliberately mirrors the one around the
+	sched_setaffinity() call in threadpool.c::worker_thr_routine(), ensuring the two always agree
+	about which builds do OS-level thread pinning by logical-CPU index:
+	*/
+  #if defined(OS_TYPE_LINUX) && !defined(OS_TYPE_WINDOWS) && !defined(__MINGW32__)
+	#define MLUCAS_HAVE_GETAFFINITY	1
+  #else
+	#define MLUCAS_HAVE_GETAFFINITY	0
+  #endif
+
+	/* Snapshot the set of logical CPUs this process is *permitted* to run on, i.e. the CPU-affinity
+	mask it inherited from its parent. A user or job scheduler may have restricted that mask - via
+	taskset, numactl, systemd 'CPUAffinity=', SLURM, a container runtime - in which case the
+	system-wide online-CPU count returned by get_num_cores() says nothing about where we may run.
+
+	Fills avail[0:nword-1], a bitmap indexed exactly as the global CORE_SET is, and returns the number
+	of permitted CPUs. A return value of 0 (avail[] all-zero) means the mask could not be determined,
+	and must be treated by callers as "no information", *not* as "no CPUs".
+	*/
+	int get_avail_cores(uint64 avail[], int nword)
+	{
+		int i, nset = 0;
+		for(i = 0; i < nword; i++) { avail[i] = 0ull; }
+	#if MLUCAS_HAVE_GETAFFINITY
+		cpu_set_t cpu_set;
+		CPU_ZERO(&cpu_set);
+		// Fails e.g. on a machine with more CPUs than CPU_SETSIZE, or under a libc/sandbox lacking the
+		// syscall; in that case fall back to the legacy whole-machine behavior rather than guessing:
+		if(sched_getaffinity(0, sizeof(cpu_set), &cpu_set) != 0)
+			return 0;
+		for(i = 0; i < CPU_SETSIZE && i < (nword<<6); i++) {
+			if(CPU_ISSET(i, &cpu_set)) { avail[i>>6] |= 1ull<<(i&63);	++nset; }
+		}
+	  #if INCLUDE_HWLOC
+		/* The above is in OS logical-CPU indices, but in an hwloc build with per-thread binding support
+		threadpool.c consumes CORE_SET bit indices as hwloc *logical* PU indices
+		(hwloc_get_obj_by_type(...,HWLOC_OBJ_PU,i)) - an ordering which differs from the OS one on any
+		SMT machine. Translate, so this bitmap is always in the same index space as CORE_SET:
+		*/
+		if(HWLOC_AFFINITY && nset) {
+			uint64 lmap[nword];
+			int nl = 0;
+			for(i = 0; i < nword; i++) { lmap[i] = 0ull; }
+			for(i = 0; i < (nword<<6); i++) {
+				if(!(avail[i>>6] & (1ull<<(i&63)))) continue;
+				hwloc_obj_t obj = hwloc_get_pu_obj_by_os_index(hw_topology, (unsigned)i);
+				if(obj && obj->logical_index < (unsigned)(nword<<6)) {
+					lmap[obj->logical_index>>6] |= 1ull<<(obj->logical_index&63);	++nl;
+				}
+			}
+			// Only adopt the translated map if every permitted CPU mapped to a PU in the loaded topology:
+			if(nl == nset) { for(i = 0; i < nword; i++) { avail[i] = lmap[i]; } }
+		}
+	  #endif
+	#endif
+		return nset;
+	}
+
 	// Simple struct to pass multiple args to the loop/join-test thread function:
 	struct do_loop_test_thread_data{
 		int tid;
@@ -9121,14 +9197,14 @@ exit(0);
 		nobjs1 = hwloc_get_nbobjs_by_type (topology, HWLOC_OBJ_CORE);
 		nobjs2 = hwloc_get_nbobjs_by_depth(topology, depth);
 		if(nobjs1 != nobjs2) {
-			snprintf(cbuf,STR_MAX_LEN*2,"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
+			snprintf(cbuf, sizeof(cbuf),"#objects of type CORE (%d) mismatches #objects (%d) at depth %d (topo depth = %d).",nobjs1,nobjs2,depth,topodepth);
 			ASSERT(0,cbuf);
 		}
 		// Loop over HWLOC_OBJ_CORE objects corr. to index range:
 		for (i = lidx_lo; i <= lidx_hi; i++) {
 			hwloc_obj_t obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_CORE, i);
 			if (!obj) {
-				snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
+				snprintf(cbuf, sizeof(cbuf),"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
 			}
 			ASSERT(obj->type == HWLOC_OBJ_CORE, "[hwloc] Error: Object not of expected type CORE.");
 			while(obj && (obj->type != HWLOC_OBJ_PACKAGE)) {
@@ -9151,21 +9227,34 @@ exit(0);
 	{
 		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,bit,word;
 		char *char_addr = istr, *endp;
+		unsigned long utmp;
 		ASSERT(char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);
 		if(len == 0) return 0;	// Allow 0-length input, resulting in no-op
 		ASSERT(len <= STR_MAX_LEN, "Excessive input-substring length!");
-		lo = strtoul(char_addr, &endp, 10);	ASSERT(lo >= 0, "lo-substring not a valid nonnegative number!");
+		/* NB: strtoul() returns an unsigned long, so assigning its result straight into an int silently
+		truncates any value >= 2^32 - '-cpu 4294967299' used to quietly bind to core 3, the truncated
+		index also sliding past the range check in parseAffinityString() below. And strtoul() converting
+		no digits at all is not an error, it just leaves endp == the input pointer - which is how '-cpu 0:'
+		used to be silently taken to mean '-cpu 0'. So for each field of the triplet, require that some
+		digits were actually consumed and that the value is a legal core index, *before* narrowing to int:
+		*/
+		utmp = strtoul(char_addr, &endp, 10);
+		ASSERT(endp != char_addr && utmp < MAX_CORES, "lo-substring of core-affinity-triplet not a valid core index in [0,MAX_CORES)!");
+		lo = (int)utmp;
 		if(*endp) {
 			ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 			char_addr = endp+1;
-			hi = strtoul(char_addr, &endp, 10);
+			utmp = strtoul(char_addr, &endp, 10);
+			ASSERT(endp != char_addr && utmp < MAX_CORES, "hi-substring of core-affinity-triplet not a valid core index in [0,MAX_CORES)!");
+			hi = (int)utmp;
 			ASSERT(hi >= lo, "hi-substring not a valid number >= lo!");
 			if(*endp) {
 				ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 				char_addr = endp+1;
-				incr = strtoul(char_addr, &endp, 10);
-				ASSERT(incr > 0, "incr-substring not a valid positive number!");
+				utmp = strtoul(char_addr, &endp, 10);
+				ASSERT(endp != char_addr && utmp > 0 && utmp < MAX_CORES, "incr-substring of core-affinity-triplet not a valid positive number < MAX_CORES!");
+				incr = (int)utmp;
 				ASSERT(*endp == 0x0, "Non-numeric increment substring in core-affinity-triplet substring!");
 			} else {
 				// If increment (third) argument of triplet omitted, default to incr = 1.
@@ -9190,7 +9279,7 @@ exit(0);
 				hwloc_obj_t obj_core, obj_pu;
 				obj_core = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CORE, i);
 				if (!obj_core) {
-					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
+					snprintf(cbuf, sizeof(cbuf),"[hwloc] Error: HWLOC_OBJ_CORE[%u] not found.\n",i);	ASSERT(0,cbuf);
 				}
 				// 2. for each HWLOC_OBJ_CORE object in the above set, verify that it has at least (n) children
 				/*
@@ -9201,7 +9290,7 @@ exit(0);
 					'-cpu 0:11', or even more simply '-nthread 12') to use all 12 threads.
 				*/
 				if (obj_core->arity < incr) {
-					snprintf(cbuf,STR_MAX_LEN*2,"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(0,cbuf);
+					snprintf(cbuf, sizeof(cbuf),"[hwloc] Error: Requested threads_per_core (%u) exceeds arity (%u) of HWLOC_OBJ_CORE[%u].\n",incr,obj_core->arity,i);	ASSERT(0,cbuf);
 				}
 				for (int j = 0; j < incr; j++) {
 					obj_pu = obj_core->children[j];
@@ -9222,7 +9311,10 @@ exit(0);
 			// CPU set encoded by integer-triplet argument corresponds to values of integer loop
 			// index i in the C-loop for(i = lo; i < hi; i += incr), excluding loop-exit value of i:
 			for(i = lo; i <= hi; i += incr, ncpu++) {
-				word = i>>6; bit = i & 63;	ASSERT(word < MAX_CORES, "Bitmap word exceeds MAX_CORES!");
+				// CORE_SET is declared uint64 CORE_SET[MAX_CORES>>6], i.e. MAX_CORES/64 words; the old
+				// bound-check here used MAX_CORES itself, permitting an out-of-bounds global write for
+				// -cpu indices >= 1024:
+				word = i>>6; bit = i & 63;	ASSERT(word < (MAX_CORES>>6), "Bitmap word exceeds MAX_CORES!");
 				if(CORE_SET[word] & (1ull<<bit)) { sprintf(cbuf, "Core %d multiply specified in affinity-setting!",i);	ASSERT(0, cbuf); }
 				else { CORE_SET[word] |= 1ull<<bit; }
 			}
@@ -9270,6 +9362,80 @@ exit(0);
 			fprintf(stderr,"ERROR: %d cores in user-specified core set have index exceeding those of available logical cores = 0-%d!\n",core_count_oflow,MAX_THREADS-1);
 			exit(EXIT_FAILURE);
 		}
+		/* Lastly, warn about any specified core lying outside the CPU-affinity mask this process inherited
+		(taskset, numactl, systemd 'CPUAffinity=', SLURM, container cpuset). An explicit user-specified core
+		set still wins - overriding the inherited placement is the documented point of the -cpu flag - but
+		the resulting per-worker sched_setaffinity() will then either widen the process's mask back out,
+		silently defeating the operator's placement, or (under a cgroup cpuset) fail with EINVAL and leave
+		that worker unpinned. Neither outcome is otherwise apparent from the run's output:
+		*/
+		uint64 avail[MAX_CORES>>6];
+		if(get_avail_cores(avail,MAX_CORES>>6) > 0) {
+			nc = 0;
+			for(i = 0; i < MAX_CORES; i++) {
+				word = i>>6; bit = i & 63;
+				if((CORE_SET[word] & (1ull<<bit)) && !(avail[word] & (1ull<<bit))) {
+					if(!nc++) { fprintf(stderr,"WARN: Specified core set includes logical CPUs outside this process's inherited CPU-affinity mask: "); }
+					fprintf(stderr,"%u.",i);
+				}
+			}
+			if(nc) { fprintf(stderr,"\n      Pinning threads there overrides the externally-imposed affinity, or fails outright under a cgroup cpuset.\n"); }
+		}
+	}
+
+	/******************/
+	/* Set the default thread-affinity core set, i.e. the one used when the user specified no explicit
+	core set: either no affinity-related command-line flag at all, or just '-nthread [ncore]'.
+
+	This used to simply pin to logical CPUs [0:ncore-1], which silently discards any externally-imposed
+	CPU-affinity mask: the worker threads sched_setaffinity() themselves onto CPUs 0,1,...,ncore-1 no
+	matter where the operator placed the process, so the standard practice of running several instances
+	pinned to disjoint core groups ('taskset -c 0-3', 'taskset -c 4-7', ...) collapses every instance
+	onto the same low-numbered CPUs, with full contention and no diagnostic. Take the core set from the
+	first [ncore] CPUs of the process's *inherited* affinity mask instead. For a process whose mask is
+	unrestricted - the overwhelming majority of runs - those are exactly CPUs [0:ncore-1], hence the
+	resulting CORE_SET bitmap, the printed core list and NTHREADS are all unchanged.
+	*/
+	void setDefaultAffinity(uint32 ncore)
+	{
+		char ostr[STR_MAX_LEN+1];
+		uint64 avail[MAX_CORES>>6];
+		int i,j,lo,hi, nchar = 0, navail = get_avail_cores(avail,MAX_CORES>>6);
+		int use_mask = (navail > 0);
+		uint32 nc = 0;
+		ASSERT((int)ncore > 0, "#threads must be > 0!");
+		if(use_mask && ncore > (uint32)navail) {
+			if(navail < MAX_THREADS) {
+				// Oversubscribing an externally-restricted mask needs its own diagnostic, since the generic
+				// "exceeds #available logical cores" error issued by parseAffinityString() cites the
+				// machine-wide core count and so reads as a non sequitur here:
+				fprintf(stderr,"ERROR: #threads [ = %u] exceeds the %d logical CPUs permitted by this process's inherited CPU-affinity mask!\n",ncore,navail);
+				exit(EXIT_FAILURE);
+			}
+			// Mask unrestricted, user simply asked for more threads than the machine has cores: fall back to
+			// the legacy [0:ncore-1] core set so parseAffinityString() issues its usual error, unchanged:
+			use_mask = FALSE;
+		}
+		// Emit the first [ncore] permitted CPU indices as a comma-separated list of lo[:hi] triplets,
+		// collapsing runs of consecutive indices so the common cases stay well within STR_MAX_LEN:
+		for(i = 0; use_mask && i < MAX_CORES && nc < ncore; i++) {
+			if(!(avail[i>>6] & (1ull<<(i&63)))) continue;
+			lo = hi = i;	++nc;
+			while(nc < ncore && (hi+1) < MAX_CORES && (avail[(hi+1)>>6] & (1ull<<((hi+1)&63)))) { ++hi;	++nc; }
+			if(lo == hi)
+				j = snprintf(ostr+nchar,sizeof(ostr)-nchar,"%s%d"   ,(nchar ? "," : ""),lo);
+			else
+				j = snprintf(ostr+nchar,sizeof(ostr)-nchar,"%s%d:%d",(nchar ? "," : ""),lo,hi);
+			if(j < 0 || (size_t)(nchar+j) >= sizeof(ostr)) {
+				fprintf(stderr,"ERROR: Inherited CPU-affinity mask is too fragmented to encode as an affinity string ... use the -cpu flag to specify a core set explicitly.\n");
+				exit(EXIT_FAILURE);
+			}
+			nchar += j;	i = hi;
+		}
+		// nc = 0, i.e. no usable mask info (non-Linux build, or sched_getaffinity failed, or the
+		// unrestricted-mask-oversubscribed case above): legacy [0:ncore-1] core set
+		if(!nc) { snprintf(ostr,sizeof(ostr),"0:%u",ncore-1); }
+		parseAffinityString(ostr);
 	}
 
 #endif	// MULTITHREAD ?
@@ -9334,87 +9500,112 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
-	char *mlucas_path;
-	char *cmdstr;
-	char *expanded_str;
-	int  tmp;
-	FILE *pipe_ptr;
-	size_t bufsize;
+	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
+	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
-
-	mlucas_path = getenv("MLUCAS_PATH");
+	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
-		bufsize = strlen(mlucas_path) + 1;
-		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
 			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
 		strcpy(MLUCAS_PATH, mlucas_path);
-	} else {
-		bufsize = strlen(MLUCAS_PATH) + 1;
 	}
-	bufsize = (bufsize - 1) * 3 + 1;
-	mlucas_path = (char*)malloc(bufsize);
-	if (mlucas_path == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_err_check;
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
+	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
+	   backslash, since both are directory separators on Windows).  */
+	{
+		size_t len = strlen(MLUCAS_PATH);
+		if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+			goto out_err_check;
+		if (len > STR_MAX_LEN) {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
+		if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
 	}
+#else
+	/* POSIX: run MLUCAS_PATH through the shell (via popen "printf") so $HOME-style
+	   variables get expanded, then enforce the length/trailing-slash invariants: */
+	{
+		char *cmdstr;
+		char *expanded_str;
+		int  tmp;
+		FILE *pipe_ptr;
+		size_t bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
+		mlucas_path = (char*)malloc(bufsize);
+		if (mlucas_path == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_err_check;
+		}
 
-	quote_spaces(mlucas_path, MLUCAS_PATH);
-	cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
-	if (cmdstr == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_mlucas_path;
-	}
+		quote_spaces(mlucas_path, MLUCAS_PATH);
+		cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
+		if (cmdstr == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_mlucas_path;
+		}
 
-	strcpy(cmdstr, "printf \"\"");
-	strcat(cmdstr, mlucas_path);
-	pipe_ptr = popen(cmdstr, "r");
-	if (pipe_ptr == NULL) {
-		fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_cmdstr;
-	}
+		strcpy(cmdstr, "printf \"\"");
+		strcat(cmdstr, mlucas_path);
+		pipe_ptr = popen(cmdstr, "r");
+		if (pipe_ptr == NULL) {
+			fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_cmdstr;
+		}
 
-	tmp = getc(pipe_ptr); /* goto out_pipe if shell output nothing  */
-	if (tmp == EOF)
-		goto out_pipe;
-	else
-		ungetc(tmp, pipe_ptr);
+		tmp = getc(pipe_ptr); /* goto out_pipe if shell output nothing  */
+		if (tmp == EOF)
+			goto out_pipe;
+		else
+			ungetc(tmp, pipe_ptr);
 
-	expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
-	if (expanded_str == NULL) {
-		fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	if (fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr) == NULL) {
-		fprintf(stderr, "ERROR: couldn't get environment variable MLUCAS_PATH in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	if (getc(pipe_ptr) != EOF) {
-		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
-	if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
-		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
-		has_err = TRUE;
-		goto out_pipe;
-	}
+		expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
+		if (expanded_str == NULL) {
+			fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		if (fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr) == NULL) {
+			fprintf(stderr, "ERROR: couldn't get environment variable MLUCAS_PATH in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		if (getc(pipe_ptr) != EOF) {
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
+		if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
+			fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+			has_err = TRUE;
+			goto out_pipe;
+		}
 
-	MLUCAS_PATH = expanded_str;
-	out_pipe:
-	pclose(pipe_ptr);
-	out_cmdstr:
-	free(cmdstr);
-	out_mlucas_path:
-	free(mlucas_path);
+		MLUCAS_PATH = expanded_str;
+		out_pipe:
+		pclose(pipe_ptr);
+		out_cmdstr:
+		free(cmdstr);
+		out_mlucas_path:
+		free(mlucas_path);
+	}
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
@@ -9460,7 +9651,7 @@ int mkdir_p(char *path)
 	FILE *fp;
 	int err;
 
-	strcpy(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
 	if (mlucas_path[0] == '\0')
 		return 1;
 	else if (mlucas_path[0] == '/')
@@ -9545,14 +9736,192 @@ char *shell_quote(char *dest, char *src)
    which is then passed to fopen()
 
    Since the length of both MLUCAS_PATH and path are at most STR_MAX_LEN,
-   we can use strcpy() and strcat() safely  */
+   mlucas_path is guaranteed large enough, but build it with a bounded
+   snprintf() rather than strcpy()+strcat() as a defensive measure  */
 FILE *mlucas_fopen(const char *path, const char *mode)
 {
 	char mlucas_path[2 * STR_MAX_LEN + 1];
 
-	strcpy(mlucas_path, MLUCAS_PATH);
-	strcat(mlucas_path, path);
+	snprintf(mlucas_path, sizeof(mlucas_path), "%s%s", MLUCAS_PATH, path);
 	return fopen(mlucas_path, mode);
+}
+
+/**************************************************************************************************/
+/*** v21: Crash-safe (atomic) savefile replacement - see the mlucas_fopen_atomic() comment below ***/
+/**************************************************************************************************/
+
+/* Suffix appended to a savefile name to form the name of the scratch file its replacement is
+staged in. Deliberately a fixed string rather than a mkstemp()-style random one: it keeps the
+scratch file next to its target in the same directory (a hard requirement, since rename() is only
+atomic *within* a filesystem), it is unique per target because savefile names already are, and a
+leftover from a previous crash is simply reused rather than accumulating as litter: */
+#define SAVEFILE_TMP_SUFFIX	".new"
+
+/* MLUCAS_PATH-prefix [path] (+ optional [suffix]) into caller-supplied buffer [dest], which must
+have room for MLUCAS_PATH_BUFSIZE chars. Same length reasoning as mlucas_fopen(): */
+#define MLUCAS_PATH_BUFSIZE	(2*STR_MAX_LEN + sizeof(SAVEFILE_TMP_SUFFIX) + 1)
+
+static void mlucas_path_cat(char dest[], const char *path, const char *suffix)
+{
+	strcpy(dest, MLUCAS_PATH);
+	strcat(dest, path);
+	if(suffix) strcat(dest, suffix);
+}
+
+/* Rename [oldpath] ==> [newpath], both MLUCAS_PATH-relative, replacing [newpath] if it exists.
+Returns 0 on success, nonzero on failure. Two things this does which a bare rename() call does not:
+
+	[1] It applies the MLUCAS_PATH prefix. Every Mlucas file is *created* through mlucas_fopen(),
+	    which prefixes; the bare rename() calls this replaces did not, so under a nonempty
+	    MLUCAS_PATH (the "$HOME/.mlucas.d/" packaging layout, or the MLUCAS_PATH env var) they
+	    named files which do not exist, and the renames simply failed.
+
+	[2] It replaces an existing destination on Windows as well as POSIX. rename(2) is required to
+	    atomically replace the destination on POSIX, but the Windows CRT rename() fails with EEXIST
+	    if the destination exists - which is exactly the case here, since the whole point is to
+	    overwrite the previous savefile. MoveFileEx(...,MOVEFILE_REPLACE_EXISTING) is the Windows
+	    equivalent; MOVEFILE_WRITE_THROUGH additionally asks that the rename be flushed before the
+	    call returns, which is what makes it durable rather than merely atomic.
+
+Note the preprocessor gate: platform.h routes MinGW builds down its OS_TYPE_LINUX branch on purpose
+(see the "MinGW builds use the Linux codepath" comment there), so a bare #ifdef OS_TYPE_WINDOWS would
+miss MinGW - whose rename() is the same replace-hostile msvcrt one. Test both, as platform.h itself
+does wherever it needs "is this a Windows target?" rather than "is this an MSVC build?".
+*/
+int mlucas_rename(const char *oldpath, const char *newpath)
+{
+	char obuf[MLUCAS_PATH_BUFSIZE], nbuf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(obuf, oldpath, 0x0);
+	mlucas_path_cat(nbuf, newpath, 0x0);
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	return !MoveFileEx(obuf, nbuf, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+	return rename(obuf, nbuf);
+#endif
+}
+
+/* remove() with the MLUCAS_PATH prefix applied, for the same reason mlucas_rename() exists: every
+savefile in the tree is created through mlucas_fopen(), which prepends MLUCAS_PATH, so a bare
+remove(name) under a nonempty prefix looks in the wrong directory. It does not fail loudly - it
+returns nonzero for "no such file", which the call sites then report as an inability to delete a
+file that was in fact never looked at. */
+int mlucas_remove(const char *path)
+{
+	char buf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(buf, path, 0x0);
+	return remove(buf);
+}
+
+/* Open the scratch file in which a crash-safe replacement of savefile [path] is staged. Use exactly
+as mlucas_fopen(path,"wb"), but close the result with mlucas_fclose_atomic(path,fp) rather than
+fclose(fp); [path] must be the same string in both calls.
+
+Why this exists: a savefile write of the form
+
+	fp = mlucas_fopen(savefile,"wb");  ...write...  fclose(fp);
+
+truncates the target *before* writing a single byte of the replacement, so from the instant the file
+is opened until the instant the last byte lands, there is no complete copy of that checkpoint on
+disk. A crash, kill -9, power loss or full filesystem in that window leaves a short or garbage
+savefile behind and takes the previous good checkpoint with it. Measured, not theoretical: killing a
+p-1 run partway through a .s2 stage-2 checkpoint write leaves a truncated .s2 where the previous
+complete checkpoint used to be, and the next run then discards that stage-2 progress entirely and
+redoes the stage from its start. The p/q residue-savefile pair survives the same treatment only
+because there are two copies of it - the corrupt primary is detected and the secondary used instead.
+The .s2 checkpoint has no second copy, so there is nothing to fall back to.
+
+Staging the new contents in a sibling scratch file and rename()-ing it over the target closes that
+window: the target is only ever replaced by a rename, which is atomic, so at every instant the file
+on disk is either the complete old checkpoint or the complete new one - never a prefix of either.
+The scratch file must live in the same directory as its target for this to work, since rename() is
+only atomic within a filesystem; appending a suffix to the full target path guarantees that.
+*/
+FILE *mlucas_fopen_atomic(const char *path, const char *mode)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE];
+	ASSERT(mode != 0x0 && mode[0] == 'w', "mlucas_fopen_atomic: only write ('w'/'wb') modes make sense here!");
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	return fopen(tmp_path, mode);
+}
+
+/* Abandon a crash-safe savefile write begun with mlucas_fopen_atomic(path,...): close the scratch
+file and delete it, leaving [path] untouched. For callers which discover partway through - or after
+finishing - that the data they staged is not fit to be published: */
+void mlucas_discard_atomic(const char *path, FILE *fp)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE];
+	if(fp) fclose(fp);
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	remove(tmp_path);
+}
+
+/* Finish a crash-safe savefile write begun with mlucas_fopen_atomic(path,...): flush the stdio
+buffer, push the data to stable storage, close, then atomically rename the scratch file over [path].
+Returns 0 on success; on any failure returns nonzero having deleted the scratch file, so that [path]
+still holds the previous good checkpoint. Callers must check the return value - it is the analogue of
+a failed write, not of a failed fclose() nobody looks at.
+
+The fsync() is the difference between "a crash cannot corrupt the savefile" and "a *power loss*
+cannot corrupt the savefile". Without it the rename can reach the disk ahead of the data it is
+supposed to be publishing, leaving the target name pointing at a file whose contents never made it
+out of the page cache. Its failure is treated as a write failure, since a deferred ENOSPC/EIO is
+exactly how a filesystem reports that the data did not make it.
+*/
+int mlucas_fclose_atomic(const char *path, FILE *fp)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE], tmp_name[STR_MAX_LEN + sizeof(SAVEFILE_TMP_SUFFIX)];
+	int err = 0;
+	if(!fp) return -1;
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	strcpy(tmp_name, path);	strcat(tmp_name, SAVEFILE_TMP_SUFFIX);	// MLUCAS_PATH-relative, for mlucas_rename()
+	/* [1] stdio buffer ==> OS: */
+	if(fflush(fp) != 0)
+		err = 1;
+	/* [2] OS page cache ==> stable storage. EINVAL/ENOTSUP mean the fd is of a type which cannot be
+	synced (a pipe, or a filesystem lacking the operation) rather than that the data was lost, so do
+	not treat those as write failures: */
+	if(!err) {
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		if(_commit(_fileno(fp)) != 0 && errno != EINVAL && errno != EBADF)
+			err = 1;
+	#else
+		if(fsync(fileno(fp)) != 0 && errno != EINVAL && errno != ENOTSUP)
+			err = 1;
+	#endif
+	}
+	/* [3] Close. A failed fclose() means buffered data was dropped, i.e. the file is short: */
+	if(fclose(fp) != 0)
+		err = 1;
+	if(err) {
+		remove(tmp_path);	// Leave [path] holding the previous good checkpoint
+		return 1;
+	}
+	/* [4] Publish, atomically: */
+	if(mlucas_rename(tmp_name, path)) {
+		remove(tmp_path);
+		return 1;
+	}
+	/* [5] Make the rename itself durable by syncing the containing directory. Best-effort: a
+	failure here means the *name change* might not survive a power loss, in which case the target
+	simply still holds the previous good checkpoint - no corruption either way - so unlike the data
+	fsync above this one does not fail the write. No Windows equivalent, and none needed: the
+	MOVEFILE_WRITE_THROUGH flag passed to MoveFileEx() already covers it. */
+#if !defined(OS_TYPE_WINDOWS) && !defined(__MINGW32__)
+	{
+		char *slash;	int dfd;
+		strcpy(tmp_path, MLUCAS_PATH);	strcat(tmp_path, path);
+		slash = strrchr(tmp_path,'/');
+		if(slash == tmp_path)	// Target sits in the root directory
+			tmp_path[1] = '\0';
+		else if(slash)
+			*slash = '\0';
+		else					// No directory component at all ==> current working directory
+			strcpy(tmp_path,".");
+		dfd = open(tmp_path, O_RDONLY);
+		if(dfd >= 0) { fsync(dfd); close(dfd); }
+	}
+#endif
+	return 0;
 }
 
 /*********************/

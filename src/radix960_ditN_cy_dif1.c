@@ -481,7 +481,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int task_is_blocking = TRUE;
 	static thread_control_t thread_control = {0,0,0};
 	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-	static task_control_t   task_control = {NULL, (void*)cy960_process_chunk, NULL, 0x0};
+	static task_control_t   task_control = {NULL, cy960_process_chunk, NULL, 0x0};
 
 #elif !defined(USE_SSE2)
 
@@ -523,7 +523,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
-	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT && FERMAT_RANDBIT_MULT)
 	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
 		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
@@ -543,7 +543,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	if(p != psave || n != nsave
 	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
-		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+		|| (tdat != 0x0 && (tdat[0].wt0 != wt0 || tdat[0].wt1 != wt1 || tdat[0].si != si || tdat[0].rn0 != rn0))
 	#endif
 	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
@@ -618,7 +618,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #ifdef USE_PTHREAD
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
-			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -757,12 +757,20 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		two       = tmp + 0x09;
 		tmp += 0x0a;	// += 0xa => sc_ptr + 0xf46
 	  #ifdef USE_AVX512
-		cy_r = tmp;	/* cy_i = tmp+0x78; */	tmp += 2*0x78;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;
+	   #ifndef MULTITHREAD
+		cy_i = tmp+0x78;
+	   #endif
+		tmp += 2*0x78;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
-		cy_r = tmp;	/* cy_i = tmp+0x0f0; */	tmp += 2*0x0f0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;
+	   #ifndef MULTITHREAD
+		cy_i = tmp+0x0f0;
+	   #endif
+		tmp += 2*0x0f0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// += 0x1e0 + 2 => sc_ptr += 0x1128
 		// This is where the value of half_arr_offset comes from
@@ -2197,13 +2205,7 @@ for(outer=0; outer <= 1; outer++)
 
   #endif
 
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-	}
+	if(tpool) ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -3327,8 +3329,8 @@ void radix960_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-	cy960_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void
+	cy960_process_chunk(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
@@ -4074,7 +4076,7 @@ void radix960_dit_pass1(double a[], int n)
 		{
 			thread_arg->maxerr = maxerr;
 		}
-		return 0x0;
+		return;
 	}
 #endif
 

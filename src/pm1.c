@@ -30,6 +30,12 @@ Then to run, e.g.
 #include "Mlucas.h"
 #define STR_MAX_LEN 1024
 
+// P-1 Stage 1 B1 bounds. The Stage 1 prime-powers product has ~1.5*B1 bits and its bitlength is stored
+// as a uint32, so B1 must satisfy 1.5*B1 <= 2^32, i.e. B1 <= 2^33/3 = 2863311530. Lower bound of 10^4
+// avoids a large-buffer-count underflow of qlo in Stage 2 (see pm1_set_bounds()):
+#define PM1_B1_MIN         10000u
+#define PM1_B1_MAX    2863311530u	// = 2^33/3
+
 #ifdef PM1_STANDALONE
 	#warning Building pm1.c in PM1_STANDALONE mode.
 	char STATFILE[] = "pm1_debug.txt";
@@ -43,7 +49,8 @@ Then to run, e.g.
 	uint32 PM1_S2_NBUF = 0;	// # of floating-double residue-length memblocks available for Stage 2
 	uint32 B1 = 0;
 	uint64 B2 = 0ull, B2_start = 0ull;
-	char cbuf[STR_MAX_LEN*2];
+	char cbuf[STR_MAX_LEN*3];	// Must match the extern in Mdata.h - a narrower definition here is a
+								// conflicting type, and breaks the PM1_STANDALONE build outright.
 	uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
 	double MME;
 #else
@@ -69,7 +76,7 @@ Then to run, e.g.
 	};
 	// Stick protos fo these SIMD utility functions used by the stage 2 loop here:
 	void vec_double_sub(struct threadpool *tpool, struct pm1_thread_data_t *tdat, double c[]);
-	void*vec_double_sub_loop(void*targ);
+	void vec_double_sub_loop(void*targ, int thread_num);
   #else
 	#define CTIME	// In single-thread mode, prefer cycle-based time because of its finer granularity
 	void vec_double_sub(double a[], double b[], double c[], uint32 n);
@@ -189,7 +196,7 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 	double dtmp = (SYSTEM_RAM*(double)MAX_RAM_USE*0.01)*1024./(n>>7);
 	sprintf(cbuf,"pm1_set_bounds: Stage 2 needs at least 24+5 buffers ... each buffer needs %u MB; avail-RAM allows %u such.\n",(n>>17),(uint32)dtmp);
 	mlucas_fprint(cbuf,pm1_standlone+1);
-	if(PM1_S2_NBUF && PM1_S2_NBUF > ((uint32)dtmp - 5)) {
+	if(PM1_S2_NBUF && PM1_S2_NBUF + 5 > (uint32)dtmp) {	// '+ 5' on the left, not '- 5' on the right, to avoid unsigned underflow when dtmp < 5 (see #120)
 		sprintf(cbuf,"WARNING: User-specified Stage 2 buffer count %u exceeds avail-RAM ... each buffer needs %u MB; avail-RAM allows %u such.\n",PM1_S2_NBUF,(n>>17),(uint32)dtmp);
 		mlucas_fprint(cbuf,pm1_standlone+1);
 	} else if(!PM1_S2_NBUF) {	// Respect any user-set value here, so long as it's >= minimum-buffer-count
@@ -199,11 +206,11 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 			PM1_S2_NBUF = (uint32)dtmp - 5;
 		}
 	}
-	// Force B1 >= 10^4 to avoid possible large-buffer-count underflow of qlo in stage 2.
-	// Conservatively use (#bits in Stage 1 prime-powers product ~= 1.5*B1), must fit into a uint32, thus B1_max = 2^33/3 = 2863311530:
+	// PM1_B1_MIN/PM1_B1_MAX (defined at top of file) bound B1: lower to avoid a Stage 2 qlo underflow,
+	// upper (2^33/3) so the ~1.5*B1-bit Stage 1 prime-powers product's bitlength fits a uint32:
 	i64 = p>>7;
-	ASSERT(i64 <= 2863311530ull, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
-	B1 = MAX((uint32)i64,10000);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
+	ASSERT(i64 <= PM1_B1_MAX, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
+	B1 = MAX((uint32)i64,PM1_B1_MIN);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
 	B1 = (B1 + 99999)*inv100k;	B1 *= 100000;	ASSERT(B1 >= 100000, "B1 unacceptably small!");	// Round up to nearest 100k:
 	if(PM1_S2_NBUF < 24) {
 		sprintf(cbuf,"pm1_set_bounds: Insufficient free memory for Stage 2 ... will run only Stage 1.\n");
@@ -334,33 +341,45 @@ global would be needed to store that - and remultiply by the appropriate one for
 uint32 compute_pm1_s1_product(const uint64 p) {
 	const double A = 1.1;
 	ASSERT(B1 > 0, "Call to compute_pm1_s1_product needs Stage 1 bound global B1 to be set!");
-	double ln = log(B1), lg = ln*ILG2;
-	uint32 i,len = 0,nmul,nbits,ebits = (uint32)((lg-A)*B1/(ln-A));
+	uint32 i,len = 0,nmul,nbits,ebits,s1p_alloc;
 	uint64 iseed,maxmult;
+	double ln,lg;
 	char savefile[STR_MAX_LEN];
 
-	// Compute Stage 1 prime-powers product, starting with alloc of needed memory:
-	uint32 s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
-	PM1_S1_PRODUCT = ALLOC_UINT64(PM1_S1_PRODUCT, s1p_alloc);
-	if(!PM1_S1_PRODUCT ){
-		sprintf(cbuf, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
-		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
-	}
-
-	// (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product for this p and B1 exists:
   #ifndef PM1_STANDALONE
+	// Build the ".s1_prod" precomputed-product savefile name:
 	strcpy(savefile, RESTARTFILE);
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s1_prod");
-	if((len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, PM1_S1_PRODUCT, &PM1_S1_PROD_RES64)) != 0) {
+	/* (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product exists. read_pm1_s1_prod()
+	adopts the savefile's B1 if it differs from the current run's, and allocates PM1_S1_PRODUCT to fit, so it must be
+	called *before* we size the buffer from B1 below. Rationale: pm1_set_bounds() auto-sizes B1 from available RAM (a
+	low-memory run bumps B1 up ~25% to run a deeper Stage 1), so a restart under a different memory budget can pick a
+	different B1 than the Stage 1 already in progress. The in-progress powering (and the residue restart-file's iteration
+	count) belong to the B1 recorded in this savefile, and a partial powering to one B1 is not interchangeable with any
+	other, so we resume that exact Stage 1 rather than silently recomputing at a different B1. To instead start a fresh
+	run at a different B1, delete this exponent's p-1 savefiles first. */
+	len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, &PM1_S1_PRODUCT, &PM1_S1_PROD_RES64);
+  #endif
+	// Estimated #bits in the product, from the (possibly-just-adopted) B1; also the from-scratch alloc size below:
+	ln = log(B1); lg = ln*ILG2;	ebits = (uint32)((lg-A)*B1/(ln-A));
+  #ifndef PM1_STANDALONE
+	if(len != 0) {
+		PM1_S1_PROD_B1 = B1;	// The stored product corresponds to (the possibly-just-adopted) B1
 		sprintf(cbuf, "INFO: Successfully read precomputed/bit-reversed Stage 1 prime-powers product savefile for this modulus and B1 = %u.\n",B1);
 		mlucas_fprint(cbuf,pm1_standlone+1);
-	} else {	// Compute product from scratch:
+	} else {	// Compute product from scratch, starting with alloc of needed memory:
   #endif
+		s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
+		PM1_S1_PRODUCT = ALLOC_UINT64(PM1_S1_PRODUCT, s1p_alloc);
+		if(!PM1_S1_PRODUCT ){
+			snprintf(cbuf, STR_MAX_LEN*2, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
+			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
+		}
 		// For M(p) want to seed the S1 prime-powers product with 2*p; for F(m) we want seed = 2^(m+2). Since in the latter
 		// case our input p contains 2^m, can handle both cases via iseed = 4*p, giving an extra *2 in the Mersenne case:
 		iseed = p<<2;	ASSERT((iseed>>2) == p,"Binary exponent overflows (uint64)4*p in compute_pm1_s1_product!");
-		len = pm1_s1_ppow_prod(iseed, B1, PM1_S1_PRODUCT, &nmul, &maxmult);	PM1_S1_PROD_B1 = B1;
+		len = pm1_s1_ppow_prod(iseed, B1, PM1_S1_PRODUCT, s1p_alloc, &nmul, &maxmult);	PM1_S1_PROD_B1 = B1;
 		nbits = (len<<6)-mi64_leadz(PM1_S1_PRODUCT,len);
 		if(len > s1p_alloc) {
 			sprintf(cbuf,"Size of S1 prime-powers product exceeds alloc of PM1_S1_PRODUCT[]!");
@@ -393,12 +412,12 @@ uint32 compute_pm1_s1_product(const uint64 p) {
   #ifndef PM1_STANDALONE
 		// Write result to savefile:
 		if(!write_pm1_s1_prod(savefile, p, PM1_S1_PROD_BITS, PM1_S1_PRODUCT, PM1_S1_PROD_RES64)) {
-			snprintf(cbuf,STR_MAX_LEN*2,"WARN: Unable to write precomputed/bit-reversed Stage 1 prime-powers product to savefile %s.\n",savefile);
+			snprintf(cbuf, sizeof(cbuf),"WARN: Unable to write precomputed/bit-reversed Stage 1 prime-powers product to savefile %s.\n",savefile);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
 	} 	// endif(read_pm1_s1_prod)
   #endif
-	sprintf(cbuf,"Product of Stage 1 prime powers with b1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
+	snprintf(cbuf,STR_MAX_LEN*2,"Product of Stage 1 prime powers with B1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	PRP_BASE = 3;
 	sprintf(cbuf,"BRed (PM1_S1_PRODUCT sans leading bit) has %u limbs, Res64 = %" PRIu64 "\n",len,PM1_S1_PROD_RES64);
@@ -408,11 +427,12 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 
 // Compute product of Stage 1 prime powers and store in a uint64[] accumulator.
 // Pointer-args nmul and maxmult return #mi64_mul_scalar calls and max value of the scalar multiplier for same:
-uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult) {
+uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 accum_alloc, uint32 *nmul, uint64 *maxmult) {
 	uint32 p = 2,i,len,maxbits = 64-leadz64(b1);
 	uint32 loop = 64/maxbits;	// Number of prime-powers we can accumulate inside inner loop while remaining < 2^64
 	uint64 tmp,prod,mult,cy = 0ull;
 	ASSERT(accum != 0x0, "Null accum[] pointer in s1_ppow_prod()");
+	ASSERT(accum_alloc != 0, "Zero accumulator allocation in s1_ppow_prod()");
 	ASSERT(accum != 0x0, "Zero initial seed in s1_ppow_prod()");
 	accum[0] = iseed; len = 1; *nmul = 0; *maxmult = 0ull;
 // Debug-only - allows testing of S1 on known-factor case without actually running S2:
@@ -442,6 +462,13 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 				j++;
 #endif
 			}
+			/* loop = 64/maxbits assumes every factor folded in here is < 2^maxbits, which is true for
+			primes <= b1 but not for the up-to-(loop-1) primes past b1 that the batching can pull in, and
+			badly wrong for tiny b1 (at b1 = 3, loop = 32 and the batch product needs 169 bits). Rather
+			than trust the count, check the multiply itself and flush the batch early if it would wrap -
+			p is deliberately not advanced here, so the next pass re-folds this same prime power: */
+			if(mult > (~0ull)/prod)
+				break;
 			mult *= prod;
 #ifdef PM1_DEBUG
 			if(j > 1)
@@ -453,6 +480,10 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 		}
 		*maxmult = MAX(mult,*maxmult);
 		cy = mi64_mul_scalar(accum, mult, accum, len);	++*nmul;
+		/* Bound the growth here, where the write happens. The caller sizes accum[] from an
+		estimate of the product length, and used to check that estimate only *after* this
+		function returned - by which point an under-estimate has already been written past. */
+		ASSERT(len < accum_alloc, "S1 prime-powers product exceeds the accumulator allocation!");
 		accum[len] = cy; len += (cy != 0ull);
 	}
 #ifdef PM1_DEBUG
@@ -462,7 +493,7 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 }
 
 // Returns 1 on successful read, 0 otherwise:
-int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64)
+int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uint64*sum64)
 {
 	const char func[] = "read_pm1_s1_prod";
 	int retval = 0;
@@ -495,8 +526,20 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uin
 		i = fgetc(fptr);	b1 += (uint64)i << j;
 	}
 	if(B1 != b1) {
-		sprintf(cbuf, "INFO: %s: B1 of current run[%u] mismatches one[%u] of savefile data.\n",func,B1,b1);
-		goto PM1_S1P_READ_RETURN;
+		/* The savefile's Stage 1 was run to a different B1 than the current run's (pm1_set_bounds() auto-sizes B1 from
+		available RAM, so a restart under a different memory budget can pick a different B1). A partial powering to one
+		B1 is not interchangeable with any other, so adopt the savefile's B1 and resume that exact Stage 1 rather than
+		recomputing at a different B1. Only adopt a sane value; an out-of-range b1 (or the type-tag mismatches above)
+		means a truncated/foreign file, so bail and recompute at the current B1. */
+		if(b1 >= PM1_B1_MIN && b1 <= PM1_B1_MAX) {
+			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
+			mlucas_fprint(cbuf,pm1_standlone+1);
+			if(B2_start) B2_start = b1;	// keep the Stage 2 start-bound tracking the adopted Stage 1 bound (Stage 2 begins where Stage 1 ends)
+			B1 = b1;
+		} else {
+			snprintf(cbuf, STR_MAX_LEN*2, "INFO: %s: savefile B1 [%u] is out of range; treating as corrupt/foreign and recomputing.\n",func,b1);
+			goto PM1_S1P_READ_RETURN;
+		}
 	}
 	// Read bitlength of precomputed/bit-reversed product:
 	*nbits = 0;
@@ -504,20 +547,26 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uin
 		i = fgetc(fptr);	*nbits += i << j;
 	}
 
-	// Set the number of product bytes and zero the corr. target-array limbs:
+	// Set the number of product bytes, (re)allocate the target array to fit (its size follows the just-read - and
+	// possibly-just-adopted-B1 - product, which the caller cannot size in advance), and zero its limbs:
 	nbytes = (*nbits + 7)/8; nlimbs = (nbytes + 7)/8;
-	for(i = 0; i < nlimbs; i++) { arr[i] = 0ull; }
+	*arr = ALLOC_UINT64(*arr, nlimbs);
+	if(!*arr) {
+		snprintf(cbuf, STR_MAX_LEN*2, "ERROR: %s: unable to allocate array PM1_S1_PRODUCT with %u limbs.\n",func,nlimbs);
+		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
+	}
+	for(i = 0; i < nlimbs; i++) { (*arr)[i] = 0ull; }
 
 	// Read the bytewise product into our array of 64-bit limbs:
 	// j holds index of current byte of limb, (j>>3) = index of current limb of target
 	for(j = 0; j < nbytes; j++) {				//vvvvvvvvv = 8*j (mod 64)
-		c = fgetc(fptr);	arr[j>>3] += ((uint64)c << ((j<<3)&63));
+		c = fgetc(fptr);	(*arr)[j>>3] += ((uint64)c << ((j<<3)&63));
 	}
 	// Read 8 bytes of simple (sum of limbs, mod 2^64) checksum, compare to one computed from read data:
 	for(j = 0; j < 64; j += 8) {
 		i = fgetc(fptr);	isum64 += (uint64)i << j;
 	}
-	for(i = 0; i < nlimbs; i++) { itmp64 += arr[i]; }
+	for(i = 0; i < nlimbs; i++) { itmp64 += (*arr)[i]; }
 	if(itmp64 != isum64) {
 		sprintf(cbuf, "INFO: %s: Computed checksum[%" PRIX64 "] mismatches one[%" PRIX64 "] appended to savefile data.\n",func,itmp64,isum64);
 		*sum64 = 0ull;
@@ -544,9 +593,11 @@ PM1_S1P_READ_RETURN:
 		ASSERT(arr != 0x0, "Null arr pointer!");
 		ASSERT(strlen(fname) != 0, "Empty filename!");
 
-		FILE*fptr = mlucas_fopen(fname, "wb");
+		// v21: atomic-replace: a crash partway through this write formerly left a truncated primes-product
+		// file in place of the previous complete one, and the caller has no backup copy to fall back on:
+		FILE*fptr = mlucas_fopen_atomic(fname, "wb");
 		if(!fptr) {
-			sprintf(cbuf,"ERROR: Unable to open precomputed p-1 stage 1 primes-product file %s for writing.\n",fname);
+			snprintf(cbuf, sizeof(cbuf), "ERROR: Unable to open precomputed p-1 stage 1 primes-product file %s for writing.\n",fname);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0, cbuf);
 		}
 		fprintf(stderr,"INFO: Opened precomputed p-1 stage 1 primes-product file %s for writing...\n",fname);
@@ -582,7 +633,17 @@ PM1_S1P_READ_RETURN:
 		retval = 1;
 
 	PM1_S1P_WRITE_RETURN:
-		if(fptr) { fclose(fptr); fptr = 0x0; }
+		// v21: On the checksum-mismatch path above retval is still 0, i.e. we are abandoning this write;
+		// commit the scratch file over the target only if the data we staged in it is actually good:
+		if(fptr) {
+			if(!retval)
+				mlucas_discard_atomic(fname,fptr);
+			else if(mlucas_fclose_atomic(fname,fptr)) {
+				sprintf(cbuf,"ERROR: Unable to commit precomputed p-1 stage 1 primes-product file %s.\n",fname);
+				mlucas_fprint(cbuf,pm1_standlone+1);	retval = 0;
+			}
+			fptr = 0x0;
+		}
 		return retval;
 	}
 #endif
@@ -1014,7 +1075,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	int jhi;
 #endif
 	// num_b is #buffers per unit of extended-pairing-window size M; wsize is #bytes needed per 'word' of the associated bitmap
-	uint32 bigstep_pow2,rsize, np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
+	uint32 bigstep_pow2,rsize, np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k=0,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
 #if USE_PP1_MULTS
 	uint32 word,bit;
 #elif defined(PM1_DEBUG)
@@ -1100,8 +1161,10 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	each corresponding semiprime q*psmall is hit in the remapped stage 2 interval:
 	*/
 	pm1_check_bounds();	// This sanity-checks the bounds and sets B2_start = B1 if unset.
-	if(B2_start == B1 && B2 >= B1*psmall) {	// It's possible user running a S2 with B2/psmall < B1, hence the 2nd clause
-		reloc_start = psmall*B1;				// Start including relocation-semiprimes once S2 passes this point, and
+	// Note the (uint64) casts: B1 and psmall are both 32-bit, so their product must be widened before
+	// multiplying, else it wraps for B1 > 2^32/psmall, silently corrupting reloc_start and B2_start:
+	if(B2_start == B1 && B2 >= (uint64)B1*psmall) {	// It's possible user running a S2 with B2/psmall < B1, hence the 2nd clause
+		reloc_start = (uint64)psmall*B1;		// Relocation-semiprimes start appearing at this point, and
 		B2_start = MIN(reloc_start, B2/psmall);	// shift B2_start upward to reflect the fact that primes in [B1,B2/psmall]
 												// will be relocated to [B1*psmall,B2].
 	} else {	// In the case of a standalone S2 interval (B2_small > B1), set psmall = 0 and reloc_start = UINT64_MAX:
@@ -1109,7 +1172,20 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	}
 	sprintf(cbuf,"Using B2_start = %" PRIu64 ", B2 = %" PRIu64 ", Bigstep = %u, M = %u\n",B2_start,B2,bigstep,m);
 	mlucas_fprint(cbuf,pm1_standlone+1);
-	uint32 reloc_on = FALSE;	// Gets switched to TRUE (= start using semiprimes which are multiples of psmall) when q > reloc_start
+	/* Whether to include relocation-semiprimes (multiples of psmall whose cofactor is prime) when tagging
+	the primes of each new D-interval entering the pairing bitmap. This must be enabled for the very first
+	interval tagged, rather than switched on partway through the q-loop: intervals are tagged (m2+1) passes
+	before they get processed, the interval tagged on pass q being the one centered on q + (m2+1)*D, so a
+	gate based on the loop variable q engages relocation (m2+1) intervals (plus a further D/2 due to the
+	interval's own width) too late, silently skipping the first ((m2+1)*D + D/2)/psmall primes above B1.
+	Tagging relocation-semiprimes psmall*p with p < B1 is harmless - such p are already in the stage 1
+	prime-product, and psmall*p is composite so nothing is lost by testing p in its place - so simply
+	enable relocation for the whole sweep whenever we are doing relocation at all: */
+	uint32 reloc_on = (psmall != 0);
+	if(reloc_on) {
+		sprintf(cbuf,"Small-prime relocation enabled: semiprimes %u*p start appearing at q = %" PRIu64 "\n",psmall,reloc_start);
+		mlucas_fprint(cbuf,pm1_standlone+1);
+	}
 
 	// Oct 2021: For small q0 and large #bufs, qlo can underflow, so check!
 	q0 = B2_start + bigstep - B2_start%bigstep;
@@ -1131,6 +1207,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// May 2021: Added support for M even:
 	m_is_odd = IS_ODD(m);
 	m_is_even = !m_is_odd;
+	m2 = m/2;	// If m odd, m2 = (m-1)/2 = # of D-interval on either side of the central 0-interval
 	ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for p-1!\n");	// Need BASE_MULTIPLIER_BITS array = 0 for modmuls below!
 	// Alloc the needed memory:
   #ifndef PM1_STANDALONE
@@ -1160,7 +1237,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 	}
 	a      = ALIGN_DOUBLE(a_ptmp);	ASSERT(((intptr_t)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
-	buf = (double **)calloc(num_b*m,sizeof(double *));
+	buf = (double **)CALLOC(num_b*m,sizeof(double *));
 	// ...and num_b*m "buffers" for precomputed bigstep-coprime odd-square powers of the stage 1 residue:
 	for(i = 0; i < num_b*m; i++) {
 		buf[i] = a + i*npad;
@@ -1188,9 +1265,9 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	if(thr_ret) { free((void *)thr_ret); thr_ret = 0x0; }
 	if(thread)  { free((void *)thread ); thread  = 0x0; }
 	if(tdat)    { free((void *)tdat   ); tdat    = 0x0; }
-	thr_ret  = (int *)calloc(NTHREADS, sizeof(int));
-	thread   = (pthread_t *)calloc(NTHREADS, sizeof(pthread_t));
-	tdat     = (struct pm1_thread_data_t *)calloc(NTHREADS, sizeof(struct pm1_thread_data_t));
+	thr_ret  = (int *)CALLOC(NTHREADS, sizeof(int));
+	thread   = (pthread_t *)CALLOC(NTHREADS, sizeof(pthread_t));
+	tdat     = (struct pm1_thread_data_t *)CALLOC(NTHREADS, sizeof(struct pm1_thread_data_t));
 	const int nbytes_simd_align = (RE_IM_STRIDE*8) - 1;	// And per-thread data chunk addresses with this to check SIMD alignment
 	ASSERT(((intptr_t)mult[0] & nbytes_simd_align) == 0x0,"mult[0] not aligned on 64-byte boundary!");
 	ASSERT(((intptr_t)buf [0] & nbytes_simd_align) == 0x0,"buf [0] not aligned on 64-byte boundary!");	// Since npad a multiple of RE_IM_STRIDE, only need to check buf[0] alignment
@@ -1470,25 +1547,25 @@ fprintf(stderr,"#1: vec1 = A^+1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ";
 			if(strstr(cbuf, "read_ppm1_savefiles"))
 				mlucas_fprint(cbuf,pm1_standlone+1);
 			// And now for the official spokesmessage:
-			snprintf(cbuf,STR_MAX_LEN*2, "Read of stage 1 residue-inverse savefile %s failed for reasons unknown. Computing inverse...\n",inv_file);
+			snprintf(cbuf, sizeof(cbuf), "Read of stage 1 residue-inverse savefile %s failed for reasons unknown. Computing inverse...\n",inv_file);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		} else {
 			s1_inverse = TRUE;
 		}
 	}
 	if(!s1_inverse) {
-		snprintf(cbuf,STR_MAX_LEN*2, "Stage 2: Computing mod-inverse of Stage 1 residue...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
+		snprintf(cbuf, sizeof(cbuf), "Stage 2: Computing mod-inverse of Stage 1 residue...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
 		modinv(p,vec1,vec2,nlimb);	// Result in vec2
 		Res64 = vec2[0];
 		Res35m1 = mi64_div_by_scalar64(vec2,two35m1,nlimb,0x0);
 		Res36m1 = mi64_div_by_scalar64(vec2,two36m1,nlimb,0x0);
 		// Write inverse to savefile:
-		fp = mlucas_fopen(inv_file, "wb");
+		fp = mlucas_fopen_atomic(inv_file, "wb");	// v21: atomic-replace, as for the .s2 checkpoint below
 		if(fp) {
 			write_ppm1_savefiles(inv_file,p,n,fp, 0ull, (uint8*)vec2,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
-			fclose(fp);	fp = 0x0;
+			close_savefile(inv_file,fp);	fp = 0x0;
 		} else {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",inv_file);
+			snprintf(cbuf, sizeof(cbuf), "ERROR: unable to open restart file %s for write of checkpoint data.\n",inv_file);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 		}
 	}
@@ -1732,7 +1809,7 @@ MME = 0;
 	clock2 = getRealTime();
   #endif
 	*tdiff = clock2 - clock1; clock1 = clock2;
-	snprintf(cbuf,STR_MAX_LEN*2, "Buffer-init done; clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
+	snprintf(cbuf, sizeof(cbuf), "Buffer-init done; clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 
 	/********************* RESTART FILE STUFF: **********************/
@@ -1741,7 +1818,7 @@ MME = 0;
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s2");
 	// [From the above p-1 savefile schema] 3. On entry, S2 checks for existence of ".s2" savefile:
-	fp = mlucas_fopen(savefile,"r");
+	fp = mlucas_fopen(savefile,"rb");	// v21: the .s2 savefile is binary (written "wb"); text mode mangles it on Windows
 	// o If exists, read nsquares field into uint64 qlo, mask off high byte (which stores the value of any relocation-prime
 	// psmall used for stage 2), compare vs original-assignment B2_start read (or inferred, as B2_start = B1) from worktodo entry:
 	if(fp) {												// G-check residue fields all set NULL in this call:
@@ -1763,14 +1840,20 @@ MME = 0;
 			}
 			// If nsquares > B2_start, arrtmp holds the S2 interim residue for q = nsquares; set up to restart S2 at that point.
 			if(qlo >= B2_start) {
-				snprintf(cbuf,STR_MAX_LEN*2, "Read stage 2 savefile %s ... restarting stage 2 from q = %" PRIu64 ".\n",savefile,qlo);
+				snprintf(cbuf, sizeof(cbuf), "Read stage 2 savefile %s ... restarting stage 2 from q = %" PRIu64 ".\n",savefile,qlo);
 			} else {	// If user running a new partial S2 interval with bounds larger than a previous S2 run, allow but info-print to that effect:
-				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile has qlo[%" PRIu64 "] <= B2_start[%" PRIu64 "] ... Stage 2 interval will skip intervening primes.\n",func,qlo,B2_start);
+				snprintf(cbuf, sizeof(cbuf), "INFO: %s savefile has qlo[%" PRIu64 "] <= B2_start[%" PRIu64 "] ... Stage 2 interval will skip intervening primes.\n",func,qlo,B2_start);
 			}
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			restart = TRUE;
-			if(qlo >= B2)	// qlo >= S2 upper limit - nothing to do but proceed to gcd
+			if(qlo >= B2) {	// qlo >= S2 upper limit - nothing to do but proceed to gcd
+				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile q[%" PRIu64 "] >= B2[%" PRIu64 "] ... stage 2 for this interval is complete; proceeding to GCD of the stage 2 residue.\n",func,qlo,B2);
+				mlucas_fprint(cbuf,pm1_standlone+1);
+				// k is used as a scratch variable by the MULTITHREAD setup code above, so (re)zero the
+				// bigstep-block counters to make the ensuing "#blocks/#modmul" summary print accurate:
+				k = k0 = 0;
 				goto S2_RETURN;
+			}
 		}
 	}
 
@@ -1785,6 +1868,26 @@ MME = 0;
 			sprintf(cbuf,"Small-prime[%u] relocation: will start Stage 2 at bound %" PRIu64 "\n",psmall,qlo);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
+	}
+	/* The prime-pairing bitmap map[] is stateful across passes of the q-loop below: a D-interval's primes
+	are tagged in the bitmap when the interval enters at the top of the extended-match window, but any of
+	them left unpaired are only processed (and the interval retired) once it has shifted m2 slots down the
+	map, m2 passes later. map[] is *not* part of the .s2 savefile, so on a restart the m2 D-intervals just
+	below the resume point would never be re-tagged, and their as-yet-unprocessed unpaired primes would be
+	skipped by the pre-interrupt and the post-restart run alike - a silent hole ~m2*D/ln(B2) primes wide,
+	fresh with each restart, and stage 2 gets restarted from its savefile not only by the user but also by
+	the roundoff-error FFT-length bump and the carry-error retry. Rather than grow the savefile format,
+	simply redo those m2 intervals, backing the resume point up by m2*D but no further than the original
+	stage 2 starting point. Redoing already-accumulated prime pairs is harmless: it only multiplies the
+	stage 2 accumulator by terms it already contains, which cannot remove a prime factor from the product,
+	hence cannot lose a factor. Cost is m2 extra D-blocks per restart. */
+	if(qlo > B2_start) {	// True only on a savefile-restart; a fresh stage 2 has qlo == B2_start
+		if(qlo > B2_start + (uint64)m2*bigstep)
+			qlo -= (uint64)m2*bigstep;
+		else
+			qlo = B2_start;
+		sprintf(cbuf,"Stage 2 restart: backing resume point up to q = %" PRIu64 " to re-cover the %u D-intervals whose pairing-bitmap state the savefile does not preserve.\n",qlo,m2);
+		mlucas_fprint(cbuf,pm1_standlone+1);
 	}
 	/* [b] Stage 2 starts at q0, the smallest multiple of D nearest but not exceeding qlo + D/2;
 	once have that, compute k0 = q0/D: */
@@ -1821,7 +1924,6 @@ MME = 0;
 	of each word correspond to singleton (in the sense that the corr. q2 is composite) q1 = (q - b[i])'s relative
 	to the center of each of the M D-intervals, the hi bits to the q2 = (q + b[i])'s.
 	*/
-	m2 = m/2;	// If m odd, m2 = (m-1)/2 = # of D-interval on either side of the central 0-interval
 	/*
 	We save ourselves some awkward preprocessing by starting the stage 2 loop such that at end of the first loop pass,
 	the D-interval centered on q0 (M odd) or just left of q0 (M even) enters the as the new upper-interval.
@@ -1837,7 +1939,7 @@ MME = 0;
 	*/
 	// At this point pow = A[stage 1 residue]; need either A^(D^2) or (A^D + A^-D), where D = bigstep:
 #ifndef PM1_STANDALONE
-	snprintf(cbuf,STR_MAX_LEN*2, "Computing Stage 2 loop-multipliers...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
+	snprintf(cbuf, sizeof(cbuf), "Computing Stage 2 loop-multipliers...\n");	mlucas_fprint(cbuf,pm1_standlone+1);
 	MME = 0.0;	// Reset maxROE
 	// Raise A to power D^2, using mult[0] as a scratch array; again crap-API forces us to specify an "input is pure-int?" flag:
 	input_is_int = TRUE;
@@ -2014,7 +2116,7 @@ MME = 0;
 
 	if(restart) {	// If restart, convert bytewise-residue S2 accumulator read from file to floating-point form:
 		if(!convert_res_bytewise_FP((uint8*)arrtmp, pow, n, p)) {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",savefile);
+			snprintf(cbuf, sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",savefile);
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 		}
 		// Restart-file-read S2 interim residue in pow[] needs fwd-weight and FFT-pass1-done:
@@ -2027,7 +2129,7 @@ MME = 0;
 	   #if 0	// A: No, because pow = A^(k0*D) + A^-(k0*D) is perfectly fine as S2 init-accumulator
 		vec1[nlimb-1] = 0ull;
 		if(!convert_res_bytewise_FP((uint8*)vec1, pow, n, p)) {
-			snprintf(cbuf,STR_MAX_LEN*2, "ERROR: convert_res_bytewise_FP Failed on S1 residue in vec1!\n");
+			snprintf(cbuf, sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on S1 residue in vec1!\n");
 			mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 		}
 		// Pure-int S1 residue in pow[] needs fwd-weight and FFT-pass1-done:
@@ -2053,7 +2155,7 @@ MME = 0;
 	clock2 = getRealTime();
   #endif
 	*tdiff = clock2 - clock1; clock1 = clock2;
-	snprintf(cbuf,STR_MAX_LEN*2, "Stage 2 loop-multipliers: clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
+	snprintf(cbuf, sizeof(cbuf), "Stage 2 loop-multipliers: clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	*tdiff = AME = MME = 0.0;	// Reset timer and maxROE, now also init AvgROE
 	AME_ITER_START = 0;	// For p-1 stage 2, start collecting AvgROE data immediately, no need t wait for residue to "fill in"
@@ -2075,11 +2177,6 @@ MME = 0;
 	qhi = (B2 + m*bigstep);
 	for(q = qlo; q < qhi; q += bigstep)
 	{
-		if(!reloc_on && q >= reloc_start) {	// Start including relocation-semiprimes once S@ passes this point
-			reloc_on = TRUE;
-			sprintf(cbuf,"Hit q = %" PRIu64 " >= reloc_start[%" PRIu64 "] ... enabling small-prime relocation.\n",q,reloc_start);
-			mlucas_fprint(cbuf,pm1_standlone+1);
-		}
 		// Only start actual 0-interval and extended-window pairing when q hits q0:
 		if(q >= q0) {
 		  if(m_is_odd) {	// prime-pairing between lo|hi halves of 0-interval only done if M odd
@@ -2474,19 +2571,25 @@ MME = 0;
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S",local_time);
 			AME /= (nmodmul - nmodmul_save);
 			// Print [date in hh:mm:ss | p | stage progress | %-complete | time | per-iter time | Res64 | max ROE:
-			snprintf(cbuf,STR_MAX_LEN*2, "[%s] %s %s = %" PRIu64 " [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016" PRIX64 ". AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
+			snprintf(cbuf, sizeof(cbuf), "[%s] %s %s = %" PRIu64 " [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016" PRIX64 ". AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
 				, timebuffer, PSTRING, "S2 at q", q+bigstep, (float)(q-B2_start)/(float)(B2-B2_start) * 100,get_time_str(*tdiff)
 				, 1000*get_time(*tdiff)/(nmodmul - nmodmul_save), Res64, AME, MME);
 			mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
 			*tdiff = MME = 0.0;	// Reset timer and maxerr at end of each iteration interval
-			fp = mlucas_fopen(savefile, "wb");
+			// v21: _atomic: the .s2 checkpoint has no secondary copy standing behind it - unlike the p/q
+			// residue savefiles, where a corrupt primary is detected and the secondary used instead - so
+			// truncating it in place made every checkpoint write a window in which the *only* record of
+			// stage-2 progress on disk was a partially-written file. Killing a run in that window destroyed
+			// the last good checkpoint and cost the whole of stage 2 so far. Stage the write in a scratch
+			// file and rename it over the target, which is then never seen in a partial state:
+			fp = mlucas_fopen_atomic(savefile, "wb");
 			if(fp) {
 				// q won't get += bigstep until we loop, so here, (q + bigstep) is the q-value corr. to just-incremented k.
 				// Also write any relocation-prime psmall into high bit of the resulting nsquares field:
 				write_ppm1_savefiles(savefile,p,n,fp, ((uint64)psmall<<56) + q + bigstep, (uint8*)arrtmp,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
-				fclose(fp);	fp = 0x0;
+				close_savefile(savefile,fp);	fp = 0x0;
 			} else {
-				snprintf(cbuf,STR_MAX_LEN*2, "ERROR: unable to open restart file %s for write of checkpoint data.\n",savefile);
+				snprintf(cbuf, sizeof(cbuf), "ERROR: unable to open restart file %s for write of checkpoint data.\n",savefile);
 				mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 			}
 			// If interim-GCDs enabled (default) and latest S2 interval crossed a 10M mark, take a GCD; if factor found, early-return;
@@ -2519,7 +2622,9 @@ S2_RETURN:
 #endif
 	// (k - k0) = #bigstep-blocks (passes thru above loop) used in stage 2; np + ns + 2*(k - k0) = #modmul:
 	nmodmul = np + ns + 2*(k - k0);	// This is actually redundant, but just to spell it out
-	snprintf(cbuf,STR_MAX_LEN*2,"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,100.0*2*np/(2*np+ns),k-k0,nmodmul);
+	// Note the (2*np+ns) guard: on the 'savefile q >= B2, nothing left to do' early-return above we never
+	// entered the bigstep loop, so np = ns = 0 and the %-paired figure would otherwise print as nan:
+	snprintf(cbuf,sizeof(cbuf),"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,(2*np+ns) ? 100.0*2*np/(2*np+ns) : 0.0,k-k0,nmodmul);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 #ifndef PM1_STANDALONE
 
@@ -2550,15 +2655,18 @@ S2_RETURN:
 
 	// In case of normal (non-early) return, caller will handle the GCD:
 	if(strlen(gcd_str)) {
-		snprintf(cbuf,STR_MAX_LEN*2, "Stage 2 early-return due to factor found; MaxErr = %10.9f.\n",MME);
+		snprintf(cbuf, sizeof(cbuf), "Stage 2 early-return due to factor found; MaxErr = %10.9f.\n",MME);
 	} else {
-		snprintf(cbuf,STR_MAX_LEN*2, "Stage 2 done; MaxErr = %10.9f. Taking GCD...\n",MME);
+		snprintf(cbuf, sizeof(cbuf), "Stage 2 done; MaxErr = %10.9f. Taking GCD...\n",MME);
 	}
 	mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
 #endif
 ERR_RETURN:
 	// Free the memory:
-	free((void *)a_ptmp); a_ptmp = a = 0x0; buf = 0x0;
+	// v21: buf[] is its own calloc'ed array of pointers - freeing a_ptmp releases the vectors those
+	// pointers address, but not the pointer array itself, which was leaked on every Stage-2 call:
+	free((void *)a_ptmp); a_ptmp = a = 0x0;
+	free((void *)buf); buf = 0x0;
 	free((void *)b); b = 0x0;
 	free((void *)map); map = 0x0;
   #ifdef MULTITHREAD
@@ -2581,7 +2689,7 @@ ERR_RETURN:
 		// Threadpool-based dispatch:
 		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited with fixed data
 		// (mult[0] + offset, per-thread chunksize) here, variable ones (subtrahend buf[i] + offset) at thread dispatch:
-		static task_control_t task_control = {NULL, (void*)vec_double_sub_loop, NULL, 0x0};
+		static task_control_t task_control = {NULL, vec_double_sub_loop, NULL, 0x0};
 		static int task_is_blocking = TRUE;
 		uint32 i;
 		for(i = 0; i < NTHREADS; ++i) {
@@ -2595,15 +2703,7 @@ ERR_RETURN:
 		//	printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 		}
 	//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-		struct timespec ns_time;	// We want a sleep interval of 10 nSec here...
-		ns_time.tv_sec  =  0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-		ns_time.tv_nsec = 10;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
-		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
-			ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
-		//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-		}
+		ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 	//	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 		for(i = 0; i < NTHREADS; ++i) {
 			// Pointer subtraction is legal, and automatically undoes the earlier *8 pointer-arithmetic scaling, but result
@@ -2619,7 +2719,7 @@ ERR_RETURN:
   #endif
 
   #ifdef MULTITHREAD
-	void*vec_double_sub_loop(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	void vec_double_sub_loop(void*targ, int thread_num)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct pm1_thread_data_t* thread_arg = targ;
 		//int thr_id = thread_arg->tid;
@@ -2764,7 +2864,6 @@ ERR_RETURN:
 	#ifdef MULTITHREAD
 		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 	//	printf("Return from Thread %d ... ",thr_id);
-		return 0x0;
 	#endif
 	}
 #endif	// defined(PM1_STANDALONE)?

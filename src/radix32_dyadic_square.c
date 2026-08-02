@@ -88,7 +88,7 @@ void radix32_dyadic_square(
 #ifndef USE_SSE2
 	int j2;
 #endif
-#ifndef USE_AVX512
+#if !defined(USE_AVX512) || defined(USE_IMCI512)	// IMCI512 #defines USE_AVX512, but its non-vectorized sincos-indexing arm below needs these:
 	int l,k1,k2;
 #endif
 #ifdef USE_SSE2
@@ -1119,7 +1119,7 @@ void radix32_dyadic_square(
 			 ,[__index1_mod] "m" (index1_mod)	\
 			 ,[__k1_arr] "m" (k1_arr)	\
 			 ,[__k2_arr] "m" (k2_arr)	\
-			: "cc","memory","cl","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6"	/* Clobbered registers */\
+			: "cc","memory","k1","k2","cl","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8"	/* Clobbered registers */\
 		);
 
 		// Need one more (scalar-mode) update of these in preparation for the next 8-fold chunk:
