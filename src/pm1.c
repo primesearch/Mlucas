@@ -189,7 +189,7 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 	double dtmp = (SYSTEM_RAM*(double)MAX_RAM_USE*0.01)*1024./(n>>7);
 	sprintf(cbuf,"pm1_set_bounds: Stage 2 needs at least 24+5 buffers ... each buffer needs %u MB; avail-RAM allows %u such.\n",(n>>17),(uint32)dtmp);
 	mlucas_fprint(cbuf,pm1_standlone+1);
-	if(PM1_S2_NBUF && PM1_S2_NBUF > ((uint32)dtmp - 5)) {
+	if(PM1_S2_NBUF && PM1_S2_NBUF + 5 > (uint32)dtmp) {	// '+ 5' on the left, not '- 5' on the right, to avoid unsigned underflow when dtmp < 5 (see #120)
 		sprintf(cbuf,"WARNING: User-specified Stage 2 buffer count %u exceeds avail-RAM ... each buffer needs %u MB; avail-RAM allows %u such.\n",PM1_S2_NBUF,(n>>17),(uint32)dtmp);
 		mlucas_fprint(cbuf,pm1_standlone+1);
 	} else if(!PM1_S2_NBUF) {	// Respect any user-set value here, so long as it's >= minimum-buffer-count
