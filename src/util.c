@@ -5905,7 +5905,7 @@ ftmp0 = ftmp;
 		// Do timing loop using 2 fundamentally different methods of effecting the transpose, the 2nd of
 		// which mimics the data movement surrounding the dyadic-square and carry steps of our FFT-mul:
 	  #ifdef USE_IMCI512
-		/* OK, this is weird - was trying to find a way to init a vector-double of 0.5 x 8 ... since k10m
+		/* OK, this is weird - was trying to find a way to init a vector-double of 0.5 x 8 ... since k1om
 		broadcasts are different from avx-512 ones, they take only mem-addresses as sources, not GPRs, need
 		to supply the bitstring for DP 0.5 = 0x3FE0000000000000 via pointer to an int-const containing that.
 		Here from the architecture reference: "The 8 bytes at [the given] memory address are broadcast to a int64 vector."

@@ -477,7 +477,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	WARN(HERE, "radix60_ditN_cy_dif1: AVX-512 support requires multithreaded build (-DUSE_THREADS); Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
   #endif
   #ifdef USE_IMCI512
-	WARN(HERE, "radix60_ditN_cy_dif1: No k10m/IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+	WARN(HERE, "radix60_ditN_cy_dif1: No k1om/IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
   #endif
   #ifdef USE_AVX512
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)

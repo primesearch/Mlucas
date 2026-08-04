@@ -970,7 +970,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			[6] [LOACC] Init = inv_mult[0] x 8, anytime AVX-style lookup into 6th table below would have bit = 1, double the corr. datum
 		*/
 		nbytes = 2 << L2_SZ_VD;
-		// Dec 2021: k10m / IMCI512 makes it really hard to on-the-fly vector-int zmm = 0.5 x 8 w/o supplying a new input-arg
+		// Dec 2021: k1om / IMCI512 makes it really hard to on-the-fly vector-int zmm = 0.5 x 8 w/o supplying a new input-arg
 		// the asm carry-macros containing (pointer to mem64 containing 0.5), so add inits of v8_double(0.5) and v8_double(0.25):
 		VEC_DBL_INIT(tmp  , 0.50);
 		VEC_DBL_INIT(tmp+1, 0.25);
