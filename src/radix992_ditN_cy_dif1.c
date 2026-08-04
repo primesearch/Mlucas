@@ -1825,13 +1825,7 @@ for(outer=0; outer <= 1; outer++)
 
   #endif
 
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-	}
+	if(tpool) ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
