@@ -3799,7 +3799,7 @@ int qtest(void)
 
 	q = qfmul_pow2(QPI, 125);	/* This gives pi*2^125, which should still fit into a signed 128-bit int. */
 	i128 = qfnint(q);
-	ASSERT((i128.d1 = (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
+	ASSERT((i128.d1 == (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
 
 #if TIMING_TEST
 	exit(0);

@@ -3395,7 +3395,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	convert_res_FP_bytewise(b, (uint8 *)ci, n, p, &itmp64, &Res35m1, &Res36m1);	// Res64 reserved for Fermat-PRP result; use itmp64 here
 	sprintf(g_cstr, "%u^(F-1) residue (B)        = %#016" PRIX64 ",%11" PRIu64 ",%11" PRIu64 "\n",PRP_BASE,itmp64,Res35m1,Res36m1);
 	strcat(cbuf,g_cstr);	mlucas_fprint(cbuf,1);
-	ASSERT(j = (p+63)>>6,"uint64 vector length got clobbered!");
+	ASSERT(j == (p+63)>>6,"uint64 vector length got clobbered!");
 	mi64_set_eq(bi,ci,j);	// Copy packed-bit result into low j limbs of B-vec (treated as a uint64 array)
 	itmp64 = mi64_sub(ai,bi, ai,j);
 	// If result < 0, need to add Modulus - for N = Fm,Mp this means +-1 in LSW, respectively.
