@@ -37,6 +37,7 @@ Mfactor=Mfactor
 TARGET=$Mlucas
 ARGS=(-DUSE_THREADS) # Optional compile args
 WORDS=''
+C_ARGS=()
 # Optional link args
 LD_ARGS=()
 # Optional Make args
@@ -49,6 +50,10 @@ HWLOC=0
 case $OSTYPE in
 	darwin*)
 		echo -e "MacOS detected for build host.\n"
+		CPU_THREADS=$(sysctl -n hw.ncpu)
+		;;
+	freebsd*)
+		echo -e "FreeBSD detected for build host.\n"
 		CPU_THREADS=$(sysctl -n hw.ncpu)
 		;;
 	msys | cygwin)
@@ -264,13 +269,6 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
 		k1om)
-			# Cross-build note: the Intel MPSS SDK's environment-setup-k1om-mpss-linux script exports
-			# CFLAGS and CPPFLAGS itself. The Makefile uses 'CFLAGS ?=', which defers to the environment,
-			# so merely sourcing the SDK script silently drops -O3 and -D_GNU_SOURCE and builds at -O0.
-			# At -O0 you get two failures that are NOT k1om defects: "impossible constraint in 'asm'" in
-			# radix16_dif_dit_pass_asm.h (the "e" constraint on pfetch_dist needs the optimiser), and
-			# threadpool.c losing CPU_ZERO/sched_setaffinity (that one is the missing -D_GNU_SOURCE).
-			# Re-export CFLAGS/CPPFLAGS *after* sourcing the SDK script.
 			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_IMCI512)
 			;;
@@ -312,32 +310,24 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 
 elif [[ $OSTYPE == darwin* ]]; then
 
-	# MacOS: sysctl -n prints nothing (and exits nonzero) for an absent key - e.g. all the
-	# hw.optional.avx* keys on Apple Silicon - so capture each with a 0 default. This also lets the
-	# combined AVX-512||AVX2 test below use plain arithmetic without an empty operand tripping
-	# '((: || : syntax error' (as `(( || $(...) ))` would when the first sysctl yields nothing):
-	avx512f=$(sysctl -n hw.optional.avx512f 2>/dev/null || echo 0)
-	avx2_0=$( sysctl -n hw.optional.avx2_0  2>/dev/null || echo 0)
-	avx1_0=$( sysctl -n hw.optional.avx1_0  2>/dev/null || echo 0)
-	sse2=$(   sysctl -n hw.optional.sse2    2>/dev/null || echo 0)
-	neon=$(   sysctl -n hw.optional.neon    2>/dev/null || echo 0)
+	avx512f=$(sysctl -n hw.optional.avx512f)
 	if ((avx512f)) && try_avx512_asm; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif ((avx512f || avx2_0)); then
+	elif ((avx512f)) || (($(sysctl -n hw.optional.avx2_0))); then
 		if ((avx512f)); then
 			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
 		fi
 		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
-	elif ((avx1_0)); then
+	elif (($(sysctl -n hw.optional.avx1_0))); then
 		echo -e "The CPU supports the AVX SIMD build mode.\n"
 		ARGS+=(-DUSE_AVX -march=native -mavx)
-	elif ((sse2)); then
+	elif (($(sysctl -n hw.optional.sse2))); then
 		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
 		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
 		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
-	elif ((neon)); then
+	elif (($(sysctl -n hw.optional.neon))); then
 		echo -e "The CPU supports the ASIMD build mode.\n"
 		ARGS+=(-DUSE_ARM_V8_SIMD)
 		if try_flag -mcpu=native; then
@@ -402,25 +392,25 @@ int main()
 {
 // defined(__amd64) || defined(__amd64__) || defined(_M_AMD64) || defined(_M_EMT64) || defined(__x86_64) || defined(__x86_64__)
 #ifdef __x86_64__
-	#ifdef __AVX512F__
+	#ifdef __AVX512F__ // defined(__AVX512F__) && defined(__AVX512CD__) && defined(__AVX512DQ__) && defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__FMA__)
 		puts("avx512");
-	#elif defined __AVX2__
+	#elif defined(__AVX2__) // defined(__AVX2__) && defined(__FMA__)
 		puts("avx2");
-	#elif defined __AVX__
+	#elif defined(__AVX__)
 		puts("avx");
-	#elif defined __SSE2__
+	#elif defined(__SSE2__)
 		puts("sse2");
 	#else
-		puts("none_x86");
+		puts("nosimd_x86");
 	#endif
 #elif defined(__aarch64__)
 	#ifdef __ARM_NEON
 		puts("asimd");
 	#else
-		puts("none_arm");
+		puts("nosimd_arm");
 	#endif
 #else
-	puts("none");
+	puts("nosimd");
 #endif
 	return 0;
 }
@@ -429,14 +419,19 @@ EOF
 	args=()
 	case $HOSTTYPE in
 		aarch64 | arm*)
-			args+=(-mcpu=native)
+			if try_flag -mcpu=native; then
+				args+=(-mcpu=native)
+			elif try_flag -march=native; then
+				args+=(-march=native)
+			fi
 			;;
 		x86_64 | *)
 			args+=(-march=native)
 			;;
 	esac
-	"${CC:-gcc}" -Wall -g -O3 "${args[@]}" -o "$tmpdir/simd" "$tmpdir/simd.c"
+	"${CC:-gcc}" -std=gnu99 -Wall -g -O3 "${args[@]}" -o "$tmpdir/simd" "$tmpdir/simd.c"
 	if ! output=$("$tmpdir/simd"); then
+		echo "$output"
 		echo "Error: Unable to detect the SIMD build mode" >&2
 		exit 1
 	fi
@@ -475,7 +470,7 @@ EOF
 			# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
 			# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
 			;;
-		none_arm)
+		nosimd_arm)
 			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
 			echo "Warning: This likely means there is a bug in this script. Please report!" >&2
 			if try_flag -mcpu=native; then
@@ -484,14 +479,14 @@ EOF
 				ARGS+=(-march=native)
 			fi
 			;;
-		none_x86)
+		nosimd_x86)
 			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
-			echo "Warning: This is a 64-bit x86 system without even SSE2, which likely means there is a bug in this script. Please report!" >&2
+			echo "Warning: This likely means there is a bug in this script. Please report!" >&2
 			ARGS+=(-march=native)
 			;;
-		none)
+		nosimd)
 			echo -e "The CPU architecture is not recognized by this script ... building in scalar-double mode.\n"
-			try_flag -march=native && ARGS+=(-march=native)
+			ARGS+=(-march=native)
 			;;
 		*)
 			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
@@ -520,18 +515,14 @@ fi
 # CFLAGS environment variable before invoking this script - the generated Makefile's "CFLAGS ?=" already
 # defers to a pre-set environment CFLAGS instead of the computed value below. Prefer -flto=auto (parallel
 # LTO codegen, see #56) over plain -flto when supported:
-CFLAGS_PROBED=(-Wall -g -O3)
-# The Mlucas sources use C99 features (for-loop-scope declarations, mixed declarations-and-code) plus GNU
-# extensions (statement expressions in the checked-alloc macros). Old gcc (e.g. 4.8 on Ubuntu 14.04)
-# defaults to gnu89/gnu90 and rejects the C99 constructs with a hard error, so request -std=gnu99
-# unconditionally: every toolchain then compiles the same dialect, and gnu99 (vs plain c99) keeps the GNU
-# extensions enabled. -D_GNU_SOURCE (set in CPPFLAGS below) still exposes the POSIX/GNU library surface:
-CFLAGS_PROBED+=(-std=gnu99)
-try_flag -fdiagnostics-color && CFLAGS_PROBED=(-fdiagnostics-color "${CFLAGS_PROBED[@]}")
+C_ARGS=(-std=gnu99 -Wall -g -O3)
+if try_flag -fdiagnostics-color; then
+	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
+fi
 if try_lto -flto=auto; then
-	CFLAGS_PROBED+=(-flto=auto)
+	C_ARGS+=(-flto=auto)
 elif try_lto -flto; then
-	CFLAGS_PROBED+=(-flto)
+	C_ARGS+=(-flto)
 else
 	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
 fi
@@ -544,26 +535,30 @@ fi
 # stack trace of the issue. If one wishes, one can run 'strip -g Mlucas' to remove the debugging symbols:
 cat <<EOF >Makefile
 CC ?= gcc
-CFLAGS ?= ${CFLAGS_PROBED[*]}
-CPPFLAGS ?= -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
-LDFLAGS ?= -L/opt/homebrew/lib
-LDLIBS ?= ${LD_ARGS[@]} # -static
+CFLAGS = ${C_ARGS[*]}
+CPPFLAGS += -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
+LDFLAGS += -L/usr/local/lib -L/opt/homebrew/lib
+LDLIBS = ${LD_ARGS[@]} # -static
+
+VPATH = ../src
+.PATH: ../src
+.SUFFIXES: .c .o
 
 OBJS=br.o dft_macro.o fermat_mod_square.o fgt_m61.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o get_preferred_fft_radix.o getRealTime.o imul_macro.o mers_mod_square.o mi64.o Mlucas.o pairFFT_mul.o pair_square.o pm1.o qfloat.o radix1008_ditN_cy_dif1.o radix1024_ditN_cy_dif1.o radix104_ditN_cy_dif1.o radix10_ditN_cy_dif1.o radix112_ditN_cy_dif1.o radix11_ditN_cy_dif1.o radix120_ditN_cy_dif1.o radix128_ditN_cy_dif1.o radix12_ditN_cy_dif1.o radix13_ditN_cy_dif1.o radix144_ditN_cy_dif1.o radix14_ditN_cy_dif1.o radix15_ditN_cy_dif1.o radix160_ditN_cy_dif1.o radix16_dif_dit_pass.o radix16_ditN_cy_dif1.o radix16_dyadic_square.o radix16_pairFFT_mul.o radix16_wrapper_ini.o radix16_wrapper_square.o radix176_ditN_cy_dif1.o radix17_ditN_cy_dif1.o radix18_ditN_cy_dif1.o radix192_ditN_cy_dif1.o radix208_ditN_cy_dif1.o radix20_ditN_cy_dif1.o radix224_ditN_cy_dif1.o radix22_ditN_cy_dif1.o radix240_ditN_cy_dif1.o radix24_ditN_cy_dif1.o radix256_ditN_cy_dif1.o radix26_ditN_cy_dif1.o radix288_ditN_cy_dif1.o radix28_ditN_cy_dif1.o radix30_ditN_cy_dif1.o radix31_ditN_cy_dif1.o radix320_ditN_cy_dif1.o radix32_dif_dit_pass.o radix32_ditN_cy_dif1.o radix32_dyadic_square.o radix32_wrapper_ini.o radix32_wrapper_square.o radix352_ditN_cy_dif1.o radix36_ditN_cy_dif1.o radix384_ditN_cy_dif1.o radix4032_ditN_cy_dif1.o radix40_ditN_cy_dif1.o radix44_ditN_cy_dif1.o radix48_ditN_cy_dif1.o radix512_ditN_cy_dif1.o radix52_ditN_cy_dif1.o radix56_ditN_cy_dif1.o radix5_ditN_cy_dif1.o radix60_ditN_cy_dif1.o radix63_ditN_cy_dif1.o radix64_ditN_cy_dif1.o radix6_ditN_cy_dif1.o radix72_ditN_cy_dif1.o radix768_ditN_cy_dif1.o radix7_ditN_cy_dif1.o radix80_ditN_cy_dif1.o radix88_ditN_cy_dif1.o radix8_dif_dit_pass.o radix8_ditN_cy_dif1.o radix960_ditN_cy_dif1.o radix96_ditN_cy_dif1.o radix992_ditN_cy_dif1.o radix9_ditN_cy_dif1.o rng_isaac.o threadpool.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o
 OBJS_MFAC=getRealTime.o get_cpuid.o get_fft_radices.o get_fp_rnd_const.o imul_macro.o mi64.o qfloat.o rng_isaac.o twopmodq100.o twopmodq128_96.o twopmodq128.o twopmodq160.o twopmodq192.o twopmodq256.o twopmodq64_test.o twopmodq80.o twopmodq96.o twopmodq.o types.o util.o threadpool.o factor.o
 
-$Mlucas: \$(OBJS)
-	\$(CC) \$(LDFLAGS) \$(CFLAGS) -o \$@ \$^ \$(LDLIBS)
-$Mfactor: \$(OBJS_MFAC)
-	\$(CC) \$(LDFLAGS) \$(CFLAGS) -o \$@ \$^ \$(LDLIBS)
+$Mlucas: \${OBJS}
+	\${CC} \${LDFLAGS} \${CFLAGS} -o $Mlucas \${OBJS} \${LDLIBS}
+$Mfactor: \${OBJS_MFAC}
+	\${CC} \${LDFLAGS} \${CFLAGS} -o $Mfactor \${OBJS_MFAC} \${LDLIBS}
 factor.o: ../src/factor.c
-	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS -DTRYQ=4 \$<
-%.o: ../src/%.c
-	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} \$<
+	\${CC} \${CFLAGS} \${CPPFLAGS} -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS -DTRYQ=4 -o factor.o ../src/factor.c
+.c.o:
+	\${CC} \${CFLAGS} \${CPPFLAGS} -c ${ARGS[@]} -o \$@ \$<
 clean:
-	rm -f \$(OBJS) \$(OBJS_MFAC)
+	rm -f \${OBJS} \${OBJS_MFAC}
 
-.phony: clean
+.PHONY: clean
 EOF
 
 echo -e "Building $TARGET"
