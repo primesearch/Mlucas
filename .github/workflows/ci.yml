@@ -72,7 +72,13 @@ jobs:
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for
         # compile coverage: a runner may not be able to execute what they target.
         cd ../obj_mfac
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+            # Trial factoring is unimplemented on ARMv8 - twopmodq80.c asserts
+            # "No TF support on ARMv8!" - so test_fac cannot run. Smoke-test the binaries instead.
+            for word in '' 1word 2word 3word 4word nword; do ./Mfactor${word:+_$word} -h; done
+        else
+            for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        fi
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -129,7 +135,13 @@ jobs:
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for
         # compile coverage: a runner may not be able to execute what they target.
         cd ../obj_mfac
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+            # Trial factoring is unimplemented on ARMv8 - twopmodq80.c asserts
+            # "No TF support on ARMv8!" - so test_fac cannot run. Smoke-test the binaries instead.
+            for word in '' 1word 2word 3word 4word nword; do ./Mfactor${word:+_$word} -h; done
+        else
+            for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        fi
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -413,7 +425,13 @@ jobs:
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for
         # compile coverage: a runner may not be able to execute what they target.
         cd ../obj_mfac
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+            # Trial factoring is unimplemented on ARMv8 - twopmodq80.c asserts
+            # "No TF support on ARMv8!" - so test_fac cannot run. Smoke-test the binaries instead.
+            for word in '' 1word 2word 3word 4word nword; do ./Mfactor${word:+_$word} -h; done
+        else
+            for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        fi
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -467,7 +485,13 @@ jobs:
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for
         # compile coverage: a runner may not be able to execute what they target.
         cd ../obj_mfac
-        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then
+            # Trial factoring is unimplemented on ARMv8 - twopmodq80.c asserts
+            # "No TF support on ARMv8!" - so test_fac cannot run. Smoke-test the binaries instead.
+            for word in '' 1word 2word 3word 4word nword; do ./Mfactor${word:+_$word} -h; done
+        else
+            for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
+        fi
     - uses: actions/upload-artifact@v7
       if: always()
       with:
