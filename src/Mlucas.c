@@ -1152,7 +1152,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	// Only check production-run exponents here - self-tests already have an iteration limit < 2^32:
 	if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
-		if(p > (1ull << 32) && !INTERACT) {	// No point emitting the warning for self-tests since those are guaranteed to have (maxiter < MAX_SELFTEST_ITERS)
+		if(p >= (1ull << 32) && !INTERACT) {	// No point emitting the warning for self-tests since those are guaranteed to have (maxiter < MAX_SELFTEST_ITERS)
 			fprintf(stderr,"Full-length LL/PRP/Pepin tests on exponents this large not supported; will exit at self-test limit of %u.\n",MAX_SELFTEST_ITERS);
 			maxiter = MAX_SELFTEST_ITERS;
 		} else
@@ -2280,7 +2280,7 @@ READ_RESTART_FILE:
 		// For Fermats and cofactor-PRP tests of either modulus type, exit only after writing final-residue checkpoint file:
 		if( ihi == maxiter ) break;
 
-		if((TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) && p > (1ull << 32) && ihi >= MAX_SELFTEST_ITERS) {
+		if((TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) && p >= (1ull << 32) && ihi >= MAX_SELFTEST_ITERS) {
 			fprintf(stderr,"Full-length LL/PRP tests on exponents this large not supported; exiting at self-test limit of %u.\n",MAX_SELFTEST_ITERS);
 			exit(0);
 		}
