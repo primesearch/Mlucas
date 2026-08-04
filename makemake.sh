@@ -224,21 +224,15 @@ if [[ -n $WORDS ]]; then
 		Mfactor+="_$arg"
 		TARGET=$Mfactor
 		# The word-size macro is a property of the whole build, not just factor.c: factor.h keys
-		# PIPELINE_MUL192 and the TRYQ default off it, and Mdata.h keys MAX_BITS_P|Q off it. Pass it
-		# to every translation unit (see WORDS_TU below), and give each word-variant its own object
-		# directory so a mode switch cannot silently relink objects built for a different variant.
+		# PIPELINE_MUL192 and the TRYQ default off it, and Mdata.h keys MAX_BITS_P|Q off it. It is
+		# passed to every translation unit by the %.o rule below - together with FACTOR_STANDALONE,
+		# without which Mdata.h rejects the PxWORD/NWORD macros - and each word-variant gets its own
+		# object directory so a mode switch cannot silently relink objects built for another variant.
 		DIR+="_$arg"
 	else
 		echo "Error: The argument '$WORDS' requires 'mfac'." >&2
 		exit 1
 	fi
-fi
-
-# Macros that must be seen by *every* Mfactor translation unit, not just factor.c. Mdata.h rejects
-# the PxWORD/NWORD macros unless FACTOR_STANDALONE is also set, so the two travel together.
-WORDS_TU=''
-if [[ -n $WORDS ]]; then
-	WORDS_TU="$WORDS -DFACTOR_STANDALONE"
 fi
 
 if [[ $OSTYPE == msys || $OSTYPE == cygwin ]]; then
@@ -564,7 +558,7 @@ $Mfactor: \$(OBJS_MFAC)
 factor.o: ../src/factor.c
 	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS -DTRYQ=4 \$<
 %.o: ../src/%.c
-	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} $WORDS_TU \$<
+	\$(CC) \$(CFLAGS) \$(CPPFLAGS) -c ${ARGS[@]} ${WORDS:+$WORDS -DFACTOR_STANDALONE} \$<
 clean:
 	rm -f \$(OBJS) \$(OBJS_MFAC)
 
