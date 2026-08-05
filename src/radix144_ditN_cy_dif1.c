@@ -1618,6 +1618,10 @@ void radix144_dif_pass1(double a[], int n)
 	*/
 	//...gather the needed data (144 64-bit complex) and do 16 radix-9 transforms:
 		tptr = t;
+		// Each iteration of this loop is a full radix-9 DFT, so there is nothing for the loop
+		// vectorizer to gain here - and clang <= 18 miscompiles it, yielding a wrong residue for
+		// every radix set with this leading radix on an AVX-512 build. See platform.h.
+		NO_LOOP_VECTORIZE
 		for(l = 0; l < 16; l++) {
 			iptr = dif_pcshft + dif_ncshft[l];
 			// Hi-part of p-offset indices:
