@@ -61,11 +61,11 @@ case $OSTYPE in
 		;;
 esac
 
-MAKE=make
-if ! command -v $MAKE >/dev/null && command -v mingw32-make >/dev/null; then
+MAKE='make'
+if ! command -v "$MAKE" >/dev/null && command -v mingw32-make >/dev/null; then
 	MAKE=mingw32-make
 fi
-if ! command -v $MAKE >/dev/null; then
+if ! command -v "$MAKE" >/dev/null; then
 	echo "Error: This script requires Make" >&2
 	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
@@ -80,6 +80,11 @@ elif ! command -v gcc >/dev/null; then
 	echo "On Ubuntu and Debian run: 'sudo apt update' and 'sudo apt install -y build-essential'" >&2
 	exit 1
 fi
+
+# The three try_* helpers below are feature *probes*: a nonzero return means "this toolchain does not
+# support that", which is an answer, not an error. They are therefore always called from an 'if'/'&&'/'!'
+# condition, which suppresses 'set -e' inside them - exactly what we want, and what they are written for
+# (each does its own error handling, e.g. 'mktemp -d || return 1').
 
 # Returns success iff $CC (default gcc) accepts the given flag(s) for a full compile-and-link of a
 # trivial program - used below to auto-detect toolchain-version-dependent flag/feature support instead
@@ -568,7 +573,7 @@ EOF
 
 echo -e "Building $TARGET"
 printf "%'d CPU cores detected ... parallel-building using that number of make threads.\n" "$CPU_THREADS"
-if ! time $MAKE "${MAKE_ARGS[@]}" "$TARGET" >build.log 2>&1; then
+if ! time "$MAKE" "${MAKE_ARGS[@]}" "$TARGET" >build.log 2>&1; then
 	echo -e "\n*** There were build errors - see '${DIR}/build.log' for details. ***\n" >&2
 	grep -A 2 '[Ee]rror:' build.log || tail build.log
 	exit 1

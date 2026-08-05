@@ -336,8 +336,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - name: ShellCheck
-      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
-      continue-on-error: true
+      run: shellcheck --version; shopt -s globstar; shellcheck -o avoid-nullary-conditions,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
 
   macOS:
     name: Mlucas macOS
