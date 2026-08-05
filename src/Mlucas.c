@@ -3321,8 +3321,7 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	uint64 *ai = (uint64 *)a, *bi = (uint64 *)b;	// Handy 'precast' pointers
 	uint32 i,j,k, isprime, ierr = 0, ihi, fbits,lenf;
 	uint32 kblocks = n>>10, npad = n + ( (n >> DAT_BITS) << PAD_BITS );	// npad = length of padded data array
-	uint64 itmp64 = 0, Res35m1 = 0, Res36m1 = 0;	// Res64 from original PRP passed in via pointer; these are locally-def'd
-	// (init to 0 so the diagnostic prints below are well-defined even if the modulus type matches neither branch)
+	uint64 itmp64, Res35m1, Res36m1;	// Res64 from original PRP passed in via pointer; these are locally-def'd
 	cbuf[0] = '\0';
 	snprintf(cbuf,sizeof(cbuf),"Suyama-PRP on cofactors of %s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);//	strcat(cbuf,g_cstr);
 	// sprintf(g_cstr, " this gives an average %20.15f bits per digit\n",1.0*p/n);	strcat(cbuf,g_cstr);
