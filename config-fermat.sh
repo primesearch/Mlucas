@@ -80,5 +80,5 @@ for fft in "${!FFTS[@]}"; do
 	if [[ $f -le 17 || $f -ge 32 ]]; then
 		args+=(-shift 0)
 	fi
-	time $MLUCAS -f "$f" -fft "$fft" -iters "$ITERS" "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
+	time "$MLUCAS" -f "$f" -fft "$fft" -iters "$ITERS" "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
 done
