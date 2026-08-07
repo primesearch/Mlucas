@@ -8,7 +8,30 @@ on:
     - cron:  '0 0 1 * *'
 
 jobs:
+  # Path-based gating: compute which categories of files changed so downstream jobs can skip
+  # work that a given change cannot affect (e.g. a docs-only PR runs no builds). Gating applies to
+  # pull_request only; pushes to main and the monthly schedule always run the full matrix.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      shell: ${{ steps.filter.outputs.shell }}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v4
+      id: filter
+      with:
+        filters: |
+          code:
+            - 'src/**'
+            - 'makemake.sh'
+            - 'config-fermat.sh'
+            - '.github/workflows/**'
+          shell:
+            - '**/*.sh'
   Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
@@ -77,6 +100,8 @@ jobs:
         path: ${{ github.workspace }}
 
   Singlethread-Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Singlethreaded Linux
 
     runs-on: ${{ matrix.os }}
@@ -132,6 +157,8 @@ jobs:
         path: ${{ github.workspace }}
 
   Linux-old:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Linux old
 
     runs-on: ${{ matrix.os }}
@@ -215,6 +242,8 @@ jobs:
         done
 
   ASan-Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: AddressSanitizer Linux
 
     runs-on: ubuntu-latest
@@ -245,6 +274,8 @@ jobs:
       continue-on-error: true
 
   TSan-Linux:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: ThreadSanitizer Linux
 
     runs-on: ubuntu-latest
@@ -276,6 +307,8 @@ jobs:
       continue-on-error: true
 
   GCC-analyzer:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: GCC analyzer
 
     runs-on: ubuntu-latest
@@ -292,6 +325,8 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   Clang-Tidy:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Clang-Tidy
 
     runs-on: ubuntu-latest
@@ -311,6 +346,8 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   Cppcheck:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Cppcheck
 
     runs-on: ubuntu-22.04 # ubuntu-latest
@@ -330,6 +367,8 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   ShellCheck:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.shell == 'true' }}
     name: ShellCheck
 
     runs-on: ubuntu-latest
@@ -340,6 +379,8 @@ jobs:
       continue-on-error: true
 
   macOS:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas macOS
 
     runs-on: ${{ matrix.os }}
@@ -402,6 +443,8 @@ jobs:
         path: ${{ github.workspace }}
 
   Singlethread-macOS:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Mlucas Singlethreaded macOS
 
     runs-on: ${{ matrix.os }}
@@ -453,6 +496,8 @@ jobs:
         path: ${{ github.workspace }}
 
   ASan-macOS:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: AddressSanitizer macOS
 
     runs-on: macos-latest
@@ -501,6 +546,8 @@ jobs:
       continue-on-error: true
 
   Windows:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: Windows
 
     runs-on: ${{ matrix.os }}
@@ -580,6 +627,8 @@ jobs:
         path: ${{ github.workspace }}
 
   ASan-Windows:
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
     name: AddressSanitizer Windows
 
     runs-on: windows-latest
