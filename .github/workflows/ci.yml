@@ -214,6 +214,46 @@ jobs:
             done
         done
 
+  Linux-KNL:
+    name: Mlucas KNL
+
+    # Pinned, not 'latest': -march=knl and the ER/PF extensions were deprecated in GCC 14 and removed
+    # in GCC 15. The build degrades gracefully without them (see makemake.sh), but 24.04's GCC 13 is
+    # the last stock toolchain that can target Knights Landing properly, so test with it while it lasts.
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libgmp-dev
+    - name: Install Intel SDE
+      run: |
+        # Intel SDE 9.38 and later removed the -knl/-knm knobs, and Intel does not host archived
+        # releases, so pin an older kit. This is the mirror the xsimd project uses for its own CI.
+        wget -nv 'https://github.com/xtensor-stack/xsimd-testing-resources/releases/download/1.0.0/sde-external-8.69.1-2021-07-18-lin.tar.bz2'
+        tar -xf sde-external-8.69.1-2021-07-18-lin.tar.bz2
+    - name: Before script
+      run: |
+        gcc --version
+        ./sde-external-8.69.1-2021-07-18-lin/sde64 --version
+    - name: Build
+      run: |
+        set -o pipefail
+        bash -e -o pipefail -- makemake.sh avx512_knl
+    - name: Self-test under emulated Knights Landing
+      run: |
+        set -o pipefail
+        # -knl sets both CPUID and SDE's chip check, so any instruction outside the KNL ISA aborts
+        # the run rather than silently working on the AVX-512 host. That is the point of this job:
+        # an 'avx512' (Skylake-SP) build dies here on kmovd, which is exactly the regression to catch.
+        cd obj_avx512_knl
+        ../sde-external-8.69.1-2021-07-18-lin/sde64 -knl -- ./Mlucas -s tt 2>&1 | tee knl.log
+        st=${PIPESTATUS[0]}
+        echo "Self-test exit status: $st"
+        # 0 = ok, 2 = too few usable radix sets at some length (informational). Anything else fails.
+        if (( st != 0 && st != 2 )); then exit "$st"; fi
+
   ASan-Linux:
     name: AddressSanitizer Linux
 

@@ -255,9 +255,22 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_AVX512 -march=skylake-avx512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
 		avx512_knl)
-			echo "Building for avx512_knl SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			echo "Warning: The 'avx512_knl' option is deprecated, use 'avx512' instead."
-			ARGS+=(-DUSE_AVX512 -march=knl -mavx512f -mavx512cd -mavx512er -mfma)
+			echo "Building for AVX-512 on Knights Landing / Knights Mill in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			# NOT interchangeable with the 'avx512' mode: KNL/KNM implement only AVX512F + CD (+ ER/PF),
+			# with no DQ, BW or VL. An 'avx512' build targets Skylake-SP and will SIGILL on a Xeon Phi -
+			# the first thing it hits is 'kmovd' (BW; KNL has only the 16-bit 'kmovw'), and any
+			# EVEX-encoded 256-bit op would need VL. So keep this mode, and keep it free of dq/bw/vl.
+			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mfma)
+			# -march=knl and the ER/PF extensions were deprecated in GCC 14, removed in GCC 15, and are
+			# gone from recent Clang too. The build does not need them - it compiles and links with
+			# just f/cd/fma - so probe for each and carry on without whichever the toolchain has
+			# dropped, rather than failing outright on a modern compiler:
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+			try_flag -march=knl && ARGS+=(-march=knl)
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+			try_flag -mavx512er && ARGS+=(-mavx512er)
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+			try_flag -mavx512pf && ARGS+=(-mavx512pf)
 			;;
 		avx512)
 			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
