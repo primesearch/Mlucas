@@ -188,6 +188,17 @@ char	*quote_spaces(char *dest, char *src); /* Double-quote spaces in string  */
 int		mkdir_p(char *path); /* Emulate `mkdir -p path'  */
 char	*shell_quote(char *dest, char *src); /* Escape shell meta characters  */
 FILE	*mlucas_fopen(const char *path, const char *mode); /* fopen() wrapper  */
+/* v21: Crash-safe savefile replacement. mlucas_fopen_atomic() stages the new contents in a sibling
+scratch file; mlucas_fclose_atomic() syncs it and renames it over the target, which is thus replaced
+atomically rather than truncated in place. Both take the same MLUCAS_PATH-relative [path]; the close
+returns 0 on success and nonzero (target left holding the previous good checkpoint) on failure: */
+FILE	*mlucas_fopen_atomic(const char *path, const char *mode);
+int		mlucas_fclose_atomic(const char *path, FILE *fp);
+/* Abandon a staged write: close and delete the scratch file, leaving the target untouched: */
+void	mlucas_discard_atomic(const char *path, FILE *fp);
+/* MLUCAS_PATH-aware, replace-existing-destination rename; 0 = success: */
+int		mlucas_rename(const char *oldpath, const char *newpath);
+int		mlucas_remove(const char *path);
 // v20: Add simple utility to print the input string to the current-assignment logfile and/or to stderr:
 void	mlucas_fprint(char*const p_cstr, uint32 echo_to_stderr);
 double	mlucas_getOptVal(const char*fname, char*optname);

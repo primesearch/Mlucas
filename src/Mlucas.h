@@ -91,6 +91,9 @@ uint32	Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
 	int n, int scrnFlag, double *tdiff, char *const gcd_str);
 int		test_types_compatible(uint32 t1, uint32 t2);
+int		write_savefile_field(FILE *fp, const uint64 val, const uint32 nbyte);
+void	close_savefile(const char *fname, FILE *fp);
+int		savefile_ends_at(const char *func, const char *fname, FILE *fp, uint32 nread, uint64 expect_len, int need_gcheck);
 int		 read_ppm1_residue(const uint32 nbytes, FILE *fp,       uint8 arr_tmp[],       uint64 *Res64,       uint64 *Res35m1,       uint64 *Res36m1);
 void	write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
 int		 read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, uint64 *ilo, uint8 arr1[], uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1, uint8 arr2[], uint64 *i1, uint64 *i2, uint64 *i3);
