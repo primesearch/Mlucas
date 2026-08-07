@@ -2633,45 +2633,68 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 						if((i = fgetc(fp)) != MODULUS_TYPE) {
 							snprintf(cbuf,sizeof(cbuf), "ERROR: %s: MODULUS_TYPE != fgetc(fp)\n",g_cstr); ASSERT(0,cbuf);
 						}
-						itmp64 = 0ull; 	for(j = 0; j < 8; j++) { i = fgetc(fp);	itmp64 += (uint64)i << (8*j); }
+						// Must check for EOF on *every* one of the 8 nsquares bytes, not just the last one: the stage 2
+						// checkpoint-write opens this file in "wb" mode, i.e. truncates it, so a kill/crash/power-loss
+						// during such a write leaves a < 10-byte .s2 behind. Folding the resulting EOF (= -1) returns
+						// into itmp64 as 0xFF bytes would yield a garbage stage 2 q of checkpoint; treat any short read
+						// as "no usable checkpoint data" instead, and leave psmall and the S2 bounds at their defaults,
+						// which makes the ensuing pm1_stage2() call redo stage 2 from B2_start:
+						int ibyte;	// Needs to be a signed int to allow an unambiguous compare vs EOF
+						itmp64 = 0ull;
+						for(j = 0; j < 8; j++) {
+							if((ibyte = fgetc(fp)) == EOF) break;
+							itmp64 += (uint64)ibyte << (8*j);
+						}
 						fclose(fp); fp = 0x0;
-						if(i != EOF)	// Needed to handle case where .s2 file was touched but ended up empty or < 10 bytes long
-							psmall = i;
-						itmp64 &= 0x00FFFFFFFFFFFFFFull;	// Mask off psmall to get stage 2 q of checkpoint data
-						fprintf(stderr,"Read iter = %" PRIu64 " and relocation-prime psmall = %u from savefile %s.\n",itmp64,psmall,g_cstr);
-						// Now parse logfile to get proper B2 and validate corresponding B2_start vs B2/[psmall from .s2 file].
-						// Logfiles can be messy and include one or more aborted-restarts; we want the last B2_start-containing
-						// entry followed by a savefile-write entry, as inferred from presence of a "% complete" substring:
-						j = filegrep(STATFILE,"% complete",cbuf,-1);	// Trailing -1 means return last such match, if any, in cbuf
-						filegrep(STATFILE,"B2_start = ",cbuf,j);	// Trailing j-arg means return last such match before line j, if any, in cbuf
-						// If match "B2_start =", read bigstep D from match-line and infer relocation-prime psmall from D:
-						if(strlen(cbuf)) {
-							char_addr = strstr(cbuf,"B2_start = ");
-							B2_start = (uint64)strtoull(char_addr+11, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
-							char_addr = strstr(cbuf,"B2 = ");
-							B2 = (uint64)strtoull(char_addr+5, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
-							char_addr = strstr(cbuf,"Bigstep = ");
-							if(char_addr) {
-								i = strtoul(char_addr+10, &endp, 10);
-								if((i%210) == 0)
-									i = 11;
-								else if((i%330) == 0)
-									i = 7;
-								else {
-									fprintf(stderr,"WARNING: Bigstep value %u read from logfile %s unsupported ... ignoring.\n",i,g_cstr);
-									i = 0;
+						if(j < 8) {
+							snprintf(cbuf,sizeof(cbuf),"WARNING: stage 2 savefile %s is truncated [< 10 bytes] ... ignoring its checkpoint data; stage 2 will restart from B2_start.\n",g_cstr);
+							mlucas_fprint(cbuf,1);
+						} else {
+							psmall = (uint32)(itmp64 >> 56);	// Relocation-prime psmall is stored in the high byte of the nsquares field
+							itmp64 &= 0x00FFFFFFFFFFFFFFull;	// Mask off psmall to get stage 2 q of checkpoint data
+							fprintf(stderr,"Read iter = %" PRIu64 " and relocation-prime psmall = %u from savefile %s.\n",itmp64,psmall,g_cstr);
+							// Now parse logfile to get proper B2 and validate corresponding B2_start vs B2/[psmall from .s2 file].
+							// Logfiles can be messy and include one or more aborted-restarts; we want the last B2_start-containing
+							// entry followed by a savefile-write entry, as inferred from presence of a "% complete" substring:
+							j = filegrep(STATFILE,"% complete",cbuf,-1);	// Trailing -1 means return last such match, if any, in cbuf
+							filegrep(STATFILE,"B2_start = ",cbuf,j);	// Trailing j-arg means return last such match before line j, if any, in cbuf
+							// If match "B2_start =", read bigstep D from match-line and infer relocation-prime psmall from D:
+							if(strlen(cbuf)) {
+								char_addr = strstr(cbuf,"B2_start = ");
+								B2_start = (uint64)strtoull(char_addr+11, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
+								char_addr = strstr(cbuf,"B2 = ");
+								B2 = (uint64)strtoull(char_addr+5, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
+								// Relocation-prime as inferred from the logfile's bigstep D. Init = the .s2 file's own psmall,
+								// so that a logfile line lacking a "Bigstep = " field means "nothing to cross-check against"
+								// rather than "psmall = 0"; a *malformed* bigstep does set this to 0, so that the mismatch
+								// is caught by the ensuing ASSERT:
+								uint32 psmall_log = psmall;
+								char_addr = strstr(cbuf,"Bigstep = ");
+								if(char_addr) {
+									i = strtoul(char_addr+10, &endp, 10);
+									if((i%210) == 0)
+										psmall_log = 11;
+									else if((i%330) == 0)
+										psmall_log = 7;
+									else {
+										fprintf(stderr,"WARNING: Bigstep value %u read from logfile %s unsupported ... ignoring.\n",i,g_cstr);
+										psmall_log = 0;
+									}
 								}
+								// Now compare the params from the restartfile vs those captured in the log:
+								if(psmall)
+									ASSERT(psmall == psmall_log && (B2_start == (uint64)psmall * B1 || B2_start == B2 / psmall), "Stage 2 params mismatch those captured in the .stat logfile!");
+								else
+									psmall = psmall_log;
+								// Note we do *not* shortcut to the stage 2 GCD if the checkpoint's q >= B2: only pm1_stage2()
+								// reads the stage 2 residue from the .s2 savefile, so jumping straight to the GCD from here
+								// would hand it the stage 1 residue, and gcd(3^E1 (mod N),N) == 1 always, i.e. any factor
+								// found by the completed stage 2 would be reported as "no factor" and the .s2 savefile
+								// holding it then deleted. pm1_stage2() handles the (savefile q >= B2) case itself, taking
+								// the same early-return-to-GCD path but with the stage 2 residue properly read in first.
+								// Must reset B2_start = B1, since stage 2 code expects that to properly (re)init relocation-params:
+								B2_start = B1;
 							}
-							// Now compare the params from the restartfile vs those captured in the log:
-							if(psmall)
-								ASSERT(psmall == i && (B2_start == psmall * B1 || B2_start == B2 / psmall), "Stage 2 params mismatch those captured in the .stat logfile!");
-							else
-								psmall = i;
-							// If stage 2 q of checkpoint >= B2, proceed directly to GCD:
-							if(itmp64 >= B2)
-								goto PM1_STAGE2_GCD;
-							// Lastly, must reset B2_start = B1, since stage 2 code expects that to properly (re)init relocation-params:
-							B2_start = B1;
 						}
 					}	// endif( S2 restart file exists? )
 				}
@@ -2708,7 +2731,6 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// If gcd_str non-empty on return, it means one of the intermediate S2 GCDs turned up a factor,
 				// prompting an early-return, In this case the S2 code will have reset B2 to reflect the actual interval run.
 				// Otherwise do end-of-scheduled-S2 GCD - S2 residue returned in arrtmp, no need to call convert_res_FP_bytewise():
-			PM1_STAGE2_GCD:
 				if(strlen(gcd_str)) {
 					s2_partial = TRUE;	// Clue the JSON-generating function to partial-s2-ness
 				} else {
