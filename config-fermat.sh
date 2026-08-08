@@ -79,5 +79,16 @@ for fft in "${!FFTS[@]}"; do
 	if [[ $f -le 17 || $f -ge 32 ]]; then
 		args+=(-shift 0)
 	fi
-	time $MLUCAS -f "$f" -fft "$fft" -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
+	# Mlucas now reports self-test outcomes through its exit status (see help.txt): 2 means this
+	# FFT length had too few usable radix sets, which for a cfg sweep is information rather than
+	# a failure - the length simply gets no entry. Only a wrong answer (1) should stop the sweep.
+	# Capture it explicitly: callers run this script with 'bash -e -o pipefail' (see ci.yml), where
+	# an un-caught 2 propagating out of the pipe would abort the whole run. The '|| st=...' also
+	# absorbs a no-match from the grep below, which would otherwise fail the pipeline the same way.
+	st=0
+	time $MLUCAS -f "$f" -fft "$fft" -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices' || st=${PIPESTATUS[0]}
+	if (( st != 0 && st != 2 )); then
+		echo "$MLUCAS exited $st on F$f at FFT length ${fft}K - stopping." >&2
+		exit $st
+	fi
 done
