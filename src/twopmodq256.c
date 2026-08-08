@@ -100,6 +100,23 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	if(dbg) printf("twopmmodq256: computing 2^%s (mod %s)\n",&char_buf[convert_uint256_base10_char(char_buf,p)],&g_cstr[convert_uint256_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST256(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
+	/* If p > 256 we need the Montgomery-mul powering loop, which needs an odd modulus, so strip
+	any power of 2 from q *here*, ahead of the (p <= 256) early-out below: the strip lowers p by
+	nshift and can drop it into the early-out range. Doing the early-out first instead leaves
+	p in (256, 256+nshift) falling through to (pshift = p - 256), which wraps. The (p > 256)
+	guard keeps p >= nshift, so the identity 2^p mod q = 2^nshift * (2^(p-nshift) mod q') holds. */
+	nshift = 0;
+	if(!(p.d3 == 0 && p.d2 == 0 && p.d1 == 0 && p.d0 <= 256)) {
+		nshift = trailz256(q);
+		if(nshift) {
+			x.d0 = (uint64)nshift; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,p);	// p >= nshift guaranteed here:
+			RSHIFT256(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+			RSHIFT_FAST256(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
+		#if FAC_DEBUG
+			if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint256_base10_char(char_buf,q)]);
+		#endif
+		}
+	}
 	// If p <= 256, directly compute 2^p (mod q):
 	if(p.d3 == 0 && p.d2 == 0 && p.d1 == 0 && p.d0 <= 256) {
 		// Lshift (1 << j) to align with leading bit of q, then do (p - j) repeated mod-doublings:
@@ -110,26 +127,32 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 			LSHIFT256(x,(uint32)p.d0,x);
 		} else {
 			LSHIFT256(x,j,x);
+			// 2^j <= q < 2^(j+1), so the aligned seed is < q *except* when q is an exact power
+			// of 2, where 2^j == q and the seed needs reducing to 0 - the doublings below never
+			// reduce it otherwise, and the routine would return q (or 2^nshift) in place of 0:
+			if(CMPEQ256(x, q)) { x.d0 = x.d1 = x.d2 = x.d3 = 0ull; }
 		}
 		for( ; j < p.d0; j++) {
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT256(x, qhalf)){ ADD256(x, x, x); SUB256(x, q, x); }else{ ADD256(x, x, x); }
 		}
+		// Restore any power of 2 stripped from the modulus above:
+		if(nshift) {
+			LSHIFT256(x,nshift,x);
+		}
 		return x;
 	}
-	// If get here, p > 256: set up for Montgomery-mul-based powering loop:
-	nshift = trailz256(q);
-	if(nshift) {
-		x.d0 = (uint64)nshift; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,p);	// p >= nshift guaranteed here:
-		RSHIFT256(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
-	#if FAC_DEBUG
-		if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint256_base10_char(char_buf,q)]);
-	#endif
-	}
+	// If get here, p > 256 and q is odd: set up for Montgomery-mul-based powering loop.
 	// Extract leftmost 8 bits of (p - 256):
 	x.d0 = 256ull; x.d1 = x.d2 = x.d3 = 0ull; SUB256(p,x,pshift); j = leadz256(pshift);
-	LSHIFT256(pshift,j,x);	leadb = x.d3 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
-	start_index = 256-8-j;
+	if(j > 248) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
+					// left-pad pshift with zeros (leadb != pshift) and underflow the unsigned start_index,
+					// leaving 0 loop passes and returning the seed. Use all of pshift as the lead chunk:
+		leadb = (uint32)pshift.d0;	start_index = 0;
+	} else {
+		LSHIFT256(pshift,j,x);	leadb = x.d3 >> 56;	// leadb = (pshift<<j) >> 57; no (pshift = ~pshift) step in positive-power algorithm!
+		start_index = 256-8-j;
+	}
 #if FAC_DEBUG
 	if(dbg) {
 		printf("leadb = %u\n",j);
@@ -166,7 +189,9 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	if(leadb == 256)
 		x = rsqr;
 	else {
-		x.d0 = 1ull; LSHIFT256(x,leadb,x);	// x <<= leadb;
+		// x holds (2 - q*qinv) scratch from the Newton iteration above, whose high words are
+		// nonzero; must zero them before seeding with 2^leadb, else leadb < 192 shifts in garbage:
+		x.d0 = 1ull; x.d1 = x.d2 = x.d3 = 0ull;	LSHIFT256(x,leadb,x);	// x <<= leadb;
 		MONT_MUL256(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
  	}
 
