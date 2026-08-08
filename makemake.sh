@@ -271,7 +271,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			# radix16_dif_dit_pass_asm.h (the "e" constraint on pfetch_dist needs the optimiser), and
 			# threadpool.c losing CPU_ZERO/sched_setaffinity (that one is the missing -D_GNU_SOURCE).
 			# Re-export CFLAGS/CPPFLAGS *after* sourcing the SDK script.
-			echo "Building for 1st-gen Xeon Phi 512-bit SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			echo "Building for 1st-gen Xeon Phi 512-bit IMCI512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			ARGS+=(-DUSE_IMCI512)
 			;;
 		avx2)
@@ -310,132 +310,69 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 
 	DIR+="_$arg"
 
-elif [[ $OSTYPE == darwin* ]]; then
-
-	# MacOS: sysctl -n prints nothing (and exits nonzero) for an absent key - e.g. all the
-	# hw.optional.avx* keys on Apple Silicon - so capture each with a 0 default. This also lets the
-	# combined AVX-512||AVX2 test below use plain arithmetic without an empty operand tripping
-	# '((: || : syntax error' (as `(( || $(...) ))` would when the first sysctl yields nothing):
-	avx512f=$(sysctl -n hw.optional.avx512f 2>/dev/null || echo 0)
-	avx2_0=$( sysctl -n hw.optional.avx2_0  2>/dev/null || echo 0)
-	avx1_0=$( sysctl -n hw.optional.avx1_0  2>/dev/null || echo 0)
-	sse2=$(   sysctl -n hw.optional.sse2    2>/dev/null || echo 0)
-	neon=$(   sysctl -n hw.optional.neon    2>/dev/null || echo 0)
-	if ((avx512f)) && try_avx512_asm; then
-		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif ((avx512f || avx2_0)); then
-		if ((avx512f)); then
-			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
-		fi
-		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
-	elif ((avx1_0)); then
-		echo -e "The CPU supports the AVX SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX -march=native -mavx)
-	elif ((sse2)); then
-		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
-		# On my Core2Duo Mac, 'native' gives "error: bad value for -march= switch":
-		ARGS+=(-DUSE_SSE2 -march=core2 -msse2)
-	elif ((neon)); then
-		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD)
-		if try_flag -mcpu=native; then
-			ARGS+=(-mcpu=native)
-		elif try_flag -march=native; then
-			ARGS+=(-march=native)
-		fi
-		# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
-		# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
-	else
-		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
-		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
-		ARGS+=(-march=native)
-	fi
-
-elif [[ $OSTYPE == linux* ]]; then
-
-	# Linux:
-	if grep -iq 'avx512' /proc/cpuinfo && try_avx512_asm; then
-		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX512 -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
-	elif grep -iq 'avx512\|avx2' /proc/cpuinfo; then
-		if grep -iq 'avx512' /proc/cpuinfo; then
-			echo "Warning: CPU supports AVX-512 but ${CC:-gcc}'s assembler rejects the extended register names needed ... falling back to AVX2." >&2
-		fi
-		echo -e "The CPU supports the AVX2 SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
-	elif grep -iq 'avx' /proc/cpuinfo; then
-		echo -e "The CPU supports the AVX SIMD build mode.\n"
-		ARGS+=(-DUSE_AVX -march=native -mavx)
-	elif grep -iq 'sse2' /proc/cpuinfo; then
-		echo -e "The CPU supports the SSE2 SIMD build mode.\n"
-		ARGS+=(-DUSE_SSE2 -march=native -msse2)
-	elif grep -iq 'asimd' /proc/cpuinfo && [[ $HOSTTYPE == aarch64 ]]; then
-		echo -e "The CPU supports the ASIMD build mode.\n"
-		ARGS+=(-DUSE_ARM_V8_SIMD)
-		if try_flag -mcpu=native; then
-			ARGS+=(-mcpu=native)
-		elif try_flag -march=native; then
-			ARGS+=(-march=native)
-		fi
-		# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
-		# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
-	else
-		echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
-		echo "Warning: If this is a 64-bit x86 or ARM system, this likely means there is a bug in this script. Please report!"
-		ARGS+=(-march=native)
-	fi
-
 else
 
-	# Fallback path for hosts without /proc/cpuinfo or sysctl (notably Windows/MSYS2/Cygwin): compile a tiny
-	# probe that just reports the CPU's highest SIMD level as a keyword, then map that to build flags in the
-	# shell below - reusing the same try_avx512_asm / try_flag probes as the Linux and Darwin branches so the
-	# AVX-512 extended-register-name check and the -mcpu/-march fallback apply here too (see #60, #67).
-	# Adapted from: https://stackoverflow.com/a/28939692
 	tmpdir=$(mktemp -d)
 	trap 'rm -rf "$tmpdir"' EXIT
 	cat <<'EOF' >"$tmpdir/simd.c"
 #include <stdio.h>
-int main()
+
+#if !defined(__k1om__) && (defined(__i386__) || defined(__x86_64__))
+	#define USE_AVX
+#endif
+#include "get_cpuid.c"
+
+int main(void)
 {
-// defined(__amd64) || defined(__amd64__) || defined(_M_AMD64) || defined(_M_EMT64) || defined(__x86_64) || defined(__x86_64__)
-#ifdef __x86_64__
-	#ifdef __AVX512F__
-		puts("avx512");
-	#elif defined __AVX2__
+#if defined(CPU_IS_K1OM)
+	// if (has_imci512())
+    puts("k1om");
+#elif defined(CPU_IS_X86) || defined(CPU_IS_X86_64)
+	get_cpu();
+	if (has_avx512())
+	{
+		uint32 a, b, c, d;
+		CPUID(7, 0, a, b, c, d);
+		const uint32 has_avx512f = b & 0x10000u,
+			has_avx512dq = b & 0x20000u,
+			has_avx512er = b & 0x8000000u,
+			has_avx512cd = b & 0x10000000u,
+			has_avx512bw = b & 0x40000000u,
+			has_avx512vl = b & 0x80000000u;
+		if (has_avx512f && has_avx512dq && has_avx512cd && has_avx512bw && has_avx512vl)
+		{
+			puts("avx512");
+			return 0;
+		}
+		if (has_avx512f && has_avx512er && has_avx512cd)
+		{
+			puts("avx512_knl");
+			return 0;
+		}
+	}
+	if (has_avx2())
 		puts("avx2");
-	#elif defined __AVX__
+	else if (has_avx())
 		puts("avx");
-	#elif defined __SSE2__
+	else if (has_sse2())
 		puts("sse2");
-	#else
-		puts("none_x86");
-	#endif
-#elif defined(__aarch64__)
-	#ifdef __ARM_NEON
+	else
+		puts("nosimd");
+#elif defined(CPU_IS_ARM_EABI)
+	// if (has_asimd())
+	#if defined(__aarch64__) && defined(__ARM_NEON)
 		puts("asimd");
 	#else
-		puts("none_arm");
+		puts("nosimd");
 	#endif
 #else
-	puts("none");
+	puts("nosimd");
 #endif
 	return 0;
 }
 EOF
 
-	args=()
-	case $HOSTTYPE in
-		aarch64 | arm*)
-			args+=(-mcpu=native)
-			;;
-		x86_64 | *)
-			args+=(-march=native)
-			;;
-	esac
-	"${CC:-gcc}" -Wall -g -O3 "${args[@]}" -o "$tmpdir/simd" "$tmpdir/simd.c"
+	"${CC:-gcc}" -std=gnu99 -Wall -g -O3  -Isrc -o "$tmpdir/simd" "$tmpdir/simd.c"
 	if ! output=$("$tmpdir/simd"); then
 		echo "Error: Unable to detect the SIMD build mode" >&2
 		exit 1
@@ -451,6 +388,14 @@ EOF
 				echo -e "The CPU supports the AVX2 SIMD build mode.\n"
 				ARGS+=(-DUSE_AVX2 -march=native -mavx2 -mfma)
 			fi
+			;;
+		avx512_knl)
+			echo -e "The CPU supports the AVX512 KNL SIMD build mode.\n"
+			ARGS+=(-DUSE_AVX512 -march=knl -mavx512f -mavx512cd -mavx512er -mfma)
+			;;
+		k1om)
+			echo -e "The CPU supports the IMCI512 SIMD build mode.\n"
+			ARGS+=(-DUSE_IMCI512 -march=native)
 			;;
 		avx2)
 			echo -e "The CPU supports the AVX2 SIMD build mode.\n"
@@ -475,21 +420,7 @@ EOF
 			# else: no arch flag - aarch64 has NEON/ASIMD in its baseline ISA, and ancient clang (e.g. 3.8) supports
 			# neither -mcpu=native nor -march=native, so building without either still yields a working ASIMD binary
 			;;
-		none_arm)
-			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
-			echo "Warning: This likely means there is a bug in this script. Please report!" >&2
-			if try_flag -mcpu=native; then
-				ARGS+=(-mcpu=native)
-			elif try_flag -march=native; then
-				ARGS+=(-march=native)
-			fi
-			;;
-		none_x86)
-			echo -e "The CPU supports no Mlucas-recognized SIMD build mode ... building in scalar-double mode.\n"
-			echo "Warning: This is a 64-bit x86 system without even SSE2, which likely means there is a bug in this script. Please report!" >&2
-			ARGS+=(-march=native)
-			;;
-		none)
+		nosimd)
 			echo -e "The CPU architecture is not recognized by this script ... building in scalar-double mode.\n"
 			try_flag -march=native && ARGS+=(-march=native)
 			;;
