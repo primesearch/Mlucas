@@ -1661,7 +1661,7 @@ READ_RESTART_FILE:
 			// seed straight into a[0] - and if a nonzero shift was requested (explicitly via -shift, or
 			// implicitly via the Fermat-mod random default), emit an informational note rather than aborting:
 			if(parse_cmd_args_get_shift_value() != 0ull) {	// != 0 catches both an explicit nonzero -shift and -1 = "-shift unspecified" (=> would-be random)
-				snprintf(cbuf,STR_MAX_LEN*2, "INFO: Leading FFT radix %u is < 16, which does not support shifted residues; setting residue shift = 0.\n", RADIX_VEC[0]);
+				snprintf(cbuf,sizeof(cbuf), "INFO: Leading FFT radix %u is < 16, which does not support shifted residues; setting residue shift = 0.\n", RADIX_VEC[0]);
 				mlucas_fprint(cbuf,-INTERACT);
 			}
 			RES_SHIFT = 0ull; a[0] = iseed;
