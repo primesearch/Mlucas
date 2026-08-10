@@ -1005,7 +1005,7 @@ Others are optional and in some cases mutually exclusive:
 		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
 		// the warmup reads stay valid. Undersized here => OOB read of uninitialized heap, which trips the
 		// 'Ks must be < 2^52' assertion in q32/q64 on hosts whose heap past the alloc isn't zeroed.
-		k_to_try = (uint64 *)calloc(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
+		k_to_try = (uint64 *)CALLOC(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
 	#else
 		MAX_THREADS = get_num_cores();
 		ASSERT(MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
@@ -1031,7 +1031,7 @@ Others are optional and in some cases mutually exclusive:
 		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
 		// the warmup reads stay valid. Undersized here => OOB read of uninitialized heap, which trips the
 		// 'Ks must be < 2^52' assertion in q32/q64 on hosts whose heap past the alloc isn't zeroed.
-		k_to_try = (uint64 *)calloc(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
+		k_to_try = (uint64 *)CALLOC(MAX(TRYQ * NTHREADS, 64), sizeof(uint64));
 
 		// Up to TF_PASSES work units (perhaps fewer if a restart) get done by a pool of NTHREADS threads.  Yypically have
 		// NTHREADS <= TF_PASSES, i.e. pool threads get reassigned a fresh work unit as they complete their current one.
