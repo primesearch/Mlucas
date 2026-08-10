@@ -4154,19 +4154,32 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				ASSERT(i64arg < 20, "radset-index argument must be < 2^32 ... halting.");
 				radset = (uint32)i64arg;
 			} else {	// It's a set of complex-FFT radices
+				// One pass over the comma-separated list, bounding the count as we go: stFlag is
+				// STR_MAX_LEN bytes, so a user-supplied -radset arg can hold hundreds of tokens while
+				// rvec[]/rvec2[] hold ten, and the radix-product and FFT-length checks further down
+				// only run once every store has been made - far too late to prevent the overflow.
+				// The last token has no trailing comma, so the loop handles it and then exits.
+				// Derive the capacity from the array itself so the bound cannot drift from it:
+				const uint32 max_rad = sizeof(rvec)/sizeof(rvec[0]);
 				numrad = 0;
-				while(0x0 != (cptr = strchr(char_addr,','))) {
-					// Copy substring into cbuf and null-terminate:
-					strncpy(cbuf,char_addr,(cptr-char_addr));	cbuf[cptr-char_addr] = '\0';
+				for(;;) {
+					cptr = strchr(char_addr,',');
+					if(cptr) {	// Copy substring into cbuf and null-terminate:
+						strncpy(cbuf,char_addr,(cptr-char_addr));	cbuf[cptr-char_addr] = '\0';
+					} else {	// A properly formatted radix-set arg ends with ',[numeric]':
+						strcpy(cbuf,char_addr);
+					}
 					// Convert current radix to long and sanity-check:
 					i64arg = atoll(cbuf);	ASSERT(!(i64arg>>12), "user-supplied radices must be < 2^12 ... halting.");
+					if(numrad >= max_rad) {
+						sprintf(cbuf  , "ERROR: -radset argument specifies more than the %u complex-FFT radices supported.\n",max_rad);
+						fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+					}
 					rvec[numrad++] = (uint32)i64arg;
+					if(!cptr) break;
 					char_addr = cptr+1;
 				}
-				// A properly formatted radix-set arg will end with ',[numeric]', with the numeric in char_addr:
-				i64arg = atoll(char_addr);	ASSERT(!(i64arg>>12), "user-supplied radices must be < 2^12 ... halting.");
-				rvec[numrad++] = (uint32)i64arg;
-				rvec[numrad] = 0;	// Null-terminate the vector just for aesthetics
+				if(numrad < max_rad) { rvec[numrad] = 0; }	// Null-terminate the vector just for aesthetics, if there is room for a terminator
 				// Compute the radix product and make sure it's < 2^30, constraint due to the (fftlen < 2^31) one:
 				rad_prod = 1; i64arg = 1ull;
 				for(i = 0; i < numrad; i++) {
@@ -4184,7 +4197,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				// in which case j holds #radices and rvec2[] holds the corresponding radices on return.
 				// Note that get_fft_radices takes real-FFT length in terms of Kdoubles:
 				i = 0;
-				while(!get_fft_radices(fftlen, i++, (uint32 *)&j, rvec2, 10)) {	// 0-return means radset index is in range
+				while(!get_fft_radices(fftlen, i++, (uint32 *)&j, rvec2, (int)max_rad)) {	// 0-return means radset index is in range
 					if(j != numrad) continue;
 					// #radices matches, see if actual complex radices do
 					for(j = 0; j < numrad; j++) {
