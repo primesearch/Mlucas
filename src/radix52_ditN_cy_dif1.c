@@ -347,7 +347,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	}
 
   #ifdef USE_IMCI512
-	WARN(HERE, "radix52_ditN_cy_dif1: No k10m/IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+	WARN(HERE, "radix52_ditN_cy_dif1: No k1om/IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
   #endif
 
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)

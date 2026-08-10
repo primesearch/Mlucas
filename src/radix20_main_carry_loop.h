@@ -41,7 +41,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/*
 		!...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do a radix-20 DIT transform...
 		*/
-	// For x86 SIMD (specifically, sse2 and avx+) have radix-20 DFT macro, so only use the small-macro approach on ARMv8 and k10m:
+	// For x86 SIMD (specifically, sse2 and avx+) have radix-20 DFT macro, so only use the small-macro approach on ARMv8 and k1om:
 	#if defined(USE_ARM_V8_SIMD) || defined(USE_IMCI512)
 
 	  #ifdef USE_ARM_V8_SIMD
