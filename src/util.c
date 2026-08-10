@@ -9366,28 +9366,48 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
-	char *mlucas_path;
-	char *cmdstr;
-	char *expanded_str;
-	int  tmp;
-	FILE *pipe_ptr;
-	size_t bufsize;
+	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
+	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
-
-	mlucas_path = getenv("MLUCAS_PATH");
+	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
-		bufsize = strlen(mlucas_path) + 1;
-		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
 			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
 		strcpy(MLUCAS_PATH, mlucas_path);
-	} else {
-		bufsize = strlen(MLUCAS_PATH) + 1;
 	}
-	bufsize = (bufsize - 1) * 3 + 1;
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
+	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
+	   backslash, since both are directory separators on Windows).  */
+	size_t len = strlen(MLUCAS_PATH);
+	if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+		goto out_err_check;
+	if (len > STR_MAX_LEN) {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+	if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+#else
+	/* POSIX: run MLUCAS_PATH through the shell (via popen "printf") so $HOME-style
+	   variables get expanded, then enforce the length/trailing-slash invariants: */
+	char *cmdstr;
+	char *expanded_str;
+	int  tmp;
+	FILE *pipe_ptr;
+	size_t bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
 	mlucas_path = (char*)malloc(bufsize);
 	if (mlucas_path == NULL) {
 		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
@@ -9447,6 +9467,7 @@ void set_mlucas_path(void)
 	free(cmdstr);
 	out_mlucas_path:
 	free(mlucas_path);
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
@@ -9477,6 +9498,17 @@ char *quote_spaces(char *dest, char *src)
 	return dest;
 }
 
+/* MinGW's mkdir() takes no mode argument, and MSVC spells it _mkdir(); both live in <direct.h>: */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <direct.h>
+	#define MKDIR_P_ONE(p)	_mkdir(p)
+#else
+	#include <sys/types.h>
+	#include <sys/stat.h>
+	#define MKDIR_P_ONE(p)	mkdir((p), 0777)
+#endif
+#define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
+
 /* Emulate `mkdir -p path'
    The command either makes directory `path' and all its parent directories
    or does absolutely nothing
@@ -9485,61 +9517,46 @@ char *quote_spaces(char *dest, char *src)
    Return 1 if the directory does not exist or is not writable  */
 int mkdir_p(char *path)
 {
-	char mlucas_path[STR_MAX_LEN + 1];
-	char cmdstr[4 * STR_MAX_LEN + 1];
-	char tmp[4 * STR_MAX_LEN + 1] = "";
-	char *tok;
+	char tmp[STR_MAX_LEN + 1];
+	char *p;
+	size_t len;
 	FILE *fp;
-	int err;
 
-	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
-	if (mlucas_path[0] == '\0')
+	snprintf(tmp, sizeof(tmp), "%s", path);
+	len = strlen(tmp);
+	if (len == 0)
 		return 1;
-	else if (mlucas_path[0] == '/')
-		strcpy(tmp, "/");
 
-	for (tok = strtok(mlucas_path, "/");
-	     tok != NULL;
-	     tok = strtok(NULL, "/")) {
-		shell_quote(cmdstr, tok);
-		strcat(tmp, cmdstr);
+	/* Create each parent component in turn, then the leaf. This used to shell out - 'mkdir ...
+	2> /dev/null' per component via system(), a 'printf' popen() to undo the shell-quoting, and
+	'rm -f' to clear the probe file - none of which exist under cmd.exe, so the whole function
+	was unusable on Windows for the same reason as issue #50. Going through the C library
+	instead is both portable and cheaper, and removes the shell-quoting round-trip entirely.
+	mkdir() failing because a component already exists is the common case on every startup
+	after the first, so per-component errors are ignored here; the writability probe below is
+	what actually determines the return value.  */
+	for (p = tmp + 1; *p != '\0'; ++p) {
+		if (*p == '/' || *p == '\\') {
+			char sep = *p;	*p = '\0';
+			(void)MKDIR_P_ONE(tmp);
+			*p = sep;
+		}
+	}
+	(void)MKDIR_P_ONE(tmp);
+
+	/* Confirm the directory exists and is writable by creating and removing a file in it: */
+	if (len + sizeof(MKDIR_P_PROBE) + 1 > sizeof(tmp))
+		return 1;
+	if (tmp[len - 1] != '/' && tmp[len - 1] != '\\')
 		strcat(tmp, "/");
-		strcpy(cmdstr, "mkdir ");
-		strcat(cmdstr, tmp);
-		strcat(cmdstr, " 2> /dev/null");
-		// mkdir (no -p) fails whenever this path component already exists, which is the
-		// common case on every startup after the first - deliberately ignore that here,
-		// matching mkdir -p semantics; only cast to void to silence the unused-result warning:
-		(void)system(cmdstr);
-	}
-
-	strcat(tmp, "_Mlucas_util_c_mkdir_p_tmp");
-	strcpy(cmdstr, "printf ");
-	strcat(cmdstr, tmp);
-	fp = popen(cmdstr, "r");
-	if (fp == NULL) {
-		fprintf(stderr, "ERROR: unable to open pipe fp in mkdir_p()\n");
-		ASSERT(0, "Exiting.");
-	}
-	if (fgets(tmp, STR_MAX_LEN + 1, fp) == NULL) {
-		fprintf(stderr, "ERROR: unable to retrieve file name in mkdir_p()\n");
-		ASSERT(0, "Exiting.");
-	}
-	pclose(fp);
+	strcat(tmp, MKDIR_P_PROBE);
 
 	fp = fopen(tmp, "a");
 	if (fp == NULL)
 		return 1;
 	fclose(fp);
-
-	strcpy(cmdstr, "rm -f ");
-	strcat(cmdstr, tmp);
-	strcat(cmdstr, " 2> /dev/null");
-	err = system(cmdstr);
-	if (err != 0) {
-		fprintf(stderr, "ERROR: mkdir_p failed <%s>\n", cmdstr);
-		ASSERT(0, "Exiting.");
-	}
+	/* A leftover probe file is harmless, so a failed remove() is not worth aborting the run over: */
+	(void)remove(tmp);
 	return 0;
 }
 
