@@ -74,10 +74,11 @@ for fft in "${!FFTS[@]}"; do
 	args=("${ARGS[@]}")
 	# First we test the very fiddly F15 and then loop over F16 up to maximum
 	if [[ $f -eq 15 ]]; then
+		# shellcheck disable=SC2054 # '8,8,16' is one comma-separated Mlucas -radset argument, not three array elements
 		args+=(-radset 8,8,16)
 	fi
 	if [[ $f -le 17 || $f -ge 32 ]]; then
 		args+=(-shift 0)
 	fi
-	time $MLUCAS -f "$f" -fft "$fft" -iters $ITERS "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
+	time "$MLUCAS" -f "$f" -fft "$fft" -iters "$ITERS" "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
 done
