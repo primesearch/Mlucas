@@ -1975,12 +1975,14 @@ uint32 get_system_ram(void) {
 		char in_line[STR_MAX_LEN];
 		FILE*fp = mlucas_fopen("/proc/cpuinfo", "r");
 		ASSERT(fp != 0x0, "/proc/cpuinfo file not found!");
+		int retval = 0;
 		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
-			if(strstr(in_line, "asimd") != 0)
-				return 1;
+			if(strstr(in_line, "asimd") != 0) {
+				retval = 1;	break;
+			}
 		}
 		fclose(fp);	fp = 0x0;
-		return 0;
+		return retval;
 	}
 
   #elif __ARM_ARCH >= 8 // Rest of the preprocessor-conditional is the old version:
