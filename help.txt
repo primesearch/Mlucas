@@ -114,24 +114,30 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
  -s {anything other than the mnemonics below}: Self-test, user must also supply exponent (via -m or -f),
 	iteration number and (optionally) FFT length to use.
 
- -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
- -s t		covering FFT lengths 8K-120K. This will take around 1 minute on a fast CPU.
+	Run-times below are indicative only: they were measured on a modern multi-core x86-64 CPU
+	using all cores, and vary widely with core count, clock and memory bandwidth.
 
- -s small	Runs 100 or 1000-iteration self-tests on a set of 32 Mersenne exponents, covering
- -s s		FFT lengths 120K-1920K. This will take around 10 minutes on a fast CPU..
+ -s teensy	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 15 Mersenne exponents,
+ -s tt		covering FFT lengths 1K-15K. A few seconds. Useful as a quick post-build smoke test.
+
+ -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
+ -s t		covering FFT lengths 16K-240K. Well under a minute.
+
+ -s small	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
+ -s s		FFT lengths 256K-1.875M. A few minutes.
 
 **************** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: *************
 *                                                                                             *
-* -s medium Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering *
-* -s m      FFT lengths from 2M to 7.5M. This will take around an hour on a fast CPU.         *
+* -s medium Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering *
+* -s m      FFT lengths from 2M to 15M. Allow up to an hour.                                  *
 *                                                                                             *
 ***********************************************************************************************
 
- -s large	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
- -s l		FFT lengths 8M to 60M. This will take around 10 hours on a fast CPU.
+ -s large	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering
+ -s l		FFT lengths 16M to 60M. Several hours.
 
  -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
- -s a		This will take around 12 hours on a fast CPU.
+ -s a		Note this covers teensy through large only, not huge or egregious.
 
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
  -s h		of 16 M(p), covering FFT lengths 64M-240M. This will take several days on a fast CPU.
