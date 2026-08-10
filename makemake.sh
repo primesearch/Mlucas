@@ -265,12 +265,17 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			# gone from recent Clang too. The build does not need them - it compiles and links with
 			# just f/cd/fma - so probe for each and carry on without whichever the toolchain has
 			# dropped, rather than failing outright on a modern compiler:
-			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
-			try_flag -march=knl && ARGS+=(-march=knl)
-			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
-			try_flag -mavx512er && ARGS+=(-mavx512er)
-			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
-			try_flag -mavx512pf && ARGS+=(-mavx512pf)
+			# Warn per dropped flag: the build still runs on KNL/KNM without them, but it is
+			# tuned for a generic AVX-512 target and ER/PF-backed reciprocal and prefetch
+			# sequences are unavailable, so it will be slower than the user is expecting.
+			for knl_flag in -march=knl -mavx512er -mavx512pf; do
+				# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+				if try_flag "$knl_flag"; then
+					ARGS+=("$knl_flag")
+				else
+					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result will still run on Knights Landing/Mill, but slower than a toolchain retaining Knights support would produce." >&2
+				fi
+			done
 			;;
 		avx512)
 			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"

@@ -209,6 +209,12 @@ jobs:
     # in GCC 15. The build degrades gracefully without them (see makemake.sh), but 24.04's GCC 13 is
     # the last stock toolchain that can target Knights Landing properly, so test with it while it lasts.
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
     steps:
     - uses: actions/checkout@v7
     - name: Install
@@ -223,15 +229,13 @@ jobs:
         tar -xf sde-external-8.69.1-2021-07-18-lin.tar.bz2
     - name: Before script
       run: |
-        gcc --version
+        $CC --version
         ./sde-external-8.69.1-2021-07-18-lin/sde64 --version
     - name: Build
       run: |
-        set -o pipefail
         bash -e -o pipefail -- makemake.sh avx512_knl
     - name: Self-test under emulated Knights Landing
       run: |
-        set -o pipefail
         # -knl sets both CPUID and SDE's chip check, so any instruction outside the KNL ISA aborts
         # the run rather than silently working on the AVX-512 host. That is the point of this job:
         # an 'avx512' (Skylake-SP) build dies here on kmovd, which is exactly the regression to catch.
