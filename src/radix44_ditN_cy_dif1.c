@@ -1931,8 +1931,8 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-ATTR_NO_ASAN cy44_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	ATTR_NO_ASAN void*
+	cy44_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;

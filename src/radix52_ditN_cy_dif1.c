@@ -1636,8 +1636,8 @@ void radix52_dit_pass1(double a[], int n)
 		#error pthreaded carry code requires GCC build!
 	#endif
 
-	void*
-ATTR_NO_ASAN cy52_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	ATTR_NO_ASAN void*
+	cy52_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
