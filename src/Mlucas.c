@@ -1899,8 +1899,8 @@ READ_RESTART_FILE:
 				if(!mi64_cmp_eq(b_uint64_ptr,d_uint64_ptr,n)) {	// Houston, we have a problem
 					s1 = consensus_checksum(s1,s2,s3);
 					if(s1 == sum64(b_uint64_ptr, n)) {	/* b-data good; no-op */
-					} else if(s1 == sum64(d_uint64_ptr, n)) {	// c-data good, copy back into b
-						memcpy(d, b, nbytes);
+					} else if(s1 == sum64(d_uint64_ptr, n)) {	// d-data good, copy back into b
+						memcpy(b, d, nbytes);
 					} else	// Catastrophic data corruption
 						ASSERT(0, "Catastrophic data corruption detected in G-checkproduct integrity validation ... rolling back to last good G-check. ");
 				}
