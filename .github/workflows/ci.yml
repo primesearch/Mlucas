@@ -12,7 +12,6 @@ jobs:
     name: Mlucas Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ (matrix.os == 'ubuntu-24.04' && matrix.cc == 'clang') || matrix.os == 'ubuntu-26.04' }}
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
@@ -57,11 +56,10 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
@@ -70,10 +68,22 @@ jobs:
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
+        # coverage: a runner may not be able to execute what they target.
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
+        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
+        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
+        # Same substitution config-fermat.sh already makes above, and the loop above has already
+        # built these, so it costs no extra build time.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -84,11 +94,10 @@ jobs:
     name: Mlucas Singlethreaded Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ !endsWith(matrix.os, '-arm') }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        cc: [gcc]
+        cc: [gcc, clang]
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
@@ -97,7 +106,6 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/-DUSE_THREADS//' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       run: |
@@ -119,20 +127,31 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
-        time ./Mlucas -s m
+        for s in tt t s m; do time ./Mlucas -s $s; done
+        for s in tt t s; do time ./Mlucas -prp -s $s; done
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh
+        bash -e -o pipefail -- ../config-fermat.sh
+        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
+        # coverage: a runner may not be able to execute what they target.
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
+        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
+        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
+        # Same substitution config-fermat.sh already makes above, and the loop above has already
+        # built these, so it costs no extra build time.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -148,8 +167,15 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
+        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"]
         cc: [gcc, clang]
+        exclude:
+          # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
+          # cannot assemble the inline asm in dft_macro.c on ARM ("unknown register name 'v0'").
+          # Its gcc builds fine there, as do both compilers on x86-64, so drop only this one combo.
+          - os: ubuntu-24.04-arm
+            container: "ubuntu:14.04"
+            cc: clang
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
@@ -218,7 +244,7 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
@@ -291,16 +317,31 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
-        make clean
-        time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
-        bash -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-      continue-on-error: true
+        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
+        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
+        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' 1word 2word 3word 4word nword; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (
+                cd obj_mfac_nosimd
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        cd obj_nosimd
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        cd ../obj_mfac_nosimd
+        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
 
   TSan-Linux:
     name: ThreadSanitizer Linux
@@ -434,11 +475,10 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
@@ -447,10 +487,22 @@ jobs:
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
+        # coverage: a runner may not be able to execute what they target.
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
+        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
+        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
+        # Same substitution config-fermat.sh already makes above, and the loop above has already
+        # built these, so it costs no extra build time.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -470,7 +522,6 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/-DUSE_THREADS//' makemake.sh
-        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
     - name: Script
       run: |
@@ -487,20 +538,31 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
         done
         cd obj
-        time ./Mlucas -s m
+        for s in tt t s m; do time ./Mlucas -s $s; done
+        for s in tt t s; do time ./Mlucas -prp -s $s; done
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh
+        bash -e -o pipefail -- ../config-fermat.sh
+        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
+        # coverage: a runner may not be able to execute what they target.
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
+        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
+        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
+        # Same substitution config-fermat.sh already makes above, and the loop above has already
+        # built these, so it costs no extra build time.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -519,22 +581,34 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
     - name: Script
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
-        make clean
-        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        if ! (( $(sysctl -n hw.optional.neon) )); then
-            bash -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        fi
-      continue-on-error: true
+        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
+        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
+        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' 1word 2word 3word 4word nword; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (
+                cd obj_mfac_nosimd
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        cd obj_nosimd
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        cd ../obj_mfac_nosimd
+        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
-    if: false # Too slow
 
     runs-on: macos-latest
     steps:
@@ -552,7 +626,10 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
         cd obj
         make clean
-        time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
+        # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
+        # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
+        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
       continue-on-error: true
 
   FreeBSD:
@@ -629,7 +706,6 @@ jobs:
     name: Windows
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
       matrix:
         os: [windows-latest]
@@ -683,20 +759,25 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
+                    if [[ -x Mfactor${word:+_$word} ]]; then
+                        # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
+                        # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
+                        ./Mfactor${word:+_$word} -m 127 -bmax 20
+                    fi
                 )
             done
         done
         cd obj
         for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
-        bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -727,13 +808,26 @@ jobs:
       shell: bash
       run: |
         sed -i 's/-O3 -flto/-Og -fsanitize=address,undefined/' makemake.sh
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
       shell: bash
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        cd obj
-        make clean
-        time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
-        bash -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' 1word 2word 3word 4word nword; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (
+                cd obj_mfac_nosimd
+                make clean
+                mv -v build.log build_${word}.log
+            )
+        done
+        cd obj_nosimd
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        cd ../obj_mfac_nosimd
+        for word in '' 1word 2word 3word 4word nword; do time ./Mfactor${word:+_$word} -m 127 -bmax 20; done
