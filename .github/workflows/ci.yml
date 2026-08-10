@@ -54,9 +54,8 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
@@ -112,9 +111,8 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
@@ -207,9 +205,8 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    mv -v build.log build_${word}.log
                 )
             done
         done
@@ -379,9 +376,8 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
@@ -433,9 +429,8 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
@@ -560,9 +555,8 @@ jobs:
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode || true
                 (
-                    cd obj_mfac${mode:+_$mode}
+                    cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    mv -v build.log build_${word}.log
                     [[ ! -x Mfactor${word:+_$word} ]] || ./Mfactor${word:+_$word} -h
                 )
             done
