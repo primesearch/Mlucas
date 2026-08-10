@@ -375,7 +375,8 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 		double xi, xavg, yavg, num, den, a,b,
 			y[] = {2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941
 			,11213,19937,21701,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593
-			,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,0.0};
+			,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281
+			,77232917,82589933,136279841,0.0};
 		int i,j,n,p,eq1mod4 = 0,starts_with_peq2 = (y[0]==2);
 		// Convert exponents p (stored as doubles in y-array) into lg(p), and compute averages:
 		for(i = 0, yavg = 0.0; y[i] != 0; i++) {
@@ -1790,12 +1791,24 @@ exit(0);
 	/* Activate these in turn when a new M-prime is discovered: */
 	/************************************************************/
 #ifdef ENABLE_MPRIME_PM1_SMOOTH
-	uint32 p = 82589933;
-	// Uncomment the specific subfunctions you desire:
-//	est_num_mp_in_interval(0,p);
-//	compute_mers_best_fit();
+	// update exponent as applicable here; add #define ENABLE_MPRIME_PM1_SMOOTH near top of file, maybe uncomment decimal expression below, recompile, run once, & remove the #define after.
+	uint32 p = 136279841;
+
+	printf("\nCalling est_num_mp_in_interval(0,%d) (Estimate number of Mersenne primes in the interval 0 to p):\n",p);
+	est_num_mp_in_interval(0,p);
+
+	printf("\nCalling compute_mers_best_fit() (Compute least squares fits for log(p) = a x + b, versus index x, a = slope, b = y-intercept):\n");
+	compute_mers_best_fit();
+
+	printf("\nCalling test_mp_pm1_smooth(%d) (Compute smoothness of primes neighboring p and B and L smoothness percentiles of p):\n",p);
 	test_mp_pm1_smooth(p);
-//	print_mp_dec(p);
+
+	// Uncomment the decimal expression computation and print if you don't mind a wait:
+
+	// printf("\nCalling print_mp_dec(%d) (Compute base ten representation of Mp; this is slow for large p):\n",p);
+	// print_mp_dec(p);
+
+	printf("Done, exiting.\n");
 	exit(0);
 #endif
 
