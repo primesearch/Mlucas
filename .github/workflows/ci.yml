@@ -4,6 +4,13 @@ on:
     branches:
       - main
   pull_request:
+    # Skip the matrix for changes that cannot affect any build or test. pull_request only:
+    # pushes to main and the monthly schedule always run everything. A denylist rather than
+    # an allowlist, so an unrecognised new file type still runs CI rather than silently not.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   schedule:
     - cron:  '0 0 1 * *'
 
