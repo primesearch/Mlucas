@@ -682,7 +682,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			nfld = 0;
 			for(char_addr = cptr; (char_addr = strchr(char_addr, ',')) != 0x0 && char_addr < num_end; ++char_addr) { ++nfld; }
 			if(nfld != 0 && nfld != 2 && nfld != 4) {
-				snprintf(cbuf,STR_MAX_LEN*2,"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
+				snprintf(cbuf,sizeof(cbuf),"ERROR: PRP assignment line must have 0, 2, or 4 optional numeric fields between [k,b,n,c] and any known-factors list, found %u!\n",nfld);
 				ASSERT(0,cbuf);
 			}
 			// Defaults for the fields PrimeNet is allowed to omit:
