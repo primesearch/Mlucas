@@ -5799,10 +5799,10 @@ ALU ops to split the 5 64-bit outputs into a pair of uint160s.
 		__lo1.d0 =  __wa1;						__lo1.d1 = __wb1;						__lo1.d2 =  __wc1 & 0x00000000ffffffff;\
 		__lo2.d0 =  __wa2;						__lo2.d1 = __wb2;						__lo2.d2 =  __wc2 & 0x00000000ffffffff;\
 		__lo3.d0 =  __wa3;						__lo3.d1 = __wb3;						__lo3.d2 =  __wc3 & 0x00000000ffffffff;\
-		__lo4.d0 =  __wa4;						__lo4.d1 = __wb4;						__lo0.d2 =  __wc0 & 0x00000000ffffffff;\
-		__lo5.d0 =  __wa5;						__lo5.d1 = __wb5;						__lo1.d2 =  __wc1 & 0x00000000ffffffff;\
-		__lo6.d0 =  __wa6;						__lo6.d1 = __wb6;						__lo2.d2 =  __wc2 & 0x00000000ffffffff;\
-		__lo7.d0 =  __wa7;						__lo7.d1 = __wb7;						__lo3.d2 =  __wc3 & 0x00000000ffffffff;\
+		__lo4.d0 =  __wa4;						__lo4.d1 = __wb4;						__lo4.d2 =  __wc4 & 0x00000000ffffffff;\
+		__lo5.d0 =  __wa5;						__lo5.d1 = __wb5;						__lo5.d2 =  __wc5 & 0x00000000ffffffff;\
+		__lo6.d0 =  __wa6;						__lo6.d1 = __wb6;						__lo6.d2 =  __wc6 & 0x00000000ffffffff;\
+		__lo7.d0 =  __wa7;						__lo7.d1 = __wb7;						__lo7.d2 =  __wc7 & 0x00000000ffffffff;\
 		\
 		__hi0.d0 = (__wc0>>32) + (__wd0<<32);	__hi0.d1 = (__wd0>>32) + (__we0<<32);	__hi0.d2 = (__we0>>32);\
 		__hi1.d0 = (__wc1>>32) + (__wd1<<32);	__hi1.d1 = (__wd1>>32) + (__we1<<32);	__hi1.d2 = (__we1>>32);\
