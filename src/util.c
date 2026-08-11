@@ -7902,7 +7902,9 @@ ftmp0 = ftmp;
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
 		/* The normal index-munging takes way too many cycles in this context, so inline it via 8-way loop unroll:
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -8201,7 +8203,9 @@ printf("DIF: nerr = %u, ",nerr);
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
 		/* The normal index-munging takes way too many cycles in this context, so inline it via 8-way loop unroll:
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
