@@ -757,12 +757,20 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		two       = tmp + 0x09;
 		tmp += 0x0a;	// += 0xa => sc_ptr + 0xf46
 	  #ifdef USE_AVX512
-		cy_r = tmp;	/* cy_i = tmp+0x78; */	tmp += 2*0x78;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;
+	   #ifndef MULTITHREAD
+		cy_i = tmp+0x78;
+	   #endif
+		tmp += 2*0x78;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
-		cy_r = tmp;	/* cy_i = tmp+0x0f0; */	tmp += 2*0x0f0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;
+	   #ifndef MULTITHREAD
+		cy_i = tmp+0x0f0;
+	   #endif
+		tmp += 2*0x0f0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// += 0x1e0 + 2 => sc_ptr += 0x1128
 		// This is where the value of half_arr_offset comes from
