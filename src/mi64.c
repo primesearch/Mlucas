@@ -5685,7 +5685,12 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	allow for left-justification of y-copy"); the sizing that replaced it did not: */
 	if(lens < (lenX + MAX(lenX,lenY))) {
 		// lens = MAX(1024,lenX + lenY);	// Alloc yloc same as x to allow for left-justification of y-copy
-		lens = lenX + MAX(lenX,lenY) + 16;        // GG: bug fix: Always add some extra buffer length. 16 is arbitrary and conservative.
+		/* Exactly the requirement, no fudge. The '+ 16' this replaces came from #14's conservative
+		padding, added while the sizing itself was wrong; with the sizing correct it buys nothing and
+		costs detection - the overflow fixed here only bit when lenX > lenY + 16, i.e. those 16 spare
+		limbs are precisely what hid it until the gap grew past them. Sizing exactly means the next
+		undersizing mistake trips ASan on the first limb rather than the seventeenth: */
+		lens = lenX + MAX(lenX,lenY);
 		/*** May 2022: In preparing for the cofactor-is-prime-power GCD on F25/[known factors], build on Linux
 		with GCC 9.2.1, hit SIGABRT 		here with 'realloc(): invalid next size'. Step-thru debug showed
 		the #limbs-allocated counter lens increasing from 0 to 4 to 9, next jump from 9 to 1048574 triggered
