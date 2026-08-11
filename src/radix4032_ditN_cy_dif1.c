@@ -176,6 +176,13 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	double wi_re,wi_im;
 #endif
+  #ifdef USE_AVX512	// AVX-512: main-array loop stride = 2*RE_IM_STRIDE = 16, so the wraparound-carry
+	const int jhi_wrap_mers = 15;	// cleanup pass must cover 16 words, not 8. Cf. radix56/radix960.
+	const int jhi_wrap_ferm = 15;
+  #else
+	const int jhi_wrap_mers =  7;
+	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
+  #endif
 	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	int j2,jp;
@@ -255,7 +262,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
 #endif
-#if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
+#if !defined(MULTITHREAD) && defined(USE_AVX)
 	int *itm2;
 #endif
 	int err;
@@ -640,7 +647,11 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		ASSERT((radix4032_creals_in_local_store << L2_SZ_VD) >= ((intptr_t)half_arr - (intptr_t)r00) + (j << L2_SZ_VD), "radix4032_creals_in_local_store checksum failed!");
 
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		sse2_rnd->d0 = base[0]; sse2_rnd->d1 = baseinv[1]; sse2_rnd->d2 = wts_mult[1]; sse2_rnd->d3 = inv_mult[0];
+	  #else
 		VEC_DBL_INIT(sse2_rnd, crnd);
+	  #endif
 
 	// Init-mode calls to these functions which maintain an internal local-alloc static store:
 		thr_id = -1;	// Use this special thread id for any macro-required thread-local-data inits...
@@ -1481,7 +1492,7 @@ for(outer=0; outer <= 1; outer++)
 		{
 			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -1501,7 +1512,7 @@ for(outer=0; outer <= 1; outer++)
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + jhi_wrap_ferm;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -1642,11 +1653,18 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(tdat[ithread].wts_idx_inc2 == wts_idx_inc2, "thread-local memcheck fail!");
 		ASSERT(tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		ASSERT(((tmp-1)->d0 == base[0] && (tmp-1)->d1 == baseinv[1] && (tmp-1)->d2 == wts_mult[1] && (tmp-1)->d3 == inv_mult[0]), "thread-local memcheck failed!");
+	  #else
 		ASSERT(((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
+	  #endif
 	#endif
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			/* No-Op: in AVX-512 Mersenne mode there are no base/baseinv mini-tables in half_arr - the
+			carry macros use opmasked conditional-doubling of broadcast consts instead. Cf. radix960. */
+		#elif defined(USE_AVX)
 			// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 			dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 			dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -1971,11 +1989,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
-		j_jhi =15;
+		j_jhi = jhi_wrap_ferm;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = jhi_wrap_mers;
 	}
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -2954,7 +2972,7 @@ void radix4032_dit_pass1(double a[], int n)
 		vec_dbl *tm0;
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
-	  #if defined(USE_AVX) && !defined(USE_AVX512)
+	  #if defined(USE_AVX)
 		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
@@ -3089,11 +3107,15 @@ void radix4032_dit_pass1(double a[], int n)
 
 		ASSERT((r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT((half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+	  #ifndef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
 		ASSERT((sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+	  #endif
 		tmp = half_arr;
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		/* No-Op: see the corr. comment in the main routine. */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
