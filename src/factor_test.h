@@ -777,7 +777,12 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		q[0] = k;		q[lenQ] = mi64_shl(q,q,l,lenQ);	lenQ += (q[lenQ] != 0ull);
 		q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 	//printf("Testing F%u, q = %" PRIu64 " * 2^%u + 1, lenQ = %u...\n",j,k,l,lenQ);
-		ASSERT(l-j-1 < 64, "k << (l-j-1) requires l-j-1 < 64!");	// Defensive: shift count must stay in-range for a uint64
+		// Validates the table entry, not the arithmetic: by Lucas, any factor of F_n has the form
+		// k.2^pow2 + 1 with pow2 >= n+2, so l-j-1 >= 1 for every well-formed row. l and j are uint32,
+		// so a mistyped row with pow2 <= n would wrap l-j-1 to a huge value and shift by >= 64 rather
+		// than failing visibly. Across the 57 rows this loop processes, l-j-1 runs 1..10 and the widest
+		// k << (l-j-1) is 48 bits, so neither arm can fire on the table as it stands:
+		ASSERT(l > j && l-j-1 < 64, "ffacBig row: need pow2 > n, and pow2-n-1 < 64 for the k << (pow2-n-1) below");
 		uint32 res1 = mi64_twopmodq(p, lenP, k << (l-j-1), q, lenQ, q2);	// Fiddle k to put q in Mersenne-like form = 2.k'.2^j + 1
 			//	res1 = mi64_twopmodq_qferm(j, k << (l-j), q2);
 		if(res1 != 1) {
