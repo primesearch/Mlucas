@@ -4056,7 +4056,9 @@ MFACTOR_HELP:
 			}
 			if(fp) { fclose(fp); fp = 0x0; }
 			fclose(fq); fq = 0x0;
-			if(rename(TMPFILE,RESTARTFILE)) {
+			// v21: mlucas_rename(), not rename(): supplies the MLUCAS_PATH prefix both files were created with,
+			// and replaces an existing destination on Windows, whose CRT rename() fails with EEXIST instead:
+			if(mlucas_rename(TMPFILE,RESTARTFILE)) {
 				sprintf(g_cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
 				ASSERT(0,g_cstr);
 			}
@@ -4679,8 +4681,10 @@ uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 pa
 {
 	int itmp;
 	uint32 curr_line = 0, nerr = 0;
-	/* TF restart files are in HRF, not binary: */
-	fp = mlucas_fopen(fname,"w");	// Open in write mode
+	/* TF restart files are in HRF, not binary. v21: _atomic - stage the new contents in a scratch file and
+	rename it over the target, so that a crash partway through this write cannot leave a truncated savefile
+	where a complete one used to be: */
+	fp = mlucas_fopen_atomic(fname,"w");	// Open in write mode
 	if(!fp) {
 	#ifndef FACTOR_STANDALONE
 		fp = mlucas_fopen(STATFILE,"a");
@@ -4745,7 +4749,14 @@ uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 pa
 		if(itmp <= 0) {
 			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
 		}
-		fclose(fp); fp = 0x0;
+		// v21: If any of the above writes failed we have nothing worth publishing, so drop the scratch file and
+		// leave any pre-existing savefile alone; otherwise commit it, counting a failure to do so as one more error:
+		if(nerr) {
+			mlucas_discard_atomic(fname,fp);
+		} else if(mlucas_fclose_atomic(fname,fp)) {
+			++nerr; fprintf(stderr,"ERROR: unable to commit factoring restart file %s ... any previous savefile left in place.\n",fname);
+		}
+		fp = 0x0;
 		return (int)nerr;
 	}
 }

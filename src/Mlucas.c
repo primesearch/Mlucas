@@ -2227,7 +2227,10 @@ READ_RESTART_FILE:
 			sprintf(cbuf, ".%dM", ilo/1000000);
 			strcpy(g_cstr, RESTARTFILE);
 			strcat(g_cstr, cbuf);
-			if(rename(RESTARTFILE, g_cstr)) {
+			// v21: mlucas_rename(), not rename(): the latter ignored MLUCAS_PATH (so under a nonempty prefix it
+			// renamed a nonexistent cwd-relative name and always failed) and cannot replace an existing
+			// destination on Windows. Same for the other rename() calls below:
+			if(mlucas_rename(RESTARTFILE, g_cstr)) {
 				snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping every-10M-iteration restart file archiving\n",WORKFILE,g_cstr);
 				fprintf(stderr,"%s",cbuf);
 			}
@@ -2238,10 +2241,12 @@ READ_RESTART_FILE:
 		itmp64 = ihi;
 		// If Pepin test is at final iteration, change PRP base to 3 for final write to file (cf. earlier assignment at line 1214). More info: https://github.com/primesearch/Mlucas/pull/11
 		if (ihi == maxiter && TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT) PRP_BASE = 3;
-		fp = mlucas_fopen(RESTARTFILE, "wb");
+		// v21: _atomic: stage the new checkpoint in a scratch file and rename it over the savefile, so that
+		// a crash/kill/power-loss partway through the write cannot leave a truncated savefile behind:
+		fp = mlucas_fopen_atomic(RESTARTFILE, "wb");
 		if(fp) {		// In the non-PRP-test case, write_ppm1_savefiles() treats the latter 4 args as null:
 			write_ppm1_savefiles(RESTARTFILE,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
-			fclose(fp); fp = 0x0;
+			close_savefile(RESTARTFILE,fp); fp = 0x0;
 			/* If we're on the primary restart file, set up for secondary: */
 			if(RESTARTFILE[0] != 'q') {
 				RESTARTFILE[0] = 'q';	goto WRITE_RESTART_FILE;
@@ -2264,10 +2269,10 @@ READ_RESTART_FILE:
 			if(ihi%ITERS_BETWEEN_GCHECKS == 0) {
 				strcpy(g_cstr, RESTARTFILE);
 				strcat(g_cstr, ".G");
-				fp = mlucas_fopen(g_cstr, "wb");
+				fp = mlucas_fopen_atomic(g_cstr, "wb");	// v21: atomic-replace, as for the p/q savefiles above
 				if(fp) {
 					write_ppm1_savefiles(g_cstr,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
-					fclose(fp); fp = 0x0;
+					close_savefile(g_cstr,fp); fp = 0x0;
 				} else {
 					snprintf(cbuf,sizeof(cbuf), "ERROR: unable to open Gerbicz-check savefile %s for write of checkpoint data.\n",g_cstr);
 					mlucas_fprint(cbuf,1);
@@ -2756,7 +2761,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		re-using it would kibosh subsequent stage 2 continuation runs. Safer to start with s1 residue for those:
 		*/
 		strcpy(g_cstr, RESTARTFILE); strcat(g_cstr, ".s2");
-		if(remove(g_cstr)) {
+		if(mlucas_remove(g_cstr)) {
 			snprintf(cbuf,sizeof(cbuf),"INFO: Unable to remove stage 2 savefile %s.\n",g_cstr);
 			mlucas_fprint(cbuf,1);
 		}
@@ -2771,7 +2776,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			// If end of a regular (non-s2-continuation) p-1 run and primary good, rename it from [p|f][expo] ==> [p|f][expo].s1;
 			// if primary missing/corrupt, rename secondary q[expo] ==> [p|f][expo].s1:
 			if(TEST_TYPE == TEST_TYPE_PM1 && !s2_continuation) {
-				if(rename(RESTARTFILE, g_cstr)) {
+				if(mlucas_rename(RESTARTFILE, g_cstr)) {
 					snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
 					mlucas_fprint(cbuf,1);
 				}
@@ -2779,11 +2784,11 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// If primary was missing/corrupt, i.e. we're on the secondary, rename secondary to primary-name
 				if(RESTARTFILE[0] == 'q') {
 					RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
-					if(rename(g_cstr, RESTARTFILE)) {
+					if(mlucas_rename(g_cstr, RESTARTFILE)) {
 						snprintf(cbuf,sizeof(cbuf),"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
 						mlucas_fprint(cbuf,1);
 					}
-				} else if(remove(g_cstr))	// ...otherwise delete the secondary
+				} else if(mlucas_remove(g_cstr))	// ...otherwise delete the secondary
 					fprintf(stderr, "Unable to delete secondary restart file %s.\n",g_cstr);
 			}
 		} else
@@ -2794,7 +2799,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	}
 	// If completion of LL/PRP run, or secondary was not used as a backup for p-1 stage 1 savefile rename, delete it now:
 	RESTARTFILE[0] = 'q';
-	if(remove(RESTARTFILE))
+	if(mlucas_remove(RESTARTFILE))
 		fprintf(stderr, "Unable to delete secondary restart file %s\n",RESTARTFILE);
 
 	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
@@ -2824,7 +2829,7 @@ GET_NEXT_ASSIGNMENT:
 			ASSERT(0,cbuf);
 		}
 		/* Remove any WINI.TMP file that may be present: */
-		remove("WINI.TMP");
+		mlucas_remove("WINI.TMP");
 		fq = mlucas_fopen("WINI.TMP", "w");
 		if(!fq) {
 			sprintf(cbuf, "Unable to open WINI.TMP file for writing.\n");
@@ -2911,8 +2916,12 @@ GET_NEXT_ASSIGNMENT:
 		fclose(fq); fq = 0x0;
 
 		/* Now blow away the old worktodo file and rename WINI.TMP ==> worktodo.txt...	*/
-		remove(WORKFILE);
-		if(rename("WINI.TMP", WORKFILE))
+		// v21: A single atomic rename replaces the former remove()-then-rename() pair, which on POSIX left a
+		// window in which the worktodo file did not exist at all - a crash there lost the entire assignment
+		// list. mlucas_rename() also supplies the MLUCAS_PATH prefix which the bare rename() omitted (both files
+		// having been *created* through mlucas_fopen(), which prefixes) and the replace-existing semantics which
+		// the Windows CRT rename() lacks - the very reason the remove() was there in the first place:
+		if(mlucas_rename("WINI.TMP", WORKFILE))
 		{
 			sprintf(cbuf,"ERROR: unable to rename WINI.TMP file ==> %s ... attempting line-by-line copy instead.\n",WORKFILE);
 			fprintf(stderr,"%s",cbuf);
@@ -2937,7 +2946,7 @@ GET_NEXT_ASSIGNMENT:
 
 			/*...Then remove the WINI.TMP file:	*/
 
-			remove("WINI.TMP");
+			mlucas_remove("WINI.TMP");
 		}
 		/* if one or more exponents left in rangefile, go back for more; otherwise exit. */
 		if (i > 0) {
@@ -5095,6 +5104,77 @@ int test_types_compatible(uint32 t1, uint32 t2)
 		return t1 == t2;
 }
 
+/* v21: Write the [nbyte] low bytes of [val] to *fp, low byte first, returning 0 if any of the writes
+fails. Prior to v21 every fixed-width savefile field was written using unchecked fputc(), so a write
+error - a filesystem which has just filled up being the realistic case - silently truncated the
+savefile. And since the secondary savefile gets written immediately afterward from the same in-memory
+data, both copies ended up damaged in the same way, with nothing whatsoever printed to screen or
+logfile. Contrast the residue-body fwrite() in write_ppm1_residue(), whose return value has always
+been checked: that one fails loudly and leaves the secondary savefile holding the previous good
+checkpoint, from which the run then restarts cleanly. Same failure, same filesystem - the only
+difference is whether the return value gets looked at, so look at all of them:
+*/
+int write_savefile_field(FILE *fp, const uint64 val, const uint32 nbyte)
+{
+	uint32 i;
+	for(i = 0; i < nbyte; i++) {
+		if(fputc((int)((val >> (8*i)) & 0xff), fp) == EOF)
+			return 0;
+	}
+	return 1;
+}
+
+/* v21: A savefile is only as good as the bytes which actually made it out of the stdio buffer: a
+failed fclose() means buffered data was lost, i.e. exactly the silent-truncation case the checked
+writes above exist to prevent. Treat it the same way - abort while the *other* savefile copy still
+holds the previous good checkpoint, rather than proceed with two damaged copies on disk:
+*/
+void close_savefile(const char *fname, FILE *fp)
+{
+	if(mlucas_fclose_atomic(fname,fp)) {
+		snprintf(cbuf,sizeof(cbuf),"ERROR: close of savefile %s failed - filesystem full? Aborting rather than leave a silently-truncated savefile.\n",fname);
+		mlucas_fprint(cbuf,0);	ASSERT(0,cbuf);
+	}
+}
+
+/* v21: Several savefile fields were added in later program versions, so a savefile whose data simply
+stops where such a field would begin may be one written by an older version. But it may equally be a
+current-format savefile which a failed write truncated, and prior to v21 the two were conflated: the
+older-format reading was simply assumed, and since that makes read_ppm1_savefiles() return *success*,
+a truncated savefile got accepted and the still-valid backup copy sitting next to it was never even
+consulted. So sanity-check the older-format claim before accepting it - a savefile written by an older
+version ends *exactly* at a format boundary, thus:
+	[1] the EOF must have occurred on the very first byte of the missing field, not partway through it;
+	[2] the file length must exactly equal [expect_len], the length such an older-format savefile has
+	    for this exponent and test type;
+	[3] the run must not need any of the fields which are being skipped: if [need_gcheck] is set the
+	    Gerbicz-check residue is one of them, and no older-format savefile contains it - reading such a
+	    file would leave the G-check accumulator uninitialized.
+Returns 1 if the older-format reading holds up, 0 if the file is simply damaged. [nread] = number of
+bytes the caller's read loop consumed, the one which returned EOF included.
+*/
+int savefile_ends_at(const char *func, const char *fname, FILE *fp, uint32 nread, uint64 expect_len, int need_gcheck)
+{
+	long fsize;
+	if(need_gcheck) {
+		sprintf(cbuf,"%s: savefile %s lacks the Gerbicz-check residue this test type requires.\n",func,fname);
+		fprintf(stderr,"%s", cbuf);	return 0;
+	}
+	if(nread != 1) {	// EOF partway through a field: no version of the program ever wrote such a file
+		sprintf(cbuf,"%s: savefile %s ends in mid-field - truncated, not an older-format savefile.\n",func,fname);
+		fprintf(stderr,"%s", cbuf);	return 0;
+	}
+	if(fseek(fp,0L,SEEK_END) != 0 || (fsize = ftell(fp)) < 0L) {
+		sprintf(cbuf,"%s: Unable to determine length of savefile %s.\n",func,fname);
+		fprintf(stderr,"%s", cbuf);	return 0;
+	}
+	if((uint64)fsize != expect_len) {
+		sprintf(cbuf,"%s: savefile %s is %ld bytes, but an older-format one would be %" PRIu64 " - truncated.\n",func,fname,fsize,expect_len);
+		fprintf(stderr,"%s", cbuf);	return 0;
+	}
+	return 1;
+}
+
 /*** READ: Assumes a valid file pointer has been gotten via a call of the form
 fp = mlucas_fopen(RESTARTFILE,"rb");
 ***/
@@ -5202,6 +5282,16 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	const char func[] = "read_ppm1_savefiles";
 	uint32 i,j,k,len,nbytes = 0,nerr;
 	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
+	/* v21: Parse the savefile fields which live in globals into locals, and copy them to the globals
+	only once the read has fully succeeded. Formerly PRP_BASE, NERR_ROE and NERR_GCHECK were written
+	directly, so a *failed* read left them holding fgetc()-EOF garbage (0xFEFEFEFF) which nothing ever
+	restored: if the secondary savefile was unusable too, the ensuing start-from-scratch then ran as a
+	"4278124287-PRP test", and the poisoned error counters got written into every later savefile and
+	reported to the server as a maximal hardware-error code. Init from the globals so that fields which
+	the file does not contain (older formats) are left as-is, exactly as before:
+	*/
+	uint32 prp_base = PRP_BASE, nerr_roe = NERR_ROE, nerr_gcheck = NERR_GCHECK;
+	uint64 res_shift = 0ull, gcheck_shift = GCHECK_SHIFT, len_v17,len_v19;
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 	mi64_clear(pow,4); mi64_clear(rem,4);
@@ -5260,6 +5350,14 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 		nbytes = (p>>3) + 1;
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 	}
+	/* v21: Exact lengths of the two historical savefile formats which end short of the current one, used
+	by savefile_ends_at() to tell a legitimately-shorter older-format savefile from a truncated current one:
+		pre-v18: t,m,s header (10 bytes) + residue and its S-H checksum triplet (nbytes+18);
+		    v19: the above + kblocks (3) + RES_SHIFT (8), and if a G-check test, + PRP_BASE (4)
+		         + G-check residue and its checksum triplet (nbytes+18) + GCHECK_SHIFT (8):
+	*/
+	len_v17 = (uint64)nbytes + 28;
+	len_v19 = len_v17 + 11 + (DO_GCHECK ? (uint64)nbytes + 30 : 0ull);
 
 	i = read_ppm1_residue(nbytes, fp, arr1, Res64,Res35m1,Res36m1);
 	if(!i) return 0;
@@ -5356,33 +5454,47 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	for(j = 0; j < 3 && i != EOF; j++) {
 		i = fgetc(fp);	*kblocks += (uint64)i << (8*j);
 	}
-	if(i == EOF) {
+	if(i == EOF) {	// v21: EOF here means either a pre-v18 savefile or a truncated current-format one - which?
 		*kblocks = 0;
-		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
+		if(!savefile_ends_at(func,fname,fp,j,len_v17,DO_GCHECK)) return 0;
+		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks in savefile %s ... assuming a pre-v18 savefile.\n",func,fname); mlucas_fprint(cbuf,1);
+		goto SAVEFILE_READ_DONE;
 	}
 	/* May 2018: 8 bytes for circular-shift to apply to the (unshifted) residue read from the file: */
-	i = 0; RES_SHIFT = 0ull;
+	i = 0;
 	for(j = 0; j < 8 && i != EOF; j++) {
-		i = fgetc(fp);	RES_SHIFT += (uint64)i << (8*j);
+		i = fgetc(fp);	res_shift += (uint64)i << (8*j);
 	}
 	if(i == EOF) {
-		RES_SHIFT = 0ull;
-		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
+		res_shift = 0ull;
+		if(!savefile_ends_at(func,fname,fp,j,len_v17+3,DO_GCHECK)) return 0;
+		sprintf(cbuf,"%s: Hit EOF in read of residue-shift in savefile %s ... assuming a pre-v18 savefile.\n",func,fname); mlucas_fprint(cbuf,1);
+		goto SAVEFILE_READ_DONE;
 	}
 
   // v19: For PRP-tests, also read a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]:
   if(DO_GCHECK) {	// v21: Change to key off DO_GCHECK, to allow Fermat-mod Pepin-tests to use the Gerbicz check, too
 	ASSERT(arr2 != 0x0, "Null arr2 pointer!");
-	PRP_BASE = 0ull;
+	prp_base = 0;
 	for(j = 0; j < 4; j++) {
-		i = fgetc(fp);	PRP_BASE += i << (8*j);
+		i = fgetc(fp);
+		if(i == EOF) {	// v21: Formerly unchecked, leaving PRP_BASE = 0xFEFEFEFF on a failed read
+			sprintf(cbuf, "%s: Hit EOF in read of PRP-base in savefile %s!\n",func,fname);
+			fprintf(stderr,"%s", cbuf);	return 0;
+		}
+		prp_base += i << (8*j);
 	}
 	i = read_ppm1_residue(nbytes, fp, arr2, i1,i2,i3);
 	if(!i) return 0;
 	// G-check residues all need to be clshifted by residue-shift count at the ITERS_BETWEEN_GCHECK_UPDATESth PRP-test iteration:
-	GCHECK_SHIFT = 0ull;
+	gcheck_shift = 0ull;
 	for(j = 0; j < 8; j++) {
-		i = fgetc(fp);	GCHECK_SHIFT += (uint64)i << (8*j);
+		i = fgetc(fp);
+		if(i == EOF) {	// v21: ditto for GCHECK_SHIFT
+			sprintf(cbuf, "%s: Hit EOF in read of G-check residue-shift in savefile %s!\n",func,fname);
+			fprintf(stderr,"%s", cbuf);	return 0;
+		}
+		gcheck_shift += (uint64)i << (8*j);
 	}
   }
 
@@ -5392,25 +5504,39 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	for(j = 0; j < 4; j++) {
 		i = fgetc(fp);
 		if(i == EOF) {
-			if(!j) {
-				sprintf(cbuf, "%s: Restart from v19 savefile - will start tracking #errors encountered at this point.\n",func);
-				fprintf(stderr,"%s", cbuf);
-				return 1;
+			if(!j) {	// v21: As above, only believe "older-format savefile" if the file length says so:
+				if(!savefile_ends_at(func,fname,fp,1,len_v19,FALSE)) return 0;
+				sprintf(cbuf, "%s: Restart from v19 savefile %s - will start tracking #errors encountered at this point.\n",func,fname);
+				mlucas_fprint(cbuf,1);
+				goto SAVEFILE_READ_DONE;
 			} else {	// If at least the first of the 3 bytes exists, all 3 had better be there:
-				sprintf(cbuf, "%s: Expected 4 nerr bytes!",func);
+				sprintf(cbuf, "%s: Expected 4 nerr bytes in savefile %s!\n",func,fname);
 				fprintf(stderr,"%s", cbuf);
 				return 0;
 			}
 		}
 		nerr += i << (8*j);
 	}
-	NERR_ROE = MAX(nerr,NERR_ROE);	// If restart-from-savefile as result of hitting an ROE, preserve the runtime-incremented value of NERR_ROE:
+	nerr_roe = MAX(nerr,nerr_roe);	// If restart-from-savefile as result of hitting an ROE, preserve the runtime-incremented value of NERR_ROE:
 	// Similar handling for G-check error count:
 	nerr = 0ull;
 	for(j = 0; j < 4; j++) {
-		i = fgetc(fp);	nerr += i << (8*j);
+		i = fgetc(fp);
+		if(i == EOF) {	// v21: This loop formerly had no EOF check at all, so a savefile truncated in its
+			// last 4 bytes read back as NERR_GCHECK = 0xFEFEFEFF = 4278124287 with the read still reporting
+			// success - which then got submitted to the server as error-code 0x00F00000 ("15 Gerbicz errors")
+			// plus a literal "gerbicz":4278124287, even for test types which have no Gerbicz check at all:
+			sprintf(cbuf, "%s: Expected 4 G-check-error-count bytes in savefile %s!\n",func,fname);
+			fprintf(stderr,"%s", cbuf);	return 0;
+		}
+		nerr += i << (8*j);
 	}
-	NERR_GCHECK = MAX(nerr,NERR_GCHECK);
+	nerr_gcheck = MAX(nerr,nerr_gcheck);
+
+SAVEFILE_READ_DONE:
+	// v21: Read succeeded - only now commit the parsed values to their globals:
+	RES_SHIFT = res_shift;	PRP_BASE = prp_base;	GCHECK_SHIFT = gcheck_shift;
+	NERR_ROE = nerr_roe;	NERR_GCHECK = nerr_gcheck;
 	/* Don't deallocate arr1 here, since we'll need it later for savefile writes. */
 	return 1;
 }
@@ -5431,16 +5557,13 @@ void write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], co
 		snprintf(cbuf,sizeof(cbuf),"%s: Error writing residue to restart file.\n",func);
 		mlucas_fprint(cbuf,0);	ASSERT(0,cbuf);
 	}
-	/* ...and checksums:	*/
-	/* Res64: */
-	for(i = 0; i < 64; i+=8)
-		fputc((int)(Res64 >> i) & 0xff, fp);
-	/* Res35m1: */
-	for(i = 0; i < 40; i+=8)
-		fputc((int)(Res35m1 >> i) & 0xff, fp);
-	/* Res36m1: */
-	for(i = 0; i < 40; i+=8)
-		fputc((int)(Res36m1 >> i) & 0xff, fp);
+	/* ...and checksums (Res64: 8 bytes, Res35m1 and Res36m1: 5 bytes each) - v21: check these writes
+	as well, since a savefile truncated here reads back as an older-format, i.e. valid, one: */
+	if(!write_savefile_field(fp,Res64,8) || !write_savefile_field(fp,Res35m1,5) || !write_savefile_field(fp,Res36m1,5)) {
+		fclose(fp); fp = 0x0;
+		snprintf(cbuf,sizeof(cbuf),"%s: Error writing residue checksums to restart file.\n",func);
+		mlucas_fprint(cbuf,0);	ASSERT(0,cbuf);
+	}
 }
 
 // v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so make ihi a uint64; add filename arg since S2 appends '.s2' to RESTARTFILE:
@@ -5454,14 +5577,12 @@ void write_ppm1_savefiles(const char *fname, uint64 p, int n, FILE *fp, uint64 i
 	kblocks = (n >> 10);
 	ASSERT(n == (kblocks << 10),"Not a proper unpadded FFT length");
 
-	/* See the function read_ppm1_savefiles() for the file format here: */
-	/* t: */
-	fputc(TEST_TYPE, fp);
-	/* m: */
-	fputc(MODULUS_TYPE, fp);
-	/* s: */
-	for(i = 0; i < 64; i+=8)
-		fputc((ihi >> i) & 0xff, fp);
+	/* See the function read_ppm1_savefiles() for the file format here. v21: All the fixed-width fields
+	go out through write_savefile_field(), which checks its writes - see the comment on that function: */
+	/* t: */	i  = write_savefile_field(fp,TEST_TYPE   ,1);
+	/* m: */	i &= write_savefile_field(fp,MODULUS_TYPE,1);
+	/* s: */	i &= write_savefile_field(fp,ihi         ,8);
+	if(!i) goto SAVEFILE_WRITE_ERR;
 
 	/* Set the expected number of residue bytes, depending on the modulus: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
@@ -5475,27 +5596,31 @@ void write_ppm1_savefiles(const char *fname, uint64 p, int n, FILE *fp, uint64 i
 
 	write_ppm1_residue(nbytes, fp, arr1, Res64,Res35m1,Res36m1);
 
-	// v18: FFT length in K (3 bytes):
-	for(i = 0; i < 24; i+=8)
-		fputc((kblocks >> i) & 0xff, fp);
-	// v18: circular-shift to apply to the (unshifted) residue read from the file (8 bytes):
-	for(i = 0; i < 64; i+=8)
-		fputc((RES_SHIFT >> i) & 0xff, fp);
+	// v18: FFT length in K (3 bytes), then circular-shift to apply to the residue read from the file (8 bytes):
+	i  = write_savefile_field(fp,kblocks  ,3);
+	i &= write_savefile_field(fp,RES_SHIFT,8);
+	if(!i) goto SAVEFILE_WRITE_ERR;
 
   // v19: For PRP-tests, also write a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]:
   if(DO_GCHECK) {	// v21: Change to key off DO_GCHECK, to allow Fermat-mod Pepin-tests to use the Gerbicz check, too
-	for(i = 0; i < 32; i+=8)
-		fputc((PRP_BASE >> i) & 0xff, fp);
+	if(!write_savefile_field(fp,PRP_BASE,4)) goto SAVEFILE_WRITE_ERR;
 	write_ppm1_residue(nbytes, fp, arr2, i1,i2,i3);
 	// G-check residues all need to be clshifted by residue-shift count at the ITERS_BETWEEN_GCHECK_UPDATESth PRP-test iteration:
-	for(i = 0; i < 64; i+=8)
-		fputc((GCHECK_SHIFT >> i) & 0xff, fp);
+	if(!write_savefile_field(fp,GCHECK_SHIFT,8)) goto SAVEFILE_WRITE_ERR;
   }
 	// v20: Write cumulative #errs for ROE >= 0.4375 (>= for LL, > for PRP) and Gerbicz-check for the test in question:
-	for(i = 0; i < 32; i+=8)
-		fputc((NERR_ROE >> i) & 0xff, fp);
-	for(i = 0; i < 32; i+=8)
-		fputc((NERR_GCHECK >> i) & 0xff, fp);
+	i  = write_savefile_field(fp,NERR_ROE   ,4);
+	i &= write_savefile_field(fp,NERR_GCHECK,4);
+	if(!i) goto SAVEFILE_WRITE_ERR;
+	return;
+
+SAVEFILE_WRITE_ERR:	// v21: Formerly these writes were unchecked, so a full filesystem silently truncated
+	// the savefile - and, the secondary copy being written straight afterward from the same data, both
+	// copies alike. Abort here instead, at which point the *other* copy still holds the previous good
+	// checkpoint, exactly as already happens when the residue-body write above fails:
+	fclose(fp);
+	snprintf(cbuf,sizeof(cbuf),"write_ppm1_savefiles: Error writing savefile %s - filesystem full? Aborting rather than leave a silently-truncated savefile.\n",fname);
+	mlucas_fprint(cbuf,0);	ASSERT(0,cbuf);
 }
 
 /*********************/
@@ -6688,7 +6813,9 @@ int restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *ar
 	int retval = 0;
 	uint32 j;
 	uint64 Res64,Res35m1,Res36m1, i1,i2,i3, itmp64;
-	FILE *fptr = mlucas_fopen(fname,"r");
+	// v21: "rb", not "r": read_ppm1_savefiles()'s contract requires binary mode, and on Windows text mode
+	// mangles \r\n pairs and treats an embedded 0x1A as EOF, both of which occur in a bytewise residue:
+	FILE *fptr = mlucas_fopen(fname,"rb");
 	if(fptr) {
 		retval = read_ppm1_savefiles(fname, p, &j, fptr, &itmp64,
 										arr1, &Res64,&Res35m1,&Res36m1,	// Primality-test residue
