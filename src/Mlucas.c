@@ -376,6 +376,13 @@ uint32	ernstMain
 	uint32 dum = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
 	uint64 itmp64,cy, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
 	uint32 mode_flag = 0, first_sub = 0, last_sub;
+	/* v21: End-of-run Gerbicz check. The regular check only fires at multiples of ITERS_BETWEEN_GCHECKS,
+	which maxiter (= p for a Mersenne PRP, = 2^m-1 for a Pepin test) never is, so the tail of every run
+	went unchecked. gchk_final is set when the checkproduct receives its last update of the run; gchk_iter
+	is the iteration count that update corresponds to, and gchk_first_sub the first_sub value in effect at
+	that point (needed for the [d] mode_flag, since the update may not be in the final iteration interval).
+	gchk_nfail bounds the retry count, so a persistent (non-transient) final-check failure cannot spin: */
+	uint32 gchk_final = FALSE, gchk_iter = 0, gchk_first_sub = 0, gchk_nfail = 0, loop_exit = 0;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
 	form in the factoring module. For all other types of assignments uint64 should suffice: */
@@ -436,6 +443,8 @@ RANGE_BEG:
 	ROE_ITER = 0; ROE_VAL = 0.0;
 	NERR_GCHECK = NERR_ROE = 0;	// v20: Add counters for Gerbicz-check errors and dangerously high ROEs encountered
 								// during test - if a restart, will re-read actual cumulative values from checkpoint file.
+	gchk_final = FALSE; gchk_nfail = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
+										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
 	// Clear out any FFT-radix or known-factor data that might remain from a just-completed run:
 	for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
 	nfac = 0; mi64_clear(KNOWN_FACTORS,40);
@@ -1802,6 +1811,10 @@ READ_RESTART_FILE:
 		ASSERT(maxiter > 0,"Require (uint32)maxiter > 0");
 		if(ihi > maxiter)
 			ihi = maxiter;
+		/* v21: The end-of-run G-check flag is set and consumed within a single iteration interval, so clear it here.
+		This also keeps it from going stale across the various mid-interval error-recovery gotos (ROE FFT-length
+		bump, ERR_CARRY savefile-rollback), any of which can restart an interval in which it had already been set: */
+		gchk_final = FALSE;
 		// If p-1: start of each iteration cycle, copy bits ilo:ihi-1 of PM1_S1_PRODUCT into low bits of BASE_MULTIPLIER_BITS vector:
 		if(TEST_TYPE == TEST_TYPE_PM1) {
 			k = (ihi+63)>>6;// #limbs of PM1_S1_PRODUCT needed, INCL. BITS 0:ILO-1 WHICH WILL BE GETTING OFF-SHIFTED - only extract ilo:ihi-1
@@ -1870,11 +1883,26 @@ READ_RESTART_FILE:
 				compute b *= c (mod n). But again wasteful, would rather just complete the fwd-FFT of c[] instead of undoing and then immediately
 				redoing the initial fwd-FFT-radix pass of it. But, we do this infrequently enough that we don't care!
 				[EWM: Update: Added the FFT mode_flag control mechanism to eliminate this redundant work] */
+				i += itodo;
+				/* v21: Only iteration counts which are multiples of L = ITERS_BETWEEN_GCHECK_UPDATES may be folded
+				into the checkproduct: the Gerbicz identity [b == u0.d^(2^L)] holds only if the update points are
+				equally spaced L apart. The sole non-multiple-of-L endpoint is that of the final partial subinterval
+				(itodo clipped to maxiter-i above), so skip the b[]-update for it. Instead the run's final G-check is
+				done at the last L-aligned update point, i.e. at iteration L*(maxiter/L) - see the G-check block below.
+				(Self-tests never reach that check, so leave their b[]-handling exactly as it was.)
+				*/
+				if(!INTERACT && (i % ITERS_BETWEEN_GCHECK_UPDATES)) continue;
+				/* Is this the last checkproduct update of the run, i.e. the one our end-of-run G-check must use?
+				(No further update can occur, since the next L-aligned iteration count exceeds maxiter.) Snapshot the
+				iteration count and first_sub, since the check itself may not run until a later iteration interval: */
+				gchk_final = !INTERACT && (i + ITERS_BETWEEN_GCHECK_UPDATES > maxiter);
+				if(gchk_final) {
+					gchk_iter = i; gchk_first_sub = first_sub;
+				}
 				memcpy(c, a, nbytes);	// Copy a into c and do fwd-FFT-only of c:
 				// If going to proceed to actual Gerbicz-check, need to save an un-updated copy of the checkproduct:
-				i += itodo;
 			//	fprintf(stderr,"At Iter %u: copy a[] -> c[]\n",i);
-				if(i % ITERS_BETWEEN_GCHECKS == 0) {
+				if(i % ITERS_BETWEEN_GCHECKS == 0 || gchk_final) {
 					memcpy(d, b, nbytes);
 				}
 			// All-but-Last  sub: [c] !need fwd-weighting and initial-fwd-FFT-pass done on entry, exit moot since fwd-FFT-only: mode_flag = 01_2:
@@ -1910,7 +1938,9 @@ READ_RESTART_FILE:
 			// Last  subinterval: [b] !need fwd-weighting and initial-fwd-FFT-pass done on entry,  undone on exit: mode_flag = 01_2
 			/* Note: Interrupt during this step should not be a problem, the handling code in func_mod_square will complete the FFT-mul
 			step and force the undo-initial-FFT-pass-and-DWT-weighting step, leaving a pure-int G-check residue ready for savefile-writing: */
-				mode_flag = 3 - first_sub - (last_sub<<1);
+			// v21: If this is the run's last checkproduct update, b[] gets no further FFT ops, so it must be returned
+			// to pure-int form here - the skipped final-partial-subinterval update would otherwise have done that:
+				mode_flag = 3 - first_sub - ((last_sub || gchk_final)<<1);
 			//	printf("Iter %u: FFT(b)*FFT(c) step.\n",i);
 				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
 				if(ierr) {
@@ -1926,7 +1956,7 @@ READ_RESTART_FILE:
 			//	fprintf(stderr,"FFT(b)*FFT(c), mode = %u\n",mode_flag);
 				// If not going to proceed to actual Gerbicz-check, save a post-updated copy of the checkproduct,
 				// in order to guard against single-bit or other data corruption in b[] (h/t George Woltman):
-				if(i % ITERS_BETWEEN_GCHECKS != 0) {
+				if(i % ITERS_BETWEEN_GCHECKS != 0 && !gchk_final) {
 					memcpy(d, b, nbytes);
 					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 				}
@@ -2070,7 +2100,10 @@ READ_RESTART_FILE:
 		// We don't save "final residue" in cofactor-PRP mode, since in the (mod M(p)) case this is for p+1 squarings (G-check needs this),
 		// i.e. needs a mod-div-by-base^2 postprocessing step to put in form of the p-1 squarings of the standard Fermat-PRP test:
 		// Comment by Catherine Cowie, 2024: for Pepin tests we actually do need a final residue saved, as the worktodo format for a Pepin test does not include possibility of cofactor testing. See https://github.com/primesearch/Mlucas/pull/11 for more information.
-		if ((ihi == maxiter) && (INTERACT || (TEST_TYPE != TEST_TYPE_PM1 && !(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT))))
+		// v21: ...but if the run's final Gerbicz check is still pending, defer this exit until after the G-check
+		// block below has done it. (Without this deferral no Mersenne-PRP run ever performs a final G-check.)
+		loop_exit = (ihi == maxiter) && (INTERACT || (TEST_TYPE != TEST_TYPE_PM1 && !(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)));
+		if(loop_exit && !gchk_final)
 				break;
 
 		/* If Mersenne/PRP or Fermat test, do Gerbicz-check every million squarings. Make sure current run has done at least
@@ -2080,8 +2113,14 @@ READ_RESTART_FILE:
 		o ilo = 0, ihi = 1000: integer divide gives ilo/1000 = 0, ihi/1000 = 1 difference > 0, thus contains an update
 		o ilo = 1000, ihi = 1507: ilo/1000 = 1, ihi/1000 = 1 difference = 0, thus !contains an update
 		*/
+		/* v21: gchk_final adds the run's last check, at iteration gchk_iter = L*(maxiter/L) <= ihi - the latest
+		iteration count at which the Gerbicz identity is applicable, since it needs L-aligned update points. That
+		update was made during the current iteration interval, so the (ilo/j < ihi/j) precondition is met by
+		construction; and gchk_iter need not equal ihi, so use it in place of ihi throughout the block below.
+		*/
 		i = ITERS_BETWEEN_GCHECKS; j = ITERS_BETWEEN_GCHECK_UPDATES;
-		if(MLUCAS_KEEP_RUNNING && DO_GCHECK && (ilo/j < ihi/j) && (ihi % i) == 0) {
+		if(!gchk_final) gchk_iter = ihi;
+		if(MLUCAS_KEEP_RUNNING && DO_GCHECK && (gchk_final || ((ilo/j < ihi/j) && (ihi % i) == 0))) {
 			// Un-updated copy of the checkproduct saved in [d]; square that ITERS_BETWEEN_GCHECK_UPDATES times...
 			/*
 			Mar 2022: User hit assertion-exit below ... had set CheckInterval = 1000 = ITERS_BETWEEN_GCHECK_UPDATES,
@@ -2093,8 +2132,9 @@ READ_RESTART_FILE:
 			// If First subinterval also TRUE, [d] needs fwd-weighting and initial-fwd-FFT-pass done on entry: mode_flag = 00_2.
 			/* Note: Interrupt during this step should not be a problem, the handling code in func_mod_square will complete the FFT-mul
 			step and force the undo-initial-FFT-pass-and-DWT-weighting step, leaving a pure-int G-check residue ready for savefile-writing: */
-			mode_flag = 1 - first_sub;
-			ierr = func_mod_square  (d,0x0, n, ihi,ihi+ITERS_BETWEEN_GCHECK_UPDATES, (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE, 0x0);
+			// v21: for the end-of-run check, use the first_sub value in effect when [d] was snapshotted:
+			mode_flag = 1 - (gchk_final ? gchk_first_sub : first_sub);
+			ierr = func_mod_square  (d,0x0, n, gchk_iter,gchk_iter+ITERS_BETWEEN_GCHECK_UPDATES, (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE, 0x0);
 			if(ierr) {
 				if(ierr == ERR_INTERRUPT) {
 					fprintf(stderr,"Caught interrupt in Gerbicz-checkproduct mod-squaring update ... skipping G-check and savefile-update and performing immediate-exit.\n");
@@ -2112,8 +2152,10 @@ READ_RESTART_FILE:
 			c_uint64_ptr[j-1] = 0ull;
 			// [1] Convert b[],d[] to bytewise form, former assumed already in e[] doubles-array, latter into currently-unused c[] doubles-array:
 			convert_res_FP_bytewise(d, (uint8 *)c_uint64_ptr, n, p, 0x0,0x0,0x0);
-			// Only need to compute this for initial interval - after that the needed adjustment-shift remains constant
-			if(ihi == ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
+			// Only need to compute this for initial interval - after that the needed adjustment-shift remains constant.
+			// v21: '<=' rather than '==' so that a run too short to ever hit iteration ITERS_BETWEEN_GCHECKS - for which
+			// the end-of-run check below is the *only* check, hence the first - also gets GCHECK_SHIFT computed:
+			if(gchk_iter <= ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
 				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 					/* d[] needs initial-shift applied prior to final scalar multiply, but don't explicitly,
 					store the initial shift, so need to recompute it from a current value s at iteration i:
@@ -2123,7 +2165,9 @@ READ_RESTART_FILE:
 						y odd : y = (y+p)>>1
 					*/
 					itmp64 = RES_SHIFT;
-					for(i = ITERS_BETWEEN_GCHECK_UPDATES; i < ITERS_BETWEEN_GCHECKS; i++) {	// Recover shift at initial ITERS_BETWEEN_GCHECK_UPDATES-iteration subinterval from that at initial savefile-checkpoint
+					// v21: halve down from iteration ihi, at which RES_SHIFT currently stands (== ITERS_BETWEEN_GCHECKS
+					// for the regular first-interval check, but > gchk_iter for an end-of-run one):
+					for(i = ITERS_BETWEEN_GCHECK_UPDATES; i < ihi; i++) {	// Recover shift at initial ITERS_BETWEEN_GCHECK_UPDATES-iteration subinterval from that at initial savefile-checkpoint
 						if(itmp64 & 1)	// y odd
 							itmp64 = (itmp64+p)>>1;
 						else			// y even
@@ -2187,7 +2231,7 @@ READ_RESTART_FILE:
 			}
 			ASSERT(mi64_cmpult(c_uint64_ptr,d_uint64_ptr,j), "Gerbicz checkproduct reduction (mod 2^p-1) failed!");
 			if(mi64_cmp_eq(e_uint64_ptr,c_uint64_ptr,j)) {
-				sprintf(cbuf,"At iteration %u, shift = %" PRIu64 ": Gerbicz check passed.\n",ihi,RES_SHIFT);
+				sprintf(cbuf,"At iteration %u, shift = %" PRIu64 ": Gerbicz check passed.\n",gchk_iter,RES_SHIFT);
 				mlucas_fprint(cbuf,0);
 				// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 				memcpy(d, b, nbytes);
@@ -2201,10 +2245,19 @@ READ_RESTART_FILE:
 					memcpy(d, b, nbytes);
 					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 				} else {
-					if(ihi == ITERS_BETWEEN_GCHECKS)
-						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from scratch.\n",ihi);
+					/* v21: A failure of the end-of-run check rolls back exactly as any other G-check failure does, but
+					since it recurs at the very end of every retry, an error which the rollback cannot clear (i.e. a
+					reproducible one, not the transient data corruption this machinery targets) would retry forever
+					and the run would never terminate. So bound the retries and hard-exit with a diagnostic instead of
+					looping - the savefiles and the worktodo entry are left intact, and no result is emitted: */
+					if(gchk_final && ++gchk_nfail > 3) {
+						snprintf(cbuf,sizeof(cbuf),"Final Gerbicz check at iteration %u failed %u times in a row - the error is not being cleared by restarting from the last-good-Gerbicz-check data, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",gchk_iter,gchk_nfail,PSTRING);
+						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
+					}
+					if(gchk_iter <= ITERS_BETWEEN_GCHECKS)
+						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from scratch.\n",gchk_iter);
 					else
-						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from last-good-Gerbicz-check data.\n",ihi);
+						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from last-good-Gerbicz-check data.\n",gchk_iter);
 					mlucas_fprint(cbuf,0);
 					ierr = ERR_GERBICZ_CHECK;
 					NERR_GCHECK++;
@@ -2212,6 +2265,10 @@ READ_RESTART_FILE:
 				}
 			}
 		}
+		// v21: Deferred loop-exit: the final Gerbicz check has now been done, so leave without a final-residue write,
+		// exactly as the pre-check exit above would have. (No-op unless the check just done was the end-of-run one.)
+		if(loop_exit)
+			break;
 
 		/* Make sure we start with primary restart file: */
 		RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
