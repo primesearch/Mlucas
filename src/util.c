@@ -5950,7 +5950,7 @@ ftmp0 = ftmp;
 		__asm__ volatile (\
 			"movl	$0xaaaa,%%eax	\n\t	kmov	%%eax,%%k1	\n\t"/* k1 = 0b1010101010101010 */\
 			: :
-			: "cc","memory","rax"
+			: "cc","memory","k1","rax"
 		);
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
@@ -5971,7 +5971,7 @@ ftmp0 = ftmp;
 				:	// outputs: none
 				: [__dhalf] "m" (*i64ptr)
 				 ,[__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
+				: "cc","memory","k1","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"
 			);
 		}
 		clock2 = getRealTime();
@@ -6004,7 +6004,7 @@ ftmp0 = ftmp;
 			/* No write-back-to-memory - just want to be able to examine contents of zmm2,4,0,3 in debugger. */\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
+				: "cc","memory","k1","k2","k3","k4","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm4", "xmm30","xmm31"
 			);
 		}
 		clock2 = getRealTime();
@@ -6082,7 +6082,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:				// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+				: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
 			);
 		}
 		clock2 = getRealTime();
@@ -6316,7 +6316,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm3,0x1c0(%%rax)	\n\t"\
 				:				// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+				: "cc","memory","k1","k2","k3","k4","k5","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
 			);
 		}
 		clock2 = getRealTime();
@@ -6484,7 +6484,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm7,0x1c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","k2","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6557,7 +6557,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm4, 0x1c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6686,7 +6686,7 @@ ftmp0 = ftmp;
 				:						// outputs: none
 				: [__data] "m" (data)	/* All inputs from memory addresses here */\
 				 ,[__gatherindex] "m" (gatherindex)
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6745,7 +6745,7 @@ ftmp0 = ftmp;
 				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6829,7 +6829,7 @@ ftmp0 = ftmp;
 				:						// outputs: none
 				: [__data] "m" (data)	/* All inputs from memory addresses here */\
 				 ,[__gatherindex] "m" (gatherindex)
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","k2","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -6921,7 +6921,7 @@ ftmp0 = ftmp;
 																"vmovaps	%%zmm17,0x1c0(%%rax)	\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
@@ -7015,7 +7015,7 @@ ftmp0 = ftmp;
 				"vmovaps		%%zmm4, 0x1c0(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 				:						// outputs: none
 				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+				: "cc","memory","k1","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
 		clock2 = getRealTime();
