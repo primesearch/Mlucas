@@ -735,11 +735,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			// Debug-print results sample:
 			for(i = 0; i < N; ++i) {
 				iax = ABS(h_A[i]);	iay = ABS(h_B[i]);
-			#ifdef MUL_LOHI64_SUBROUTINE
-				MUL_LOHI64(iax,iay,&ialo,&iahi);
-			#else
 				MUL_LOHI64(iax,iay, ialo, iahi);
-			#endif
 			//	printf("I = %d: x = %f; y = %f; hi,lo = %f,%f\n",i, h_A[i],h_B[i],h_D[i],h_C[i]);
 				if(cmp_fma_lohi_vs_exact(h_A[i],h_B[i],h_D[i],h_C[i], iax,iay,iahi,ialo)) {
 					printf("ERROR: pow2 = %d, I = %d, outputs differ!\n",pow2,i);
@@ -1116,12 +1112,8 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			hi64 = (uint64)p * pinv96.d0;
 			pinv96.d0 = pinv96.d0*((uint64)2 - hi64);
 			// pinv96 has 96 bits, but only the upper 64 get modified here:
-		#ifdef MUL_LOHI64_SUBROUTINE
-			pinv96.d1 = -pinv96.d0*__MULH64((uint64)p, pinv96.d0);
-		#else
 			MULH64((uint64)p, pinv96.d0, hi64);
 			pinv96.d1 = -pinv96.d0*hi64;
-		#endif
 			// k is simply the bottom 96 bits of ((q-1)/2)*pinv96:
 			x96.d0	= ((q96.d0-1) >> 1) + ((uint64)q96.d1 << 63);	x96.d1	= (q96.d1 >> 1);	// (q-1)/2
 			MULL96(x96, pinv96, x96);
@@ -2225,11 +2217,7 @@ void print_host_info(void)
 	printf("INFO: Using prefetch.\n");
 #endif
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	printf("INFO: Using subroutine form of MUL_LOHI64.\n");
-#else
 	printf("INFO: Using inline-macro form of MUL_LOHI64.\n");
-#endif
 
 #ifdef USE_FMADD
 	printf("INFO: Using FMADD-based 100-bit modmul routines for factoring.\n");
@@ -3103,17 +3091,10 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					if(dblo) { dblo = log(dblo)*ILG2;	if(dblo > l2lo) l2lo = dblo; }
 					if(dbhi) { dbhi = log(dbhi)*ILG2;	if(dbhi > l2hi) l2hi = dbhi; }
 				}
-			  #ifdef MUL_LOHI64_SUBROUTINE
-				MUL_LOHI64(iax,iay,&ialo,&iahi);
-				MUL_LOHI64(ibx,iby,&iblo,&ibhi);
-				MUL_LOHI64(icx,icy,&iclo,&ichi);
-				MUL_LOHI64(idx,idy,&idlo,&idhi);
-			  #else
 				MUL_LOHI64(iax,iay, ialo, iahi);
 				MUL_LOHI64(ibx,iby, iblo, ibhi);
 				MUL_LOHI64(icx,icy, iclo, ichi);
 				MUL_LOHI64(idx,idy, idlo, idhi);
-			  #endif
 			  /*
 				if(pow2 == 53 && i < 100) {
 					printf("I = %d: ax = %" PRIu64 " ay = %" PRIu64 " ahi,alo = %f,%f\n",i, *ax,*ay, *ahi,*alo);
@@ -5341,11 +5322,7 @@ double	convert_base10_char_double (const char*char_buf)
 		curr_digit = (uint64)(c - CHAROFFSET);
 		ASSERT(curr_digit < 10,"convert_base10_char_double: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
-	#else
 		MUL_LOHI64((uint64)10,curr_sum, curr_sum, hi);
-	#endif
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_double: Offending input string = %s\n", char_buf);
@@ -5414,11 +5391,7 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 		curr_digit = (uint64)(c - CHAROFFSET);
 		ASSERT(curr_digit < 10,"convert_base10_char_uint64: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
-	#else
 		MUL_LOHI64((uint64)10,curr_sum, curr_sum, hi);
-	#endif
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_uint64: Offending input string = %s\n", char_buf);

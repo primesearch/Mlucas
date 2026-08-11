@@ -61,11 +61,7 @@
 		j = start_index-1;
 		// MULL64(zstart,qinv) simply amounts to a left-shift of the bits of qinv:
 		x = qinv << zshift;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		x = __MULH64(q,x);
-	#else
 		MULH64(q,x,x);
-	#endif
 		// hi = 0 in this instance, which simplifies things.
 		y = q - x;
 
@@ -83,15 +79,9 @@
 		for(j = start_index-2; j >= 0; j--)
 		{
 			// 3-MUL sequence to effect x = MONT_SQR64(x,q,qinv):
-		#ifdef MUL_LOHI64_SUBROUTINE
-			SQR_LOHI64(x,&x,&y);	// Lo half of x^2 overwrites x, hi half into y
-			MULL64(qinv,x,x);
-			x = MULH64(q,x);
-		#else
 			SQR_LOHI64(x, x, y);
 			MULL64(qinv,x,x);
 			MULH64(q,x,x);
-		#endif
 			x = y - x + ((-(int64)(y < x)) & q);	/* did we have a borrow from (y-x)? */
 
 			if((pshift >> j) & 1)
@@ -158,17 +148,10 @@
 		x2 = qinv2 << zshift;
 		x3 = qinv3 << zshift;
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		x0 = __MULH64(q0,x0);
-		x1 = __MULH64(q1,x1);
-		x2 = __MULH64(q2,x2);
-		x3 = __MULH64(q3,x3);
-	#else
 		MULH64(q0,x0,x0);
 		MULH64(q1,x1,x1);
 		MULH64(q2,x2,x2);
 		MULH64(q3,x3,x3);
-	#endif
 		// hi = 0 in this instance, which simplifies things.
 		y0 = q0 - x0;
 		y1 = q1 - x1;

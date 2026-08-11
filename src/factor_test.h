@@ -159,30 +159,6 @@ int test_fac()
 		printf("TRYQ = %u\n", i);
 	#endif
 
-	/* THREE_OP128: */
-	#ifndef THREE_OP128
-	//	printf("THREE_OP128 not defined\n");
-	#elif(THREE_OP128 == 0)
-		printf("THREE_OP128 = FALSE\n");
-	#else
-		i = THREE_OP128;
-		printf("THREE_OP128 = %u\n", i);
-		/* iF NONZERO, Must = 1 : */
-		ASSERT((THREE_OP128 == 1),"THREE_OP128 Must = 0 or 1!");
-		/* Only relevant for TRYQ = 4 or 8: */
-		#if(TRYQ != 4 && TRYQ != 8)
-			#error	THREE_OP128 Only relevant for TRYQ = 4 or 8!
-		#endif
-		/* Only relevant for factoring up to 128 bits: */
-		#if(defined(P3WORD) || defined(P4WORD))
-			#error	THREE_OP128 Only relevant for factoring up to 128 bits!
-		#endif
-		/* Only relevant if using fully 128-bit modmul routines: */
-		#if USE_128x96 != 0
-			#error	THREE_OP128 Only relevant if using fully 128-bit modmul routines - undef USE_128x96 or set = 0!
-		#endif
-	#endif
-
 	/* NUM_SIEVING_PRIME: */
 	#ifndef NUM_SIEVING_PRIME
 		/* This flag is required: */
@@ -201,12 +177,6 @@ int test_fac()
 		printf("TF_CLASSES = %u\n", i);
 	#endif
 
-	/* MUL_LOHI64_SUBROUTINE: */
-	#ifndef MUL_LOHI64_SUBROUTINE
-	//	printf("MUL_LOHI64_SUBROUTINE not defined\n");
-	#else
-		printf("MUL_LOHI64_SUBROUTINE = true\n");
-	#endif
 
 	/* MULH64_FAST: */
 	#ifndef MULH64_FAST
@@ -1368,12 +1338,8 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 			pinv128.d0 = pinv128.d0*((uint64)2 - hi64);
 		}
 		/* pinv128 has 128 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		pinv128.d1 = -pinv128.d0*__MULH64(p64, pinv128.d0);
-	#else
 		MULH64(p64, pinv128.d0, hi64);
 		pinv128.d1 = -pinv128.d0*hi64;
-	#endif
 		/* k is simply the bottom 128 bits of ((q-1)/2)*pinv128: */
 		x128.d0	= ((q128.d0-1) >> 1) + (q128.d1 << 63);	x128.d1	= (q128.d1 >> 1);	/* (q-1)/2. */
 		MULL128(x128, pinv128, x128);
@@ -1664,12 +1630,8 @@ if((q128.d1 >> 14) == 0) {
 			pinv128.d0 = pinv128.d0*((uint64)2 - hi64);
 		}
 		/* pinv128 has 128 bits, but only the upper 64 get modified here. */
-		#ifdef MUL_LOHI64_SUBROUTINE
-			pinv128.d1 = -pinv128.d0*__MULH64(p64, pinv128.d0);
-		#else
 			MULH64(p64, pinv128.d0, hi64);
 			pinv128.d1 = -pinv128.d0*hi64;
-		#endif
 		/* k is simply the bottom 128 bits of ((q-1)/2)*pinv128: */
 		x128.d0 = ((q128.d0-1) >> 1) + (q128.d1 << 63); x128.d1 = (q128.d1 >> 1);       /* (q-1)/2. */
 		MULL128(x128, pinv128, x128);
@@ -1871,11 +1833,7 @@ if((q128.d1 >> 14) == 0) {
 			continue;
 
 		p64 = (uint64)fac63[i].p * (uint64)fac64[i2].p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac64[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac64[i2].q, q128.d0, q128.d1);
-	#endif
 
 		/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
 		to composite factors which are a product of prime factors of
@@ -1924,11 +1882,7 @@ if((q128.d1 >> 14) == 0) {
 			continue;
 
 		p64 = (uint64)fac64[i].p * (uint64)fac64[i2].p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac64[i].q, fac64[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac64[i].q, fac64[i2].q, q128.d0, q128.d1);
-	#endif
 
 		/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
 		to composite factors which are a product of prime factors of
@@ -1978,11 +1932,7 @@ if((q128.d1 >> 14) == 0) {
 
 		p64 = (uint64)fac63[i].p * (uint64)fac65[i2].p;
 		x128.d0 = fac65[i2].q;	x128.d1 = 1;	/* Store full q65 in a 128-bit temp for printing purposes */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac65[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac65[i2].q, q128.d0, q128.d1);
-	#endif
 		/* fac65.q's assumed to have (hidden) 65th bit = 1, so need
 		to add 2^64*fac63.q to the output of MUL_LOHI64 here: */
 		q128.d1 += fac63[i].q;
@@ -2378,11 +2328,7 @@ if((q128.d1 >> 14) == 0) {
 
 		p64 = (uint64)fac63[i].p * (uint64)fac65[i2].p;
 		x128.d0 = fac65[i2].q;	x128.d1 = 1;	/* Store full q65 in a 128-bit temp for printing purposes */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac65[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac65[i2].q, q128.d0, q128.d1);
-	#endif
 		/* fac65.q's assumed to have (hidden) 65th bit = 1, so need
 		to add 2^64*fac63.q to the output of MUL_LOHI64 here: */
 		q128.d1 += fac63[i].q;
@@ -2405,21 +2351,12 @@ if((q128.d1 >> 14) == 0) {
 			/* Since the product of three test exponents will generally
 			overflow 64-bits, store that in the lower 2 words of the p192 variable:
 			*/
-		#ifdef MUL_LOHI64_SUBROUTINE
-			/* Multiply to get 3-exponent product: */
-			MUL_LOHI64(p64, fac64[i3].p,&p192.d0,&p192.d1);	p192.d2 = 0;
-			/* Low  128 bits of the 192-bit 3-factor product: */
-			MUL_LOHI64(q128.d0,fac64[i3].q,&q192.d0,&q192.d1);
-			/* High 128 bits of the 192-bit 3-factor product: */
-			MUL_LOHI64(q128.d1,fac64[i3].q,  &tmp64,&q192.d2);	q192.d1 += tmp64;	q192.d2 += (q192.d1 < tmp64);
-		#else
 			/* Multiply to get 3-exponent product: */
 			MUL_LOHI64(p64, fac64[i3].p, p192.d0, p192.d1);	p192.d2 = 0;
 			/* Low  128 bits of the 192-bit 3-factor product: */
 			MUL_LOHI64(q128.d0,fac64[i3].q, q192.d0, q192.d1);
 			/* High 128 bits of the 192-bit 3-factor product: */
 			MUL_LOHI64(q128.d1,fac64[i3].q,   tmp64, q192.d2);	q192.d1 += tmp64;	q192.d2 += (q192.d1 < tmp64);
-		#endif
 
 			/* Skip the q%(2*p) == 1 and (p%60,q%60) checks, as they don't apply
 			to composite factors which are a product of prime factors of
@@ -2554,11 +2491,7 @@ if((q128.d1 >> 14) == 0) {
 
 		p63 = (uint64)fac63[i].p * (uint64)fac65[i2].p;
 		x128.d0 = fac65[i2].q;	x128.d1 = 1;	/* Store full q65 in a 128-bit temp for printing purposes */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64(fac63[i].q, fac65[i2].q,&q128.d0,&q128.d1);
-	#else
 		MUL_LOHI64(fac63[i].q, fac65[i2].q, q128.d0, q128.d1);
-	#endif
 		/* fac65.q's assumed to have (hidden) 65th bit = 1, so need
 		to add 2^64*fac63.q to the output of MUL_LOHI64 here: */
 		q128.d1 += fac63[i].q;
