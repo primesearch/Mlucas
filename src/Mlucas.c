@@ -140,7 +140,10 @@ const char *err_code[ERR_MAX] = {
 	"ERR_UNKNOWN_FATAL",
 	"ERR_SKIP_RADIX_SET",
 	"ERR_INTERRUPT",
-	"ERR_GERBICZ_CHECK"
+	"ERR_GERBICZ_CHECK",
+	"ERR_ZERO_RESIDUE",
+	"ERR_ZERO_ROUNDOFF",
+	"ERR_DUPLICATE_RES64"
 };
 
 // Shift count and auxiliary arrays used to support rotated-residue computations:
@@ -1797,6 +1800,16 @@ READ_RESTART_FILE:
 			goto PM1_STAGE2;	// The CF-handling is a clause of the if/else beginning at this label
 	}
 
+	/* v21: recent checkpoint residues, for the stalled-iteration check below. A short history rather
+	than just the previous one, because a stalled iteration need not sit on a fixed point - it can cycle
+	through a few values. LL has a genuine absorbing cycle of exactly that shape: s == 0 gives -2, then
+	2, then 2 forever, and the degenerate "Res64 = ...0002" seen from defective carry paths is that
+	fixed point. A ring of RESHIST_LEN catches any cycle up to that period. Reset here so the history is
+	per-run; a restart from savefile legitimately re-enters with none. */
+	#define RESHIST_LEN	32
+	struct { uint64 r0, r1, r2; uint32 iter; } reshist[RESHIST_LEN];
+	uint32 reshist_n = 0;	// Total checkpoints recorded; ring slot is (reshist_n % RESHIST_LEN)
+
 	for(;;)
 	{
 		ASSERT(maxiter > 0,"Require (uint32)maxiter > 0");
@@ -2064,6 +2077,25 @@ READ_RESTART_FILE:
 				, timebuffer, PSTRING, iter_or_stage[TEST_TYPE == TEST_TYPE_PM1], ihi, (float)ihi / (float)maxiter * 100,get_time_str(tdiff)
 				, 1000*get_time(tdiff)/(ihi - ilo), Res64, AME, MME, RES_SHIFT);
 			mlucas_fprint(cbuf,scrnFlag);
+		}
+
+		/* v21: A checkpoint residue identical to the previous checkpoint's means the iteration is not
+		advancing - the squaring chain has stalled or reached a fixed point. Distinct intervals cannot
+		produce the same (Res64, Res35m1, Res36m1) triple by chance: that is a 135-bit coincidence.
+		Note this is a *production*-run check; a self-test case runs a single checkpoint and so has no
+		earlier interval to compare against - the self-test analogue is the cross-case duplicate check
+		in the selfTest driver in main(). */
+		{
+			uint32 ih, nh = (reshist_n < RESHIST_LEN) ? reshist_n : RESHIST_LEN;
+			for(ih = 0; ih < nh; ih++) {
+				if(reshist[ih].r0 != Res64 || reshist[ih].r1 != Res35m1 || reshist[ih].r2 != Res36m1) continue;
+				snprintf(cbuf,sizeof(cbuf)," ***   Stalled-iteration Error   ***\n Res64 %016" PRIX64 " at iteration %u is identical to that at iteration %u.\n Distinct intervals cannot repeat a residue by chance; the iteration is not advancing.\n", Res64, ihi, reshist[ih].iter);
+				mlucas_fprint(cbuf,1);
+				return ERR_DUPLICATE_RES64;
+			}
+			ih = reshist_n % RESHIST_LEN;
+			reshist[ih].r0 = Res64; reshist[ih].r1 = Res35m1; reshist[ih].r2 = Res36m1; reshist[ih].iter = ihi;
+			reshist_n++;
 		}
 
 		// Do not save a final residue unless p-1 (if not, still leave penultimate residue file intact).
@@ -2339,6 +2371,37 @@ READ_RESTART_FILE:
 		/* MSVC/.NET incorrectly output these when using uint64 and %20" PRIu64 " format, so cast to double and print: */
 		fprintf(stderr, "Res mod 2^35 - 1 = %20.0f\n",(double)Res35m1);
 		fprintf(stderr, "Res mod 2^36 - 1 = %20.0f\n",(double)Res36m1);
+
+		/* v21: two self-test sanity checks the Selfridge-Hurwitz comparison below cannot make.
+		#184 adds the equivalent zero-residue guard for production runs and explicitly leaves the
+		self-test side alone ("strengthening that pass criterion is a separate matter"); this is that.
+
+		1. An identically-zero residue. The comparison below cannot catch it, because the (*sh0 != 0)
+		tests treat a zero reference as "no data yet" and *store* the computed value rather than
+		checking it - so an all-zero result is accepted and then becomes the expected answer for
+		every later run. A genuine residue is zero with probability ~2^-64, and all three of Res64,
+		Res35m1 and Res36m1 being zero together means the transform produced nothing. */
+		if(Res64 == 0ull && Res35m1 == 0ull && Res36m1 == 0ull) {
+			fprintf(stderr, "  ***   Zero-residue Error   ***\n");
+			fprintf(stderr, " The residue is identically zero - the transform produced no data.\n");
+			return ERR_ZERO_RESIDUE;
+		}
+		/* 2. A roundoff error of exactly zero over the whole run. fracmax measures distance from the
+		nearest integer and zero is exactly an integer, so a transform running on all-zero or otherwise
+		trivial data reports a *perfect* error while computing nothing - the roundoff check is blind to
+		precisely the case it most needs to catch. radix1008/4032 did exactly this, returning Res64 = 0
+		with a flawless AvgMaxErr.
+		Gated on AME having actually been accumulated: MaxErr == 0.0 is legitimate for the first few
+		tens of iterations of a healthy run, while the residue is still a small integer, which is why
+		AME collection only starts at AME_ITER_START. Measured across a full self-test sweep the
+		smallest AvgMaxErr at any FFT length, down to 2K, is 0.216 - a real run is nowhere near zero. */
+		if(timing_test_iters > AME_ITER_START && (AME == 0.0 || MME == 0.0)) {
+			fprintf(stderr, "  ***   Zero-roundoff Error   ***\n");
+			fprintf(stderr, " AvgMaxErr = %10.9f, MaxErr = %10.9f over %u iterations: a roundoff error of exactly\n", AME, MME, timing_test_iters);
+			fprintf(stderr, " zero means the transform is operating on trivial data, not that it is unusually accurate.\n");
+			return ERR_ZERO_ROUNDOFF;
+		}
+
 		/* If they are provided, check the Selfridge-Hurwitz residues: */
 		if(sh0) {
 			if(*sh0 != 0) {
@@ -4780,6 +4843,44 @@ TIMING_TEST_LOOP:
 				}
 			} else {	// If not a new-data self-tests (i.e. it's a regular -s one), getting here means the current radset succeeded:
 				nradix_set_succeed++;
+			}
+
+			/* v21: the self-test analogue of the stalled-iteration check in ernstMain(). A self-test case
+			runs a single checkpoint, so it has no earlier interval of its own to compare against; instead
+			compare across cases, where a case is (FFT length, exponent, iteration count). The several radix
+			sets of one case are expected to agree and are deliberately not compared against each other.
+			Two genuinely different cases colliding in 64 bits is a ~2^-64 event, so a hit means a run that
+			returned another case's residue rather than computing its own.
+			Most valuable in new-data mode, where there is no reference row to catch it: that is exactly how
+			the reference tables are generated, so a stall there would be baked in as ground truth forever. */
+			{
+				#define SELFTEST_RES64_MAX	4096
+				static struct { uint64 res, expo; uint32 fftlen, iters; } res64_seen[SELFTEST_RES64_MAX];
+				static uint32 n_res64_seen = 0;
+				uint64 cur_expo = (modType == MODULUS_TYPE_FERMAT) ? (uint64)FermVec[xNum].Fidx : (uint64)MvecPtr[xNum].exponent;
+				uint32 ii, idup = SELFTEST_RES64_MAX;
+				for(ii = 0; ii < n_res64_seen; ii++) {
+					if(res64_seen[ii].res != Res64) continue;
+					// Same case in all of length, exponent and iters: a sibling radix set agreeing. Expected.
+					if(res64_seen[ii].fftlen == (uint32)iarg && res64_seen[ii].expo == cur_expo && res64_seen[ii].iters == (uint32)iters) continue;
+					idup = ii; break;
+				}
+				if(idup < SELFTEST_RES64_MAX) {
+					fprintf(stderr, "  ***   Duplicate-Res64 Error   ***\n");
+					fprintf(stderr, " Res64 %016" PRIX64 " was already returned by a different case:\n", Res64);
+					fprintf(stderr, "   this   : FFT %u K, exponent %" PRIu64 ", %u iterations\n", (uint32)iarg, cur_expo, (uint32)iters);
+					fprintf(stderr, "   earlier: FFT %u K, exponent %" PRIu64 ", %u iterations\n", res64_seen[idup].fftlen, res64_seen[idup].expo, res64_seen[idup].iters);
+					fprintf(stderr, " Distinct cases cannot share a residue by chance - suspect a stalled computation.\n");
+					printMlucasErrCode(ERR_DUPLICATE_RES64);
+					runtime = 0.0; ++radix_set; continue;	// 'continue' targets the enclosing radix-set while-loop
+				}
+				if(n_res64_seen < SELFTEST_RES64_MAX) {
+					res64_seen[n_res64_seen].res    = Res64;
+					res64_seen[n_res64_seen].expo   = cur_expo;
+					res64_seen[n_res64_seen].fftlen = (uint32)iarg;
+					res64_seen[n_res64_seen].iters  = (uint32)iters;
+					n_res64_seen++;
+				}	// Table full: stop recording, but keep checking against what we have.
 			}
 
 			/* 16 Dec 2007: Added the (runtime != 0) here to workaround the valid-timing-test-but-runtime = 0
