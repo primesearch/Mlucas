@@ -1770,7 +1770,7 @@ MME = 0;
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			restart = TRUE;
 			if(qlo >= B2) {	// qlo >= S2 upper limit - nothing to do but proceed to gcd
-				snprintf(cbuf,STR_MAX_LEN*2, "INFO: %s savefile q[%" PRIu64 "] >= B2[%" PRIu64 "] ... stage 2 for this interval is complete; proceeding to GCD of the stage 2 residue.\n",func,qlo,B2);
+				snprintf(cbuf,sizeof(cbuf), "INFO: %s savefile q[%" PRIu64 "] >= B2[%" PRIu64 "] ... stage 2 for this interval is complete; proceeding to GCD of the stage 2 residue.\n",func,qlo,B2);
 				mlucas_fprint(cbuf,pm1_standlone+1);
 				// k is used as a scratch variable by the MULTITHREAD setup code above, so (re)zero the
 				// bigstep-block counters to make the ensuing "#blocks/#modmul" summary print accurate:
