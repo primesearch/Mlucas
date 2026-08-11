@@ -1366,6 +1366,13 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	if(fwd_fft == 1)
 		return 0;	// Skip carry step [and preceding inverse-FFT] in this case
 
+	/* The Pépin-test random-bit residue-doubling done by the carry routines is the multiplicative partner of the
+	'shift = 2*shift + randbit' update just below: it belongs to the shift-carrying main residue chain and to nothing
+	else. Tell the carry routines whether the array we are about to process is that chain. Without this, the doubling
+	also gets applied to the Gerbicz check-product update and to the check's squaring chain - neither of which carries
+	a shift - which multiplies those by unaccounted-for powers of 2 and makes the Gerbicz check fail: */
+	FERMAT_RANDBIT_MULT = update_shift;
+
 	// Update RES_SHIFT via mod-doubling, *** BUT ONLY IF IT'S AN AUTOSQUARE ***:
 	if(update_shift) {
 		/* Update RES_SHIFT via mod-doubling-and-add-random-bit. If initial RES_SHIFT = 0 the 'random' bit array = 0, so RES_SHIFT remains 0:
