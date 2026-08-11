@@ -71,25 +71,6 @@ me at: heber.tomer@gmail.com
 
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
-// MacOS has its own versions of these, in /usr/include/X11/Xthreads.h:
-static void * xmalloc(size_t len) {
-	void *ptr = malloc(len);
-	if (ptr == NULL) {
-		printf("failed to allocate %u bytes\n", (uint32)len);
-		exit(-1);
-	}
-	return ptr;
-}
-
-static void * xcalloc(size_t num, size_t len) {
-	void *ptr = calloc(num, len);
-	if (ptr == NULL) {
-		printf("failed to calloc %u bytes\n", (uint32)(num * len));
-		exit(-1);
-	}
-	return ptr;
-}
-
 	#define THREAD_POOL_DEBUG	0
 
 	#if THREAD_POOL_DEBUG
@@ -105,7 +86,7 @@ static void * xcalloc(size_t num, size_t len) {
 		queue->tail = 0;
 		queue->num_tasks = 0;
 		queue->max_tasks = max_tasks;
-		queue->tasks = (void **)xcalloc(max_tasks, sizeof(void *));
+		queue->tasks = (void **)CALLOC(max_tasks, sizeof(void *));
 	}
 
 	static void threadpool_queue_free(struct threadpool_queue *queue)
@@ -653,7 +634,7 @@ static void * xcalloc(size_t num, size_t len) {
 				thread_control_t *t)
 	{
 		int i;
-		struct threadpool *pool = (struct threadpool *)xcalloc(1,
+		struct threadpool *pool = (struct threadpool *)CALLOC(1,
 						sizeof(struct threadpool));
 
 		/* Init the mutex and cond vars. */
@@ -686,7 +667,7 @@ static void * xcalloc(size_t num, size_t len) {
 		/* Init the queues. */
 		threadpool_queue_init(&(pool->tasks_queue), queue_size);
 		threadpool_queue_init(&(pool->free_tasks_queue), queue_size);
-		pool->tasks = (task_control_t *)xmalloc(queue_size *
+		pool->tasks = (task_control_t *)MALLOC(queue_size *
 						sizeof(task_control_t));
 
 		/* Add all the free tasks to the free tasks queue. */
