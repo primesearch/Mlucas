@@ -2306,8 +2306,15 @@ READ_RESTART_FILE:
 		/*...reset loop parameters and begin next iteration cycle...	*/
 		ilo = ihi;
 		ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
-		// If Fermat-mod-with-residue-shift, re-init the random-offset-bit array:
-		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && update_shift) {
+		/* If Pépin-test-with-residue-shift, re-init the random-offset-bit array. Note the TEST_TYPE clause: the
+		random-bit scheme (residue *= 2 whenever the shift update picks up a 1 bit) exists only for the Pépin test,
+		where PRP_BASE is set to 2 for exactly that purpose. A Fermat-mod *PRP* test - i.e. the PRP phase of a
+		PRP-CF run - shares this code path but has its own, unrelated use for BASE_MULTIPLIER_BITS (the LR-modpow
+		multiply-by-base bits), which the TEST_TYPE_PRP clause far above deliberately zeroes because the G-check
+		needs an all-squarings chain. Without the clause, this refill overwrote those zeros from the second
+		checkpoint interval on, and the carry step then multiplied the residue by PRP_BASE - 3 for a 3-PRP test -
+		while the shift bookkeeping credited it with a factor of 2, silently corrupting the residue: */
+		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && update_shift) {
 			j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6);
 			for(i = 0; i < j; i++) { BASE_MULTIPLIER_BITS[i] = rng_isaac_rand(); }; i = ITERS_BETWEEN_CHECKPOINTS&63;	// i = #low bits used in high limb
 		//	fprintf(stderr,"Iter %u: random-bit-array popcount = %u\n",ilo,mi64_popcount(BASE_MULTIPLIER_BITS,j) - popcount64(BASE_MULTIPLIER_BITS[j-1] >> i));
