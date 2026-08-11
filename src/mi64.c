@@ -5784,13 +5784,10 @@ static uint32 mi64_word32(const uint64 x[], uint32 i)
 }
 
 /// Fast is-divisible-by-32-bit-scalar using Montgomery modmul and right-to-left modding:
-/*** NOTE *** Routine assumes x[] is a uint64 array cast to uint32[], hence the doubling-of-len
-is done HERE, i.e. user must supply uint64-len just as for the 'true 64-bit' mi64 functions!
-In other words, these kinds of compiler warnings are expected:
-
-	mi64.c: In function ‘mi64_div_y32’:
-	warning: passing argument 1 of ‘mi64_is_div_by_scalar32’ from incompatible pointer type
-	note: expected ‘const uint32 *’ but argument is of type ‘uint64 *’
+/*** NOTE *** len is the uint64 length, just as for the 'true 64-bit' mi64 functions; the
+doubling to a 32-bit word count is done HERE. x[] is read as uint64 throughout and the 32-bit
+words are extracted with mi64_word32(), so there is no uint64-array-viewed-as-uint32[] cast
+and none of the incompatible-pointer warnings that used to be expected here.
 */
 #ifdef __CUDA_ARCH__
 __device__
@@ -5815,7 +5812,7 @@ int mi64_is_div_by_scalar32(const uint64 x[], uint32 q, uint32 len)
 		qinv = qinv*((uint32)2 - q*qinv);
 	}
 	cy = (uint32)0;
-	dlen = len+len;	/* Since are processing a uint64 array cast to uint32[], double the #words parameter */
+	dlen = len+len;	/* Each uint64 limb holds two 32-bit words, so the word loop runs twice the uint64 len */
 	for(i = 0; i < dlen; ++i) {
 		const uint32 xcur = mi64_word32(x,i);
 		tmp  = xcur - cy;
@@ -5838,7 +5835,7 @@ int		mi64_is_div_by_scalar32p(const uint64 x[], uint32 q, uint32 qinv, uint32 le
 
 	ASSERT(qinv == qinv*((uint32)2 - q*qinv), "mi64_is_div_by_scalar32p: bad qinv!");
 	cy = (uint32)0;
-	dlen = len+len;	/* Since are processing a uint64 array cast to uint32[], double the #words parameter */
+	dlen = len+len;	/* Each uint64 limb holds two 32-bit words, so the word loop runs twice the uint64 len */
 	for(i = 0; i < dlen; ++i) {
 		const uint32 xcur = mi64_word32(x,i);
 		tmp  = xcur - cy;
@@ -8083,13 +8080,10 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 // Divide-with-Remainder of x by y, where x is a multiword base 2^64 integer and y a 32-bit unsigned scalar.
 // Returns 32-bit remainder in the function result and (optionally, if q-array pointer != 0) quotient x/y in q[].
 // Allows division-in-place, i.e. x == q.
-/*** NOTE *** Routine assumes x[] is a uint64 array cast to uint32[], hence the doubling-of-len
-is done HERE, i.e. user must supply uint64-len just as for the 'true 64-bit' mi64 functions!
-In other words, these kinds of compiler warnings are expected:
-
-	mi64.c: In function ‘mi64_div_y32’:
-	warning: passing argument 1 of ‘mi64_is_div_by_scalar32’ from incompatible pointer type
-	note: expected ‘const uint32 *’ but argument is of type ‘uint64 *’
+/*** NOTE *** len is the uint64 length, just as for the 'true 64-bit' mi64 functions; the
+doubling to a 32-bit word count is done HERE. x[] is read as uint64 throughout and the 32-bit
+words are extracted with mi64_word32(), so there is no uint64-array-viewed-as-uint32[] cast
+and none of the incompatible-pointer warnings that used to be expected here.
 */
 #ifdef __CUDA_ARCH__
 __device__
