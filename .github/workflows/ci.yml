@@ -211,6 +211,60 @@ jobs:
             done
         done
 
+  Linux-KNL:
+    name: Mlucas KNL
+
+    # Pinned, not 'latest': -march=knl and the ER/PF extensions were deprecated in GCC 14 and removed
+    # in GCC 15. The build degrades gracefully without them (see makemake.sh), but 24.04's GCC 13 is
+    # the last stock toolchain that can target Knights Landing properly, so test with it while it lasts.
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      # Intel SDE 9.38 and later removed the -knl/-knm knobs, and Intel no longer serves any
+      # pre-9.38 build -- downloadmirror.intel.com returns 403 for 9.24, 9.27 and 9.33 alike.
+      # 9.24.0 is therefore hosted as a release asset on this repository, byte-identical to
+      # Intel's original and redistributed under the Intel Simplified Software License, which
+      # permits redistribution without modification. See the ci-intel-sde-9.24.0 release.
+      SDE_URL: https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz
+      SDE_SHA256: 87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac
+      SDE_DIR: sde-external-9.24.0-2023-07-13-lin
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libgmp-dev
+    - name: Install Intel SDE
+      run: |
+        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        # Verify before unpacking: the pin is what makes a hosted binary trustworthy.
+        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        mkdir -p "$SDE_DIR"
+        tar -xf sde.tar.xz -C "$SDE_DIR" --strip-components=1
+        rm -f sde.tar.xz
+    - name: Before script
+      run: |
+        $CC --version
+        "./$SDE_DIR/sde64" --version
+    - name: Build
+      run: |
+        bash -e -o pipefail -- makemake.sh avx512_knl
+    - name: Self-test under emulated Knights Landing
+      run: |
+        # -knl sets both CPUID and SDE's chip check, so any instruction outside the KNL ISA aborts
+        # the run rather than silently working on the AVX-512 host. That is the point of this job:
+        # an 'avx512' (Skylake-SP) build dies here on kmovd, which is exactly the regression to catch.
+        cd obj_avx512_knl
+        "../$SDE_DIR/sde64" -knl -- ./Mlucas -s tt 2>&1 | tee knl.log
+        st=${PIPESTATUS[0]}
+        echo "Self-test exit status: $st"
+        # 0 = ok, 2 = too few usable radix sets at some length (informational). Anything else fails.
+        if (( st != 0 && st != 2 )); then exit "$st"; fi
+
   ASan-Linux:
     name: AddressSanitizer Linux
 

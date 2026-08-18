@@ -266,9 +266,27 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-DUSE_AVX512 -march=skylake-avx512 -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma)
 			;;
 		avx512_knl)
-			echo "Building for avx512_knl SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
-			echo "Warning: The 'avx512_knl' option is deprecated, use 'avx512' instead."
-			ARGS+=(-DUSE_AVX512 -march=knl -mavx512f -mavx512cd -mavx512er -mfma)
+			echo "Building for AVX-512 on Knights Landing / Knights Mill in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
+			# NOT interchangeable with the 'avx512' mode: KNL/KNM implement only AVX512F + CD (+ ER/PF),
+			# with no DQ, BW or VL. An 'avx512' build targets Skylake-SP and will SIGILL on a Xeon Phi -
+			# the first thing it hits is 'kmovd' (BW; KNL has only the 16-bit 'kmovw'), and any
+			# EVEX-encoded 256-bit op would need VL. So keep this mode, and keep it free of dq/bw/vl.
+			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mfma)
+			# -march=knl and the ER/PF extensions were deprecated in GCC 14, removed in GCC 15, and are
+			# gone from recent Clang too. The build does not need them - it compiles and links with
+			# just f/cd/fma - so probe for each and carry on without whichever the toolchain has
+			# dropped, rather than failing outright on a modern compiler:
+			# Warn per dropped flag: the build still runs on KNL/KNM without them, but it is
+			# tuned for a generic AVX-512 target and ER/PF-backed reciprocal and prefetch
+			# sequences are unavailable, so it will be slower than the user is expecting.
+			for knl_flag in -march=knl -mavx512er -mavx512pf; do
+				# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+				if try_flag "$knl_flag"; then
+					ARGS+=("$knl_flag")
+				else
+					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result will still run on Knights Landing/Mill, but slower than a toolchain retaining Knights support would produce." >&2
+				fi
+			done
 			;;
 		avx512)
 			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
