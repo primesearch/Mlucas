@@ -335,6 +335,36 @@ jobs:
     - name: ShellCheck
       run: shellcheck --version; shopt -s globstar; shellcheck -o avoid-nullary-conditions,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
 
+  Inline-asm-clobbers:
+    name: Inline-asm clobber lint
+
+    # Flags x86 inline-asm blocks that use a hard register which is neither bound
+    # to an operand nor declared clobbered. The compiler is then free to keep a
+    # live value in that register across the asm, and the asm destroys it -- a
+    # wrong residue or a SIGSEGV that reads as a compiler bug. Five instances have
+    # been found in this tree, four of them first misdiagnosed as gcc/clang codegen
+    # defects.
+    #
+    # No sanitizer can see this class: there is no C-level operation to instrument,
+    # and the instrumentation perturbs register allocation enough that the symptom
+    # often disappears. A static check is the only thing that catches it.
+    #
+    # main is currently clean, so there is no baseline file and any finding fails
+    # the job. If a finding ever has to be accepted, record it with
+    #     python3 asm-clobber-lint.py --write-baseline
+    # which writes asm-clobber-baseline.txt; the job then fails only on findings
+    # outside that file.
+    #
+    # Deliberately no 'continue-on-error' and no pipe into 'tee': a CI job that
+    # cannot fail is not a CI job.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Self-test
+      run: python3 asm-clobber-lint.py --self-test
+    - name: Registers used vs registers declared
+      run: python3 asm-clobber-lint.py --jobs "$(nproc)"
+
   macOS:
     name: Mlucas macOS
 
