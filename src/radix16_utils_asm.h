@@ -419,7 +419,7 @@
 		 ,[__k1]  "m" (Xk1)\
 		 ,[__rt0] "m" (Xrt0)\
 		 ,[__rt1] "m" (Xrt1)\
-		: "cc","memory","rax","rbx","rcx","rdx","r8","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","k1","rax","rbx","rcx","rdx","r8","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 	}
 
