@@ -541,6 +541,22 @@ jobs:
       run: |
         set -ex -o pipefail
         sysctl -a
+        # Build every mode, but only run binaries this guest can actually execute. The VM is
+        # scheduled onto whatever host Azure has free, and AVX-512 availability varies with it;
+        # $CC -march=native is the reliable oracle, because the compiler consults XCR0 as well as
+        # CPUID and so knows whether the OS has enabled the state, not merely whether the silicon
+        # has the feature.
+        native=$($CC -dM -E -march=native - </dev/null)
+        runnable() {
+            case $1 in
+                ''|NOSIMD) return 0 ;;
+                SSE2)      echo "$native" | grep -q __SSE2__ ;;
+                AVX)       echo "$native" | grep -q __AVX__ ;;
+                AVX2)      echo "$native" | grep -q __AVX2__ ;;
+                AVX512)    echo "$native" | grep -q __AVX512F__ ;;
+                *)         return 1 ;;
+            esac
+        }
         for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
           echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
@@ -551,7 +567,9 @@ jobs:
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
-                    [ ! -x Mfactor${word:+_$word} ] || ./Mfactor${word:+_$word} -h
+                    if [ -x Mfactor${word:+_$word} ] && runnable "$mode"; then
+                        ./Mfactor${word:+_$word} -h
+                    fi
                 )
             done
         done
