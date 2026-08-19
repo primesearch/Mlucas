@@ -276,9 +276,20 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
       # Pinned and checksummed on purpose: with a floating "latest" download, an emulator
-      # change would surface as an unexplained residue mismatch. Any SDE >= 9.x supports -skx.
-      SDE_URL: https://downloadmirror.intel.com/850782/sde-external-9.53.0-2025-03-16-lin.tar.xz
-      SDE_SHA256: f55138df53378198e8c0a89598351cdb3c5e7f8819e63e472b0bc179afaad34c
+      # change would surface as an unexplained residue mismatch.
+      #
+      # Hosted here rather than fetched from Intel. Intel prunes old releases -- 9.24, 9.27 and
+      # 9.33 all return 403 from downloadmirror.intel.com today -- so an upstream pin is a build
+      # break waiting to happen. This asset is byte-identical to Intel's original, redistributed
+      # under the Intel Simplified Software License, which permits redistribution unmodified.
+      #
+      # 9.24.0 rather than a later kit because it is the last one that still has -knl/-knm, which
+      # the KNL job needs; using one version everywhere keeps a single asset and a single hash.
+      # Verified equivalent for this job's purposes: the teensy and tiny self-tests of an AVX-512
+      # build under -skx give identical residues on 9.24 and 9.53 (75 residues compared over the
+      # two stages), with mlucas.cfg matching apart from the msec/iter timing column.
+      SDE_URL: https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz
+      SDE_SHA256: 87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac
     steps:
     - uses: actions/checkout@v7
     - name: Install Intel SDE
