@@ -65,6 +65,11 @@ me at: heber.tomer@gmail.com
 #include "threadpool.h"
 #include "util.h"	// This is to get (or not) <hwloc.h>
 
+#ifdef __FreeBSD__
+#include <sys/param.h>
+#include <sys/cpuset.h>
+#endif
+
 #ifdef MULTITHREAD	// Wrap contents of this file in flag (set via platform.h at compile time) ensuring no code built in unthreaded mode
 
 	#define THREAD_POOL_DEBUG	0
