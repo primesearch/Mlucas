@@ -685,7 +685,7 @@ jobs:
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode || true
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
                 (
                     cd obj_mfac${word:+_$word}${mode:+_$mode}
                     make clean
