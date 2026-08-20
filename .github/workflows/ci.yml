@@ -760,15 +760,7 @@ jobs:
             for word in '' 1word 2word 3word 4word nword; do
                 echo -e "\nMfactor $word\n"
                 bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (
-                    cd obj_mfac${word:+_$word}${mode:+_$mode}
-                    make clean
-                    if [[ -x Mfactor${word:+_$word} ]]; then
-                        # Run Mfactor's test_fac() self-test (see #82) instead of -h; M(127) has no
-                        # factors <= 2^20 so the pass is quick. Mfactor already exits nonzero on failure.
-                        ./Mfactor${word:+_$word} -m 127 -bmax 20
-                    fi
-                )
+                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
             done
         done
         cd obj
@@ -778,6 +770,15 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
+        # coverage; running them means executing a binary this runner may not support, which is
+        # how the FreeBSD jobs came to SIGILL. Test the build matched to this host instead.
+        # Same substitution config-fermat.sh already makes above, and the loop above has already
+        # built these, so it costs no extra build time.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
