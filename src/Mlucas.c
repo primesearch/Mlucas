@@ -3616,6 +3616,28 @@ struct testMers MersVec[numTest+1] =
 	{  1664,  31835017ull, { {0xE10EFEAEDCF46110ull, 21648491345ull, 41207849648ull}, {0x8717F387BB55E1ECull, 17021700047ull, 59165499154ull}, {0x5CDA924B80871209ull, 22299652758ull, 41171353038ull} } },
 	{  1792,  34228133ull, { {0x9FC8394655E0334Eull,  1603847275ull, 51947401644ull}, {0x1128E4676929F8C8ull, 33342766910ull, 55912489998ull}, {0xE697B18729853BEEull, 25335158858ull, 63783469524ull} } },
 	{  1920,  36617407ull, { {0xB7FA68741ABA807Aull,  2831791183ull, 44591522415ull}, {0x0F635E0B2DC95F81ull, 24912661453ull, 45929081959ull}, {0x2B5BCFC6BA94177Aull,  7824653065ull, 62951001255ull} } },
+	/* 1984K is deliberately absent, and cannot be added as things stand.
+	Rows in this band use 99% of pmax_rec (see the "Cut to 99% of pmax_rec" clamp in the
+	-fft handling below); 1984K cannot run anywhere near that. Measured with gcc-13 AVX-2,
+	10000 iterations, the sole radix set 1984K offers (992,32,32):
+
+	    p = 38011873  (0.9900 x pmax_rec)  ERR_ROUNDOFF
+	    p = 37627913  (0.9800)             passes 100 iters, ERR_ROUNDOFF by 10000
+	    p = 37435949  (0.9750)             maxerr 0.402, clean
+	    p = 36860011  (0.9600)             maxerr 0.297, clean
+
+	Its neighbour 1920K holds its own 0.99 exponent at maxerr 0.297, so 1984K needs roughly
+	3% less exponent to reach the same roundoff. That is a property of the length, not of the
+	test: it reproduces at 1, 4 and 8 threads, and with the radix992 fixes applied.
+
+	A row here would therefore have to sit near 0.96-0.975, making it the only sub-0.99 entry
+	in a 136-row table and quietly encoding the shortfall as if it were normal. The honest
+	reading is that given_N_get_maxP() is over-optimistic for this length, or that radix992
+	loses more accuracy than its peers; either way the fix belongs there, after which this row
+	can be generated at 0.99 like every other.
+
+	1984K also has exactly one radix set, so there is no second set to fall back to when the
+	first is rejected - a marginal row here fails the whole length rather than degrading. */
 	/* Medium: */
 	{  2048,  39003229ull, { {0xEC810981F56D5EC7ull, 29671814311ull, 35851198865ull}, {0xC7979AEE894F6DDEull,  6017514065ull, 41670805527ull}, {0x4669B1DD352C46BCull,  4806501770ull, 33957162576ull} } },
 	{  2304,  43765019ull, { {0x672821643AEE9552ull, 19240824825ull,  8017358641ull}, {0x90CF100A46BE5B64ull, 24299840772ull, 29209909852ull}, {0xA280EC055C5ADAE2ull, 28830689436ull, 48353443940ull} } },
@@ -3771,6 +3793,10 @@ struct testMers MvecPRP[numTest+1] =
 	{  1664,  32156581ull, { {0x98A7C4D249C14A4Full, 20144152830ull, 56678356879ull}, {0xE5AEA4A688D5928Cull, 27069838966ull, 37265104256ull}, {0xE63FD6C1CF930EB2ull, 23334182391ull, 19780994645ull} } },
 	{  1792,  34573867ull, { {0xD42C4E48467FFFB7ull, 31980303049ull, 62848444803ull}, {0xE5C6F0D767DCBCB0ull, 26394307125ull, 19768489106ull}, {0xC8F429962FC0C412ull, 31086854861ull, 48294508690ull} } },
 	{  1920,  36987271ull, { {0xFF48564F7201B487ull, 25019473293ull, 10999816574ull}, {0x432CACFAC7536F31ull, 23972386709ull, 39242248517ull}, {0xA5FDDBF4742D26EDull,  7858251857ull, 16067544118ull} } },
+	/* 1984K is absent here for the same reason as in MersVec above: at 99% of pmax_rec it
+	exceeds the roundoff limit. PRP mode does not rescue it - the Gerbicz carve-out in
+	mers_mod_square.c only tolerates fracmax == 0.4375 exactly, and 1984K reaches 0.469 by
+	iteration 27. */
 	/* Medium: */
 	{  2048,  39397201ull, { {0x926CA6804251B3EEull, 28060637476ull, 49790249351ull}, {0x6489E97CBC5580AAull,  9625584894ull, 62826847344ull}, {0x053BC856B8BE4270ull,  4691188379ull, 60624374837ull} } },
 	{  2304,  44207087ull, { {0x02BB72063670F51Bull, 12694994014ull, 31300999610ull}, {0xDB77D5DBFD8297EDull, 20254637099ull, 52711100645ull}, {0x391A0B2307926600ull, 33289407481ull, 33078655462ull} } },
