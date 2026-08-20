@@ -2063,6 +2063,74 @@ if((q128.d1 >> 14) == 0) {
 
 #if(defined(P3WORD) || defined(P4WORD))
 
+	/* Test <= 96-bit factors using the 192-bit modmul routines.
+	This is NOT redundant with the 96- and 128-bit testing above, and it is the only coverage the
+	192-bit q-pipelined routines get below 2^90. A P3WORD build of factor.c feeds *every* candidate
+	to twopmodq192_q4 (factor.c:3599), including sub-2^64 ones - the runtime bit-length narrowing
+	which would hand those off to a narrower modpow is commented out at factor.c:3667-3671 - so
+	twopmodq192_q4 has to be correct for small q, not just for q near 2^128.
+	Before this loop existed the only twopmodq192_q4 coverage in test_fac() was the fac128x2 loop
+	below (q = 90...127 bits); the fac160/fac192 loops further down cannot supply any, since all of
+	their entries have k >= 2^64 and those routines take a 64-bit k. The carry-layer approximation
+	that MULH192_FAST used to apply on every non-x86_64-GCC platform lost 1458 of 1742 known
+	Mersenne factors that way, and passed the self-test unnoticed. fac96[] spans q = 60...96 bits,
+	with 158 entries at 65-66 bits, which is exactly where such small-q breakage shows up first;
+	build with -DPIPELINE_MUL192=1 to route these through the q-pipelined MUL macros. */
+#ifdef FACTOR_STANDALONE
+	printf("Testing 96-bit factors using the 192-bit modmul routines...\n");
+#endif
+	for(i = 0; fac96[i].p != 0; i++)
+	{
+		p64 = fac96[i].p;
+		p192.d0 = p64;	p192.d1 = p192.d2 = 0;		ADD192(p192, p192, two_p192);
+		q192.d2 = 0;	q192.d1 = (uint64)fac96[i].d1;	q192.d0 = fac96[i].d0;
+
+		// Compute k = (q-1)/2p, while verifying that q%2p = 1:
+		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
+		if(!CMPEQ192(res192, ONE192))
+		{
+			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
+					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
+			ASSERT(0,"0");
+		}
+		/* A handful of the fac96 entries have p > 2^32 and k >= 2^64; the q-pipelined routines
+		take a 64-bit k, so those simply are not expressible as inputs to them: */
+		if(x192.d2 != 0 || x192.d1 != 0)
+			continue;
+
+		res192 = twopmodq192(p192, q192);
+		if(!CMPEQ192(res192, ONE192))
+		{
+			fprintf(stderr,"ERROR: twopmodq192( %s, %s ) returns non-unity result %s\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
+					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
+			ASSERT(0,"0");
+		}
+
+	#if(TRYQ == 4)
+		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
+		if(res64 != 15)
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
+			ASSERT(0,"0");
+		}
+	#elif(TRYQ == 8)
+		res64 = twopmodq192_q8((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
+		if(res64 != 255)
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
+			ASSERT(0,"0");
+		}
+	#endif
+	}
+
 	/* Test 128-bit factors using the 160 and 192-bit modmul routines */
 #ifdef FACTOR_STANDALONE
 	printf("Testing 128x2-bit factors using 160 and 192-bit modmul routines...\n");
@@ -2132,6 +2200,70 @@ if((q128.d1 >> 14) == 0) {
 			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
 					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
 					&cbuf1[convert_uint192_base10_char(cbuf1, q192)], (uint32)res64);
+			ASSERT(0,"0");
+		}
+	#endif
+	}
+
+	/* Test factors > 128 bits using the 192-bit modmul routines.
+
+	This is the only coverage twopmodq192_q4/_q8 get above 2^128, which is the size range the
+	192-bit modpow exists for. The fac128x2 loop just above tops out at q = 127 bits; the fac160
+	and fac192 loops just below contribute nothing, because those routines take a 64-bit k and
+	every fac160/fac192 entry has k >= 2^64. Closing the gap needs constructed vectors - see the
+	fac192p[] comment in fac_test_dat192.h for why no catalogued factor can supply one, and for
+	why the expected result is a per-lane mask rather than the usual all-ones.
+
+	The regimes this reaches and the fac128x2 loop does not: q with a nonzero top word throughout
+	the modmul, exponents p that are themselves multiword (both the pshift.d1 and the pshift.d2
+	arms of the leading-bit extraction above are otherwise never taken - fac128x2's p is 128-bit
+	and everything else here is 64-bit), and q within a few bits of the 2^192 ceiling. */
+#ifdef FACTOR_STANDALONE
+	printf("Testing >128-bit factors using the 192-bit modmul routines...\n");
+#endif
+	for(i = 0; fac192p[i].res != 0; i++)
+	{
+		p192.d2 = fac192p[i].p2;	p192.d1 = fac192p[i].p1;	p192.d0 = fac192p[i].p0;
+		ADD192(p192, p192, two_p192);
+
+		/* Cross-check each lane that is supposed to be a genuine factor against the scalar
+		192-bit modpow, which takes q directly rather than deriving it from k: */
+		for(j = 0; j < 4; j++)
+		{
+			if(((fac192p[i].res >> j) & 1) == 0)	continue;
+			ASSERT(!mi64_mul_scalar((uint64*)&two_p192, fac192p[i].k[j], (uint64*)&q192, 3), "q = 2.k.p+1 must be < 2^192!");
+			q192.d0 += 1;	/* 2.k.p is even, so this cannot carry */
+			res192 = twopmodq192(p192, q192);
+			if(!CMPEQ192(res192, ONE192))
+			{
+				fprintf(stderr,"ERROR: twopmodq192( %s, %s ) returns non-unity result %s\n",
+						&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+						&cbuf1[convert_uint192_base10_char(cbuf1, q192)],
+						&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
+				ASSERT(0,"0");
+			}
+		}
+
+	#if(TRYQ == 4)
+		res64 = twopmodq192_q4((uint64*)&p192, fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]);
+		if(res64 != (uint64)fac192p[i].res)
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q4( %s, k = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 " ) returns %#1X, expected %#1X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3],
+					(uint32)res64, fac192p[i].res);
+			ASSERT(0,"0");
+		}
+	#elif(TRYQ == 8)
+		/* Feed the same four k twice, so the expected mask is simply doubled up: */
+		res64 = twopmodq192_q8((uint64*)&p192, fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]
+											 , fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]);
+		if(res64 != (uint64)(fac192p[i].res + (fac192p[i].res << 4)))
+		{
+			fprintf(stderr,"ERROR: twopmodq192_q8( %s, k = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 " x2 ) returns %#2X, expected %#2X.\n",
+					&cbuf0[convert_uint192_base10_char(cbuf0, p192)],
+					fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3],
+					(uint32)res64, fac192p[i].res + (fac192p[i].res << 4));
 			ASSERT(0,"0");
 		}
 	#endif
