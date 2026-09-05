@@ -74,8 +74,8 @@ file (in previous versions of Mlucas this file was named `worktodo.ini`) with en
 formats below.
 
 Only assignments for ECM factoring of Fermat numbers are distributed by Primenet, so work assignments 
-cannot be obtained for Fermat numbers using the `primenet.py` script. However _p_–1 results for Fermat 
-numbers up to _F_<sub>29</sub> may be submitted to [mersenne.org](https://www.mersenne.org/manual_result/) as Manual results.
+cannot be obtained for Fermat numbers using AutoPrimeNet. However _p_–1 results for Fermat 
+numbers up to _F_<sub>29</sub> may be submitted using AutoPrimeNet or to [mersenne.org](https://www.mersenne.org/manual_result/) as Manual results.
 
 ## Primality testing: Pépin’s test
 

@@ -9,28 +9,36 @@ Mlucas and Mfactor are 100% open source programs. Mlucas is for [primality](http
 
 Feature | | Mlucas | Prime95/MPrime
 --- | --- | ---: | ---:
-**Architectures** | x86 | ✔️ | ✔️
-\- | ARM | ✔️ | 
+**Architectures** | x86 - SSE2 | ✔️ | ✔️
+\- | x86 - AVX | ✔️ | ✔️
+\- | x86 - AVX2 | ✔️ | ✔️
+\- | x86 - FMA3 | ✔️ | ✔️
+\- | x86 - IMCI512 | ✔️ | 
+\- | x86 - AVX512 | ✔️ (F, CD<br>KNL: F, CD, ER) | ✔️ (F, optional DQ)
+\- | ARM - ASIMD | ✔️ | 
 \- | Other | ✔️ | 
 **Worktypes** | LL | ✔️ | ✔️
 \- | PRP | ✔️ | ✔️
+\- | TF | Mfactor | ✔️
 \- | P-1 | ✔️ | ✔️
 \- | P+1 | | ✔️
 \- | ECM | | ✔️
-\- | Pépin | ✔️ | ✔️
-**PRP** | Proofs | | ✔️
-\- | Certs | | ✔️
-**Error Checking** | Jacobi | | ✔️
-\- | Gerbicz | ✔️ | ✔️
+\- | Pépin | ✔️ | PRP
+\- | Suyama | ✔️ | 
+**PRP** | Proof generation | | ✔️
+\- | Proof certification | | ✔️
+**Error Checking** | Jacobi (LL/P-1) | | LL only
+\- | Gerbicz (PRP/Pépin) | ✔️ | ✔️
 **Random Shifts** | | ✔️ | ✔️
 **Interface** | CLI | ✔️ | MPrime only
 \- | GUI | | Prime95 only
-**Multiple Workers** | | Separate runs | ✔️
-**PrimeNet Support** | | Separate program | ✔️
-**Max FFT Length** | | 256M<br>(**512M** with 0 shift) | 32M (AVX) -<br>64M (AVX512)
-**Largest Exponent** | | 4,294,967,231<br>(**8,937,021,911** with 0 shift) | 595,700,000 (AVX) -<br>1,169,000,000 (AVX512)
-**Performance** | | ~50-90% | **100%**
-**Free** 🆓 | | **Yes**, GPL | No, EULA
+**Multithreaded** | | ✔️ | ✔️
+**Multiple Workers** | | Separate runs/processes | ✔️
+**PrimeNet Support** | | AutoPrimeNet | ✔️
+**Max FFT Length** | | **512M** | 32M (AVX)<br>50M (FMA3)<br>64M (AVX512)
+**Largest Exponent** | | **8,937,021,911** | 595,700,000 (AVX)<br>922,668,300 (FMA3)<br>1,169,000,000 (AVX512)
+**Relative Performance** | | ~50-90% | **100%**
+**Free** 🆓 | | **Yes**, GPLv2 | No, EULA
 **100% Open Source** | | ✔️ | Mostly
 **Claim Full EFF Awards** | | ✔️ | 
 
