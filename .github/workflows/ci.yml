@@ -11,6 +11,7 @@ on:
       - '**.md'
       - 'docs/**'
       - 'LICENSE'
+      - 'help.txt'
   schedule:
     - cron:  '0 0 1 * *'
 
