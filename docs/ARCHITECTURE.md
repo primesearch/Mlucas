@@ -6,8 +6,22 @@ authoritative references remain Ernst's own detailed
 [README webpage](https://mersenneforum.org/mayer/README.html), the hundreds
 of posts he and others have written on
 [mersenneforum.org](https://mersenneforum.org/), the `help.txt` file shipped
-with the source, and the peer-reviewed research papers describing the
-underlying algorithms. This page is a *supplementary* guided tour of the main
+with the source, and the research papers describing the underlying algorithms.
+Those Ernst authored or co-authored, against the parts of the code they cover:
+
+- Crandall, Mayer & Papadopoulos, [*The twenty-fourth Fermat number is
+  composite*](https://mersenneforum.org/mayer/F24.pdf), Mathematics of
+  Computation **72**(243), 1555–1572, 2002 — the Pépin test and the
+  floating-point DWT that Mlucas still uses for Fermat-mod squaring (§2, §3).
+- Mayer, [*Efficient long division via Montgomery multiply*](https://arxiv.org/abs/1303.0328),
+  2013 — background for the `mi64` division and modmul paths (§5).
+- ["Prime Number Discovery: Use ODROID-C2 To Make Mathematical
+  History"](https://magazine.odroid.com/article/prime-number-discovery-use-odroid-c2-make-mathematical-history/),
+  ODROID Magazine — a non-specialist account of running Mlucas on ARM.
+
+Further links, including work by others, are collected on the README webpage
+and on [Ernst's resume page](https://mersenneforum.org/mayer/resume.html).
+This page is a *supplementary* guided tour of the main
 subsystems and where to find them in the code, aimed at getting a new
 contributor to a working mental model in about 20 minutes. It intentionally
 stays conceptual + points-at-code; for the deep math, follow the cross-links
@@ -181,9 +195,13 @@ tables, block indices, etc. each worker needs, and dispatch chunks via
 CPU affinity is handled in the same file: if built with `hwloc`, threads are
 pinned via `hwloc_set_cpubind()` using logical-CPU
 objects looked up from the runtime topology; without hwloc it falls back to
-raw `sched_setaffinity()`/`CPU_SET` on Linux, `cpuset_setaffinity()` on
-FreeBSD, or is left to the OS on OpenBSD (all in `threadpool.c`). hwloc is
-optional at build time per the top-level README.
+raw per-platform calls (all in `threadpool.c`): `sched_setaffinity()`/`CPU_SET`
+on Linux, `cpuset_setaffinity()` on FreeBSD, `SetThreadGroupAffinity()` on
+Windows and MinGW — the group form rather than `SetThreadAffinityMask()`, so
+that systems with more than 64 logical CPUs, which Windows partitions into
+processor groups, are addressable — and `thread_policy_set()` with
+`THREAD_AFFINITY_POLICY` on macOS. hwloc is optional at build time per the
+top-level README.
 
 ## 2. Test types and the top-level driver
 
@@ -412,9 +430,23 @@ library underlying all of this: arrays of `uint64` limbs with add/sub
 (`mi64_modpow_lr`, `mi64_twopmodq`/`mi64_twopmodq_qmmp`), and the
 bit/scalar utilities the rest of the codebase
 leans on for anything that doesn't fit in a native 64/128-bit integer.
-Beyond trial factoring, this same library backs P-1 stage 2 arithmetic and
-the GCD step used by cofactor-PRP (which, as noted in §2, requires GMP at
-build time).
+Beyond trial factoring, this same library backs P-1 stage 2 arithmetic and the
+GCD step used by P-1 and cofactor-PRP. Those two halves meet in `gcd()` in
+`src/Mlucas.c`, and it is worth being precise about which does what: the residue
+reaches `gcd()` as a plain `mi64` limb array (`uint64 *vec1` plus an `nlimb`
+count), and the bridge is GMP's own `mpz_import()` — least-significant limb
+first, 64 bits per word — rather than any `mi64` helper. From there everything
+is GMP: the modulus `2^p - 1` or `2^p + 1` is built with `mpz_mul_2exp()` and
+`mpz_sub()`/`mpz_add()`, `mpz_gcd()` does the subquadratic work, and known
+factors are imported and divided out with `mpz_tdiv_qr()`. The answer comes back
+not as limbs but as a decimal string in `gcd_str`, with the return value acting
+as the found/not-found flag.
+
+So `mi64` owns the residue representation and everything that produces it, while
+GMP owns the GCD itself. That is why GMP is a build-time requirement for these
+paths — with `INCLUDE_GMP == 0` the file emits `#warning ... No GCDs will be
+done on p-1 outputs` and the step is simply skipped — even though GMP is nowhere
+near the hot loop.
 
 ## 6. Savefiles / restart
 
