@@ -38,6 +38,16 @@ extern "C" {
 #ifdef USE_GPU	// GPU-compiles disable use of x86_64 inline-asm routines:
 	#define NO_ASM
 #endif
+// AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that the hand-tuned
+// all-14-GPR-clobber inline-asm here hits 'operand has impossible constraints' (GCC PR23200); since
+// these routines have a portable-C fallback, disable the asm under ASan and use it:
+#if defined(__SANITIZE_ADDRESS__)
+	#define NO_ASM
+#elif defined(__has_feature)
+	#if __has_feature(address_sanitizer)	/* older Clang: no __SANITIZE_ADDRESS__ predefine */
+		#define NO_ASM
+	#endif
+#endif
 // On x86_64, compile-time NO_ASM flag allows us to override the normally auto-set YES_ASM flag:
 #ifndef NO_ASM
   #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))

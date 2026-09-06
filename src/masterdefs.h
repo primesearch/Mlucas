@@ -45,6 +45,23 @@
 	#include <console.h>	/* Macintosh CW */
 #endif
 
+/* AddressSanitizer's shadow-memory instrumentation elevates GPR pressure enough that
+the hand-tuned all-14-GPR-clobber SIMD DFT macros (e.g. SSE2_RADIX_11/13_DFT) can no longer be register-
+allocated ('operand has impossible constraints', GCC PR23200). Those macros have no non-asm fallback within
+a given SIMD build mode, so we suppress ASan *instrumentation* (not the asm) on the enclosing carry routines;
+the asm itself is unchanged, so run-time performance of normal builds is unaffected. */
+#if defined(__SANITIZE_ADDRESS__)
+	#define ATTR_NO_ASAN	__attribute__((no_sanitize_address))
+#elif defined(__has_feature)
+	#if __has_feature(address_sanitizer)	/* older Clang: no __SANITIZE_ADDRESS__ predefine */
+		#define ATTR_NO_ASAN	__attribute__((no_sanitize_address))
+	#else
+		#define ATTR_NO_ASAN
+	#endif
+#else
+	#define ATTR_NO_ASAN
+#endif
+
 #undef  EWM_DEBUG
 #define EWM_DEBUG		0	/* Set = 1 to turn on various debugging diagnostics, especially DBG_ASSERT, defined in util.c . */
 
