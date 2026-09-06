@@ -227,6 +227,14 @@ assignment syntax; parsing detail in a long comment in `Mlucas.c`):
 | `Pfactor=` | P-1 factoring, bounds chosen from TF depth / tests-saved |
 | `Factor=` (`#if INCLUDE_TF`) | Trial factoring |
 
+There is **no PRP proof-generation or certification support**, despite the v21
+entry on the README webpage listing "PRP-proof support" (that entry is unfinished
+— it reads `*** add details ***`). Nothing writes a proof file, no `Cert=`
+worktype is parsed, `help.txt` documents no proof option, and the one trace in
+the source, a `cert_squarings` field, is declared in a struct and never read.
+Worth knowing before going looking for it: a PRP run here produces a residue and
+a Gerbicz check, not a certificate.
+
 Assignment/test identification uses two small enums in `Mdata.h`:
 
 - `MODULUS_TYPE_MERSENNE` / `MODULUS_TYPE_FERMAT` (plus a few rarer ones:
@@ -452,8 +460,10 @@ near the hot loop.
 
 Checkpointing is handled by the `write_ppm1_savefiles()`/`read_ppm1_savefiles()`
 pair (in `Mlucas.c`), written every `ITERS_BETWEEN_CHECKPOINTS`
-iterations (default depends on thread count; overridable via `CheckInterval=`
-in `mlucas.ini` — `help.txt` §11). The on-disk format is documented in a long
+iterations. The default is thread-count dependent — 10000 for <= 4 threads and
+100000 for more (`Mlucas.c`, around the `Setting ITERS_BETWEEN_CHECKPOINTS`
+message) — and is overridable via `CheckInterval=` in `mlucas.ini`
+(`help.txt` §11), which rejects values below 1000. The on-disk format is documented in a long
 comment immediately preceding these functions (search
 `"Set of functions to Read/Write full-length residue data"` in `Mlucas.c`)
 that traces back to Richard Crandall's original 1998 F24 "Pepin residue
