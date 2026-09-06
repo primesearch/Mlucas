@@ -9501,11 +9501,11 @@ char *quote_spaces(char *dest, char *src)
 /* MinGW's mkdir() takes no mode argument, and MSVC spells it _mkdir(); both live in <direct.h>: */
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <direct.h>
-	#define MKDIR_P_ONE(p)	_mkdir(p)
+	#define MKDIR(p)	_mkdir(p)
 #else
 	#include <sys/types.h>
 	#include <sys/stat.h>
-	#define MKDIR_P_ONE(p)	mkdir((p), 0777)
+	#define MKDIR(p)	mkdir((p), 0777)
 #endif
 #define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
 
@@ -9532,17 +9532,23 @@ int mkdir_p(char *path)
 	'rm -f' to clear the probe file - none of which exist under cmd.exe, so the whole function
 	was unusable on Windows for the same reason as issue #50. Going through the C library
 	instead is both portable and cheaper, and removes the shell-quoting round-trip entirely.
-	mkdir() failing because a component already exists is the common case on every startup
-	after the first, so per-component errors are ignored here; the writability probe below is
-	what actually determines the return value.  */
+	Per-component errors are deliberately ignored, and the writability probe below is what
+	determines the return value. Bailing out on anything other than EEXIST would be wrong:
+	a component that already exists is the common case on every startup after the first, but
+	not every prefix that fails is a problem either. On Windows a UNC path's leading
+	'\\server' component reports ENOENT rather than EEXIST, so an early return there would
+	reject '\\server\share\...' even though the full path is perfectly creatable. (Drive
+	letters are fine - '_mkdir("C:")' does report EEXIST.) On POSIX the question does not
+	arise: intermediate components only ever return success or EEXIST, and a genuine failure
+	such as EACCES lands on the leaf, which the probe catches anyway.  */
 	for (p = tmp + 1; *p != '\0'; ++p) {
 		if (*p == '/' || *p == '\\') {
 			char sep = *p;	*p = '\0';
-			(void)MKDIR_P_ONE(tmp);
+			(void)MKDIR(tmp);
 			*p = sep;
 		}
 	}
-	(void)MKDIR_P_ONE(tmp);
+	(void)MKDIR(tmp);
 
 	/* Confirm the directory exists and is writable by creating and removing a file in it: */
 	if (len + sizeof(MKDIR_P_PROBE) + 1 > sizeof(tmp))
