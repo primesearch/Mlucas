@@ -321,19 +321,33 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			# the first thing it hits is 'kmovd' (BW; KNL has only the 16-bit 'kmovw'), and any
 			# EVEX-encoded 256-bit op would need VL. So keep this mode, and keep it free of dq/bw/vl.
 			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mfma)
-			# -march=knl and the ER/PF extensions were deprecated in GCC 14, removed in GCC 15, and are
-			# gone from recent Clang too. The build does not need them - it compiles and links with
-			# just f/cd/fma - so probe for each and carry on without whichever the toolchain has
-			# dropped, rather than failing outright on a modern compiler:
-			# Warn per dropped flag: the build still runs on KNL/KNM without them, but it is
-			# tuned for a generic AVX-512 target and ER/PF-backed reciprocal and prefetch
-			# sequences are unavailable, so it will be slower than the user is expecting.
-			for knl_flag in -march=knl -mavx512er -mavx512pf; do
+			# -march=knl was deprecated in GCC 14 and removed in GCC 15, and is gone from recent
+			# Clang too. Without it the build still compiles and links against f/cd/fma alone, but
+			# the result is NOT KNL-safe: GCC 15 and 16 then emit AVX512VL encodings, which Knights
+			# Landing does not implement. Measured by compiling Mlucas.c with -mavx512f -mavx512cd
+			# -mfma and counting EVEX-256 ops with a ymm destination (vinserti32x4), which need VL:
+			#     gcc 13.3 -> 0     gcc 15.3 -> 19     gcc 16.2 -> 3
+			# and gcc 13 emits none whether or not -march=knl is passed, so this is a property of
+			# the newer compilers rather than of the missing flag. -mno-avx512vl does not suppress
+			# them. Under SDE the gcc-16 build dies on the first one:
+			#     SDE-ERROR: Executed instruction not valid for specified chip (KNL):
+			#       vinserti32x4 ymm5, ymm1, xmm0, 0x1     ernstMain, Mlucas.c:378
+			# So refuse the build rather than hand back a binary that cannot run on the target it
+			# names. A toolchain that still has -march=knl is exactly one old enough to be safe:
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+			if ! try_flag -march=knl; then
+				echo "Error: ${CC:-gcc} does not support -march=knl, so it cannot target Knights Landing/Mill. Compilers that dropped the flag (GCC >= 15, recent Clang) also emit AVX512VL instructions that KNL cannot execute, so the resulting binary would build and then die on the first one. Use GCC <= 14 for this build mode, or build with 'avx512' instead if you are targeting Skylake-SP or later." >&2
+				exit 1
+			fi
+			ARGS+=(-march=knl)
+			# ER/PF are performance-only - reciprocal and prefetch sequences - so a toolchain that
+			# has -march=knl but has dropped these is still correct, just slower. Warn and continue:
+			for knl_flag in -mavx512er -mavx512pf; do
 				# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 				if try_flag "$knl_flag"; then
 					ARGS+=("$knl_flag")
 				else
-					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result will still run on Knights Landing/Mill, but slower than a toolchain retaining Knights support would produce." >&2
+					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result still runs on Knights Landing/Mill, but the ER/PF-backed reciprocal and prefetch sequences are unavailable, so it will be slower." >&2
 				fi
 			done
 			;;
