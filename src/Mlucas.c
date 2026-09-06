@@ -254,9 +254,9 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 	  (2) All user messaging and the (consistent, last-completed-iteration) savefile write are deferred to
 	      the main-thread control loop, which polls MLUCAS_KEEP_RUNNING at a safe point between mod-squaring
 	      iterations.
-	  (3) The FFT worker threads block these signals (see threadpool.c::worker_thr_routine), so the handler
-	      only ever runs on the main thread - making delivery deterministic and keeping the workers, which
-	      hold the shared locks, out of signal context entirely.
+	  (3) Because of (1) it does not matter which thread the kernel picks to run the handler: a
+	      process-directed signal goes to any thread not blocking it, and every one of them can safely
+	      execute these two stores. The main thread is the one that acts on the flag.
 	*/
 	void sig_handler(int signo)
 	{
@@ -273,8 +273,8 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 	    interleave the (trivial) flag stores;
 	  - SA_RESTART makes interrupted library calls auto-resume instead of failing with EINTR;
 	  - the handler stays installed after firing (signal() gives this on glibc but not on strict SysV).
-	Because the FFT worker threads block these signals (threadpool.c), the handler set here only ever
-	runs on the main thread.
+	The handler may run on any thread the kernel selects; that is safe because it only stores to two
+	volatile sig_atomic_t flags, which the main-thread control loop then acts on.
 	*/
 	void mlucas_install_signal_handlers(void)
 	{

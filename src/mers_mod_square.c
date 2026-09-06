@@ -2010,7 +2010,8 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 #endif
 #ifndef NO_USE_SIGNALS
 	// Listen for interrupts. Install-once, async-signal-safe handler (see Mlucas.c); this runs on the
-	// main thread, and the FFT worker threads block these signals so the handler only ever fires here:
+	// main thread. The handler is async-signal-safe (two sig_atomic_t stores) so it is harmless wherever
+	// it runs; this is simply where the flag it sets is acted on:
 	mlucas_install_signal_handlers();
 #endif
 }	/* End of main for(iter....) loop	*/
