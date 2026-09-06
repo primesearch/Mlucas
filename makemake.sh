@@ -165,6 +165,43 @@ if "$MAKE" --help 2>/dev/null | grep -wq -- '-O'; then
 fi
 MAKE_ARGS+=(-j "$CPU_THREADS")
 
+# Windows/MinGW gcc (observed on both 15.2 and 16.1) has a longstanding x86-64 codegen bug - GCC PR
+# 54412, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=54412, open since 2012 and still unfixed as of
+# gcc 16: when autovectorization creates 256/512-bit temporaries, gcc spills them with ALIGNED stores
+# (vmovdqa, needing 32/64-byte alignment) into stack frames it never dynamically realigns - but the
+# Win64 ABI only guarantees 16-byte alignment at function entry, and Windows randomizes the initial
+# thread stack phase per run. Result: plain C code (no inline asm involved) faults on ~half of all
+# runs, at a stable instruction but "moving" whenever the code is recompiled - observed as Mfactor's
+# test_fac() SIGSEGVing intermittently in CI (vmovdqa %ymm0,0x170(%rsp) with rsp = 0 mod 32, where
+# gcc assumed 16 mod 32). Linux and Wine always start with the compatible phase, which is why this
+# never reproduced off real Windows. -mstackrealign does NOT help (it realigns only to the 16-byte
+# preferred boundary). Instead, keep compiler-GENERATED vector code to 128 bits so no 32/64-byte-
+# aligned spill slots exist at all; Mlucas's hand-written SIMD asm is unaffected (the assembler
+# needs no -m flags), so AVX2/AVX-512 build modes lose nothing but gcc's autovectorization width.
+#
+# Done build-wide rather than as __attribute__((target("prefer-vector-width=128"))) on the function
+# that was seen to crash: test_fac() is merely where CI caught it, not a special case. Cross-building
+# the tree with x86_64-w64-mingw32-gcc 16.2 and disassembling finds 10 functions in 8 objects (avx2,
+# 86 such spill stores) and 8 in 6 (avx512, 24 stores) handed 32/64-byte-aligned stack slots, and not
+# one of them gets a realigning prologue. test_fac() accounts for 4 of the avx2 build's 86 stores;
+# six of the ten functions are in Mlucas-only translation units. Build the same TUs with the same gcc
+# for Linux and 20 functions get such slots and all 20 do realign - which is the bug in one line.
+# Annotating a list would mean re-deriving it for every gcc release and every source change, with
+# each miss reappearing as a ~50%-of-runs crash somewhere new.
+#
+# TODO: revisit once GCC PR 54412 is fixed - gate the block on the gcc version below the fix so
+# Windows gets full-width autovectorization of the C code back.
+if [[ $OSTYPE == msys || $OSTYPE == cygwin ]] && ! "${CC:-gcc}" --version 2>/dev/null | grep -qi clang; then
+	pvw_tmp=$(mktemp -d)
+	printf 'int main(void){return 0;}\n' >"$pvw_tmp/t.c"
+	# Compile a real temp file to a real output: native MinGW gcc misparses '-o /dev/null' as C:\dev\null.
+	if "${CC:-gcc}" -mprefer-vector-width=128 "$pvw_tmp/t.c" -o "$pvw_tmp/t.out" >/dev/null 2>&1; then
+		echo -e "MinGW gcc detected: adding -mprefer-vector-width=128 to work around gcc's unaligned-AVX-spill bug on Windows.\n"
+		ARGS+=(-mprefer-vector-width=128)
+	fi
+	rm -rf "$pvw_tmp"
+fi
+
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
 echo "Total number of input parameters = $#"
 
@@ -450,10 +487,10 @@ fi
 
 # -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on some older
 # or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe for both
-# instead of assuming. CI jobs that need a different CFLAGS entirely (sanitizer builds) should export a
-# CFLAGS environment variable before invoking this script - the generated Makefile's "CFLAGS ?=" already
-# defers to a pre-set environment CFLAGS instead of the computed value below. Prefer -flto=auto (parallel
-# LTO codegen, see #56) over plain -flto when supported:
+# instead of assuming. NB the generated Makefile emits "CFLAGS =", not "CFLAGS ?=", so exporting CFLAGS
+# before invoking this script has NO effect - a build that needs different flags entirely (the sanitizer
+# CI jobs) has to rewrite the generated "CFLAGS =" line, which is what those jobs now do. Prefer
+# -flto=auto (parallel LTO codegen, see #56) over plain -flto when supported:
 C_ARGS=(-std=gnu99 -Wall -g -O3)
 if try_flag -fdiagnostics-color; then
 	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")

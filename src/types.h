@@ -213,13 +213,18 @@ whenever available:
   #endif
 	#define DNINT(x)  rint((x))
 
-// Mustn't use lrint in 32-bit mode, since that dumps result into a long, which is only 32 bits:
+// Mustn't use lrint in 32-bit mode, since that dumps result into a long, which is only 32 bits.
+// v21: The same trap exists on LLP64 targets (64-bit Windows/MinGW): OS_BITS == 64 there, but long
+// is still only 32 bits, so lrint() silently truncates any |result| >= 2^31 - e.g. the approx-vs-
+// exact-k check in test_fac() fails deterministically on Win64 for factors with k >= 2^31. Use
+// llrint() (returns long long, 64-bit on every 64-bit target) unconditionally; on LP64 it is the
+// same libm entry point as lrint:
 #elif(defined(COMPILER_TYPE_GCC)) && (OS_BITS == 64)
 
   #if defined(VERBOSE_HEADERS) && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_NVCC))
-	#warning Using lrint() for DNINT
+	#warning Using llrint() for DNINT
   #endif
-	#define DNINT(x) lrint((x))
+	#define DNINT(x) llrint((x))
 
 #elif(defined(COMPILER_TYPE_GCC)) && (OS_BITS == 32)
 
