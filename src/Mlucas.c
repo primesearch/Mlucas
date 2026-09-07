@@ -1984,6 +1984,13 @@ READ_RESTART_FILE:
 			}	// end while(!ierr && MLUCAS_KEEP_RUNNING && i < ihi)
 		} else if(MLUCAS_KEEP_RUNNING) {	// Final partial-length interval skips G-check
 			ierr = func_mod_square  (a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, update_shift, 0x0);
+		} else {
+			/* v21: An interrupt that arrived *between* intervals - during the checkpoint write or the Gerbicz check - left
+			MLUCAS_KEEP_RUNNING clear with no mod-square call in flight to report it. Formerly neither branch above ran,
+			ierr stayed 0, and the loop went on "completing" interval after interval with an unchanged residue (MaxErr 0),
+			writing it to every checkpoint and, since the G-check is also gated on MLUCAS_KEEP_RUNNING, reaching maxiter
+			with a frozen, wrong residue and exit code 0. Treat it as the interrupt it is, at the last completed iteration: */
+			ierr = ERR_INTERRUPT;	ROE_ITER = ilo;
 		}
 	  } else {
 			// For straight LL-test there is (at least at this writing) no known analog of the Gerbicz check:
