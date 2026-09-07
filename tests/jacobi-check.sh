@@ -45,9 +45,10 @@ setup() {	# setup <dir> <exponent> <CheckInterval> [<binary>]
 	printf 'CheckInterval = %s\nJacobiCheckHours = 0\n' "$ci" > "$d/mlucas.ini"
 	echo "$d"
 }
-run() {	# run <dir> [env...] : run Mlucas to completion (or until it exits) in <dir>, log to run.log
-	local d=$1; shift
-	( cd "$d" && env "$@" timeout 900 ./Mlucas -cpu "$CPU" > run.log 2>&1 ); echo $? > "$d/exit"
+run() {	# run <dir> [env...] [-- <extra Mlucas args>] : run Mlucas to completion (or until it exits) in <dir>, log to run.log
+	local d=$1; shift; local envs=() extra=()
+	while (( $# )); do if [[ $1 == -- ]]; then shift; extra=("$@"); break; fi; envs+=("$1"); shift; done
+	( cd "$d" && env "${envs[@]}" timeout 900 ./Mlucas -cpu "$CPU" "${extra[@]}" > run.log 2>&1 ); echo $? > "$d/exit"
 }
 # Run in the background and stop it with SIGINT once the .stat file shows the given iteration.
 run_until_iter_then_interrupt() {	# <dir> <exponent> <iteration>
@@ -129,24 +130,26 @@ if [[ -z $MLUCAS_FI ]]; then
 	skip "T5: fault-injection tests need a -DMLUCAS_FAULT_INJECT build as the 2nd argument"
 else
 	echo "-- T5: fault injection at iteration 50000 (fixed, deterministic cases)"
-	# Each (exponent, iteration, digit) triple gives a deterministic verdict, so the cases are fixed rather
-	# than searched for. The injection lands exactly at a checked checkpoint, so the check sees two
-	# independent values: the symbol at the corrupted iteration itself (the check at 50000) and the one
-	# shared by every later check (from 60000 on). One case per class:
-	#   caught      - M216103 digit 0: fails at 50000; rollback to the previous checkpoint (40000), correct
-	#                 result, 1 error counted;
-	#   caught_late - M216103 digit 3: passes at 50000 (so the corrupt residue is saved to p, q and .J) but
-	#                 fails at 60000 and on every retry: the chain must walk p -> .J -> .J1 (40000, clean),
+	# Each (exponent, iteration, digit, residue shift) gives a deterministic verdict, so the cases are fixed
+	# rather than searched for. The runs use -shift 0: the injector perturbs one digit of the residue *as
+	# stored*, so with a random shift the perturbed bit position - and hence the verdict - would change from
+	# run to run. The injection lands exactly at a checked checkpoint, so the check sees two independent
+	# values: the symbol at the corrupted iteration itself (the check at 50000) and the one shared by every
+	# later check (from 60000 on). One case per class, all on M216103 (digits classified with -shift 0):
+	#   caught      - digit 3: fails at 50000; rollback to the previous checkpoint (40000), correct result,
+	#                 1 error counted;
+	#   caught_late - digit 13: passes at 50000 (so the corrupt residue is saved to p, q and .J) but fails
+	#                 at 60000 and on every retry: the chain must walk p -> .J -> .J1 (40000, clean),
 	#                 3 errors counted;
-	#   missed      - M216091 digit 3: passes both, so no check ever fires, and the run ends with a WRONG
-	#                 verdict ("not prime" for a Mersenne prime). Asserted on purpose: it is the check's
-	#                 known limit, and this documents it rather than hiding it.
-	d=$(setup t5clean 216103 10000); run "$d"
+	#   missed      - digit 0: passes both, so no check ever fires, and the run ends with a WRONG residue.
+	#                 Asserted on purpose: it is the check's known limit, and this documents it rather than
+	#                 hiding it.
+	d=$(setup t5clean 216103 10000); run "$d" -- -shift 0
 	CLEAN=$(res64_of "$d"); [[ ${#CLEAN} -eq 16 ]] && ok "clean M216103 run Res64 $CLEAN" || bad "clean run produced no results line"
 
-	d=$(setup t5caught 216103 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=0
+	d=$(setup t5caught 216103 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=3 -- -shift 0
 	S=$d/p216103.stat
-	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 0 at iteration 50000" "caught: injection fired"
+	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 3 at iteration 50000" "caught: injection fired"
 	expect_grep "$S" "Jacobi check at iteration 50000 FAILED" "caught: failure at the corrupted checkpoint"
 	expect_grep "$S" "Restarting from the current savefile" "caught: rollback to the current savefile announced"
 	expect_grep "$S" "Restart file p216103 (iteration 40000) passed the Jacobi check" "caught: rolled back to the previous (clean) checkpoint"
@@ -155,9 +158,9 @@ else
 	if grep -qE '"error-code":"[0-9A-F]{6}1[0-9A-F]"' "$d/results.txt"; then ok "caught: one Jacobi error in the error-code nibble (bits 4-7)"; else bad "caught: Jacobi nibble != 1: $(grep -o '"error-code":"[0-9A-F]*"' "$d/results.txt")"; fi
 	expect_grep "$d/results.txt" '"jacobi":1' "caught: jacobi count 1 in the errors object"
 
-	d=$(setup t5late 216103 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=3
+	d=$(setup t5late 216103 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=13 -- -shift 0
 	S=$d/p216103.stat
-	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 3 at iteration 50000" "caught_late: injection fired"
+	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 13 at iteration 50000" "caught_late: injection fired"
 	expect_nogrep "$S" "Jacobi check at iteration 50000 FAILED" "caught_late: passes the check at its own checkpoint"
 	expect_count "$S" "Jacobi check at iteration 60000 FAILED" 3 "caught_late: the same failure recurs on each retry from a poisoned file"
 	expect_grep "$S" "Restart file p216103 (iteration 50000) passed the Jacobi check" "caught_late: p (poisoned) passes its on-read check, as the symbol invariance predicts"
@@ -166,12 +169,12 @@ else
 	[[ $(res64_of "$d") == "$CLEAN" ]] && ok "caught_late: final Res64 matches the clean run" || bad "caught_late: final Res64 $(res64_of "$d") != clean $CLEAN"
 	if grep -qE '"error-code":"[0-9A-F]{6}3[0-9A-F]"' "$d/results.txt"; then ok "caught_late: three Jacobi errors in the error-code nibble"; else bad "caught_late: Jacobi nibble != 3: $(grep -o '"error-code":"[0-9A-F]*"' "$d/results.txt")"; fi
 
-	d=$(setup t5missed 216091 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=3
-	S=$d/p216091.stat
-	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 3 at iteration 50000" "missed: injection fired"
+	d=$(setup t5missed 216103 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=0 -- -shift 0
+	S=$d/p216103.stat
+	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 0 at iteration 50000" "missed: injection fired"
 	expect_nogrep "$S" "FAILED" "missed: no check ever fires (symbol invariant under the recurrence)"
-	expect_grep "$S" "M216091 is not prime" "missed: run ends with a WRONG verdict for a Mersenne prime - this is the documented limit of the check"
-	expect_nogrep "$S" "known MERSENNE PRIME" "missed: (and not the correct verdict)"
+	[[ $(res64_of "$d") != "$CLEAN" ]] && ok "missed: run ends with a WRONG residue $(res64_of "$d") - this is the documented limit of the check" || bad "missed: final residue equals the clean one?!"
+	if grep -qE '"error-code":"[0-9A-F]{6}0[0-9A-F]"' "$d/results.txt"; then ok "missed: Jacobi nibble 0, as expected - nothing was detected"; else bad "missed: Jacobi nibble != 0"; fi
 fi
 
 # ---------------------------------------------------------------------------------------------
