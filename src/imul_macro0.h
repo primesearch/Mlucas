@@ -471,10 +471,9 @@ or the with functions using them (if we declare no _-prepended variables local t
 			"movl	%[_hi32], %%eax		\n\t"\
 			"adcl	$0	 	, %%eax		\n\t"/* (1)    0 + (b*c)_hi + (carryin from (0)), result ( upper 32 bits) in hi32, carryout in CF bit - should be zero! */\
 			"movl	%%eax	,%[_hi32]	\n\t"/* Move high result to hi32 */	\
-			: /* outputs: none */\
+			: [_md32] "+m" (_md32)	/* outputs: both are read and then written by the addl/adcl above */\
+			 ,[_hi32] "+m" (_hi32)	\
 			: [_bclo] "m" (_bclo)	/* All inputs from memory/register here */\
-			 ,[_md32] "m" (_md32)	\
-			 ,[_hi32] "m" (_hi32)	\
 			: "cc","memory","eax"	/* Clobbered registers */\
 			);\
 		}\
