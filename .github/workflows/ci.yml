@@ -310,9 +310,11 @@ jobs:
   Linux-KNL:
     name: Mlucas KNL
 
-    # Pinned, not 'latest': -march=knl and the ER/PF extensions were deprecated in GCC 14 and removed
-    # in GCC 15. The build degrades gracefully without them (see makemake.sh), but 24.04's GCC 13 is
-    # the last stock toolchain that can target Knights Landing properly, so test with it while it lasts.
+    # Pinned, not 'latest': GCC 13 is the last GCC that can target Knights Landing at all. GCC 14
+    # accepts -march=knl but generates AVX512VL anyway, and GCC 15 removed the flag; makemake.sh
+    # refuses both rather than emit a binary that dies on the first illegal instruction (see the
+    # measured table there). 24.04 ships GCC 13 and Clang 18, both of which pass, so pin to it -
+    # on a newer image this job would correctly but unhelpfully refuse to build.
     runs-on: ubuntu-24.04
     strategy:
       matrix:

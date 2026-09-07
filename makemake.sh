@@ -152,6 +152,29 @@ try_lto() {
 	) >/dev/null 2>&1
 }
 
+# Returns success iff $CC, given the KNL flag set passed as arguments, generates no AVX512VL
+# instructions for a real Mlucas translation unit; 1 if it emits some; 2 if the check could not be
+# run (no objdump, or the compile failed). Probing the generated code is the only reliable test:
+# accepting -march=knl is necessary but NOT sufficient, since GCC 14 takes the flag and still emits
+# 256-bit EVEX ops, which Knights Landing cannot execute. radix48_ditN_cy_dif1.c is used because it
+# is one of the smaller translation units that still reproduces this (~1s to compile).
+knl_vl_clean() {
+	local cc=${CC:-gcc} od tmpdir n src
+	src=$(dirname -- "$0")/src
+	od=$(command -v objdump || command -v llvm-objdump) || return 2
+	[[ -r $src/radix48_ditN_cy_dif1.c ]] || return 2
+	tmpdir=$(mktemp -d) || return 2
+	trap 'rm -rf "$tmpdir"' RETURN
+	# -DINCLUDE_GMP=0 so the probe does not need the GMP headers installed; it only inspects
+	# vector codegen in an FFT kernel, which GMP has no bearing on.
+	"$cc" -c -O3 -w -D_GNU_SOURCE -DUSE_THREADS -DUSE_AVX512 -DINCLUDE_GMP=0 "$@" \
+		-I "$src" -o "$tmpdir/probe.o" "$src/radix48_ditN_cy_dif1.c" >/dev/null 2>&1 || return 2
+	# 256-bit EVEX inserts/extracts (no zmm operand) need AVX512VL; the 512-bit forms do not.
+	n=$("$od" -d "$tmpdir/probe.o" 2>/dev/null \
+		| grep -E 'vinsert[fi]32x4|vextract[fi]32x4' | grep -cv zmm) || n=0
+	[[ $n -eq 0 ]]
+}
+
 if [[ ! $OSTYPE == darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
 fi
@@ -321,33 +344,53 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			# the first thing it hits is 'kmovd' (BW; KNL has only the 16-bit 'kmovw'), and any
 			# EVEX-encoded 256-bit op would need VL. So keep this mode, and keep it free of dq/bw/vl.
 			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mfma)
-			# -march=knl was deprecated in GCC 14 and removed in GCC 15, and is gone from recent
-			# Clang too. Without it the build still compiles and links against f/cd/fma alone, but
-			# the result is NOT KNL-safe: GCC 15 and 16 then emit AVX512VL encodings, which Knights
-			# Landing does not implement. Measured by compiling Mlucas.c with -mavx512f -mavx512cd
-			# -mfma and counting EVEX-256 ops with a ymm destination (vinserti32x4), which need VL:
-			#     gcc 13.3 -> 0     gcc 15.3 -> 19     gcc 16.2 -> 3
-			# and gcc 13 emits none whether or not -march=knl is passed, so this is a property of
-			# the newer compilers rather than of the missing flag. -mno-avx512vl does not suppress
-			# them. Under SDE the gcc-16 build dies on the first one:
+			# Targeting KNL needs -march=knl, but that flag is not sufficient on its own, so the real
+			# test is the generated code. Counting 256-bit EVEX inserts/extracts (AVX512VL, which KNL does
+			# not implement) over a representative set of translation units:
+			#
+			#   compiler          -march=knl   -mavx512er   VL ops base / with -march=knl
+			#   gcc 11.4 - 13.3       yes          yes            0    /   0
+			#   gcc 14.4              yes          yes          463    / 149   <-- flag accepted, still unsafe
+			#   gcc 15.3              no           no           202    / n/a
+			#   gcc 16.2              no           no           186    / n/a
+			#   clang 14 - 18         yes          yes            0    /   0
+			#   clang 19.1, 22.1      yes          no             0    /   0
+			#
+			# GCC 14 is why this probes the codegen rather than the flag: it accepts -march=knl and still
+			# emits AVX512VL, and -march=knl actually increases the count rather than suppressing it
+			# (a GCC bug in its own right - -mno-avx512vl does not suppress them either, and
+			# __AVX512VL__ is not even defined). Confirmed end to end under Intel SDE: a gcc-14 build that
+			# passes the flag check dies on the first one,
 			#     SDE-ERROR: Executed instruction not valid for specified chip (KNL):
-			#       vinserti32x4 ymm5, ymm1, xmm0, 0x1     ernstMain, Mlucas.c:378
-			# So refuse the build rather than hand back a binary that cannot run on the target it
-			# names. A toolchain that still has -march=knl is exactly one old enough to be safe:
+			#       vinsertf32x4 ymm0, ymm0, xmm1, 0x1     radix40_ditN_cy_dif1
+			# while a clang-built one runs to a correct residue on an emulated KNL.
 			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if ! try_flag -march=knl; then
-				echo "Error: ${CC:-gcc} does not support -march=knl, so it cannot target Knights Landing/Mill. Compilers that dropped the flag (GCC >= 15, recent Clang) also emit AVX512VL instructions that KNL cannot execute, so the resulting binary would build and then die on the first one. Use GCC <= 14 for this build mode, or build with 'avx512' instead if you are targeting Skylake-SP or later." >&2
+				echo "Error: ${CC:-gcc} does not support -march=knl, so it cannot target Knights Landing/Mill. GCC removed the flag in 15. Use GCC <= 13 or Clang for this build mode, or build with 'avx512' instead if you are targeting Skylake-SP or later." >&2
 				exit 1
 			fi
 			ARGS+=(-march=knl)
-			# ER/PF are performance-only - reciprocal and prefetch sequences - so a toolchain that
-			# has -march=knl but has dropped these is still correct, just slower. Warn and continue:
+			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
+			# 'set -e' is in force, so capture the status via '||' rather than a bare call:
+			knl_vl_status=0
+			knl_vl_clean -mavx512f -mavx512cd -mfma -march=knl || knl_vl_status=$?
+			if [[ $knl_vl_status -eq 1 ]]; then
+				echo "Error: ${CC:-gcc} accepts -march=knl but still generates AVX512VL instructions, which Knights Landing/Mill cannot execute - the binary would build and then die on the first one. GCC 14 is known to do this. Use GCC <= 13 or Clang for this build mode." >&2
+				exit 1
+			elif [[ $knl_vl_status -eq 2 ]]; then
+				echo "Warning: could not verify that ${CC:-gcc} avoids AVX512VL for this target (no objdump, or the probe failed to compile). Proceeding on the strength of -march=knl alone; if the resulting binary dies on a Xeon Phi with an illegal-instruction fault, this is why." >&2
+			fi
+			# ER/PF are a separate axis from -march=knl, not implied by it: Clang 19 and later still accept
+			# -march=knl but have dropped -mavx512er/-mavx512pf and do not define __AVX512ER__. That is safe
+			# here because the only ER code in the tree - the VRCP28PD block in mi64_modmul53_batch(), gated
+			# on __AVX512ER__ - is unreachable: its sole caller sits inside a commented-out test harness. So
+			# a toolchain without ER/PF builds a functionally identical binary. Warn rather than refuse:
 			for knl_flag in -mavx512er -mavx512pf; do
 				# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 				if try_flag "$knl_flag"; then
 					ARGS+=("$knl_flag")
 				else
-					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result still runs on Knights Landing/Mill, but the ER/PF-backed reciprocal and prefetch sequences are unavailable, so it will be slower." >&2
+					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result still runs on Knights Landing/Mill; the only code this gates is currently unreachable, so the binary is functionally the same." >&2
 				fi
 			done
 			;;
