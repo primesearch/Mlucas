@@ -455,10 +455,20 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	setting syntax in which each of the comma-separated 'triplet' subfields is in the above
 	form and, analogously to the one-triplet-only version, no whitespace is permitted within
 	the colon-and-comma-separated numeric field. Thus '-cpu 0:3,8:11' and '-cpu 0:3:1,8:11:1'
+	(see also the note on logical-CPU numbering after this list)
 	both specify an 8-threaded run with affinity set to logical core quartets 0-3 and 8-11,
 	whereas '-cpu 0:3:2,8:11:2' means run 4-threaded on cores 0,2,8,10. As described for the
 	-nthread option, it is an error for any core index to exceed the available number of logical
 	processor cores.
+
+	NOTE on logical-CPU numbering: the -cpu indices are the operating system's logical-processor
+	numbers, and which of those are hyperthread (SMT) siblings of one physical core differs by OS
+	and vendor. Linux on Intel usually numbers siblings as i and i+(number of cores), so '-cpu 0:3'
+	is four physical cores; Windows, FreeBSD and most AMD systems number siblings adjacently, so the
+	same '-cpu 0:3' is two physical cores with both hyperthreads each. At startup Mlucas prints how
+	many physical cores the selected set spans and warns when siblings share a core; use '-core
+	lo:hi:1' (hwloc builds) or list one logical CPU per core (e.g. '-cpu 0:6:2') for one thread per
+	core. The detected L2 (per core) and L3 cache sizes are printed on the same occasion.
 
 ======================
 
