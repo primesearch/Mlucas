@@ -1458,6 +1458,7 @@ void host_init(void)
 	uint32 imax = 100000;
 	fprintf(stderr,"INFO: Testing 64-bit 2^p (mod q) functions with %u random (p, q odd) pairs...\n",imax);
 	ASSERT(test_twopmodq64(imax) == 0, "test_twopmodq64() returns nonzero!");
+	ASSERT(test_is_prime() == 0, "test_is_prime() returns nonzero!");
 #ifdef TEST_MI64_PRP
 	const uint32 max_test_dim = 1024;
 	uint32 i,ihi = 1000,j,jhi;
@@ -3958,7 +3959,33 @@ DEV uint32 is_prime(uint32 n) {
 		return(n == 2);
 	if(n < 7)
 		return 1;
+	/* v21: f2psp[] holds only the base-2 Fermat pseudoprimes < 2^32 *not* divisible by 3 or 5 (it assumes the
+	caller has sieved those out, as nprimes_in_range() does), so without this sieve every base-2 pseudoprime
+	with a factor of 3 or 5 - 561, 645, 1105, 1905, 2465, 4371, ... - passed as prime: */
+	if(n%3 == 0 || n%5 == 0)
+		return 0;
 	return(pprimeF(n,2) && !is_f2psp(n,0x0));
+}
+
+/* v21: Self-test for is_prime()/next_prime(): the twelve base-2 pseudoprimes < 20000 with a factor of 3 or 5
+(which the f2psp[] table deliberately omits), the prime count pi(20000) = 2262, and next_prime() stepping over
+561 in both directions. Returns 0 on success, else the number of failures: */
+uint32 test_is_prime(void) {
+	const uint32 psp35[12] = {561,645,1105,1905,2465,4371,8481,10585,11305,12801,16705,18705};
+	const uint32 small_primes[8] = {2,3,5,7,11,13,17,19};
+	uint32 i,n,np = 0,nfail = 0;
+	for(i = 0; i < 12; i++) {
+		if(is_prime(psp35[i])) { fprintf(stderr,"test_is_prime: is_prime(%u) = 1, but %u is composite!\n",psp35[i],psp35[i]); nfail++; }
+	}
+	for(i = 0; i < 8; i++) {
+		if(!is_prime(small_primes[i])) { fprintf(stderr,"test_is_prime: is_prime(%u) = 0!\n",small_primes[i]); nfail++; }
+	}
+	for(n = 0; n < 20000; n++) { np += is_prime(n); }
+	if(np != 2262) { fprintf(stderr,"test_is_prime: counted %u primes below 20000, expected 2262!\n",np); nfail++; }
+	if(next_prime(560,+1) != 563) { fprintf(stderr,"test_is_prime: next_prime(560,+1) = %u, expected 563!\n",next_prime(560,+1)); nfail++; }
+	if(next_prime(562,-1) != 557) { fprintf(stderr,"test_is_prime: next_prime(562,-1) = %u, expected 557!\n",next_prime(562,-1)); nfail++; }
+	if(next_prime(4,-1) != 3 || next_prime(4,+1) != 5) { fprintf(stderr,"test_is_prime: next_prime around 4 wrong!\n"); nfail++; }
+	return nfail;
 }
 
 // Get nearest Fermat 2-PRP to N in the specified search direction, up or down. Algorithm is slow try-next-odd:
@@ -3979,8 +4006,9 @@ DEV uint32 next_prime(uint32 n, int dir) {
 	dir += dir;
 	while(1) {
 		n += dir;
-		// N which pass Fermat base-2 PRP test further checked for Fermat base-PSP-ness to weed out pseudoprimes:
-		if(pprimeF(n,2) && !is_f2psp(n,0x0)) {
+		// v21: is_prime() = base-2 Fermat test + pseudoprime-table lookup, with the 3/5 sieve the table requires
+		// (this loop used to skip the sieve and so returned 561, 1105, ... as primes):
+		if(is_prime(n)) {
 			return(n);
 		}
 	}
