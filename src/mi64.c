@@ -705,9 +705,9 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	int dbg = 0;
 	uint64 ref[1000];	if(len < 1000) ref[len] = mi64_shl_short_ref(x,ref,nshift,len);	// ref = x << nshift
 #endif
-  #ifdef USE_AVX2	// SSE2,AVX,AVX2 same in terms of processing 8 qwords per ASM-loop pass, but AVX2 must skip x[0:3]
+  #if defined(USE_AVX2) && defined(YES_ASM)	// SSE2,AVX,AVX2 same in terms of processing 8 qwords per ASM-loop pass, but AVX2 must skip x[0:3]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x1F;	uint32 minlen = 9;
-  #elif defined(USE_AVX)	// SSE2/AVX - use SSE2 ASM for both cases - do 8 words per ASM-lop pass, must skip x[0:1]
+  #elif defined(USE_AVX) && defined(YES_ASM)	// SSE2/AVX - use SSE2 ASM for both cases - do 8 words per ASM-lop pass, must skip x[0:1]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x0F;	uint32 minlen = 9;
   #elif defined(YES_ASM)
 	const uint32 BLOCKLENM1 = 3/* , BASEADDRMASK = 0x07 */;	uint32 minlen = 5;
@@ -1176,9 +1176,9 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	int dbg = 0;
 	uint64 ref[1000];	if(len < 1000) ref[len] = mi64_shrl_short_ref(x,ref,nshift,len);	// ref = x << nshift
 #endif
-  #ifdef USE_AVX2	// SSE2,AVX,AVX2 same in terms of processing 8 qwords per ASM-loop pass, but AVX2 must skip x[0:3]
+  #if defined(USE_AVX2) && defined(YES_ASM)	// SSE2,AVX,AVX2 same in terms of processing 8 qwords per ASM-loop pass, but AVX2 must skip x[0:3]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x1F;	uint32 minlen = 9;
-  #elif defined(USE_AVX)	// SSE2,AVX macros both do 8 words per ASM-lop pass, must skip x[0:1]
+  #elif defined(USE_AVX) && defined(YES_ASM)	// SSE2,AVX macros both do 8 words per ASM-lop pass, must skip x[0:1]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x0F;	uint32 minlen = 9;
   #elif defined(YES_ASM)
 	const uint32 BLOCKLENM1 = 3, BASEADDRMASK = 0x07;	uint32 minlen = 5;
@@ -3991,7 +3991,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		const uint32 max_dim = 4096;
 		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], *lo = prod,*hi = 0x0, i64;
 		uint32 nbits, log2_numbits, wlen,wlen2, q32,qi32;
-		int i,j, start_index;
+		int j, start_index;
 	  #if MI64_PRP_DBG
 		int dbg = STREQ(&cbuf[convert_mi64_base10_char(cbuf, n, len, 0)], "0");	// Replace "0" with "[desired decimal-form debug modulus]"
 	  #endif
@@ -4040,7 +4040,10 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 
 		where lo = converged bits, and hi = bits converged on current iteration
 		*/
-		for(i = 1, j = 6; j < log2_numbits; j++, i <<= 1) {	// I stores number of converged 64-bit words
+		// NB: the deferred optimization above also wants a running count of converged 64-bit words
+		// (i = 1, doubling per iteration). Until it is implemented this loop recomputes the full
+		// wlen-word product every pass and has no use for that count, so it is not carried here:
+		for(j = 6; j < log2_numbits; j++) {
 			mi64_mul_vector_lo_half(n, ninv,prod, wlen);
 			mi64_nega              (prod,prod, wlen);
 			i64 = mi64_add_scalar(prod, 2ull,prod, wlen);
