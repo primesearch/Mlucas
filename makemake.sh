@@ -378,6 +378,17 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 				echo "Error: ${CC:-gcc} accepts -march=knl but still generates AVX512VL instructions, which Knights Landing/Mill cannot execute - the binary would build and then die on the first one. GCC 14 is known to do this. Use GCC <= 13 or Clang for this build mode." >&2
 				exit 1
 			elif [[ $knl_vl_status -eq 2 ]]; then
+				# The direct check could not run (no objdump, or the probe would not compile). Rather
+				# than build something that may not run, fall back to what has been measured: every GCC
+				# from 14 on emits AVX512VL here, so refuse those. This is a stand-in for the codegen
+				# check, not a replacement - anything else only gets a warning, since a version number
+				# is exactly the kind of assumption the probe exists to avoid.
+				knl_cc_id=$("${CC:-gcc}" --version 2>/dev/null | head -1)
+				knl_cc_major=$("${CC:-gcc}" -dumpversion 2>/dev/null | cut -d. -f1)
+				if [[ $knl_cc_id != *[Cc]lang* && ${knl_cc_major:-0} =~ ^[0-9]+$ && ${knl_cc_major:-0} -ge 14 ]]; then
+					echo "Error: cannot verify that ${CC:-gcc} avoids AVX512VL for this target (no objdump, or the probe failed to compile), and GCC $knl_cc_major is known to generate it regardless of -march=knl, which Knights Landing/Mill cannot execute. Refusing rather than building a binary that would die on the first one. Use GCC <= 13 or Clang for this build mode, or install binutils so the check can run." >&2
+					exit 1
+				fi
 				echo "Warning: could not verify that ${CC:-gcc} avoids AVX512VL for this target (no objdump, or the probe failed to compile). Proceeding on the strength of -march=knl alone; if the resulting binary dies on a Xeon Phi with an illegal-instruction fault, this is why." >&2
 			fi
 			# ER/PF are a separate axis from -march=knl, not implied by it: Clang 19 and later still accept
