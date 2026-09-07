@@ -321,6 +321,18 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		// Set function pointers for DIF|DIT pass1:
 		dif1_dit1_func_name( radix0, &func_dif1, &func_dit1 );
 
+		/* Fermat-mod needs at least one *intermediate* radix, i.e. >= 3 radices total: the
+		radix{16|32}_wrapper_square scheme this routine feeds hands bit_reverse_int a radix product that does
+		not match the vector length when there are only 2, aborting with "product of radices != vector length"
+		(issue #101). Exactly three (FFT length, radix set) pairs in the whole get_fft_radices() table have only
+		2 radices - 1K sets 0 and 1, and 2K set 1 - and 1K has no 3-radix set at all, so a Fermat-mod run at 1K
+		has nothing usable. Soft-skip rather than abort, matching the n/radix0 handling below, so the self-test
+		moves on instead of dying. Mersenne-mod is unaffected and keeps working at 1K; see the discussion on #104. */
+		if(NRADICES < 3) {
+			sprintf(cbuf  ,"Fermat-mod requires at least 3 FFT radices (this set has %u). Skipping this radix combo.\n",NRADICES);
+			WARN(HERE, cbuf, "", 1);	return(ERR_ASSERT);
+		}
+
 		/* My array padding scheme requires N/radix0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 		if(n%radix0 != 0) {
