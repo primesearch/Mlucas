@@ -109,6 +109,8 @@ extern int ITERS_BETWEEN_GCHECK_UPDATES;	// #iterations between Gerbicz-checksum
 extern int ITERS_BETWEEN_GCHECKS;			// #iterations between Gerbicz-checksum residue-integrity checks
 extern uint32 NERR_GCHECK;	// v20: Add counter for Gerbicz-check errors encountered during test
 extern uint32 NERR_JACOBI;	// v21: Counter for Jacobi-check failures encountered during test
+extern uint32 PM1_GCHECK_EPOCH_START;	// v21: p-1 stage 1 Gerbicz check: iteration the current check-product epoch started at (0 = from the seed)
+extern uint32 PM1_GCHECK_FILE_HAS_PRODUCT;	// v21: set by read_ppm1_savefiles() when a p-1 savefile carried an appended check-product
 extern int JACOBI_CHECK;	// v21: mlucas.ini JacobiCheck - 0 disables the LL Jacobi residue check (default on)
 extern double JACOBI_CHECK_HOURS;	// v21: mlucas.ini JacobiCheckHours - wall-clock hours between periodic checks (0 = every checkpoint)
 
