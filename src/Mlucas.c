@@ -2060,7 +2060,7 @@ READ_RESTART_FILE:
 		}
 
 		/*...Done?	*/
-		if(!INTERACT) {
+		if(!INTERACT && ihi > ilo) {	// ihi == ilo only for an interrupt caught between intervals: nothing to report for a zero-length interval
 			AME /= (ihi - ilo);	// Don't /= ITERS_BETWEEN_CHECKPOINTS here since final interval is a partial one
 			/*...get a quick timestamp...	*/
 			calendar_time = time(NULL); local_time = localtime(&calendar_time);
