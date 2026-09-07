@@ -38,8 +38,8 @@ TARGET=$Mlucas
 ARGS=(-DUSE_THREADS) # Optional compile args
 WORDS=''
 C_ARGS=()
-# Mfactor's factor.c gets an explicit TRYQ (see the word-size block below); the 1-, 2- and
-# 3-word builds all have 4-way batch modpows, so 4 is the default.
+# Mfactor's factor.c gets an explicit TRYQ. This is the value for a build with no word size
+# named on the command line; a word-size build picks its own in the block below.
 TRYQ_ARG=-DTRYQ=4
 # Optional link args
 LD_ARGS=()
@@ -278,9 +278,12 @@ if [[ -n $WORDS ]]; then
 		# docs/Mfactor_buildnotes.txt use. Leave TRYQ unset for them rather than overriding it here;
 		# factor.c now rejects the unsupported combinations outright instead of quietly compiling its
 		# single-word arm.
-		if [[ ${arg} == 'nword' || ${arg} == '4word' ]]; then
-			TRYQ_ARG=
-		fi
+		# Set this per word size rather than by exception, so a word size that later grows a batch
+		# modpow - or wants some other width - names its own value here instead of inheriting one:
+		case ${arg} in
+			4word | nword) TRYQ_ARG= ;;
+			*) TRYQ_ARG=-DTRYQ=4 ;;
+		esac
 		Mfactor+="_$arg"
 		TARGET=$Mfactor
 		# The word-size macro is a property of the whole build, not just factor.c: factor.h keys
