@@ -22,6 +22,7 @@ Sections:
 [9]: P-1 Factoring:
 	[9a]: Setting maximum-percentage of system free-RAM to use per stage 2 instance
 	[9b]: How to run stage 2 continuation for a given stage 1 bound
+	[9c]: Error checking in P-1
 [10]: Setting threadcount and CPU core affinity
 [11]: User control options in mlucas.ini
 [12]: Savefile format and creation
@@ -401,6 +402,59 @@ where any known factors should be in form of a comma-separated list of known boo
 with "", e.g. known factors f1 and f2 appear as "f1,f2". These will not be reported if
 found in any of the GCD steps which test for a factor having been found, and the run
 will only exit if a new factor (one not appearing in the known_factors list) is found.
+When stage 2 starts from a stored stage 1 residue, that residue is first Jacobi-checked as
+described in [9c].
+
+[9c]: Error checking in P-1:
+
+o STAGE 1 - GERBICZ CHECK: Stage 1 computes x <- x^2 * 3^b per iteration, b the next bit of the
+prime-powers product, and Mlucas runs the same Gerbicz error check on it that it runs on PRP
+tests, with one correction term for the multiply-by-3 steps. Every 10^6 iterations (and at the
+last block boundary before stage 1 ends) the check-product accumulated over the interval is
+compared against an independently recomputed value; an arithmetic error anywhere in the
+interval is caught with certainty - this is not a 50% check like the LL Jacobi one - at a cost
+of about 0.3% of the stage 1 time. A passing check writes the p[exponent].G savefile; a
+failing one rolls the run back to it, logging
+	"Gerbicz check iteration N failed! Restarting from last-good-Gerbicz-check data."
+The check needs the extra residue arrays, so LowMem = 2 (section [11]) disables it, and a
+stage 1 run in that mode has NO arithmetic error check at all - it says so once at the start.
+The check-product is stored in the p/q savefiles (section [12]) so that a resumed run continues
+the check across the restart; a savefile without it starts a new check epoch from the residue
+it holds ("Savefile ... carries no Gerbicz check-product; starting a new check epoch ...").
+
+o WHY NOT A JACOBI CHECK FOR STAGE 1: squaring maps every value into the quadratic residues, so
+after an arithmetic error at iteration k the residue carries exactly the expected Jacobi symbol
+from iteration k+1 on. A Jacobi check cannot see stage 1 arithmetic errors. Mlucas uses it in
+P-1 only where it can see something - the savefile and the floating-point-to-integer conversion
+path, which the Gerbicz check in turn cannot see (both of its operands go through it):
+	- on every stage 1 restart-file read ("Restart file p12345 (stage 1 iteration N) passed the
+	  Jacobi check"); a mismatch means the file's residue is corrupt, the secondary is tried,
+	  and if that fails too the run stops and asks you to delete the exponent's p-1 savefiles;
+	- on the final stage 1 residue, the exact integer handed to the GCD and written to
+	  p[exponent].s1 ("Stage 1 final residue passed the Jacobi check"); a mismatch stops the
+	  run before the GCD with the savefiles intact, and a restart re-reads and re-checks them.
+There is no periodic Jacobi check in P-1. JacobiCheck = 0 in mlucas.ini disables these too.
+
+o STAGE 2: The stage 2 accumulator is a product of terms (A^((kD)^2) - A^(b^2)) and has no
+algebraic invariant that could be checked cheaply; Mlucas does not pretend otherwise. What it
+checks, at every stage 2 checkpoint, are the two inputs every later term is built from:
+	- the A^((kD)^2) ladder value is recomputed from the stage 1 residue and must match the
+	  running value exactly ("Stage 2 ladder check passed at q = Q (k = K, T sec)"). This costs
+	  about 130 modular multiplications, so it runs on the JacobiCheckHours clock (section [11];
+	  default every 12 hours, 0 = at every checkpoint) with the same overhead guard;
+	- the precomputed A^(b^2) table entries, which never change during stage 2, are checksummed
+	  after they are built, and a rotating 1/16 of them is re-verified at every checkpoint (all
+	  of them when JacobiCheckHours = 0);
+	- the accumulator itself gets sanity tests only: never zero, never unchanged between
+	  checkpoints.
+Every stage 2 failure stops the run with an "ERROR: ... stage 2 ..." line naming the check; the
+p[exponent].s2 checkpoint on disk is intact, and a restart rebuilds the ladder and tables from
+the stage 1 residue and resumes the accumulator from the file. A corruption of the accumulator
+itself is not caught; its consequence is a missed factor (a wasted later test), never a false
+claim, and any factor found is verified by division before it is reported.
+
+o RESULTS LINE: the P-1 JSON results line carries "error-code" (same layout as for LL and PRP,
+cf. section [14b]) and "errors":{"Roundoff":R, "gerbicz":G, "jacobi":J}.
 
 ======================
 
@@ -560,6 +614,8 @@ modes for low-RAM systems:
 	mode will use 2-4x as much working memory for PRP-tests as it does for LL-tests.
 
 	LowMem = 2 excludes both PRP-testing and p-1 stage 2. This is the minimum-memory option.
+	It also removes the p-1 stage 1 Gerbicz check (section [9c]), which needs the same extra
+	residue arrays, so stage 1 then runs with no arithmetic error check.
 	For QA-testing purposes, this allows self-tests to some modest number of iterations to
 	be done up to the maximum supported FFT length of 512M on systems with 8GB of memory.
 
@@ -572,6 +628,8 @@ described in section [4] (default 1; the check is unavailable, and this setting 
 effect, on a build without GMP >= 5.1). JacobiCheckHours = N sets how often, in wall-clock
 hours, the check additionally runs at checkpoints (default 12; fractional values are
 allowed; 0 checks at every checkpoint, mainly useful for testing).
+JacobiCheck also controls the P-1 integrity checks of section [9c], and JacobiCheckHours also
+paces the stage 2 ladder check there.
 
 The interval is given in hours rather than iterations because the check's cost is scalar GMP
 work that does not scale with the per-iteration FFT the way iteration counts do, so a fixed
@@ -627,6 +685,13 @@ Gerbicz-error counts. Older Mlucas versions and third-party savefile readers ign
 fields they don't recognize, so old and new binaries can read each other's savefiles; an old
 binary that rewrites the file drops the count back to 0, exactly as the existing error counts
 already do across a v19 downgrade.
+
+o P-1 stage 1 savefiles (p/q and the .G written at each passing Gerbicz check, cf. [9c]) carry
+the Gerbicz check-product appended after the error counts, behind an 8-byte epoch field, so
+that older Mlucas versions and third-party readers - which stop after the error counts - read
+them exactly as before; an older binary that rewrites the file drops the product, and the next
+restart starts a new check epoch from the residue. The mid-block p/q files are therefore about
+twice the size of a plain residue savefile.
 
 o P-1 runs also store a file p[exponent].s1_prod encoding the precomputed small-prime-powers
 product used for the stage 1 left-to-right modular binary powering. This can save time on
@@ -725,6 +790,34 @@ file. What each means and what, if anything, to do about it:
 	Five consecutive Jacobi-check failures, the last one from a fresh restart, means the
 	corruption is not being cleared by rolling back savefiles, so it is not transient. Stop
 	the run and test the machine's RAM and CPU before restarting.
+
+P-1 runs (section [9c]) add these lines:
+
+	"At iteration N, shift = 0: Gerbicz check passed."
+	"Stage 2 ladder check passed at q = Q (k = K, T sec)."
+	"Restart file p12345 (stage 1 iteration N) passed the Jacobi check (T sec)."
+	"Stage 1 final residue passed the Jacobi check (T sec)."
+	Normal. No action needed.
+
+	"Gerbicz check iteration N failed! Restarting from last-good-Gerbicz-check data."
+	Normal recovery from a caught arithmetic error: the run rolls back to p[exponent].G. No
+	action needed unless it recurs, in which case test the machine's RAM and CPU.
+
+	"Restart file p12345 (stage 1 iteration N) FAILED the Jacobi check (symbol = S, expected E,
+	T sec) - its residue is corrupt."
+	The savefile is damaged; the secondary is tried next. If both fail the run stops with
+	"No usable p-1 savefile ..." - delete the exponent's p-1 savefiles to start the run over.
+
+	"Stage 1 final residue FAILED the Jacobi check ... Aborting before the GCD"
+	The final residue is corrupt in the conversion or savefile path. Restart: the savefiles are
+	intact and are re-read and re-checked. If it recurs, test the hardware.
+
+	"ERROR: ... stage 2 ladder check FAILED ..." / "... stage 2 table entry I of N fails its
+	checksum ..." / "... stage 2 accumulator is identically zero ..." / "... stage 2 accumulator
+	did not change ..."
+	Memory corruption or a broken build was caught in stage 2. Restart: the p[exponent].s2
+	checkpoint is intact, the ladder and tables are rebuilt and stage 2 resumes from it. If it
+	recurs, test the hardware.
 
 A SIGINT/SIGTERM-driven checkpoint (cf. section [14a]) never runs the Jacobi check, so shutdown
 is not slowed down; the residue is instead checked when the run is next restarted.
