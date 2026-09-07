@@ -412,7 +412,7 @@ uint32	ernstMain
 	is the iteration count that update corresponds to, and gchk_first_sub the first_sub value in effect at
 	that point (needed for the [d] mode_flag, since the update may not be in the final iteration interval).
 	gchk_nfail bounds the retry count, so a persistent (non-transient) final-check failure cannot spin: */
-	uint32 gchk_final = FALSE, gchk_iter = 0, gchk_first_sub = 0, gchk_nfail = 0, loop_exit = 0;
+	uint32 gchk_final = FALSE, gchk_iter = 0, gchk_first_sub = 0, gchk_nfail = 0, gchk_fail_iter = 0, loop_exit = 0;
 	/* v21: LL Jacobi-check state (cf. jacobi_check()). do_jcheck: enabled for this assignment. jchk_tlast/jchk_tdur:
 	wall time of, and taken by, the previous check - the next waits JACOBI_CHECK_HOURS and at least 100x jchk_tdur, so the
 	check never exceeds ~1% of the run however slow the host. jchk_nfail: consecutive failures; selects the rollback
@@ -490,7 +490,7 @@ RANGE_BEG:
 	ROE_ITER = 0; ROE_VAL = 0.0;
 	NERR_GCHECK = NERR_ROE = NERR_JACOBI = 0;	// v20: Add counters for Gerbicz-check errors and dangerously high ROEs encountered
 								// during test - if a restart, will re-read actual cumulative values from checkpoint file.
-	gchk_final = FALSE; gchk_nfail = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
+	gchk_final = FALSE; gchk_nfail = 0; gchk_fail_iter = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
 										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
 	jchk_nfail = 0; jchk_fail_iter = 0; jchk_file = 0; jchk_passed = FALSE; jchk_tdur = 0.0; jchk_tlast = getRealTime();	// v21: ditto for the Jacobi check
 	ITERS_BETWEEN_GCHECK_UPDATES = 1000; ITERS_BETWEEN_GCHECKS = 1000000;	// v21: a p-1 assignment may have changed these (GerbiczCheckInterval); PRP uses the fixed defaults
@@ -2673,6 +2673,7 @@ READ_RESTART_FILE:
 			if(mi64_cmp_eq(e_uint64_ptr,c_uint64_ptr,j)) {
 				sprintf(cbuf,"At iteration %u, shift = %" PRIu64 ": Gerbicz check passed.\n",gchk_iter,RES_SHIFT);
 				mlucas_fprint(cbuf,0);
+				if(gchk_iter >= gchk_fail_iter) gchk_nfail = 0;	// v21: a pass at or beyond the last failure point clears the retry count
 				// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 				memcpy(d, b, nbytes);
 				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
@@ -2690,8 +2691,13 @@ READ_RESTART_FILE:
 					reproducible one, not the transient data corruption this machinery targets) would retry forever
 					and the run would never terminate. So bound the retries and hard-exit with a diagnostic instead of
 					looping - the savefiles and the worktodo entry are left intact, and no result is emitted: */
-					if(gchk_final && ++gchk_nfail > 3) {
-						snprintf(cbuf,sizeof(cbuf),"Final Gerbicz check at iteration %u failed %u times in a row - the error is not being cleared by restarting from the last-good-Gerbicz-check data, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",gchk_iter,gchk_nfail,PSTRING);
+					/* v21: bound the retries for every check, not just the end-of-run one: a reproducible error at one
+					iteration otherwise rolls back to .G and fails there again forever. The count clears only when a check
+					passes at or beyond the failure point (see the pass branch), so the earlier checkpoints passing again on
+					the way back up do not reset it: */
+					gchk_fail_iter = gchk_iter;
+					if(++gchk_nfail > 3) {
+						snprintf(cbuf,sizeof(cbuf),"%sGerbicz check at iteration %u failed %u times in a row - the error is not being cleared by restarting from the last-good-Gerbicz-check data, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",gchk_final ? "Final " : "",gchk_iter,gchk_nfail,PSTRING);
 						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
 					}
 					if(gchk_iter <= ITERS_BETWEEN_GCHECKS)
@@ -2804,6 +2810,20 @@ READ_RESTART_FILE:
 			}
 		}
 
+	#ifdef MLUCAS_FAULT_INJECT
+		/* Test-only: $MLUCAS_FAULT_STOP_AT=<iter> clears the run flag right here, *between* intervals - after this
+		checkpoint's savefiles are written and before the next interval starts - which is exactly what a signal arriving
+		during the checkpoint write does. Without the between-intervals interrupt handling the run went on with a
+		frozen residue; with it, the next interval reports the interrupt and the run saves and exits: */
+		{
+			static int fs_done = 0; const char *fs_e = getenv("MLUCAS_FAULT_STOP_AT");
+			if(fs_e && !fs_done && ihi == (uint32)strtoul(fs_e,0x0,10) && ierr == 0 && !INTERACT) {
+				fs_done = 1;	MLUCAS_KEEP_RUNNING = 0;	MLUCAS_INTERRUPT_SIGNO = SIGINT;
+				snprintf(cbuf,sizeof(cbuf), "FAULT INJECTION: run flag cleared between intervals at iteration %u.\n",ihi);
+				mlucas_fprint(cbuf,1);
+			}
+		}
+	#endif
 		if(ierr == ERR_INTERRUPT) exit(0);
 
 		// For Fermats and cofactor-PRP tests of either modulus type, exit only after writing final-residue checkpoint file:

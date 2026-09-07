@@ -42,9 +42,10 @@ setup() {	# setup <dir> [<binary>]
 	printf 'CheckInterval = 10000\n' > "$d/mlucas.ini"
 	echo "$d"
 }
-run() {	# run <dir> [env...]
-	local d=$1; shift
-	( cd "$d" && env "$@" timeout 1800 ./Mlucas -cpu "$CPU" > run.log 2>&1 ); echo $? > "$d/exit"
+run() {	# run <dir> [env...] [-- <extra Mlucas args>]
+	local d=$1; shift; local envs=() extra=()
+	while (( $# )); do if [[ $1 == -- ]]; then shift; extra=("$@"); break; fi; envs+=("$1"); shift; done
+	( cd "$d" && env "${envs[@]}" timeout 1800 ./Mlucas -cpu "$CPU" "${extra[@]}" > run.log 2>&1 ); echo $? > "$d/exit"
 }
 run_until_iter_then_interrupt() {	# <dir> <iteration>
 	local d=$1 it=$2 pid i
@@ -76,6 +77,42 @@ printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'Check
 run "$d"; S=$d/p$P.stat
 expect_grep "$S" "WARN: GerbiczCheckInterval = 12345 is not usable with CheckInterval = 1000: .*(e.g. 10000, 40000, 250000, 1000000)" "unusable value rejected with the admissible list"
 expect_grep "$S" "Gerbicz check every 1000000 iterations (block L = 1000, automatic)" "fell back to the automatic choice"
+
+# ---------------------------------------------------------------------------------------------
+echo "-- P0c: LowMem = 2: no Gerbicz arrays, so stage 1 runs with no arithmetic check and says so; Jacobi integrity checks still run"
+d=$WORK/p0c; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nLowMem = 2\n' > "$d/mlucas.ini"
+run "$d"; S=$d/p$P.stat
+expect_grep "$S" "p-1 stage 1 will run with NO arithmetic error check" "the one-time warning"
+expect_nogrep "$S" "Gerbicz check passed\|Gerbicz check iteration\|Gerbicz check at iteration" "no Gerbicz check ran"
+expect_grep "$S" "Stage 1 final residue passed the Jacobi check (.* sec)." "final Jacobi check ran inline (no scratch array for the thread)"
+expect_nogrep "$S" "overlapped with the GCD" "(and not on a thread)"
+expect_grep "$S" "GCD" "stage 1 completed to the GCD"
+[[ ! -f $d/p$P.G ]] && ok "no .G file without the check" || bad ".G written without a check"
+
+echo "-- P0d: Fermat number F16 = 2^65536+1, stage 1 with GerbiczCheckInterval = 10000: the same checks on the Fermat-mod path"
+d=$WORK/p0d; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+FCFG=${JACOBI_TEST_FERMAT_CFG:-$(dirname "${CFG:-.}")/fermat.cfg}	# Fermat runs need fermat.cfg (produced by config-fermat.sh)
+if [[ ! -f $FCFG ]]; then
+	skip "P0d: no fermat.cfg at $FCFG (run config-fermat.sh, or point JACOBI_TEST_FERMAT_CFG at one)"
+else
+cp "$FCFG" "$d/fermat.cfg"
+printf 'Pminus1=1,2,65536,1,20000,20000\n' > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
+# -fft 4: left to itself the p-1 FFT-length choice for F16 is 3K, which the Fermat-mod transform cannot run (no radix 12)
+# and which has no fermat.cfg entry - and a missing Fermat cfg length sends Mlucas into an endless Mersenne self-test loop
+# appending to mlucas.cfg (pre-existing, not this feature's). 4K is what config-fermat.sh and the Pepin test use for F16.
+run "$d" -- -fft 4; S=$d/f16.stat
+if [[ -f $S ]]; then
+	expect_grep "$S" "At iteration 10000, shift = 0: Gerbicz check passed" "Fermat: check at 10^4 passed"
+	expect_grep "$S" "At iteration 20000, shift = 0: Gerbicz check passed" "Fermat: check at 2*10^4 passed"
+	expect_nogrep "$S" "Gerbicz check iteration" "Fermat: no failures"
+	expect_grep "$S" "Stage 1 final residue passed the Jacobi check" "Fermat: final Jacobi check passed (expected +1)"
+	expect_grep "$S" "Found 10-digit factor in Stage 1: 825753601" "Fermat: the known factor 825753601 of F16 found (stage 1 arithmetic right end to end)"
+	expect_grep "$S" "GCD" "Fermat: stage 1 completed to the GCD"
+else
+	bad "no f16.stat produced (run.log tail: $(tail -2 "$d/run.log" | tr '\n' ' '))"
+fi
+fi
 
 # ---------------------------------------------------------------------------------------------
 echo "-- P1: clean p-1 stage 1 (M$P, B1 = $B1)"
@@ -132,6 +169,19 @@ else
 	expect_grep "$d/results.txt" '"gerbicz":1' "one Gerbicz error counted in the results line"
 	# bits 20-23 = 3rd hex digit of the 8-digit code (digits are bits 31-28, 27-24, 23-20, ...)
 	if grep -qE '"error-code":"[0-9A-F]{2}1[0-9A-F]{5}"' "$d/results.txt"; then ok "Gerbicz nibble (bits 20-23) = 1 in the error-code"; else bad "Gerbicz nibble != 1: $(grep -o '"error-code":"[0-9A-F]*"' "$d/results.txt")"; fi
+fi
+
+# ---------------------------------------------------------------------------------------------
+if [[ -n $MLUCAS_FI ]]; then
+	echo "-- P4b: a reproducible stage 1 fault: the Gerbicz retry is bounded (rollback to .G three times, then abort)"
+	d=$WORK/p4b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS_FI" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+	printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
+	run "$d" MLUCAS_FAULT_ITER=15000 MLUCAS_FAULT_WORD=0 MLUCAS_FAULT_REPEAT=1; S=$d/p$P.stat
+	expect_count "$S" "FAULT INJECTION: added 1.0 to residue digit 0 at iteration 15000" 4 "injection re-fired on every retry"
+	expect_count "$S" "Gerbicz check iteration 20000 failed! Restarting from last-good-Gerbicz-check data" 3 "three rollbacks to .G"
+	expect_grep "$S" "Gerbicz check at iteration 20000 failed 4 times in a row" "fourth failure aborts with the hardware warning"
+	[[ $(cat "$d/exit") != 0 ]] && ok "run stopped (exit $(cat "$d/exit"))" || bad "run did not stop"
+	[[ -f $d/p$P && -f $d/p$P.G ]] && ok "savefiles left in place" || bad "savefiles missing after the abort"
 fi
 
 # ---------------------------------------------------------------------------------------------
