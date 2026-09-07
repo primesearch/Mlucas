@@ -1778,8 +1778,18 @@ for(i=0; i < NRT; i++) {
 	fprintf(stderr,"%s: NTHREADS = %3d\n",func,NTHREADS);
   #endif
 
+#ifdef PHASE_TIMING
+	// Wall time of the two phases of an iteration, accumulated over this ilo..ihi block: the FFT phase
+	// (passes 2..S, dyadic square, inverse passes, i.e. the threadpool dispatch + drain) and the carry
+	// phase (radix0 DIT + carry + radix0 DIF, the radixN_ditN_cy_dif1 call). Whatever is left of the
+	// per-iteration time is bookkeeping. Developer instrumentation: build with -DPHASE_TIMING.
+	double pt_fft = 0.0, pt_cy = 0.0, pt0 = 0.0;
+#endif
 for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 {
+#ifdef PHASE_TIMING
+	pt0 = getRealTime();
+#endif
 /*...perform the FFT-based squaring:
 	 Do last S-1 of S forward decimation-in-frequency transform passes.	*/
 
@@ -1829,6 +1839,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
 
+#ifdef PHASE_TIMING
+	pt_fft += getRealTime() - pt0;	pt0 = getRealTime();
+#endif
 	fracmax = 0.0;
 
 	switch(radix0)
@@ -1939,6 +1952,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 	}
 
+#ifdef PHASE_TIMING
+	pt_cy += getRealTime() - pt0;
+#endif
 	// v19: Nonzero exit carries used to be fatal, added retry-from-last-savefile handling for these
 	if(ierr)
 		return(ierr);
@@ -2046,6 +2062,11 @@ if(iter < ihi) {
 //	*tdiff += difftime(clock2 , clock1);
 	clock2 = getRealTime();
 	*tdiff += clock2 - clock1;
+#ifdef PHASE_TIMING
+	if(ihi > ilo)
+		fprintf(stderr,"%s: PHASE_TIMING iters %u-%u: fft-phase %.4f ms/iter, carry-phase %.4f ms/iter, total %.4f ms/iter\n",
+			func, ilo+1, ihi, 1000*pt_fft/(ihi-ilo), 1000*pt_cy/(ihi-ilo), 1000*(clock2-clock1)/(ihi-ilo));
+#endif
 #endif
 
 #if DBG_THREADS
