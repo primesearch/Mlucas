@@ -90,7 +90,12 @@ jobs:
         # built these, so it costs no extra build time.
         if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            # M(521), not M(127): the 4-word build's 256-bit modpow needs p + 256 >= 512 to have a
+            # lead chunk to work with, and asserts ("twopmodq256 : start_index < 2!") below that.
+            # M(127) only ever passed because a stray -DTRYQ=4 sent that build down the single-word
+            # path instead. 521 is the smallest Mersenne-prime exponent every word variant handles,
+            # and costs slightly less than 127 did (726k trial divides vs 1.66M).
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -159,7 +164,7 @@ jobs:
         # built these, so it costs no extra build time.
         if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -346,7 +351,7 @@ jobs:
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
 
   TSan-Linux:
@@ -507,7 +512,7 @@ jobs:
         # built these, so it costs no extra build time.
         if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -568,7 +573,7 @@ jobs:
         # built these, so it costs no extra build time.
         if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -608,7 +613,7 @@ jobs:
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
 
   TSan-macOS:
@@ -700,7 +705,7 @@ jobs:
         # coverage: this VM may not be able to execute what they target - running them per-mode is
         # what makes the AVX-512 binary SIGILL on three of the four releases on main today.
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -792,7 +797,7 @@ jobs:
         # built these, so it costs no extra build time.
         if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MSFX=_NOSIMD; else MSFX=; fi
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -842,5 +847,5 @@ jobs:
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 127 -bmax 20 )
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done

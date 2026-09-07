@@ -707,15 +707,9 @@ int main(int argc, char *argv[])
   #ifdef P1WORD
 	double twop_float = 0,fqlo,fqhi;
   #endif
-  #ifdef P3WORD
-	uint192 p192,q192,t192;
-  #ifdef USE_FLOAT
-	uint256 x256;	// Needed to hold result of twopmodq200_8WORD_DOUBLE
-  #endif
-  #endif
-  #ifdef P4WORD
-	uint256 p256,q256,t256;
-  #endif
+	// No 192/256-bit scratch operands here: every use of them is in PerPass_tfSieve, which
+	// declares its own. (The USE_FLOAT variant of the P3WORD pair was doubly dead - factor.h
+	// #errors on P3WORD together with USE_FLOAT, so it could never be declared at all.)
 
 	/*...time-related stuff	*/
   #ifdef CTIME
@@ -2725,13 +2719,16 @@ MFACTOR_HELP:
 	#ifdef P1WORD
 		//uint128 p128,q128,t128;	// Despite the naming, these are needed for nominal 1-word runs with moduli exceeding 64 bits
 	#endif
-	#ifdef P3WORD
+	/* Scalar 192/256-bit operands, for the one-candidate-at-a-time dispatch only: at TRYQ > 1
+	the P3WORD arm calls the batch routines twopmodq192_q4/_q8, which take the raw p[] and k
+	values, and P4WORD has no batch arm at all (see the TRYQ == 4 guard further down). */
+	#if defined(P3WORD) && (TRYQ == 1)
 		uint192 p192,q192,t192;
 	  #ifdef USE_FLOAT
 		uint256 x256;	// Needed to hold result of twopmodq200_8WORD_DOUBLE
 	  #endif
 	#endif
-	#ifdef P4WORD
+	#if defined(P4WORD) && (TRYQ == 1)
 		uint256 p256,q256,t256;
 	#endif
 		char cbuf[STR_MAX_LEN*2], cbuf2[STR_MAX_LEN*2];
@@ -3477,7 +3474,7 @@ MFACTOR_HELP:
 									/****** Apr 2105: This all needs to be made thread-safe ******/
 									ASSERT(0, "This all needs to be made thread-safe!");
 										//kdeep[*ndeep] = (uint32)k;
-										*ndeep++;
+										(*ndeep)++;	// Not *ndeep++, which advances the pointer past its one-element object and leaves the count alone
 										ASSERT(*ndeep < 1024, "Increase allocation of kdeep[] array or use deeper sieving bound to reduce #candidate k's!");
 									//	itmp64 = factor_qmmp_sieve64((uint32)findex, k, MAX_SIEVING_PRIME+2, 0x0001000000000000ull);
 									//	if(itmp64) {
@@ -3623,7 +3620,19 @@ MFACTOR_HELP:
 						#elif(TRYQ == 4)	/************** try 4 factor candidates at a time **************/
 					/***************************************************************************************/
 
-						  #ifdef P3WORD
+						  #if(defined(NWORD) || defined(P4WORD))
+
+							/* No 4-way batch modpow exists for these: mi64_twopmodq and twopmodq256 are
+							scalar-only, so the TRYQ = 1 chain above is the only one that dispatches them.
+							Without this guard the chain below silently falls through to its "default
+							single-word-p mode" arm, whose widest routine is 96-bit and which is handed
+							p[0] rather than p - so the run dies on its first candidate batch, in
+							ASSERT(fbits_in_q < 96), for any modulus wide enough to want a NWORD or
+							P4WORD build at all. TRYQ = 2, 16, 32 and 64 already reject the word sizes
+							they cannot batch; 4 and 8 did not. */
+							#error (TRYQ == 4) is not supported for NWORD or P4WORD builds - use TRYQ = 1!
+
+						  #elif(defined(P3WORD))
 
 						//	ASSERT(!p[2], "twopmodq200: p[2] nonzero!");
 							res = twopmodq192_q4(p,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
@@ -3689,13 +3698,17 @@ MFACTOR_HELP:
 								#endif
 								}
 							#endif	/* #ifdef USE_FLOAT */
-						  #endif	/* #ifdef NWORD */
+						  #endif	/* word-size dispatch */
 
 					/***************************************************************************************/
 						#elif(TRYQ == 8)	/************** try 8 factor candidates at a time **************/
 					/***************************************************************************************/
 
-						  #ifdef P3WORD
+						  #if(defined(NWORD) || defined(P4WORD))
+
+							#error (TRYQ == 8) is not supported for NWORD or P4WORD builds - use TRYQ = 1!	/* See the TRYQ == 4 arm above */
+
+						  #elif(defined(P3WORD))
 						/*
 							if((q[2] >> 32) == 0)
 								res = twopmodq160_q8(p,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7]);
@@ -3752,7 +3765,7 @@ MFACTOR_HELP:
 								}
 
 							#endif	/* #ifdef USE_FLOAT */
-						  #endif	/* #ifdef NWORD */
+						  #endif	/* word-size dispatch */
 
 					/***************************************************************************************/
 						#elif(TRYQ == 16)	/************** try 16 factor candidates at a time *************/
