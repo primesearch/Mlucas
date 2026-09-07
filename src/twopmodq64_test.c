@@ -540,7 +540,10 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
 		"movq	%%r15,%[__x3]	\n\t"\
-		:	/* outputs: none */\
+		: [__x0] "+m" (x0)	/* outputs: the template stores into these */\
+		 ,[__x1] "+m" (x1)\
+		 ,[__x2] "+m" (x2)\
+		 ,[__x3] "+m" (x3)\
 		: [__q0] "m" (q0)	/* All inputs from memory addresses here */\
 		 ,[__q1] "m" (q1)	\
 		 ,[__q2] "m" (q2)	\
@@ -549,10 +552,6 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		 ,[__qinv1] "m" (qinv1)	\
 		 ,[__qinv2] "m" (qinv2)	\
 		 ,[__qinv3] "m" (qinv3)	\
-		 ,[__x0] "m" (x0)	\
-		 ,[__x1] "m" (x1)	\
-		 ,[__x2] "m" (x2)	\
-		 ,[__x3] "m" (x3)	\
 		 ,[__pshift] "m" (pshift)	\
 		 ,[__j] "m" (j)	/* Only need this if debug and explicit loop enabled, but try with/sans for each version of the asm, pivk faster one. */\
 		 ,[__start_index] "m" (start_index)	\
