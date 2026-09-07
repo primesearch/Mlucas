@@ -117,14 +117,14 @@ Options - again note the user can override the default iteration count based on 
 	same test spans well over 10x across machines. The figures are for ONE core at the default
 	100 iterations - the only configuration that compares cleanly between systems - and come
 	from two x86-64 laptop CPUs several generations apart, which agree within about 2x where
-	both were run; the last three rows are from the older of the two only:
+	both were run; the last two rows are from the older of the two only:
 
 	  -s         FFT lengths      one core, 100 iters
 	  teensy     1K - 15K         a second or less
 	  tiny       16K - 240K       5 - 10 seconds
 	  small      256K - 1.875M    1 - 2 minutes
 	  medium     2M - 15M         13 - 21 minutes
-	  large      16M - 60M        about an hour
+	  large      16M - 60M        35 - 60 minutes
 	  huge       64M - 240M       about 5 hours
 	  egregious  256M - 512M      about 14 hours
 
