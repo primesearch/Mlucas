@@ -100,7 +100,7 @@ cp "$FCFG" "$d/fermat.cfg"
 printf 'Pminus1=1,2,65536,1,20000,20000\n' > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
 # -fft 4: left to itself the p-1 FFT-length choice for F16 is 3K, which the Fermat-mod transform cannot run (no radix 12)
 # and which has no fermat.cfg entry - and a missing Fermat cfg length sends Mlucas into an endless Mersenne self-test loop
-# appending to mlucas.cfg (pre-existing, not this feature's). 4K is what config-fermat.sh and the Pepin test use for F16.
+# appending to mlucas.cfg (pre-existing; PR #174 fixes both). 4K is what config-fermat.sh and the Pepin test use for F16.
 run "$d" -- -fft 4; S=$d/f16.stat
 if [[ -f $S ]]; then
 	expect_grep "$S" "At iteration 10000, shift = 0: Gerbicz check passed" "Fermat: check at 10^4 passed"
