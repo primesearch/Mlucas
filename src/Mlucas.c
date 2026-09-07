@@ -6474,7 +6474,12 @@ uint32 extract_known_factors(uint64 p, char *fac_start) {
 			i = CMPEQ256(res256,q256);
 		}
 		if(!i) {
-			snprintf(g_cstr,sizeof(g_cstr),"%s: known-factor #%u [%s] of this assignment does not divide the modulus ... please correct or remove that entry.",WORKFILE,nfac,cbuf);
+			// %.*s, not %s, on cbuf: it holds the factor token as it appeared in the worktodo line,
+			// whose length is bounded only by cbuf itself (STR_MAX_LEN*3), while g_cstr is STR_MAX_LEN -
+			// so the compiler cannot rule out truncation, and a truncated factor would leave the user
+			// unable to tell which entry the message is asking them to correct. A 256-bit factor needs
+			// at most 78 digits, so a quarter of g_cstr is ample and makes the bound provable:
+			snprintf(g_cstr,sizeof(g_cstr),"%s: known-factor #%u [%.*s] of this assignment does not divide the modulus ... please correct or remove that entry.",WORKFILE,nfac,(int)(sizeof(g_cstr)/4),cbuf);
 			ASSERT(0,g_cstr);
 		}
 		// If find any duplicate-entries in input list, warn & remove:
