@@ -193,6 +193,13 @@ void threadpool_free(struct threadpool *pool);
 int threadpool_drain(struct threadpool *pool,
 			int blocking);
 
+/* The one process-wide pool used by every radix*_ditN_cy_dif1 carry step. All of those routines
+want the same pool shape (CY_THREADS workers, CY_THREADS queue slots, no per-thread init/shutdown
+hooks), and only one of them is ever active at a time, so they share a single pool instead of each
+holding a private one for the life of the process. Created on first call; re-created (after
+freeing the old one, which is quiescent between carry calls) only if num_threads changes. */
+struct threadpool* carry_threadpool_get(int num_threads, int num_cores);
+
 #ifdef __cplusplus
 }
 #endif

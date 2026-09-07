@@ -884,4 +884,21 @@ me at: heber.tomer@gmail.com
 		return 0;
 	}
 
+
+struct threadpool* carry_threadpool_get(int num_threads, int num_cores)
+{
+	static struct threadpool *pool = 0x0;
+	static int pool_threads = 0;
+	if (pool != 0x0 && pool_threads != num_threads) {
+		threadpool_free(pool);
+		pool = 0x0;
+	}
+	if (pool == 0x0) {
+		thread_control_t no_hooks = {0,0,0};	/* copied by threadpool_init, so a local is fine */
+		pool = threadpool_init(num_threads, num_cores, num_threads, &no_hooks);
+		pool_threads = num_threads;
+	}
+	return pool;
+}
+
 #endif	// ifdef MULTITHREAD ?
