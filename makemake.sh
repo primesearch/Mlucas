@@ -154,14 +154,16 @@ try_lto() {
 
 if [[ ! $OSTYPE == darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
-	# librt does not exist on Windows targets. Probe the compiler for it rather than testing $OSTYPE:
-	# $OSTYPE describes the *build host*, so it only skips -lrt for a native msys/cygwin build, and a
-	# MinGW cross-build from Linux (CC=x86_64-w64-mingw32-gcc) still got -lrt and died at the link step
-	# with "cannot find -lrt". Probing also drops the flag on any other target that has folded the librt
-	# entry points into libc, which is where glibc has been heading since 2.34:
-	if try_flag -lrt; then
-		LD_ARGS+=(-lrt)
-	fi
+fi
+# librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
+# $OSTYPE - which describes the *build host*, not the target. The old test only skipped -lrt for a
+# native msys/cygwin build, so a MinGW cross-build from Linux (CC=x86_64-w64-mingw32-gcc) still got
+# the flag and died at the link step with "cannot find -lrt". The probe covers every target that
+# lacks librt with one rule: Windows, macOS (whose realtime entry points live in libSystem), and any
+# system that has folded them into libc, which is where glibc has been heading since 2.34. That is
+# why this sits outside the darwin block above rather than inside it:
+if try_flag -lrt; then
+	LD_ARGS+=(-lrt)
 fi
 # GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe for the flag itself
 # rather than assuming by version number (which drifts, and varies by distro/backport):
