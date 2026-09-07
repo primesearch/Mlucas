@@ -87,6 +87,8 @@ int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 int DO_GCHECK = FALSE;	// If Mersenne/PRP or Fermat/Peoin test, Toggle to TRUE at runtime
 uint32 NERR_GCHECK = 0;	// v20: Add counter for Gerbicz-check errors encountered during test
 uint32 NERR_JACOBI = 0;	// v21: Counter for Jacobi-check failures encountered during test
+int PM1_GCHECK_INTERVAL = 0;	// v21: mlucas.ini GerbiczCheckInterval (p-1 stage 1 only; 0 = automatic, see the DO_GCHECK block in ernstMain)
+double CFG_MSEC_PER_ITER = 0.0;	// v21: set by get_preferred_fft_radix() from the mlucas.cfg timing of the radix set it picks
 uint32 PM1_GCHECK_EPOCH_START = 0;	// v21: p-1 stage 1 Gerbicz check - see the "Gerbicz check for p-1 stage 1" comment in ernstMain()
 uint32 PM1_GCHECK_FILE_HAS_PRODUCT = 0;	// v21: read_ppm1_savefiles() output: a p-1 savefile carried an appended check-product
 int JACOBI_CHECK = TRUE;	// v21: mlucas.ini JacobiCheck; forced FALSE when no usable GMP is compiled in
@@ -455,7 +457,8 @@ uint32	ernstMain
 	current check-product epoch started from, kept in pure-integer form; g2[] = scratch for the 3^C correction factor;
 	gchk_bits[] = the multiply-by-base bit array the correction powering and the check-product squarings run against
 	in place of the live stage 1 exponent bits. Allocated only for p-1 with the Gerbicz arrays available: */
-	static double *pm1g_ptmp = 0x0, *u0 = 0x0, *g2 = 0x0;	static uint32 pm1g_nalloc = 0;
+	static double *pm1g_ptmp = 0x0, *u0 = 0x0, *g2 = 0x0, *g3 = 0x0;	static uint32 pm1g_nalloc = 0, g3_L = 0;	// g3 = FFT(3^(2^L)), valid while g3_L == L
+	uint64 gchk_H = 0ull;
 	static uint64 *gchk_bits = 0x0, *gchk_bits_ptmp = 0x0;	static uint32 gchk_bits_len = 0;
 	uint64 *bmb_save = 0x0;	// Saved BASE_MULTIPLIER_BITS pointer across the swaps
 	// uint64 scratch array and 4 pointers used to store cast-to-(uint64 *) version of above b,c,d,e-pointers
@@ -490,6 +493,7 @@ RANGE_BEG:
 	gchk_final = FALSE; gchk_nfail = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
 										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
 	jchk_nfail = 0; jchk_fail_iter = 0; jchk_file = 0; jchk_passed = FALSE; jchk_tdur = 0.0; jchk_tlast = getRealTime();	// v21: ditto for the Jacobi check
+	ITERS_BETWEEN_GCHECK_UPDATES = 1000; ITERS_BETWEEN_GCHECKS = 1000000;	// v21: a p-1 assignment may have changed these (GerbiczCheckInterval); PRP uses the fixed defaults
 	// Clear out any FFT-radix or known-factor data that might remain from a just-completed run:
 	for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
 	nfac = 0; mi64_clear(KNOWN_FACTORS,40);
@@ -546,6 +550,17 @@ RANGE_BEG:
 		} else {
 			JACOBI_CHECK_HOURS = dtmp;
 			sprintf(cbuf,"User set JacobiCheckHours = %g in %s%s.\n",dtmp,MLUCAS_INI_FILE,(dtmp == 0.0) ? " (Jacobi check at every checkpoint)" : "");
+		}
+		mlucas_fprint(cbuf,1);
+	}
+	PM1_GCHECK_INTERVAL = 0;
+	dtmp = mlucas_getOptVal(MLUCAS_INI_FILE,"GerbiczCheckInterval");
+	if(dtmp == dtmp) {
+		if(dtmp < 10000.0 || dtmp > 1.0e9 || DNINT(dtmp) != dtmp) {
+			sprintf(cbuf,"User set GerbiczCheckInterval = %f in %s ... must be a whole number in [10^4, 10^9], ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		} else {
+			PM1_GCHECK_INTERVAL = (int)dtmp;
+			sprintf(cbuf,"User set GerbiczCheckInterval = %d in %s (applies to p-1 stage 1).\n",PM1_GCHECK_INTERVAL,MLUCAS_INI_FILE);
 		}
 		mlucas_fprint(cbuf,1);
 	}
@@ -1483,7 +1498,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	{
 		ASSERT(a_ptmp != 0x0 && a != 0x0 && b != 0x0 && c != 0x0 && d != 0x0,"Require (a_ptmp,a,b,c,d) != 0x0");
 		free((void *)a_ptmp); a_ptmp = a = b = c = d = e = 0x0; b_uint64_ptr = c_uint64_ptr = d_uint64_ptr = e_uint64_ptr = 0x0;
-		if(pm1g_ptmp) { free((void *)pm1g_ptmp); pm1g_ptmp = u0 = g2 = 0x0; pm1g_nalloc = 0; }	// v21: p-1 G-check arrays track a[]
+		if(pm1g_ptmp) { free((void *)pm1g_ptmp); pm1g_ptmp = u0 = g2 = g3 = 0x0; pm1g_nalloc = 0; g3_L = 0; }	// v21: p-1 G-check arrays track a[]
 		free((void *)arrtmp); arrtmp=0x0;
 		free((void *)BIGWORD_BITMAP);	BIGWORD_BITMAP = 0x0;
 		free((void *)BIGWORD_NBITS);	BIGWORD_NBITS = 0x0;
@@ -1519,13 +1534,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			b_uint64_ptr = (uint64 *)b; c_uint64_ptr = (uint64 *)c; d_uint64_ptr = (uint64 *)d; e_uint64_ptr = (uint64 *)e;
 		}
 	}
-	/* v21: p-1 stage 1 Gerbicz check needs two more residue-length arrays (see their declaration). Allocated
+	/* v21: p-1 stage 1 Gerbicz check needs three more residue-length arrays (see their declaration). Allocated
 	separately from a[]..e[] because those persist across assignments of the same FFT length while the need
 	for these depends on the test type: */
 	if(TEST_TYPE == TEST_TYPE_PM1 && use_lowmem < 2 && (pm1g_ptmp == 0x0 || pm1g_nalloc < nalloc)) {
-		if(pm1g_ptmp) { free((void *)pm1g_ptmp); pm1g_ptmp = u0 = g2 = 0x0; }
-		pm1g_ptmp = ALLOC_DOUBLE(pm1g_ptmp, 2*nalloc);	if(!pm1g_ptmp){ sprintf(cbuf, "ERROR: unable to allocate the p-1 Gerbicz-check arrays in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
-		u0 = ALIGN_DOUBLE(pm1g_ptmp);	g2 = u0 + nalloc;	pm1g_nalloc = nalloc;
+		if(pm1g_ptmp) { free((void *)pm1g_ptmp); pm1g_ptmp = u0 = g2 = g3 = 0x0; }
+		pm1g_ptmp = ALLOC_DOUBLE(pm1g_ptmp, 3*nalloc);	if(!pm1g_ptmp){ sprintf(cbuf, "ERROR: unable to allocate the p-1 Gerbicz-check arrays in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
+		u0 = ALIGN_DOUBLE(pm1g_ptmp);	g2 = u0 + nalloc;	g3 = g2 + nalloc;	pm1g_nalloc = nalloc;	g3_L = 0;
 	}
 	{
 
@@ -1592,6 +1607,49 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	is guarded by this check, and by nothing at all in LowMem=2 mode. */
 	if(TEST_TYPE == TEST_TYPE_PM1) {
 		if(DO_GCHECK) {
+			/* v21: Gerbicz interval for p-1 stage 1. The PRP value (10^6 iterations, block L = 1000) is 14-55 hours of
+			exposure at 100M-digit exponents; overhead is ~2/L whatever the interval. Constraints from the block
+			bookkeeping: interval = L^2, L | CheckInterval | L^2 - and with the >4-thread CheckInterval default of
+			10^5 the only admissible L is 1000, so p-1 defaults CheckInterval to 10^4 unless the user set it (two
+			savefile writes per checkpoint are no burden). Then: GerbiczCheckInterval from mlucas.ini if set and
+			admissible, else the smallest admissible L >= 100 whose L^2 iterations take at least ~2 hours at the
+			mlucas.cfg per-iteration time, capped at L = 1000 - i.e. the automatic rule only shortens the interval
+			on slow, large runs: */
+			if(!check_interval && ITERS_BETWEEN_CHECKPOINTS > 10000) {
+				ITERS_BETWEEN_CHECKPOINTS = 10000;
+				snprintf(cbuf,sizeof(cbuf), "p-1: using CheckInterval = 10000 (the >4-thread default of 100000 would force the Gerbicz block to L = 1000; set CheckInterval in %s to override).\n",MLUCAS_INI_FILE);
+				mlucas_fprint(cbuf,1);
+			}
+			{
+				const uint32 CI = ITERS_BETWEEN_CHECKPOINTS; uint32 L, Lsel = 0, Lmin = 0, Lmax = 0;
+				#define PM1_L_ADMISSIBLE(L) ((CI % (L)) == 0 && (((uint64)(L)*(L)) % CI) == 0 && (uint64)(L)*(L) <= 0x7FFFFFFFull)
+				for(L = 100; L <= CI; L++) { if(PM1_L_ADMISSIBLE(L)) { if(!Lmin) Lmin = L; Lmax = L; } }
+				ASSERT(Lmin != 0, "No admissible Gerbicz block length for this CheckInterval - it must be a multiple of 100 with a square multiple <= 2^31.");
+				if(PM1_GCHECK_INTERVAL) {
+					for(L = 100; (uint64)L*L < (uint64)PM1_GCHECK_INTERVAL; L++);
+					if((uint64)L*L == (uint64)PM1_GCHECK_INTERVAL && L <= CI && PM1_L_ADMISSIBLE(L)) {
+						Lsel = L;
+					} else {
+						snprintf(cbuf,sizeof(cbuf), "WARN: GerbiczCheckInterval = %d is not usable with CheckInterval = %u: it must be L^2 with L dividing CheckInterval and CheckInterval dividing L^2 (e.g. ",PM1_GCHECK_INTERVAL,CI);
+						for(L = Lmin, i = 0; L <= Lmax && i < 6; L++) { if(PM1_L_ADMISSIBLE(L)) { snprintf(cbuf+strlen(cbuf),sizeof(cbuf)-strlen(cbuf),"%s%" PRIu64,(i ? ", " : ""),(uint64)L*L); i++; } }
+						snprintf(cbuf+strlen(cbuf),sizeof(cbuf)-strlen(cbuf),"). Using the automatic choice instead.\n");
+						mlucas_fprint(cbuf,1);
+					}
+				}
+				if(!Lsel) {
+					double t_iter = CFG_MSEC_PER_ITER*1.0e-3, bound = (t_iter > 0.0) ? sqrt(7200.0/t_iter) : 1000.0;
+					if(bound > 1000.0) bound = 1000.0;
+					for(L = Lmin; L <= Lmax; L++) { if(PM1_L_ADMISSIBLE(L) && (double)L >= bound) { Lsel = L; break; } }
+					if(!Lsel) Lsel = (Lmax < 1000) ? Lmax : 1000;	// no admissible L >= bound: take the largest one up to 1000
+					while(Lsel > Lmin && !PM1_L_ADMISSIBLE(Lsel)) Lsel--;
+				}
+				#undef PM1_L_ADMISSIBLE
+				ITERS_BETWEEN_GCHECK_UPDATES = (int)Lsel;	ITERS_BETWEEN_GCHECKS = (int)(Lsel*Lsel);
+				snprintf(cbuf,sizeof(cbuf), "p-1 stage 1 Gerbicz check every %d iterations (block L = %d%s%s).\n",ITERS_BETWEEN_GCHECKS,ITERS_BETWEEN_GCHECK_UPDATES,
+					(PM1_GCHECK_INTERVAL && ITERS_BETWEEN_GCHECKS == PM1_GCHECK_INTERVAL) ? ", from GerbiczCheckInterval" : ", automatic",
+					(CFG_MSEC_PER_ITER > 0.0) ? "" : "; no mlucas.cfg timing available");
+				mlucas_fprint(cbuf,1);
+			}
 			j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6) + 2;
 			if(gchk_bits == 0x0 || gchk_bits_len < (uint32)j) {
 				if(gchk_bits_ptmp) free((void *)gchk_bits_ptmp);
@@ -2491,8 +2549,11 @@ READ_RESTART_FILE:
 			step and force the undo-initial-FFT-pass-and-DWT-weighting step, leaving a pure-int G-check residue ready for savefile-writing: */
 			// v21: for the end-of-run check, use the first_sub value in effect when [d] was snapshotted:
 			mode_flag = 1 - (gchk_final ? gchk_first_sub : first_sub);
-			// v21: p-1: the squarings must not pick up the live stage 1 exponent bits - run them against a zeroed bit array:
-			if(TEST_TYPE == TEST_TYPE_PM1) { bmb_save = BASE_MULTIPLIER_BITS; mi64_clear(gchk_bits, gchk_bits_len); BASE_MULTIPLIER_BITS = gchk_bits; }
+			/* v21: p-1: the squarings must not pick up the live stage 1 exponent bits. They run against the private bit
+			array, which pm1_gcheck_prepare() fills with the low L bits of the correction exponent C (bit-reversed, at
+			the index offset these iterations read from), so d^(2^L) * 3^(C mod 2^L) comes out of them for free; the
+			high part of C is applied afterwards by pm1_gcheck_apply(): */
+			if(TEST_TYPE == TEST_TYPE_PM1) { gchk_H = pm1_gcheck_prepare(gchk_iter, gchk_bits, gchk_bits_len); bmb_save = BASE_MULTIPLIER_BITS; BASE_MULTIPLIER_BITS = gchk_bits; }
 			ierr = func_mod_square  (d,0x0, n, gchk_iter,gchk_iter+ITERS_BETWEEN_GCHECK_UPDATES, (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE, 0x0);
 			if(TEST_TYPE == TEST_TYPE_PM1) { BASE_MULTIPLIER_BITS = bmb_save; }
 			if(ierr) {
@@ -2510,11 +2571,17 @@ READ_RESTART_FILE:
 			// 1 or more MSBs in high word untouched:
 			j = (p+63)>>6;	/*** Jun 2021: cf. convert_res_FP_bytewise() for why we don't include the extra Fermat-modulus bit here ***/
 			c_uint64_ptr[j-1] = 0ull;
-			/* v21: p-1 stage 1: apply the correction factor u0 * 3^C to d[] (see the DO_GCHECK comment above). g2 = 3^C by the
-			stage 1 powering machinery driven by the bits of C, c = u0 * g2, d *= c; every modmul runs against the private
+			/* v21: p-1 stage 1: apply the rest of the correction factor, u0 * 3^(H * 2^L) with H = C >> L, to d[] (see the
+			DO_GCHECK comment above); the low L bits of C already went into the squarings. 3^(2^L) is computed once per
+			run (L squarings) and kept in g3[]; g2 = g3^H is ~2*log2(H) modmuls. Every modmul runs against the private
 			bit array so the live exponent bits stay out of it. On exit d[] is pure-int as the PRP path expects: */
 			if(TEST_TYPE == TEST_TYPE_PM1) {
-				ierr = pm1_gcheck_correction(d, c, g2, u0, gchk_bits, gchk_bits_len, gchk_iter, n, p, func_mod_square, scrnFlag, &tdif2);
+				if(g3_L != (uint32)ITERS_BETWEEN_GCHECK_UPDATES) {
+					ierr = pm1_gcheck_g3(g3, gchk_bits, gchk_bits_len, n, p, func_mod_square, scrnFlag, &tdif2);
+					if(ierr) { snprintf(cbuf,sizeof(cbuf),"Unhandled Error of type[%u] = %s computing 3^(2^L) for the p-1 Gerbicz check.\n",ierr,returnMlucasErrCode(ierr)); mlucas_fprint(cbuf,0); ASSERT(0,cbuf); }
+					g3_L = (uint32)ITERS_BETWEEN_GCHECK_UPDATES;
+				}
+				ierr = pm1_gcheck_apply(d, c, g2, u0, g3, gchk_H, gchk_bits, gchk_bits_len, n, p, func_mod_square, scrnFlag, &tdif2);
 				if(ierr) {
 					snprintf(cbuf,sizeof(cbuf),"Unhandled Error of type[%u] = %s in p-1 Gerbicz-check correction step - please report this with the p*.stat file attached.\n",ierr,returnMlucasErrCode(ierr));
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
@@ -3031,19 +3098,39 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			even, so J(3^E | N) must be +1. This guards the FP->integer conversion path, which the Gerbicz check cannot
 			see (both of its operands go through it). A failure here means a corrupt final residue; stop rather than
 			hand it on - the p/q savefiles are intact and a restart re-reads and re-checks them: */
-			if(JACOBI_CHECK && jacobi_check_available()) {
-				jsym = jacobi_check(p, arrtmp, j, 0, &jchk_tsec);
-				if(jsym == 1) {
-					snprintf(cbuf,sizeof(cbuf), "Stage 1 final residue passed the Jacobi check (%.1f sec).\n",jchk_tsec);
-					mlucas_fprint(cbuf,1);
-				} else {
-					NERR_JACOBI++;
-					snprintf(cbuf,sizeof(cbuf), "Stage 1 final residue FAILED the Jacobi check (symbol = %d, expected +1, %.1f sec): the residue handed to the GCD is corrupt. Aborting before the GCD; %s savefiles left in place - restarting re-reads and re-checks them.\n",jsym,jchk_tsec,PSTRING);
-					mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
+			{
+				int jthr_started = 0, jchk_on = JACOBI_CHECK && jacobi_check_available();
+				struct jacobi_thread_args jargs = { p, 0x0, (uint32)j, 0, 0.0 };
+			  #if defined(MULTITHREAD) && defined(USE_PTHREAD)
+				pthread_t jthr;
+				/* Overlap the check with the GCD: it needs the residue *before* the -1 below, so give the thread its own
+				copy in c[] (free scratch at this point; absent in LowMem = 2, where the check runs inline instead): */
+				if(jchk_on && c_uint64_ptr != 0x0) {
+					memcpy(c_uint64_ptr, arrtmp, j*sizeof(uint64));	jargs.res = c_uint64_ptr;
+					jthr_started = (pthread_create(&jthr, 0x0, jacobi_thread_main, &jargs) == 0);
+				}
+			  #endif
+				if(jchk_on && !jthr_started) { jargs.jsym = jacobi_check(p, arrtmp, j, 0, &jargs.tsec); }
+				arrtmp[0] -= 1;	// S1 GCD needs residue-1
+				i = gcd(1,p,arrtmp,0x0,j,gcd_str);	// 1st arg = stage just completed
+			  #if defined(MULTITHREAD) && defined(USE_PTHREAD)
+				if(jthr_started) pthread_join(jthr, 0x0);
+			  #endif
+				/* A wrong residue cannot produce a false factor - any nontrivial gcd(res-1, N) divides N - so acting on the GCD
+				before the verdict is safe; a failed check still stops the run, since the residue also goes to .s1 and to any
+				later stage 2: */
+				if(jchk_on) {
+					jsym = jargs.jsym; jchk_tsec = jargs.tsec;
+					if(jsym == 1) {
+						snprintf(cbuf,sizeof(cbuf), "Stage 1 final residue passed the Jacobi check (%.1f sec%s).\n",jchk_tsec,jthr_started ? ", overlapped with the GCD" : "");
+						mlucas_fprint(cbuf,1);
+					} else {
+						NERR_JACOBI++;
+						snprintf(cbuf,sizeof(cbuf), "Stage 1 final residue FAILED the Jacobi check (symbol = %d, expected +1, %.1f sec): the residue handed to the GCD is corrupt. Aborting; %s savefiles left in place - restarting re-reads and re-checks them.\n",jsym,jchk_tsec,PSTRING);
+						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
+					}
 				}
 			}
-			arrtmp[0] -= 1;	// S1 GCD needs residue-1
-			i = gcd(1,p,arrtmp,0x0,j,gcd_str);	// 1st arg = stage just completed
 			// If factor found, gcd() will have done needed status-file-writes:
 			if(i || B2 <= B1) {	// Need to also account for the possibility of no-stage-2, in which case B2 <= B1
 				// Write JSON output and go to next assignment:
@@ -7431,17 +7518,18 @@ int jacobi_check(uint64 p, const uint64 *res, uint32 nlimb, uint32 sub, double *
 
 /*********************/
 
-/* v21: p-1 stage 1 Gerbicz check - apply the correction factor to the L-times-squared check-product copy d[]:
+/* v21: p-1 stage 1 Gerbicz check - the correction factor. See the "Gerbicz check for p-1 stage 1" comment in
+ernstMain(): b == u0 * d^(2^L) * 3^C, C = sum over the blocks of the current epoch of the L-bit exponent chunk
+consumed in each. Split C = H * 2^L + Lo:
 
-	d <- d * u0 * 3^C  (mod N),   C = sum over the blocks of the current epoch of the L-bit exponent chunk consumed in each,
+  pm1_gcheck_prepare(): computes C from PM1_S1_PRODUCT and fills the private bit array so that the L verification
+      squarings of d[] - which read multiply-by-base bit (iter-1) % ITERS_BETWEEN_CHECKPOINTS for iterations
+      gchk_iter+1 .. gchk_iter+L - apply exactly Lo, i.e. yield d^(2^L) * 3^Lo for free. Returns H (< #blocks).
+  pm1_gcheck_g3():      g3 = FFT(3^(2^L)), computed once per run (L squarings against a zeroed bit array).
+  pm1_gcheck_apply():   d <- d * u0 * g3^H, with g3^H by left-to-right powering from 1 (~2 log2 H modmuls), every
+      modmul against the zeroed private array. On exit d[] is pure-int.
 
-see the "Gerbicz check for p-1 stage 1" comment in ernstMain(). Inputs: d[] pure-int (as left by its L squarings);
-c[], g2[] scratch; u0[] the epoch seed residue, pure-int; bits[] (nbits limbs) the private multiply-by-base bit array;
-gchk_iter the check iteration. 3^C is computed by left-to-right binary powering with the stage 1 machinery itself -
-seed 3, then one squaring per bit of C below its leading 1 with a multiply-by-3 wherever that bit is 1, the bits fed
-through bits[] exactly as the stage 1 exponent bits are, in windows of ITERS_BETWEEN_CHECKPOINTS. Every modmul here
-runs with BASE_MULTIPLIER_BITS pointed at bits[], so the live exponent bits cannot leak in; the global is restored
-before return. Returns 0 or a func_mod_square() error code. On exit d[] is pure-int.
+Every one of these runs with BASE_MULTIPLIER_BITS pointed at bits[] and restores it before returning.
 */
 /* y[0..ylen) = bits [bitoff, bitoff + 64*ylen) of the xlen-limb vector x[], zero-filled past its end: */
 static void get_bit_window(const uint64 x[], uint32 xlen, uint64 bitoff, uint64 y[], uint32 ylen)
@@ -7454,22 +7542,19 @@ static void get_bit_window(const uint64 x[], uint32 xlen, uint64 bitoff, uint64 
 	}
 }
 
-int pm1_gcheck_correction(double d[], double c[], double g2[], double u0[], uint64 bits[], uint32 nbits, uint32 gchk_iter, int n, uint64 p,
-	int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff)
+uint64 pm1_gcheck_prepare(uint32 gchk_iter, uint64 bits[], uint32 nbits)
 {
 	const uint32 L = ITERS_BETWEEN_GCHECK_UPDATES, CI = ITERS_BETWEEN_CHECKPOINTS;
 	const uint32 clen = ((L + 64 + 63) >> 6) + 2;	// limbs for C: C < (#blocks) * 2^L, #blocks < 2^32
-	uint64 *C = 0x0, *chunk = 0x0, *bmb_save = BASE_MULTIPLIER_BITS;
-	uint32 i,k,k0,k1,nbits_C,nsq,done,todo,plen;
-	int ierr = 0;
-	const int nbytes_dbl = n*sizeof(double);
-	ASSERT(RES_SHIFT == 0ull, "pm1_gcheck_correction(): p-1 stage 1 runs unshifted!");
-	ASSERT(gchk_iter % L == 0 && PM1_GCHECK_EPOCH_START % L == 0 && gchk_iter > PM1_GCHECK_EPOCH_START, "pm1_gcheck_correction(): check iteration and epoch start must be block-aligned!");
-	ASSERT(nbits*64 >= CI + 64, "pm1_gcheck_correction(): bit array too small!");
+	uint64 *C, *chunk, H;
+	uint32 i,k,k0,k1,plen,off;
+	ASSERT(RES_SHIFT == 0ull, "pm1_gcheck_prepare(): p-1 stage 1 runs unshifted!");
+	ASSERT(gchk_iter % L == 0 && PM1_GCHECK_EPOCH_START % L == 0 && gchk_iter > PM1_GCHECK_EPOCH_START, "pm1_gcheck_prepare(): check iteration and epoch start must be block-aligned!");
+	ASSERT(nbits*64 >= CI + 64, "pm1_gcheck_prepare(): bit array too small!");
 	C = (uint64 *)calloc(clen, sizeof(uint64));	chunk = (uint64 *)calloc(clen, sizeof(uint64));
-	ASSERT(C && chunk, "pm1_gcheck_correction(): calloc failed!");
-	// C = sum of the chunks: block k consumed bits [kL, (k+1)L) of the bit-reversed product, first-consumed bit most significant,
-	// so each chunk is the L-bit window read out and bit-reversed:
+	ASSERT(C && chunk, "pm1_gcheck_prepare(): calloc failed!");
+	// C = sum of the chunks: block k consumed bits [kL, (k+1)L) of the bit-reversed product, first-consumed bit most
+	// significant, so each chunk is the L-bit window read out and bit-reversed:
 	plen = (PM1_S1_PROD_BITS + 63) >> 6;
 	k0 = PM1_GCHECK_EPOCH_START / L;	k1 = gchk_iter / L;
 	for(k = k0; k < k1; k++) {
@@ -7479,39 +7564,72 @@ int pm1_gcheck_correction(double d[], double c[], double g2[], double u0[], uint
 		mi64_brev(chunk, L);
 		mi64_add(C, chunk, C, clen);	// cannot overflow: clen has 64+ spare bits
 	}
-	// g2 = 3^C by LR binary powering: g2 = 3, then for each bit of C below the leading one, MSB first: g2 = g2^2 * 3^bit.
-	memset(g2, 0, nbytes_dbl);	g2[0] = 1.0;	// C == 0: 3^0 = 1
-	nbits_C = mi64_getlen(C, clen);	nbits_C = (nbits_C) ? nbits_C*64 - mi64_leadz(C, nbits_C) : 0;
-	if(nbits_C) {
-		g2[0] = 3.0;
-		nsq = nbits_C - 1;	// squarings = bits below the leading one
-		// Iteration t (1-based) consumes bit index t-1 of the fed array and must see bit (nbits_C-1-t) of C: bit-reverse
-		// C's nbits_C bits (the leading 1 lands at index 0) and drop that index-0 bit:
-		mi64_brev(C, nbits_C);	mi64_shrl(C, C, 1, clen, clen);
-		BASE_MULTIPLIER_BITS = bits;
-		for(done = 0; done < nsq && !ierr; done += todo) {
-			todo = MIN(CI, nsq - done);
-			get_bit_window(C, clen, done, bits, nbits);	// bits[0..] = the next window of exponent bits
-			if(todo & 63) bits[todo>>6] &= ~(-1ull << (todo & 63));
-			for(i = (todo+63)>>6; i < nbits; i++) bits[i] = 0ull;
-			// Iterations 1..todo read bit indices 0..todo-1 - pure-int in and out (mode_flag 0), as the stage 1 intervals do:
-			ierr = func_mod_square(g2, 0x0, n, 0, (int)todo, 0ull, p, scrnFlag, tdiff, FALSE, 0x0);
-		}
-		BASE_MULTIPLIER_BITS = bmb_save;
-		if(ierr) goto DONE;
+	// Lo = C mod 2^L goes into the bit array: squaring t (1-based) reads index off + t-1 and must apply bit (L-t) of Lo,
+	// i.e. index off+i gets bit L-1-i - the low L bits of C, bit-reversed, at offset off = gchk_iter % CI (nonzero only
+	// for the end-of-run check at a block boundary that is not a checkpoint boundary):
+	off = gchk_iter % CI;	ASSERT(off + L <= CI, "pm1_gcheck_prepare(): Lo window overruns the bit array!");
+	mi64_clear(bits, nbits);
+	for(i = 0; i < L; i++) {
+		uint32 sb = L-1-i;
+		if((C[sb>>6] >> (sb&63)) & 1ull) bits[(off+i)>>6] |= 1ull << ((off+i)&63);
 	}
-	// c = u0 * g2, d = d * c, both with a zeroed bit array so the carry step applies no multiply-by-base:
-	BASE_MULTIPLIER_BITS = bits;	mi64_clear(bits, nbits);
-	ierr = func_mod_square(g2, 0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// g2 <- FFT(g2)
-	memcpy(c, u0, nbytes_dbl);
-	ierr = func_mod_square(c,  0x0, n, 0,1, (uint64)g2, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// c = u0 * 3^C, pure-int
+	// H = C >> L, as a uint64 (C < #blocks * 2^L with #blocks < 2^32):
+	get_bit_window(C, clen, L, chunk, 2);	H = chunk[0];
+	ASSERT(chunk[1] == 0ull, "pm1_gcheck_prepare(): C >> L does not fit in 64 bits!");
+	free(C); free(chunk);
+	return H;
+}
+
+/* v21: the end-of-stage-1 Jacobi check runs on its own thread while the main thread does the GCD - both are GMP
+work on independent objects, and at 332M bits the check (~150 s) hides behind the GCD (~130 s) plus the ensuing
+modular inverse. The verdict is joined before the GCD result is acted on: */
+void *jacobi_thread_main(void *arg) {
+	struct jacobi_thread_args *a = (struct jacobi_thread_args *)arg;
+	a->jsym = jacobi_check(a->p, a->res, a->nlimb, 0, &a->tsec);
+	return 0x0;
+}
+
+int pm1_gcheck_g3(double g3[], uint64 bits[], uint32 nbits, int n, uint64 p,
+	int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff)
+{
+	const uint32 L = ITERS_BETWEEN_GCHECK_UPDATES;
+	uint64 *bmb_save = BASE_MULTIPLIER_BITS;
+	int ierr;
+	ASSERT(L <= (uint32)ITERS_BETWEEN_CHECKPOINTS, "pm1_gcheck_g3(): L exceeds CheckInterval!");
+	memset(g3, 0, n*sizeof(double));	g3[0] = 3.0;
+	mi64_clear(bits, nbits);	BASE_MULTIPLIER_BITS = bits;
+	ierr = func_mod_square(g3, 0x0, n, 0, (int)L, 0ull, p, scrnFlag, tdiff, FALSE, 0x0);	// g3 = 3^(2^L), pure-int (iterations 1..L read zeroed bits 0..L-1)
+	if(!ierr) ierr = func_mod_square(g3, 0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	// g3 <- FFT(g3)
+	BASE_MULTIPLIER_BITS = bmb_save;
+	return ierr;
+}
+
+int pm1_gcheck_apply(double d[], double c[], double g2[], double u0[], double g3[], uint64 H, uint64 bits[], uint32 nbits, int n, uint64 p,
+	int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff)
+{
+	uint64 *bmb_save = BASE_MULTIPLIER_BITS;
+	const int nbytes_dbl = n*sizeof(double);
+	int ierr = 0, b;
+	mi64_clear(bits, nbits);	BASE_MULTIPLIER_BITS = bits;	// no multiply-by-base in any of the modmuls below
+	if(H) {
+		// g2 = g3^H by LR powering from 1 over all bits of H: g2 = g2^2, then g2 *= g3 where the bit is set:
+		memset(g2, 0, nbytes_dbl);	g2[0] = 1.0;
+		for(b = 63 - (int)leadz64(H); b >= 0 && !ierr; b--) {
+			ierr = func_mod_square(g2, 0x0, n, 0,1, 0ull, p, scrnFlag, tdiff, FALSE, 0x0);
+			if(!ierr && ((H >> b) & 1ull)) ierr = func_mod_square(g2, 0x0, n, 0,1, (uint64)g3, p, scrnFlag, tdiff, FALSE, 0x0);
+		}
+		if(ierr) goto RESTORE;
+		ierr = func_mod_square(g2, 0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// g2 <- FFT(g2)
+		memcpy(c, u0, nbytes_dbl);
+		ierr = func_mod_square(c,  0x0, n, 0,1, (uint64)g2, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// c = u0 * g3^H, pure-int
+	} else {
+		memcpy(c, u0, nbytes_dbl);	// H == 0: the correction is just u0
+	}
 	ierr = func_mod_square(c,  0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// c <- FFT(c)
 	ierr = func_mod_square(d,  0x0, n, 0,1, (uint64)c, p, scrnFlag, tdiff, FALSE, 0x0);	// d = d * c, pure-int
 RESTORE:
 	BASE_MULTIPLIER_BITS = bmb_save;
-DONE:
-	free(C); free(chunk);
-	ASSERT(BASE_MULTIPLIER_BITS == bmb_save, "pm1_gcheck_correction(): BASE_MULTIPLIER_BITS not restored!");
+	ASSERT(BASE_MULTIPLIER_BITS == bmb_save, "pm1_gcheck_apply(): BASE_MULTIPLIER_BITS not restored!");
 	return ierr;
 }
 
