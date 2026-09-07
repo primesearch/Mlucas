@@ -2913,7 +2913,6 @@ GET_NEXT_ASSIGNMENT:
 			ASSERT(0,cbuf);
 		}
 
-	GET_NEXT:
 		/* Delete or suitably modify the just-completed-assignment line of the worktodo file.
 		v21: Do NOT assume the completed assignment is line 1 of the workfile - a user may have
 		inserted other assignments above it while the (possibly months-long) run was in progress. Scan the
