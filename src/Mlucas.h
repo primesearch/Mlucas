@@ -114,6 +114,9 @@ void dif1_dit1_func_name(
 uint32	extract_known_factors(uint64 p, char *fac_start);
 uint32	gcd(uint32 stage, uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb, char *const gcd_str);
 void	modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb);
+#define JACOBI_UNAVAILABLE	2	// v21: jacobi_check() return value when built without a usable GMP
+int		jacobi_check_available(void);
+int		jacobi_check(uint64 p, const uint64 *res, uint32 nlimb, uint32 sub, double *tsec);
 int		restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *arr2);
 uint32	filegrep(const char *fname, const char *find_str, char *p_cstr, uint32 find_before_line_number);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
