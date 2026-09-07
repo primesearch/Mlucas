@@ -285,7 +285,6 @@ me at: heber.tomer@gmail.com
 		thread_control_t *t = &init->control;
 		task_control_t *task;
 
-
 		// Set CPU affinity masks of the thread:
 	#if INCLUDE_HWLOC
 

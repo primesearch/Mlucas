@@ -268,13 +268,12 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 	Install sig_handler for the graceful-quit signals. Called from the mod-squaring functions; the static
 	'installed' guard makes it a no-op after the first call, so it runs exactly once, on the main thread.
 
-	We use sigaction() rather than signal() for deterministic, portable semantics:
-	  - sa_mask blocks the other quit-signals while the handler runs, so two signals racing in can't
-	    interleave the (trivial) flag stores;
-	  - SA_RESTART makes interrupted library calls auto-resume instead of failing with EINTR;
-	  - the handler stays installed after firing (signal() gives this on glibc but not on strict SysV).
 	The handler may run on any thread the kernel selects; that is safe because it only stores to two
-	volatile sig_atomic_t flags, which the main-thread control loop then acts on.
+	volatile sig_atomic_t flags, which the main-thread control loop then acts on. That is also why plain
+	signal() suffices here rather than sigaction(): with nothing in the handler that can be re-entered or
+	interrupted unsafely, neither sa_mask nor SA_RESTART buys anything, and using the same call on every
+	platform keeps SIGHUP/SIGALRM/SIGUSR1/SIGUSR2 - absent on Windows - as the only #ifdef here, matching
+	the guard sig_handler itself already uses.
 	*/
 	void mlucas_install_signal_handlers(void)
 	{
@@ -282,29 +281,14 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 		if(installed) return;
 		installed = 1;
 
-	#ifdef __MINGW32__
-		// Windows/MinGW has no sigaction(); fall back to signal() for the signals it supports:
 		if(signal(SIGINT , sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGINT.\n");
 		if(signal(SIGTERM, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGTERM.\n");
-	#else
-		struct sigaction sa;
-		memset(&sa, 0, sizeof sa);
-		sa.sa_handler = sig_handler;
-		sa.sa_flags = SA_RESTART;
-		sigemptyset(&sa.sa_mask);
-		sigaddset(&sa.sa_mask, SIGINT);
-		sigaddset(&sa.sa_mask, SIGTERM);
-		sigaddset(&sa.sa_mask, SIGHUP);
-		sigaddset(&sa.sa_mask, SIGALRM);
-		sigaddset(&sa.sa_mask, SIGUSR1);
-		sigaddset(&sa.sa_mask, SIGUSR2);
-		if(sigaction(SIGINT , &sa, 0x0)) fprintf(stderr,"Can't catch SIGINT.\n");
-		if(sigaction(SIGTERM, &sa, 0x0)) fprintf(stderr,"Can't catch SIGTERM.\n");
-		if(sigaction(SIGHUP , &sa, 0x0)) fprintf(stderr,"Can't catch SIGHUP.\n");
-		if(sigaction(SIGALRM, &sa, 0x0)) fprintf(stderr,"Can't catch SIGALRM.\n");
-		if(sigaction(SIGUSR1, &sa, 0x0)) fprintf(stderr,"Can't catch SIGUSR1.\n");
-		if(sigaction(SIGUSR2, &sa, 0x0)) fprintf(stderr,"Can't catch SIGUSR2.\n");
-	#endif	// __MINGW32__ ? signal() : sigaction()
+	#ifndef __MINGW32__
+		if(signal(SIGHUP , sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGHUP.\n");
+		if(signal(SIGALRM, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGALRM.\n");
+		if(signal(SIGUSR1, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGUSR1.\n");
+		if(signal(SIGUSR2, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGUSR2.\n");
+	#endif
 	}
 #endif
 
