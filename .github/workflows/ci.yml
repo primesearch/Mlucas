@@ -97,7 +97,7 @@ jobs:
             # and costs slightly less than 127 did (726k trial divides vs 1.66M).
             ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
-    - name: Jacobi residue check tests
+    - name: Jacobi / Gerbicz error-check tests
       run: |
         set -x
         set -o pipefail
@@ -109,6 +109,8 @@ jobs:
         make -C obj_fi -j "$(nproc --all)" Mlucas
         JACOBI_TEST_CPU="0:$(( $(nproc --all) - 1 ))" JACOBI_TEST_DIR="$PWD/obj/jacobi-tests" \
             time bash tests/jacobi-check.sh obj/Mlucas obj_fi/Mlucas obj/mlucas.cfg |& tee -a obj/test.log
+        JACOBI_TEST_CPU="0:$(( $(nproc --all) - 1 ))" JACOBI_TEST_DIR="$PWD/obj/jacobi-pm1-tests" \
+            time bash tests/jacobi-pm1.sh obj/Mlucas obj_fi/Mlucas obj/mlucas.cfg |& tee -a obj/test.log
     - uses: actions/upload-artifact@v7
       if: always()
       with:
