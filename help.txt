@@ -236,11 +236,12 @@ exponent p is prime. The check runs whenever a restart file is read (checking th
 before anything is built on it), on the final residue before a result is reported, and
 periodically at checkpoints, no more often than every JacobiCheckHours hours of wall-clock
 time (cf. section [11]). A corrupted residue passes the check with probability 1/2, and the
-symbol is invariant under the LL recurrence, so every check after the first examines the same
-value: a corruption that passes its first check is never caught by a later one. This is
-therefore a cheap, weak check that catches half of all corruption events; how often it runs
-sets how much work is lost when one is caught, not the odds of catching it. It does not
-certify a result - a reported LL result still needs an independent double-check. A symbol of
+symbol is invariant under the LL recurrence from one iteration after a corruption on, so every
+later check examines the same value: a corruption that passes the first check after it is never
+caught by a later one. This is therefore a cheap, weak check that catches about half of all
+corruption events; how often it runs sets how much work is lost when one is caught, not the
+odds of catching it. It does not certify a result - a reported LL result still needs an
+independent double-check. A symbol of
 0 should not occur for a prime exponent; it means the residue shares a factor with the
 modulus, i.e. a corruption that no rollback would clear, so Mlucas stops rather than retry.
 The check requires GMP 5.1 or later; a build without a suitable GMP prints a one-time warning
@@ -613,8 +614,10 @@ o With the Jacobi residue check enabled (cf. sections [4] and [11]), an LL run a
 keeps the two most recent Jacobi-passed checkpoints, saved as p[exponent].J (the latest) and
 p[exponent].J1 (the one before it), in the same format as the p/q savefiles. A failed check means
 the corruption happened after the last passing one (an earlier corruption that passed would go on
-passing, see section [4]), so .J is the natural place to roll back to; .J1 is a spare in case .J
-is unreadable or fails its own on-read check; on a failed check Mlucas rolls back through
+passing, see section [4]), so .J is the natural place to roll back to; .J1 covers .J being
+unreadable or failing its own on-read check, and the rare corruption that struck exactly at a
+checked checkpoint, passed that check and fails every later one - the retry from .J then fails
+at the same iteration and the rollback moves on to .J1; on a failed check Mlucas rolls back through
 the chain p -> q -> .J -> .J1 -> from scratch, Jacobi-checking each file as it is read. At a
 332-million-bit exponent each savefile is 41.5 MB, so an LL run's p, q, .J and .J1 files
 together total roughly 166 MB.
