@@ -198,6 +198,7 @@ const char WORKFILE [] = "worktodo.txt";	/* File containing exponents to be test
 
 const char MLUCAS_INI_FILE[] = "mlucas.ini";	/* File containing user-customizable configuration settings [currently unused] */
 
+uint64 L2_CACHE_BYTES = 0, L3_CACHE_BYTES = 0;	// Detected per-core L2 and (shared) L3 sizes, 0 = unknown
 char CONFIGFILE[15];						/* Configuration File: contains allowed FFT lengths
 											and allows user to control (at runtime, and in
 											a modifiable way) which of a predefined set
@@ -4392,6 +4393,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			print_help();
 		}
 	}	/* end of command-line-argument processing while() loop */
+
+#ifdef MULTITHREAD
+	// Say what the selected logical CPUs are in physical terms (cores, threads per core) and what the
+	// cache sizes are, and warn if SMT siblings were selected without -core asking for that: what
+	// '-cpu 0:3' means depends on the OS's and vendor's logical-CPU numbering, and scaling reports
+	// are not comparable without this.
+	if(cpu || nthread || core) report_cpu_topology(core);
+#endif
 
 	// Nov 2020: Sanity-check any p-1 bounds:
 	if(testType == TEST_TYPE_PM1) {
