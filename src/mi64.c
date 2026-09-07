@@ -218,6 +218,7 @@ Bytewise version:
 // For version of this which allows #significant bits to be specified and only those low [nbits] reversed, cf. util.c::reverse64():
 uint64 brev64(uint64 x)
 {
+	uint64 out;
 	uint8 *bin8 = (uint8 *)&x, bout8[8];
 	bout8[0] = brev8[bin8[7]];
 	bout8[1] = brev8[bin8[6]];
@@ -227,7 +228,12 @@ uint64 brev64(uint64 x)
 	bout8[5] = brev8[bin8[2]];
 	bout8[6] = brev8[bin8[1]];
 	bout8[7] = brev8[bin8[0]];
-	return *(uint64 *)bout8;
+	// Not 'return *(uint64 *)bout8': reading a uint8[8] through a uint64 lvalue is a
+	// strict-aliasing violation, and bout8 carries no 8-byte alignment guarantee either.
+	// Reading x through bin8 above is fine - a character type may alias anything - it is
+	// only the read back out that needs this. Every compiler emits the same single load:
+	memcpy(&out, bout8, sizeof(out));
+	return out;
 }
 // Now use the above to construct a multiword bit-reversal:
 void	mi64_brev(uint64 x[], uint32 n)
