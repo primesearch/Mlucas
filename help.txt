@@ -409,8 +409,10 @@ described in [9c].
 
 o STAGE 1 - GERBICZ CHECK: Stage 1 computes x <- x^2 * 3^b per iteration, b the next bit of the
 prime-powers product, and Mlucas runs the same Gerbicz error check on it that it runs on PRP
-tests, with one correction term for the multiply-by-3 steps. Every 10^6 iterations (and at the
-last block boundary before stage 1 ends) the check-product accumulated over the interval is
+tests, with one correction term for the multiply-by-3 steps. Every 10^6 iterations by default -
+see GerbiczCheckInterval in section [11] for the interval and its automatic shortening on slow
+or very large runs - and at the last block boundary before stage 1 ends, the check-product
+accumulated over the interval is
 compared against an independently recomputed value; an arithmetic error anywhere in the
 interval is caught with certainty - this is not a 50% check like the LL Jacobi one - at a cost
 of about 0.3% of the stage 1 time. A passing check writes the p[exponent].G savefile; a
@@ -431,8 +433,10 @@ path, which the Gerbicz check in turn cannot see (both of its operands go throug
 	  Jacobi check"); a mismatch means the file's residue is corrupt, the secondary is tried,
 	  and if that fails too the run stops and asks you to delete the exponent's p-1 savefiles;
 	- on the final stage 1 residue, the exact integer handed to the GCD and written to
-	  p[exponent].s1 ("Stage 1 final residue passed the Jacobi check"); a mismatch stops the
-	  run before the GCD with the savefiles intact, and a restart re-reads and re-checks them.
+	  p[exponent].s1 ("Stage 1 final residue passed the Jacobi check"). It runs on its own
+	  thread alongside the GCD, so it costs no wall time on multi-core builds; a mismatch stops
+	  the run with the savefiles intact (the GCD result, if any, is still valid - a wrong residue
+	  cannot produce a false factor), and a restart re-reads and re-checks them.
 There is no periodic Jacobi check in P-1. JacobiCheck = 0 in mlucas.ini disables these too.
 
 o STAGE 2: The stage 2 accumulator is a product of terms (A^((kD)^2) - A^(b^2)) and has no
@@ -630,6 +634,18 @@ hours, the check additionally runs at checkpoints (default 12; fractional values
 allowed; 0 checks at every checkpoint, mainly useful for testing).
 JacobiCheck also controls the P-1 integrity checks of section [9c], and JacobiCheckHours also
 paces the stage 2 ladder check there.
+
+o GERBICZ CHECK INTERVAL FOR P-1: GerbiczCheckInterval = N sets how many stage 1 iterations lie
+between Gerbicz checks in P-1 (section [9c]); PRP tests keep their fixed 10^6. N must be L^2 for
+a block length L that divides CheckInterval and whose square CheckInterval divides (e.g. with
+CheckInterval = 10000: 10000, 40000, 160000, 250000, 1000000, ...); an unusable value is
+reported together with the admissible ones and the automatic choice is used instead. The
+automatic choice is the smallest admissible L >= 100 whose L^2 iterations take at least about
+two hours at the per-iteration time recorded in mlucas.cfg, capped at L = 1000 (the PRP value) -
+it only ever shortens the interval, on slow or very large runs. Overhead is about 2/L whatever
+the interval, so the setting trades rollback exposure against that. Because the >4-thread
+CheckInterval default of 100000 admits only L = 1000, P-1 uses CheckInterval = 10000 unless you
+set CheckInterval yourself.
 
 The interval is given in hours rather than iterations because the check's cost is scalar GMP
 work that does not scale with the per-iteration FFT the way iteration counts do, so a fixed

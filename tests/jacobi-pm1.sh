@@ -61,6 +61,23 @@ final_res64() { grep "S1 bit = $LAST " "$1/p$P.stat" | grep -o "Res64: [0-9A-F]*
 echo "== p-1 stage 1 Gerbicz / Jacobi checks: end-to-end tests (work dir $WORK)"
 
 # ---------------------------------------------------------------------------------------------
+echo "-- P0: GerbiczCheckInterval = 10000 (block L = 100) on a short stage 1 (B1 = 20000, 29010 iterations)"
+d=$WORK/p0; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
+run "$d"; S=$d/p$P.stat
+expect_grep "$S" "p-1 stage 1 Gerbicz check every 10000 iterations (block L = 100, from GerbiczCheckInterval)" "interval taken from mlucas.ini"
+expect_grep "$S" "At iteration 10000, shift = 0: Gerbicz check passed" "check at 10^4 passed (correction with a large high part H)"
+expect_grep "$S" "At iteration 20000, shift = 0: Gerbicz check passed" "check at 2*10^4 passed"
+expect_grep "$S" "At iteration 29000, shift = 0: Gerbicz check passed" "end-of-run check at the last block boundary passed"
+expect_nogrep "$S" "Gerbicz check iteration" "no failures"
+expect_grep "$S" "Stage 1 final residue passed the Jacobi check (.*overlapped with the GCD)" "final Jacobi check ran on its own thread alongside the GCD"
+d=$WORK/p0b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 12345\n' > "$d/mlucas.ini"
+run "$d"; S=$d/p$P.stat
+expect_grep "$S" "WARN: GerbiczCheckInterval = 12345 is not usable with CheckInterval = 1000: .*(e.g. 10000, 40000, 250000, 1000000)" "unusable value rejected with the admissible list"
+expect_grep "$S" "Gerbicz check every 1000000 iterations (block L = 1000, automatic)" "fell back to the automatic choice"
+
+# ---------------------------------------------------------------------------------------------
 echo "-- P1: clean p-1 stage 1 (M$P, B1 = $B1)"
 d=$(setup p1); run "$d"; S=$d/p$P.stat
 expect_grep  "$S" "At iteration 1000000, shift = 0: Gerbicz check passed" "check at 10^6 passed"
