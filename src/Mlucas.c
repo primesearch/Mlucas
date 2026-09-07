@@ -415,7 +415,7 @@ uint32	ernstMain
 	target (p/q, then .J, then .J1, then scratch) and bounds the retries. jchk_file: position in that chain during a
 	restart-file read. jchk_passed: this checkpoint passed, so the .J/.J1 files get updated after the p/q write: */
 	int do_jcheck = FALSE, jchk_passed = FALSE, jchk_file = 0, jsym = 0;
-	uint32 jchk_nfail = 0;
+	uint32 jchk_nfail = 0, jchk_fail_iter = 0;	// jchk_fail_iter: iteration of the last failed check; a pass at or beyond it clears the count
 	double jchk_tlast = 0.0, jchk_tdur = 0.0, jchk_tsec = 0.0;
 	char jchk_fname[STR_MAX_LEN];
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
@@ -480,7 +480,7 @@ RANGE_BEG:
 								// during test - if a restart, will re-read actual cumulative values from checkpoint file.
 	gchk_final = FALSE; gchk_nfail = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
 										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
-	jchk_nfail = 0; jchk_file = 0; jchk_passed = FALSE; jchk_tdur = 0.0; jchk_tlast = getRealTime();	// v21: ditto for the Jacobi check
+	jchk_nfail = 0; jchk_fail_iter = 0; jchk_file = 0; jchk_passed = FALSE; jchk_tdur = 0.0; jchk_tlast = getRealTime();	// v21: ditto for the Jacobi check
 	// Clear out any FFT-radix or known-factor data that might remain from a just-completed run:
 	for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
 	nfac = 0; mi64_clear(KNOWN_FACTORS,40);
@@ -2235,7 +2235,7 @@ READ_RESTART_FILE:
 			}
 			if(fi_iter && !fi_done && ihi == fi_iter && ierr == 0 && !INTERACT) {
 				uint32 fi_j1 = fi_word + ((fi_word >> DAT_BITS) << PAD_BITS);	// padded-array index of digit fi_word
-				a[fi_j1] += 1.0;	fi_done = 1;
+				a[fi_j1] += 1.0;	fi_done = (getenv("MLUCAS_FAULT_REPEAT") == 0x0);	// MLUCAS_FAULT_REPEAT: re-fire on every visit, i.e. a reproducible fault
 				snprintf(cbuf,sizeof(cbuf), "FAULT INJECTION: added 1.0 to residue digit %u at iteration %u.\n",fi_word,ihi);
 				mlucas_fprint(cbuf,1);
 			}
@@ -2308,7 +2308,11 @@ READ_RESTART_FILE:
 				if(jsym == -1) {
 					snprintf(cbuf,sizeof(cbuf), "At iteration %u, shift = %" PRIu64 ": Jacobi check passed (%.1f sec).\n",ihi,RES_SHIFT,jchk_tsec);
 					mlucas_fprint(cbuf,scrnFlag);
-					jchk_nfail = 0; jchk_passed = TRUE;
+					/* Only a pass at or beyond the last failure point clears the failure count: after a rollback the earlier
+					checkpoints pass again on the way back up, and letting them reset the count made a *reproducible* fault at
+					one iteration walk the chain forever (scratch -> passes -> fail -> ... , observed) instead of aborting: */
+					if(ihi >= jchk_fail_iter) jchk_nfail = 0;
+					jchk_passed = TRUE;
 				} else if(jsym == 0) {
 					/* Symbol 0 means gcd(s - 2, M(p)) > 1. Exponents are checked prime when the worktodo entry is parsed (the
 					composite case, where M(q) | M(p) for q | p and the LL sequence collapses mod M(q), never gets here), so for
@@ -2318,7 +2322,7 @@ READ_RESTART_FILE:
 					snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u failed with symbol 0: the residue shares a factor with the modulus, which cannot happen for a correct LL residue of a prime exponent. Aborting rather than retrying; %s savefiles left in place - please check this machine for hardware errors.\n",ihi,PSTRING);
 					mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
 				} else {
-					NERR_JACOBI++; jchk_nfail++;
+					NERR_JACOBI++; jchk_nfail++; jchk_fail_iter = ihi;
 					if(jchk_nfail >= 5) {
 						snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u failed %u times in a row, the last after restarting from scratch - the error is not being cleared by rolling back, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",ihi,jchk_nfail,PSTRING);
 						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
