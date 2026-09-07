@@ -2259,6 +2259,8 @@ void mers_process_chunk(
 						kk += mmk*radix0;	mmk *= RADIX_VEC[ii2];	inck /= RADIX_VEC[ii2];
 					}
 				}
+				/* Leave (k,mm,incr) at their post-loop values, as the whole-block loop would have: */
+				for(ii2 = 2; ii2 <= NRADICES-2; ii2++) { k += mm*radix0;	mm *= RADIX_VEC[ii2];	incr /= RADIX_VEC[ii2]; }
 				break;	/* passes 2..S-1 are done for this block */
 			}
 		  #endif

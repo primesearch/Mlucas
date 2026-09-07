@@ -1179,6 +1179,14 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(tpool) { threadpool_free(tpool); tpool = 0x0; }
 		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
+	  #ifdef SUBBLOCK_ORDER
+		{
+			int incr2 = (n/radix0)/RADIX_VEC[1];
+			printf("%s: SUBBLOCK_ORDER %s for this radix set: sub-block = %d doubles = %d KB, block = %d KB\n", func,
+				((NRADICES >= 4) && ((incr2 & ((1 << DAT_BITS) - 1)) == 0)) ? "active" : "inactive (whole-block order)",
+				incr2, incr2>>7, (n/radix0)>>7);
+		}
+	  #endif
 
 	#endif	// MULTITHREAD?
 	}
@@ -1789,6 +1797,15 @@ void fermat_process_chunk(
 	int radix0 = RADIX_VEC[0];
 	int i,incr,istart,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
+#ifdef SUBBLOCK_ORDER
+	/* Sub-block ordering of the FFT phase, as in mers_process_chunk(): after pass 1 (radix R1 = RADIX_VEC[1])
+	the block is R1 independent sub-FFTs of incr2 = (n/radix0)/R1 doubles; run passes 2..S-1 to completion on
+	one sub-block before the next so their working set is block/R1. Bit-identical results. Needs the sub-block
+	start to be a multiple of 2^DAT_BITS for the pass routines' block-relative padding; otherwise whole-block. */
+	const int nsub = RADIX_VEC[1], incr2 = (n/radix0)/nsub;
+	const int subblock = (NRADICES >= 4) && ((incr2 & ((1 << DAT_BITS) - 1)) == 0);
+	int sb, kk, mmk, inck, ii2, sbstart, sbpad;
+#endif
 	uint64 bptr = 0x0;	// Pointer to B-array, if one is supplied in guise of the uint64 fwd_fft arg
 	double*cptr = 0x0;
 
@@ -1815,6 +1832,28 @@ void fermat_process_chunk(
   }	else {
 	for(i=1; i <= NRADICES-2; i++)
 	{
+	  #ifdef SUBBLOCK_ORDER
+		if(i == 2 && subblock) {	/* (k,mm,incr) is the pass-2 state: mm = R1 groups of incr = incr2 doubles */
+			for(sb = 0; sb < nsub; sb++) {
+				kk = k;	mmk = mm;	inck = incr;
+				sbstart = istart + sb*incr2;
+				sbpad = sbstart + ((sbstart >> DAT_BITS) << PAD_BITS);
+				for(ii2 = 2; ii2 <= NRADICES-2; ii2++) {
+					koffset = l*mmk + sb*(mmk/nsub);
+					switch(RADIX_VEC[ii2]) {
+					case  8:  radix8_dif_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+					case 16: radix16_dif_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+					case 32: radix32_dif_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+					default: sprintf(cbuf,"ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[ii2]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+					}
+					kk += mmk*radix0;	mmk *= RADIX_VEC[ii2];	inck /= RADIX_VEC[ii2];
+				}
+			}
+			/* Leave (k,mm,incr) at their post-loop values: fermat_process_chunk passes incr on to the dyadic-square routine. */
+			for(ii2 = 2; ii2 <= NRADICES-2; ii2++) { k += mm*radix0;	mm *= RADIX_VEC[ii2];	incr /= RADIX_VEC[ii2]; }
+			break;	/* passes 2..S-1 are done */
+		}
+	  #endif
 		/* Offset from base address of index array = L*NLOOPS = L*MM: */
 		koffset = l*mm;
 		switch(RADIX_VEC[i])
@@ -1887,6 +1926,28 @@ void fermat_process_chunk(
 		incr *= RADIX_VEC[i];
 		mm   /= RADIX_VEC[i];
 		k    -= mm*radix0;
+	  #ifdef SUBBLOCK_ORDER
+		if(i == NRADICES-2 && subblock) {	/* (k,mm,incr) is the pass-(S-1) state */
+			for(sb = 0; sb < nsub; sb++) {
+				kk = k;	mmk = mm;	inck = incr;
+				sbstart = istart + sb*incr2;
+				sbpad = sbstart + ((sbstart >> DAT_BITS) << PAD_BITS);
+				for(ii2 = NRADICES-2; ii2 >= 2; ii2--) {
+					koffset = l*mmk + sb*(mmk/nsub);
+					switch(RADIX_VEC[ii2]) {
+					case  8:  radix8_dit_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+					case 16: radix16_dit_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+					case 32: radix32_dit_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+					default: sprintf(cbuf,"ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[ii2]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+					}
+					if(ii2 > 2) { inck *= RADIX_VEC[ii2-1];	mmk /= RADIX_VEC[ii2-1];	kk -= mmk*radix0; }
+				}
+			}
+			/* Move the block-level state from pass S-1 to pass 1 and let the code below run pass 1 on the whole block: */
+			for(ii2 = NRADICES-2; ii2 >= 2; ii2--) { incr *= RADIX_VEC[ii2-1];	mm /= RADIX_VEC[ii2-1];	k -= mm*radix0; }
+			i = 1;
+		}
+	  #endif
 		koffset = l*mm;
 		switch(RADIX_VEC[i])
 		{
