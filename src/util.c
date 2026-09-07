@@ -3646,9 +3646,13 @@ DEV uint32 trailz64(uint64 x)
 	__asm__ volatile (\
 		"bsfq %[__x],%%rax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
-		:	/* outputs: none */\
+		: [__bpos] "=m" (bpos)	/* outputs: bpos is written by the movl above, so it must be
+								declared here and not as an "m" input. As an input the compiler
+								is entitled to treat it as unmodified - and, since nothing else
+								writes it, as still uninitialized at the read below, which clang
+								duly reports ("variable 'bpos' is uninitialized when used here").
+								The "memory" clobber is what has kept this working. */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
-		 ,[__bpos] "m" (bpos)	\
 		: "cc","memory","rax"	/* Clobbered registers */\
 	);
 	return bpos;
@@ -3713,9 +3717,13 @@ DEV uint32 leadz32(uint32 x)
 	__asm__ volatile (\
 		"bsrl %[__x],%%eax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
-		:	/* outputs: none */\
+		: [__bpos] "=m" (bpos)	/* outputs: bpos is written by the movl above, so it must be
+								declared here and not as an "m" input. As an input the compiler
+								is entitled to treat it as unmodified - and, since nothing else
+								writes it, as still uninitialized at the read below, which clang
+								duly reports ("variable 'bpos' is uninitialized when used here").
+								The "memory" clobber is what has kept this working. */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
-		 ,[__bpos] "m" (bpos)	\
 		: "cc","memory","eax"	/* Clobbered registers */\
 	);
 	lz = (31 - bpos);	// BSR returns *index* of leftmost set bit, must subtract from (#bits - 1) to get #lz.
@@ -3749,9 +3757,13 @@ DEV uint32 leadz64(uint64 x)
 	__asm__ volatile (\
 		"bsrq %[__x],%%rax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
-		:	/* outputs: none */\
+		: [__bpos] "=m" (bpos)	/* outputs: bpos is written by the movl above, so it must be
+								declared here and not as an "m" input. As an input the compiler
+								is entitled to treat it as unmodified - and, since nothing else
+								writes it, as still uninitialized at the read below, which clang
+								duly reports ("variable 'bpos' is uninitialized when used here").
+								The "memory" clobber is what has kept this working. */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
-		 ,[__bpos] "m" (bpos)	\
 		: "cc","memory","rax"	/* Clobbered registers */\
 	);
 	lz = (63 - bpos);	// BSR returns *index* of leftmost set bit, must subtract from (#bits - 1) to get #lz.
