@@ -86,6 +86,9 @@ int USE_SHORT_CY_CHAIN = 0;
 int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 int DO_GCHECK = FALSE;	// If Mersenne/PRP or Fermat/Peoin test, Toggle to TRUE at runtime
 uint32 NERR_GCHECK = 0;	// v20: Add counter for Gerbicz-check errors encountered during test
+uint32 NERR_JACOBI = 0;	// v21: Counter for Jacobi-check failures encountered during test
+int JACOBI_CHECK = TRUE;	// v21: mlucas.ini JacobiCheck; forced FALSE when no usable GMP is compiled in
+double JACOBI_CHECK_HOURS = 12.0;	// v21: mlucas.ini JacobiCheckHours; 0 = check at every checkpoint
 int ITERS_BETWEEN_GCHECK_UPDATES = 1000;	// iterations between Gerbicz-checkproduct updates
 int ITERS_BETWEEN_GCHECKS     = 1000000;	// #iterations between Gerbicz-checksum residue-integrity checks
 
@@ -143,7 +146,8 @@ const char *err_code[ERR_MAX] = {
 	"ERR_UNKNOWN_FATAL",
 	"ERR_SKIP_RADIX_SET",
 	"ERR_INTERRUPT",
-	"ERR_GERBICZ_CHECK"
+	"ERR_GERBICZ_CHECK",
+	"ERR_JACOBI_CHECK"
 };
 
 // Shift count and auxiliary arrays used to support rotated-residue computations:
@@ -405,6 +409,15 @@ uint32	ernstMain
 	that point (needed for the [d] mode_flag, since the update may not be in the final iteration interval).
 	gchk_nfail bounds the retry count, so a persistent (non-transient) final-check failure cannot spin: */
 	uint32 gchk_final = FALSE, gchk_iter = 0, gchk_first_sub = 0, gchk_nfail = 0, loop_exit = 0;
+	/* v21: LL Jacobi-check state (cf. jacobi_check()). do_jcheck: enabled for this assignment. jchk_tlast/jchk_tdur:
+	wall time of, and taken by, the previous check - the next waits JACOBI_CHECK_HOURS and at least 100x jchk_tdur, so the
+	check never exceeds ~1% of the run however slow the host. jchk_nfail: consecutive failures; selects the rollback
+	target (p/q, then .J, then .J1, then scratch) and bounds the retries. jchk_file: position in that chain during a
+	restart-file read. jchk_passed: this checkpoint passed, so the .J/.J1 files get updated after the p/q write: */
+	int do_jcheck = FALSE, jchk_passed = FALSE, jchk_file = 0, jsym = 0;
+	uint32 jchk_nfail = 0;
+	double jchk_tlast = 0.0, jchk_tdur = 0.0, jchk_tsec = 0.0;
+	char jchk_fname[STR_MAX_LEN];
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
 	form in the factoring module. For all other types of assignments uint64 should suffice: */
@@ -463,10 +476,11 @@ RANGE_BEG:
 	p = 0ull; ierr = 0;
 	USE_SHORT_CY_CHAIN = 0;		// v19: Reset carry-chain length fiddler to default (faster/lower-accuracy) at start of each run:
 	ROE_ITER = 0; ROE_VAL = 0.0;
-	NERR_GCHECK = NERR_ROE = 0;	// v20: Add counters for Gerbicz-check errors and dangerously high ROEs encountered
+	NERR_GCHECK = NERR_ROE = NERR_JACOBI = 0;	// v20: Add counters for Gerbicz-check errors and dangerously high ROEs encountered
 								// during test - if a restart, will re-read actual cumulative values from checkpoint file.
 	gchk_final = FALSE; gchk_nfail = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
 										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
+	jchk_nfail = 0; jchk_file = 0; jchk_passed = FALSE; jchk_tdur = 0.0; jchk_tlast = getRealTime();	// v21: ditto for the Jacobi check
 	// Clear out any FFT-radix or known-factor data that might remain from a just-completed run:
 	for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
 	nfac = 0; mi64_clear(KNOWN_FACTORS,40);
@@ -502,6 +516,33 @@ RANGE_BEG:
 			sprintf(cbuf,"User set CheckInterval = %d in %s.\n",(int)dtmp,MLUCAS_INI_FILE);	check_interval = (int)dtmp;
 		}
 		mlucas_fprint(cbuf,1);
+	}
+	// v21: LL Jacobi residue check controls - cf. jacobi_check(). Defaults re-established before each read so an
+	// entry removed from the file between assignments does not linger:
+	JACOBI_CHECK = TRUE;	JACOBI_CHECK_HOURS = 12.0;
+	dtmp = mlucas_getOptVal(MLUCAS_INI_FILE,"JacobiCheck");
+	if(dtmp == dtmp) {	// NaN means "not set" - keep the default
+		if(dtmp == 0.0 || dtmp == 1.0) {
+			JACOBI_CHECK = (int)dtmp;
+			sprintf(cbuf,"User set JacobiCheck = %d in %s.\n",JACOBI_CHECK,MLUCAS_INI_FILE);
+		} else {
+			sprintf(cbuf,"User set unsupported value JacobiCheck = %f in %s ... must be 0 or 1, ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		}
+		mlucas_fprint(cbuf,1);
+	}
+	dtmp = mlucas_getOptVal(MLUCAS_INI_FILE,"JacobiCheckHours");
+	if(dtmp == dtmp) {
+		if(dtmp < 0.0 || dtmp > 8760.0) {
+			sprintf(cbuf,"User set JacobiCheckHours = %f in %s ... must be in [0, 8760], ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		} else {
+			JACOBI_CHECK_HOURS = dtmp;
+			sprintf(cbuf,"User set JacobiCheckHours = %g in %s%s.\n",dtmp,MLUCAS_INI_FILE,(dtmp == 0.0) ? " (Jacobi check at every checkpoint)" : "");
+		}
+		mlucas_fprint(cbuf,1);
+	}
+	if(JACOBI_CHECK && !jacobi_check_available()) {
+		sprintf(cbuf,"WARN: The Jacobi residue check needs Mlucas built against GMP >= 5.1 ... disabling it for this run.\n");
+		mlucas_fprint(cbuf,1);	JACOBI_CHECK = FALSE;
 	}
 
 /*  ...If multithreading enabled, set max. # of threads based on # of available (logical) processors,
@@ -1507,6 +1548,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		ASSERT(i == j*j, "#iterations between Gerbicz-checksum updates must = sqrt(#iterations between residue-integrity checks)");
 		ASSERT(i%k == 0 && k%j == 0, "G-checkproduct update interval must divide savefile-update one, which must divide the G-check interval");
 	}
+	// v21: The Jacobi residue check applies to production (non-selftest) LL tests of Mersenne numbers - cf. jacobi_check():
+	do_jcheck = JACOBI_CHECK && !INTERACT && (TEST_TYPE == TEST_TYPE_PRIMALITY) && (MODULUS_TYPE == MODULUS_TYPE_MERSENNE);
 
 	// PRP-test: Init bitwise multiply-by-base array - cf. comment re. modified Fermat-PRP needed by Gerbicz check
 	// above ==> all bits = 0 for Mersenne-PRP-test, rather than all-ones-with-least-significant-bit-0 as for the
@@ -1524,9 +1567,22 @@ READ_RESTART_FILE:
 			strcpy(g_cstr, RESTARTFILE); strcat(g_cstr, ".G");
 		} else if(s2_continuation) {
 			strcpy(g_cstr, RESTARTFILE); strcat(g_cstr, ".s1");
+		} else if(do_jcheck) {
+			/* v21: With the Jacobi check on, every restart-file read walks the chain p -> q -> .J -> .J1 -> scratch, indexed by
+			jchk_file: a file that fails to read, fails to convert, or fails the Jacobi check on read is skipped for the next.
+			On a checkpoint-time Jacobi failure the failure site sets the starting position from the consecutive-failure count,
+			so a file which passed on read but led straight to another failure (a corrupt residue passes the check with
+			probability 1/2) is not tried twice. Reaching the end of the chain starts the run from scratch: */
+			strcpy(g_cstr, RESTARTFILE); g_cstr[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+			if(jchk_file == 1) { g_cstr[0] = 'q'; }
+			else if(jchk_file == 2) { strcat(g_cstr, ".J"); }
+			else if(jchk_file == 3) { strcat(g_cstr, ".J1"); }
 		}
 		/* See if there's a restart file: */
-		fp = mlucas_fopen(g_cstr, "rb");
+		if(do_jcheck && jchk_file >= 4)
+			fp = 0x0;	// v21: Jacobi rollback chain exhausted - handled as "no restart file" below
+		else
+			fp = mlucas_fopen(g_cstr, "rb");
 		/* If so, read the savefile: */
 		if(fp) {
 			if(TEST_TYPE == TEST_TYPE_PRP) {
@@ -1549,11 +1605,30 @@ READ_RESTART_FILE:
 				if(ierr == ERR_GERBICZ_CHECK) {
 					sprintf(cbuf,"Failed to correctly read last-good-Gerbicz-check data savefile!");
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
+				} else if(do_jcheck) {	// v21: next file in the Jacobi rollback chain
+					jchk_file++;	goto READ_RESTART_FILE;
 				} else if(g_cstr[0] != 'q') {
 					g_cstr[0] = 'q';	goto READ_RESTART_FILE;
 				} else {
 					sprintf(cbuf,"Failed to correctly read both primary or secondary savefile!");
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
+				}
+			}
+			/* v21: Jacobi-check the residue just read, before anything is built on it. This is the one check a freshly loaded
+			residue gets: it catches a savefile written from an already-corrupt residue (the S-H checksum triplet only proves the
+			file is self-consistent), and it is what makes rolling back through the chain safe. Not counted in NERR_JACOBI - the
+			checkpoint-time failure that led here (if any) already was: */
+			if(do_jcheck) {
+				jsym = jacobi_check(p, arrtmp, (uint32)((p+63)>>6), 2, &jchk_tsec);
+				jchk_tlast = getRealTime(); jchk_tdur = jchk_tsec;
+				if(jsym == -1) {
+					snprintf(cbuf,sizeof(cbuf), "Restart file %s (iteration %" PRIu64 ") passed the Jacobi check (%.1f sec).\n",g_cstr,itmp64,jchk_tsec);
+					mlucas_fprint(cbuf,1);
+				} else {
+					snprintf(cbuf,sizeof(cbuf), "Restart file %s (iteration %" PRIu64 ") FAILED the Jacobi check (symbol = %d, %.1f sec) - its residue is corrupt; trying the next savefile in the chain.\n",g_cstr,itmp64,jsym,jchk_tsec);
+					mlucas_fprint(cbuf,1);
+					// q is a byte-for-byte copy of p, so a p that read fine but fails the check means q would too - skip it:
+					jchk_file = (jchk_file == 0) ? 2 : jchk_file + 1;	goto READ_RESTART_FILE;
 				}
 			}
 			// If user attempts to restart run with different PRP base than it was started with, ignore the new value and continue with the initial one:
@@ -1592,9 +1667,9 @@ READ_RESTART_FILE:
 			deadly" aliased-ROE type are negligibly small. Even should such an improbability occur, if it does the program will once
 			more pseudorandomize the FFT inputs by again mod-doubling the shift count, i.e. we'll never get stuck:
 			*/
-			if(ierr == ERR_GERBICZ_CHECK) {
+			if(ierr == ERR_GERBICZ_CHECK || ierr == ERR_JACOBI_CHECK) {	// v21: same reasoning applies to a Jacobi-check rollback
 				MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
-				snprintf(cbuf,sizeof(cbuf), "Gerbicz-check-error restart: Mod-doubling residue shift to avoid repeating any possible fractional-error aliasing in retry, new shift = %" PRIu64 "\n",RES_SHIFT);
+				snprintf(cbuf,sizeof(cbuf), "%s-check-error restart: Mod-doubling residue shift to avoid repeating any possible fractional-error aliasing in retry, new shift = %" PRIu64 "\n",(ierr == ERR_GERBICZ_CHECK) ? "Gerbicz" : "Jacobi",RES_SHIFT);
 				mlucas_fprint(cbuf,1);
 			}
 			/* Allocate floating-point residue array and convert savefile bytewise residue to floating-point form, after
@@ -1603,7 +1678,9 @@ READ_RESTART_FILE:
 			if(!convert_res_bytewise_FP((uint8 *)arrtmp, a, n, p)) {
 				snprintf(cbuf,sizeof(cbuf), "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",g_cstr);
 				mlucas_fprint(cbuf,0);
-				if(g_cstr[0] != 'q' && !(ierr == ERR_GERBICZ_CHECK)) {	// Secondary savefile only exists for regular checkpoint files
+				if(do_jcheck) {	// v21: next file in the Jacobi rollback chain
+					jchk_file++;	goto READ_RESTART_FILE;
+				} else if(g_cstr[0] != 'q' && !(ierr == ERR_GERBICZ_CHECK)) {	// Secondary savefile only exists for regular checkpoint files
 					g_cstr[0] = 'q';
 					goto READ_RESTART_FILE;
 				} else {
@@ -1620,6 +1697,8 @@ READ_RESTART_FILE:
 				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 			}
 		  }
+			if(ierr == ERR_JACOBI_CHECK) ierr = 0;	// v21: Jacobi rollback target read and vetted - resume from it
+			jchk_file = 0;	// v21: any later restart-file read starts from the primary savefile again
 			ASSERT(ilo > 0,"Require ilo > 0!");
 			ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
 			/* If for some reason last checkpoint was at a non-multiple of ITERS_BETWEEN_CHECKPOINTS, round down: */
@@ -1635,6 +1714,19 @@ READ_RESTART_FILE:
 				snprintf(cbuf,sizeof(cbuf), "INFO: Needed restart file %s not found...moving on to next assignment in %s.\n",g_cstr,WORKFILE);
 				mlucas_fprint(cbuf,1);
 				goto GET_NEXT_ASSIGNMENT;
+			} else if(do_jcheck && jchk_file < 4) {	// v21: Jacobi rollback chain: this file is absent, try the next
+				if(jchk_file <= 1 || ierr == ERR_JACOBI_CHECK) {	// .J/.J1 are normally absent on a fresh start - don't mention them then
+					snprintf(cbuf,sizeof(cbuf), "INFO: restart file %s not found...looking for the next one.\n",g_cstr);
+					mlucas_fprint(cbuf,1);
+				}
+				jchk_file++;	goto READ_RESTART_FILE;
+			} else if(do_jcheck) {	// v21: chain exhausted
+				if(ierr == ERR_JACOBI_CHECK)
+					sprintf(cbuf, "INFO: no restart file passes the Jacobi check...starting run from scratch.\n");
+				else
+					sprintf(cbuf, "INFO: no restart file found...starting run from scratch.\n");
+				mlucas_fprint(cbuf,1);
+				ierr = 0; restart = FALSE; jchk_file = 0;
 			} else if(g_cstr[0] != 'q') {
 				snprintf(cbuf,sizeof(cbuf), "INFO: primary restart file %s not found...looking for secondary...\n",g_cstr);
 				mlucas_fprint(cbuf,1);
@@ -2122,6 +2214,33 @@ READ_RESTART_FILE:
 		// Zero high uint64s of target arrays, since double-to-int residue conversion is bytewise & may leave >=1 MSBs in high word untouched:
 		// Fermat-mod residue formally needs an extra bit, though said bit should == 1
 		// only in the highly unlikely case of a prime-Fermat Pepin-test result:
+	#ifdef MLUCAS_FAULT_INJECT
+		/* Test-only fault injector - build with -DMLUCAS_FAULT_INJECT, never in a release build. At the checkpoint whose
+		iteration count equals $MLUCAS_FAULT_ITER, add 1.0 to balanced digit $MLUCAS_FAULT_WORD (default 0) of the residue,
+		i.e. perturb the residue by 2^(bit offset of that digit). The perturbed value is what gets checked, saved and iterated
+		on from here, exactly as a memory fault in the residue array would be - which makes the ensuing check/rollback path
+		testable deterministically (a given (iteration, digit) always yields the same verdict). Fires once per process, so
+		the retry after a rollback runs clean. Iterations below 64 are refused: the residue is not full-size before
+		~log2(p) iterations, so an early injection tests nothing about the real arithmetic path: */
+		{
+			static int fi_parsed = 0, fi_done = 0; static uint32 fi_iter = 0, fi_word = 0;
+			if(!fi_parsed) {
+				const char *fi_e = getenv("MLUCAS_FAULT_ITER"), *fi_w = getenv("MLUCAS_FAULT_WORD");
+				fi_parsed = 1;
+				if(fi_e) {
+					fi_iter = (uint32)strtoul(fi_e,0x0,10);	if(fi_w) fi_word = (uint32)strtoul(fi_w,0x0,10);
+					ASSERT(fi_iter >= 64, "MLUCAS_FAULT_ITER must be >= 64: the residue is not full-size before ~log2(p) iterations.");
+					ASSERT(fi_word < (uint32)n, "MLUCAS_FAULT_WORD must be less than the FFT length.");
+				}
+			}
+			if(fi_iter && !fi_done && ihi == fi_iter && ierr == 0 && !INTERACT) {
+				uint32 fi_j1 = fi_word + ((fi_word >> DAT_BITS) << PAD_BITS);	// padded-array index of digit fi_word
+				a[fi_j1] += 1.0;	fi_done = 1;
+				snprintf(cbuf,sizeof(cbuf), "FAULT INJECTION: added 1.0 to residue digit %u at iteration %u.\n",fi_word,ihi);
+				mlucas_fprint(cbuf,1);
+			}
+		}
+	#endif
 		j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	arrtmp[j-1] = 0ull;
 		convert_res_FP_bytewise(	a, (uint8 *)      arrtmp, n, p, &Res64, &Res35m1, &Res36m1);	// LL/PRP-test/[p-1 stage 1] residue
 		// G-check residue...must not touch i1,i2,i3 again until ensuing write_ppm1_savefiles call!
@@ -2172,6 +2291,48 @@ READ_RESTART_FILE:
 				, timebuffer, PSTRING, iter_or_stage[TEST_TYPE == TEST_TYPE_PM1], ihi, (float)ihi / (float)maxiter * 100,get_time_str(tdiff)
 				, 1000*get_time(tdiff)/(ihi - ilo), Res64, AME, MME, RES_SHIFT);
 			mlucas_fprint(cbuf,scrnFlag);
+		}
+
+		/* v21: LL Jacobi residue check on the shift-removed residue just converted into arrtmp[] (cf. jacobi_check()).
+		Runs on the final residue - the value about to be reported - and otherwise once JACOBI_CHECK_HOURS have elapsed
+		since the previous check (at every checkpoint if that is 0), but never on an interrupt-driven checkpoint (a
+		shutdown must not stall for the ~30 sec a 100M-bit check takes; the residue is checked on the ensuing restart
+		instead), and never sooner than 100x the previous check's duration, which caps the overhead near 1% however
+		slow the host. Must precede the loop_exit break below, since LL writes no final savefile: */
+		jchk_passed = FALSE;
+		if(do_jcheck && ierr == 0) {
+			double tnow = getRealTime(), twait = MAX(JACOBI_CHECK_HOURS*3600.0, 100.0*jchk_tdur);
+			if(ihi == maxiter || JACOBI_CHECK_HOURS == 0.0 || (tnow - jchk_tlast) >= twait) {
+				jsym = jacobi_check(p, arrtmp, j, 2, &jchk_tsec);
+				jchk_tlast = getRealTime(); jchk_tdur = jchk_tsec;
+				if(jsym == -1) {
+					snprintf(cbuf,sizeof(cbuf), "At iteration %u, shift = %" PRIu64 ": Jacobi check passed (%.1f sec).\n",ihi,RES_SHIFT,jchk_tsec);
+					mlucas_fprint(cbuf,scrnFlag);
+					jchk_nfail = 0; jchk_passed = TRUE;
+				} else if(jsym == 0) {
+					/* Symbol 0 means gcd(s - 2, M(p)) > 1. Exponents are checked prime when the worktodo entry is parsed (the
+					composite case, where M(q) | M(p) for q | p and the LL sequence collapses mod M(q), never gets here), so for
+					a genuine LL residue this has probability ~1/q per iteration over the factors q of M(p) - i.e. it does not
+					happen. A residue that lands on it is corrupt in a way no rollback is likely to clear, so stop rather than
+					retry, and say what was seen: */
+					snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u failed with symbol 0: the residue shares a factor with the modulus, which cannot happen for a correct LL residue of a prime exponent. Aborting rather than retrying; %s savefiles left in place - please check this machine for hardware errors.\n",ihi,PSTRING);
+					mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
+				} else {
+					NERR_JACOBI++; jchk_nfail++;
+					if(jchk_nfail >= 5) {
+						snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u failed %u times in a row, the last after restarting from scratch - the error is not being cleared by rolling back, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",ihi,jchk_nfail,PSTRING);
+						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
+					}
+					/* Rollback target from the failure count: the current savefiles first (the corruption may postdate them);
+					then the two Jacobi-passed checkpoints; then scratch. Each candidate is itself Jacobi-checked on read: */
+					jchk_file = (jchk_nfail == 1) ? 0 : (jchk_nfail == 2) ? 2 : (jchk_nfail == 3) ? 3 : 4;
+					snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u FAILED (symbol = %+d, %.1f sec)! Restarting from %s.\n",ihi,jsym,jchk_tsec,
+						(jchk_file == 0) ? "the current savefile" : (jchk_file == 2) ? "the last Jacobi-passed savefile" : (jchk_file == 3) ? "the previous Jacobi-passed savefile" : "scratch");
+					mlucas_fprint(cbuf,1);
+					ierr = ERR_JACOBI_CHECK;
+					goto READ_RESTART_FILE;
+				}
+			}
 		}
 
 		// Do not save a final residue unless p-1 (if not, still leave penultimate residue file intact).
@@ -2413,6 +2574,33 @@ READ_RESTART_FILE:
 					mlucas_fprint(cbuf,1);
 				}
 			}	// ihi a multiple of ITERS_BETWEEN_GCHECKS?
+		}
+
+		/* v21: LL Jacobi check - on a passing check keep the two most recent Jacobi-passed checkpoints, p[exp].J (this one)
+		and p[exp].J1 (the previous). A failing check normally implies the corruption postdates the last passing one (the
+		symbol is invariant under the recurrence, so an earlier corruption that passed would go on passing), which makes .J
+		the natural rollback target. .J1 covers the two ways that can fail: .J unreadable or failing its on-read check, and
+		a corruption that landed exactly at a checked checkpoint, passed that check (so .J holds it) and fails every later
+		one - the retry from .J then fails at the same iteration and the chain advances to .J1. Both exercised in tests: */
+		if(do_jcheck && jchk_passed) {
+			strcpy(g_cstr, RESTARTFILE);	strcat(g_cstr, ".J");
+			snprintf(jchk_fname,STR_MAX_LEN, "%s.J1",RESTARTFILE);
+			fp = mlucas_fopen(g_cstr, "rb");	// Only rotate if a .J exists yet (rename would just fail noisily otherwise)
+			if(fp) {
+				fclose(fp); fp = 0x0;
+				if(mlucas_rename(g_cstr, jchk_fname)) {
+					snprintf(cbuf,sizeof(cbuf), "WARN: unable to rename %s ==> %s; the previous Jacobi-passed checkpoint is lost.\n",g_cstr,jchk_fname);
+					mlucas_fprint(cbuf,1);
+				}
+			}
+			fp = mlucas_fopen_atomic(g_cstr, "wb");
+			if(fp) {
+				write_ppm1_savefiles(g_cstr,p,n,fp, itmp64, (uint8 *)arrtmp,Res64,Res35m1,Res36m1, (uint8 *)e_uint64_ptr,i1,i2,i3);
+				close_savefile(g_cstr,fp); fp = 0x0;
+			} else {
+				snprintf(cbuf,sizeof(cbuf), "ERROR: unable to open Jacobi-check savefile %s for write of checkpoint data.\n",g_cstr);
+				mlucas_fprint(cbuf,1);
+			}
 		}
 
 		if(ierr == ERR_INTERRUPT) exit(0);
@@ -5443,8 +5631,8 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	reported to the server as a maximal hardware-error code. Init from the globals so that fields which
 	the file does not contain (older formats) are left as-is, exactly as before:
 	*/
-	uint32 prp_base = PRP_BASE, nerr_roe = NERR_ROE, nerr_gcheck = NERR_GCHECK;
-	uint64 res_shift = 0ull, gcheck_shift = GCHECK_SHIFT, len_v17,len_v19;
+	uint32 prp_base = PRP_BASE, nerr_roe = NERR_ROE, nerr_gcheck = NERR_GCHECK, nerr_jacobi = NERR_JACOBI;
+	uint64 res_shift = 0ull, gcheck_shift = GCHECK_SHIFT, len_v17,len_v19,len_v20;
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 	mi64_clear(pow,4); mi64_clear(rem,4);
@@ -5511,6 +5699,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	*/
 	len_v17 = (uint64)nbytes + 28;
 	len_v19 = len_v17 + 11 + (DO_GCHECK ? (uint64)nbytes + 30 : 0ull);
+	len_v20 = len_v19 + 8;	// v21: + the two 4-byte error counts (NERR_ROE, NERR_GCHECK)
 
 	i = read_ppm1_residue(nbytes, fp, arr1, Res64,Res35m1,Res36m1);
 	if(!i) return 0;
@@ -5685,11 +5874,29 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 		nerr += i << (8*j);
 	}
 	nerr_gcheck = MAX(nerr,nerr_gcheck);
+	/* v21: Jacobi-check failure count, appended after the v20 fields so that older readers - which stop after the two
+	counts above - are unaffected. Absent from v20/v21-format savefiles: EOF on its first byte, with the file length
+	confirming a complete v20-format file, means "not tracked yet" and the count continues from its current value: */
+	nerr = 0ull;
+	for(j = 0; j < 4; j++) {
+		i = fgetc(fp);
+		if(i == EOF) {
+			if(!j) {
+				if(!savefile_ends_at(func,fname,fp,1,len_v20,FALSE)) return 0;
+				goto SAVEFILE_READ_DONE;
+			} else {
+				sprintf(cbuf, "%s: Expected 4 Jacobi-check-error-count bytes in savefile %s!\n",func,fname);
+				fprintf(stderr,"%s", cbuf);	return 0;
+			}
+		}
+		nerr += i << (8*j);
+	}
+	nerr_jacobi = MAX(nerr,nerr_jacobi);
 
 SAVEFILE_READ_DONE:
 	// v21: Read succeeded - only now commit the parsed values to their globals:
 	RES_SHIFT = res_shift;	PRP_BASE = prp_base;	GCHECK_SHIFT = gcheck_shift;
-	NERR_ROE = nerr_roe;	NERR_GCHECK = nerr_gcheck;
+	NERR_ROE = nerr_roe;	NERR_GCHECK = nerr_gcheck;	NERR_JACOBI = nerr_jacobi;
 	/* Don't deallocate arr1 here, since we'll need it later for savefile writes. */
 	return 1;
 }
@@ -5764,6 +5971,7 @@ void write_ppm1_savefiles(const char *fname, uint64 p, int n, FILE *fp, uint64 i
 	// v20: Write cumulative #errs for ROE >= 0.4375 (>= for LL, > for PRP) and Gerbicz-check for the test in question:
 	i  = write_savefile_field(fp,NERR_ROE   ,4);
 	i &= write_savefile_field(fp,NERR_GCHECK,4);
+	i &= write_savefile_field(fp,NERR_JACOBI,4);	// v21: appended last, so older readers can ignore it
 	if(!i) goto SAVEFILE_WRITE_ERR;
 	return;
 
@@ -6524,14 +6732,15 @@ void generate_JSON_report(
 		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
 			strncpy(aid,char_addr,32);
 	}
-	const uint32 error_code = (MIN(NERR_ROE, 0x3F) << 8) | (MIN(NERR_GCHECK, 0xF) << 20);
+	// Bit layout follows the GIMPS server's convention: Jacobi-check failures in bits 4-7, roundoff in 8-13, Gerbicz in 20-23:
+	const uint32 error_code = (MIN(NERR_JACOBI, 0xF) << 4) | (MIN(NERR_ROE, 0x3F) << 8) | (MIN(NERR_GCHECK, 0xF) << 20);
 	// Write the result line. The 2 nested conditionals here are LL-or-PRP and has-AID-or-not:
 	if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 		snprintf(ttype,10,"LL");
 		if(*aid) {
-			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer,aid);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"jacobi\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,NERR_JACOBI,VERSION,timebuffer,aid);
 		} else {
-			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,VERSION,timebuffer);
+			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"jacobi\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,error_code,NERR_ROE,NERR_JACOBI,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP && KNOWN_FACTORS[0]) {	// PRP-CF result
 		// Print list of known factors used for CF test. Unlike the Primenet assignment formtting on the input side,
@@ -6961,6 +7170,71 @@ void modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb) {
 	// Done with the GMP arrays ... gmp_one needs clearing as well, cf. the comment in gcd():
 	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2); mpz_clear(gmp_one);
 #endif	// INCLUDE_GMP ?
+}
+
+/*********************/
+
+/* v21: Jacobi-symbol residue check.
+
+For an LL test of M(p) = 2^p - 1, p an odd prime, the iterates s_n satisfy J(s_n - 2 | M(p)) = -1 for every
+n >= 1 whatever M(p)'s primality: s_n - 2 = (s_{n-1} - 2)(s_{n-1} + 2) with s_{n-1} + 2 = s_{n-2}^2 a square,
+so the symbol telescopes to J(s_1 - 2 | M(p)) = J(12 | M(p)) = J(3 | M(p)) = -1 (M(p) = 1 mod 3, 3 mod 4).
+A corrupted residue satisfies it with probability 1/2 - and the symbol is *invariant* under the recurrence from
+one iteration after a corruption on (J(s_{n+1} - 2) = J(s_n - 2) J(s_{n-1}^2) = J(s_n - 2) once s_{n-1} is itself
+an iterate of the corrupted value). So the checks see at most two independent values per corruption: the symbol
+at the corrupted iteration itself, only if a check happens to run exactly there, and one further value shared
+by every later check. A corruption mid-interval - the realistic case - gets one coin: caught with probability
+1/2 by the first check after it, or never. This is therefore a cheap, weak check; the check cadence sets how
+much work is lost when a corruption is caught, not the odds of catching it. It does not certify the result.
+The circular residue shift is irrelevant to the symbol (J(2 | M(p)) = +1), but the -2 must be applied to the
+unshifted value, i.e. the form convert_res_FP_bytewise() leaves in arrtmp[] and the savefiles hold.
+
+Computes J(res - sub | N), N = 2^p -+ 1 per MODULUS_TYPE, res[] the shift-removed residue in little-endian
+bytewise form. Only the low ceil(p/8) bytes are read, so stale high bytes in the top limb are harmless.
+Returns +1, -1 or 0 and sets *tsec to the wall time taken. GMP's mpz_jacobi became subquadratic in 5.1.0;
+the older quadratic version would take hours at 100M bits, so a build against an older GMP (or without GMP)
+reports the check unavailable rather than run it. Measured (i9-10885H, GMP 6.3): 0.08 s at 1M bits, 28 s at
+100M, 146 s at 332M, 259 s at 595M.
+*/
+int jacobi_check_available(void) {
+#if INCLUDE_GMP && defined(__GNU_MP_RELEASE) && (__GNU_MP_RELEASE >= 50100)
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+int jacobi_check(uint64 p, const uint64 *res, uint32 nlimb, uint32 sub, double *tsec) {
+#if !(INCLUDE_GMP && defined(__GNU_MP_RELEASE) && (__GNU_MP_RELEASE >= 50100))
+	if(tsec) *tsec = 0.0;
+	return JACOBI_UNAVAILABLE;
+#else
+	// Unlike standard types and Mlucas internal structs, GMP objects must be declared before any expressions:
+	mpz_t gmp_a, gmp_n;
+	int jsym;
+	double clock1, clock2;
+	size_t nbytes;
+	ASSERT(res != 0x0, "Null residue pointer input to jacobi_check()!");
+	ASSERT(MODULUS_TYPE == MODULUS_TYPE_MERSENNE || MODULUS_TYPE == MODULUS_TYPE_FERMAT, "jacobi_check(): unsupported modulus type!");
+	ASSERT(nlimb >= (uint32)((p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6), "jacobi_check(): nlimb too small for the exponent!");
+	nbytes = (size_t)((p + (MODULUS_TYPE == MODULUS_TYPE_FERMAT) + 7)>>3);	// Fermat-mod residue may need the extra bit
+	clock1 = getRealTime();
+	mpz_init(gmp_a); mpz_init(gmp_n);
+	mpz_import(gmp_a, nbytes, -1, 1, 0, 0, res);	// least-significant byte first, host byte order within each byte
+	mpz_ui_pow_ui(gmp_n, 2ul, (unsigned long)p);
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+		mpz_sub_ui(gmp_n, gmp_n, 1ul);
+	else
+		mpz_add_ui(gmp_n, gmp_n, 1ul);
+	mpz_sub_ui(gmp_a, gmp_a, (unsigned long)sub);
+	if(mpz_sgn(gmp_a) < 0)
+		mpz_add(gmp_a, gmp_a, gmp_n);
+	jsym = mpz_jacobi(gmp_a, gmp_n);
+	mpz_clear(gmp_a); mpz_clear(gmp_n);
+	clock2 = getRealTime();
+	if(tsec) *tsec = clock2 - clock1;
+	return jsym;
+#endif
 }
 
 /*********************/
