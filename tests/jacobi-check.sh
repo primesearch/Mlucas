@@ -96,8 +96,10 @@ S=$d/p216091.stat
 expect_grep "$S" "Received SIGINT signal: writing savefile" "interrupt wrote a savefile"
 if grep -q "Received SIGINT signal: writing savefile at Iter = \([0-9]*\)" "$S"; then
 	it=$(grep -o "writing savefile at Iter = [0-9]*" "$S" | grep -o "[0-9]*$")
-	# The interrupt-driven checkpoint must not run the check (shutdown must stay fast)...
-	expect_nogrep "$S" "At iteration $it, shift = [0-9]*: Jacobi check passed" "no Jacobi check on the interrupt checkpoint"
+	# The interrupt-driven checkpoint must not run the check (shutdown must stay fast). Order-aware: when the signal
+	# lands between intervals the interrupt is reported at the iteration of the regular checkpoint just written, whose
+	# own check legitimately ran *before* the signal - so look only at what follows the interrupt message:
+	if sed -n '/Received SIGINT signal/,$p' "$S" | grep -q "Jacobi check passed"; then bad "a Jacobi check ran on the interrupt checkpoint"; else ok "no Jacobi check on the interrupt checkpoint"; fi
 	run "$d"
 	# ...and the resume must check the residue it loads:
 	expect_grep "$S" "Restart file p216091 (iteration $it) passed the Jacobi check" "restart-read Jacobi check of the saved residue"
@@ -175,6 +177,26 @@ else
 	expect_nogrep "$S" "FAILED" "missed: no check ever fires (symbol invariant under the recurrence)"
 	[[ $(res64_of "$d") != "$CLEAN" ]] && ok "missed: run ends with a WRONG residue $(res64_of "$d") - this is the documented limit of the check" || bad "missed: final residue equals the clean one?!"
 	if grep -qE '"error-code":"[0-9A-F]{6}0[0-9A-F]"' "$d/results.txt"; then ok "missed: Jacobi nibble 0, as expected - nothing was detected"; else bad "missed: Jacobi nibble != 0"; fi
+fi
+
+# ---------------------------------------------------------------------------------------------
+if [[ -n $MLUCAS_FI ]]; then
+	echo "-- T6: a reproducible fault: the rollback chain is walked to the end and the run aborts rather than loop"
+	# MLUCAS_FAULT_REPEAT re-fires the injection at every visit of iteration 50000, so every retry fails there
+	# again: current savefile -> .J -> .J1 -> scratch -> fifth failure aborts with a hardware warning.
+	d=$(setup t6 216103 10000 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=50000 MLUCAS_FAULT_WORD=3 MLUCAS_FAULT_REPEAT=1 -- -shift 0
+	S=$d/p216103.stat
+	expect_count "$S" "FAULT INJECTION: added 1.0 to residue digit 3 at iteration 50000" 5 "injection re-fired on every retry"
+	expect_count "$S" "Jacobi check at iteration 50000 FAILED" 4 "four failures each followed by a rollback"
+	expect_grep "$S" "Restarting from the current savefile" "1st rollback: current savefile"
+	expect_grep "$S" "Restarting from the last Jacobi-passed savefile" "2nd rollback: .J"
+	expect_grep "$S" "Restarting from the previous Jacobi-passed savefile" "3rd rollback: .J1"
+	expect_grep "$S" "Restarting from scratch" "4th rollback: scratch"
+	expect_grep "$S" "failed 5 times in a row, the last after restarting from scratch" "5th failure aborts with the hardware warning"
+	[[ $(cat "$d/exit") != 0 ]] && ok "run stopped (exit $(cat "$d/exit"))" || bad "run did not stop"
+	[[ -f $d/p216103 && -f $d/p216103.J ]] && ok "savefiles left in place" || bad "savefiles missing after the abort"
+else
+	skip "T6 needs the -DMLUCAS_FAULT_INJECT build"
 fi
 
 # ---------------------------------------------------------------------------------------------
