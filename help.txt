@@ -109,48 +109,77 @@ Supported command-line arguments:
 
 Options - again note the user can override the default iteration count based on #threads via
 '-iters {+int}', though only 100|1000|10000-iteration cases have precomputed reference residues.
-The (very rough) time estimates are for 1000 iterations done using 4 or more cores.
 
  -s {anything other than the mnemonics below}: Self-test, user must also supply exponent (via -m or -f),
 	iteration number and (optionally) FFT length to use.
 
-	Run-times below are indicative only. They vary widely with core count, clock and memory
-	bandwidth, and a modern multi-core ARM system is comparable to an x86-64 one. Note also
-	that more cores does not simply mean less wall-clock time: the default iteration count is
-	100 for <= 4 threads but 1000 for more, so crossing that boundary asks for ten times the
-	work and a run can take longer than the same test on fewer cores. Compare like with like
-	by pinning -iters rather than by relying on the defaults.
+	How long each tier takes. These are measured, but treat them as an order of magnitude: the
+	same test spans well over 10x across machines. The figures are for ONE core at the default
+	100 iterations - the only configuration that compares cleanly between systems - and come
+	from two x86-64 laptop CPUs several generations apart, which agree within about 2x where
+	both were run; the last three rows are from the older of the two only:
+
+	  -s         FFT lengths      one core, 100 iters
+	  teensy     1K - 15K         a second or less
+	  tiny       16K - 240K       5 - 10 seconds
+	  small      256K - 1.875M    1 - 2 minutes
+	  medium     2M - 15M         13 - 21 minutes
+	  large      16M - 60M        about an hour
+	  huge       64M - 240M       about 5 hours
+	  egregious  256M - 512M      about 14 hours
+
+	A small ARM core is far slower than that - a Raspberry Pi 4B measured roughly 10x the x86
+	figures at the tiers where both were run - so a Pi is a poor choice past 'small'.
+
+	Two things make wall-clock time counter-intuitive, and both are measured rather than
+	supposed:
+
+	 - Crossing 4 threads multiplies the work by ten, because the default iteration count is
+	   100 for <= 4 threads and 1000 for more, and run time is linear in the iteration count
+	   to within a couple of percent. '-s small' takes 25 seconds on 4 cores and 165 seconds
+	   on 16 - the 16-core run is slower in wall-clock terms because it is doing ten times as
+	   much work. Pin -iters when comparing thread counts instead of relying on the defaults.
+
+	 - Extra cores do not pay off proportionally: 1 core to 4 measured 2.2x on one machine and
+	   2.25x on a quite different one, against a theoretical 4x.
+
+	A high thread count also tests *less*, not merely faster, because the smaller FFT lengths
+	cannot use many threads and drop out of the run: '-s small' reports 127 residues on 1 or 4
+	cores but 116 on 16, and '-s teensy' 23 against 16. If the aim is to populate mlucas.cfg
+	rather than to benchmark, 4 cores is the better choice.
 
  -s teensy	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 15 Mersenne exponents,
- -s tt		covering FFT lengths 1K-15K. A few seconds. Useful as a quick post-build smoke test.
+ -s tt		covering FFT lengths 1K-15K. Useful as a quick post-build smoke test; see the table above
+		for run times.
 
  -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
- -s t		covering FFT lengths 16K-240K. Well under a minute.
+ -s t		covering FFT lengths 16K-240K.
 
  -s small	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
- -s s		FFT lengths 256K-1.875M. A few minutes.
+ -s s		FFT lengths 256K-1.875M.
 
 **************** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: *************
 *                                                                                             *
 * -s medium Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering *
-* -s m      FFT lengths from 2M to 15M. Allow up to an hour.                                  *
+* -s m      FFT lengths from 2M to 15M.                                                       *
 *                                                                                             *
 ***********************************************************************************************
 
  -s large	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering
- -s l		FFT lengths 16M to 60M. Long documented as "several hours", which badly overstates
-		it on current hardware: a GitHub Actions runner gets through the whole teensy-to-large
-		sequence, plus six build modes, inside about twenty minutes. Still the longest of
-		these tiers, and the most sensitive to memory bandwidth.
+ -s l		FFT lengths 16M to 60M. Long documented as "several hours", which overstates it on
+		current hardware - see the table above - though it is the longest of the tiers a
+		normal user would run, and the most sensitive to memory bandwidth.
 
  -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
  -s a		Note this covers teensy through large only, not huge or egregious.
 
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
- -s h		of 16 M(p), covering FFT lengths 64M-240M. This will take several days on a fast CPU.
+ -s h		of 16 M(p), covering FFT lengths 64M-240M. Hours rather than the "several days" once
+		documented here, unless run above 4 threads, where the 1000-iteration default puts it
+		back into the days.
 
  -s xxl		[The 'e' form is short for 'egregious'.] Runs 100 or 1000-iteration self-tests on a set
- -s e		of 9 M(p), covering FFT lengths 256M-512M. This will take several days on a fast CPU, and
+ -s e		of 9 M(p), covering FFT lengths 256M-512M. The longest by far - see the table above - and
 			requires '-shift 0' also be added to the command line, which restriction will be removed
 			at a later date.
 
