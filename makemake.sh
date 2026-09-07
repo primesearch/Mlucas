@@ -154,7 +154,12 @@ try_lto() {
 
 if [[ ! $OSTYPE == darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
-	if [[ $OSTYPE != msys && $OSTYPE != cygwin ]]; then
+	# librt does not exist on Windows targets. Probe the compiler for it rather than testing $OSTYPE:
+	# $OSTYPE describes the *build host*, so it only skips -lrt for a native msys/cygwin build, and a
+	# MinGW cross-build from Linux (CC=x86_64-w64-mingw32-gcc) still got -lrt and died at the link step
+	# with "cannot find -lrt". Probing also drops the flag on any other target that has folded the librt
+	# entry points into libc, which is where glibc has been heading since 2.34:
+	if try_flag -lrt; then
 		LD_ARGS+=(-lrt)
 	fi
 fi
