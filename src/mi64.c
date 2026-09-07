@@ -7096,7 +7096,7 @@ uint64 mi64_div_by_scalar64_u2(uint64 x[], uint64 q, uint32 lenu, uint64 y[])	//
 #if MI64_DIV_MONT64_U2
 	int dbg = 0;
 #endif
-	int i,j,len = lenu,len2 = (len>>1),nshift,lshift = -1;	// lenu is even here (see dispatch above)
+	int len = lenu,len2 = (len>>1),nshift,lshift = -1;	// lenu is even here (see dispatch above)
 	uint64 qinv,cy0,cy1,rpow,rem_save = 0,itmp64,mask,*iptr0,*iptr1,ptr_incr;
 	ASSERT((x != 0) && (len != 0), "Null input array or length parameter!");
 	ASSERT(q > 0, "0 modulus!");
@@ -7438,8 +7438,14 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 #if MI64_DIV_MONT64_U4
 	int dbg = 0;
 #endif
-	int i,j,len = lenu,len2 = (len>>1),len4 = (len>>2),nshift,lshift = -1;	// lenu is a multiple of 4 here (see dispatch above)
-	uint64 qinv,cy0,cy1,cy2,cy3,rpow,rem_save = 0,itmp64,mask,*iptr0,*iptr1,*iptr2,*iptr3, ptr_incr,ptr_inc2;
+	int len = lenu,len4 = (len>>2),nshift,lshift = -1;	// lenu is a multiple of 4 here (see dispatch above)
+#ifndef YES_ASM	// i and len2 are used only by the portable-C arm below:
+	int i,len2 = (len>>1);
+#endif
+	uint64 qinv,cy0,cy1,cy2,cy3,rpow,rem_save = 0,mask,*iptr0;
+#ifndef YES_ASM	// likewise iptr1..3:
+	uint64 *iptr1,*iptr2,*iptr3;
+#endif
 	uint64 *xy_ptr_diff;
 	// Local-alloc-related statics - these should only ever be updated in single-thread mode:
 	static int first_entry = TRUE;
