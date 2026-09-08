@@ -231,32 +231,16 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 	/*
 	Async-signal-safe graceful-quit handler.
 
-	ROOT CAUSE of the Dec-2021 "runs that have been underway for a day or more refuse to quit"
-	instability (which led to this savefile-on-interrupt feature being disabled): a signal handler
-	runs on whatever thread the kernel happens to deliver the signal to, asynchronously interrupting
-	whatever that thread was doing at that instant. POSIX permits a handler to call ONLY async-signal-safe
-	functions (see signal-safety(7)). The old handler violated this badly - it called fprintf() and
-	sprintf() (into the shared global cbuf) and then exit(). All three are unsafe:
-	  - fprintf/sprintf take the stdio lock and can call malloc();
-	  - exit() flushes all stdio streams and runs atexit() handlers.
-	If the signal was delivered to an FFT worker thread (all threads had these signals unblocked) that
-	happened to already hold the malloc arena lock or a stdio lock - very likely, since the workers are
-	the threads doing nearly all the CPU work - the handler would deadlock on that non-recursive lock and
-	the entire process would hang forever. Because *which* thread receives the signal is nondeterministic,
-	the hang was intermittent: exactly the "run-to-run inconsistency" that was reported. sprintf() into the
-	shared cbuf also races the main thread's concurrent use of that same buffer.
+	The Dec-2021 "long-running jobs refuse to quit" instability, which is why savefile-on-interrupt
+	was disabled, came from the old handler calling fprintf/sprintf and exit() - none of them
+	async-signal-safe (signal-safety(7)). Delivered to an FFT worker already holding the malloc or
+	stdio lock, it deadlocked; which thread got the signal is nondeterministic, hence the
+	intermittency. It also raced the main thread for the shared cbuf.
 
-	The fix has three parts:
-	  (1) This handler now does NOTHING but store the signal number and clear the keep-running flag - both
-	      volatile sig_atomic_t, the only data the C standard lets a handler safely touch. No stdio, no
-	      malloc, no exit(): nothing that can take a lock, so it cannot deadlock no matter which thread or
-	      instruction it interrupts.
-	  (2) All user messaging and the (consistent, last-completed-iteration) savefile write are deferred to
-	      the main-thread control loop, which polls MLUCAS_KEEP_RUNNING at a safe point between mod-squaring
-	      iterations.
-	  (3) Because of (1) it does not matter which thread the kernel picks to run the handler: a
-	      process-directed signal goes to any thread not blocking it, and every one of them can safely
-	      execute these two stores. The main thread is the one that acts on the flag.
+	So this handler now only stores two volatile sig_atomic_t flags - the sole data a handler may
+	safely touch - and everything else (messaging, the savefile write) is deferred to the main
+	control loop, which polls MLUCAS_KEEP_RUNNING between mod-squarings. Nothing here can take a
+	lock, so it is safe on whichever thread the kernel picks.
 	*/
 	void sig_handler(int signo)
 	{
@@ -265,15 +249,10 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 	}
 
 	/*
-	Install sig_handler for the graceful-quit signals. Called from the mod-squaring functions; the static
-	'installed' guard makes it a no-op after the first call, so it runs exactly once, on the main thread.
-
-	The handler may run on any thread the kernel selects; that is safe because it only stores to two
-	volatile sig_atomic_t flags, which the main-thread control loop then acts on. That is also why plain
-	signal() suffices here rather than sigaction(): with nothing in the handler that can be re-entered or
-	interrupted unsafely, neither sa_mask nor SA_RESTART buys anything, and using the same call on every
-	platform keeps SIGHUP/SIGALRM/SIGUSR1/SIGUSR2 - absent on Windows - as the only #ifdef here, matching
-	the guard sig_handler itself already uses.
+	Install sig_handler for the graceful-quit signals. Called from the mod-squaring functions; the
+	static guard makes it a no-op after the first call. plain signal() rather than sigaction()
+	because a handler that only does two volatile stores gains nothing from sa_mask or SA_RESTART,
+	and using one call everywhere leaves the four signals Windows lacks as the only #ifdef here.
 	*/
 	void mlucas_install_signal_handlers(void)
 	{
@@ -1927,11 +1906,19 @@ READ_RESTART_FILE:
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
 					// This b[]-undo is only to make b[] savefile-consistent for the ensuing interrupt
-					// checkpoint-write; it must NOT clobber ierr, which has to stay ERR_INTERRUPT so the
-					// downstream savefile-write-and-exit handling fires (else the interrupt is lost and the
-					// PRP test spins to maxiter and aborts in the post-test residue step). Discard its return:
-					if(ierr == ERR_INTERRUPT && !first_sub)
-						(void)func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+					// checkpoint-write. Its return must NOT land in ierr, which has to stay ERR_INTERRUPT so
+					// the downstream savefile-write-and-exit handling fires (else the interrupt is lost and
+					// the PRP test spins to maxiter and aborts in the post-test residue step) - but it is
+					// still worth reporting, since a failure here means the Gerbicz checkproduct written to
+					// the savefile is not the one the residue expects, and the mismatch would only surface
+					// as a spurious G-check failure after the next resume:
+					if(ierr == ERR_INTERRUPT && !first_sub) {
+						int ierr_undo = func_mod_square(b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+						if(ierr_undo) {
+							snprintf(cbuf,sizeof(cbuf),"WARNING: b[]-undo prior to the interrupt checkpoint returned error code[%u] = %s. The Gerbicz checkproduct in the savefile may be inconsistent with the residue; if the next resume reports a Gerbicz-check failure, restart from an earlier savefile.\n",ierr_undo,returnMlucasErrCode(ierr_undo));
+							mlucas_fprint(cbuf,1);
+						}
+					}
 					break;
 				}
 				/* At end of each subinterval, do a single modmul of current residue a[] with Gerbicz-checkproduct to update the latter:
