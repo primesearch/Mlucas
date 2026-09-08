@@ -3373,6 +3373,7 @@ version which also works with multiword inputs, cf. mi64.c:brev64():
 uint64 reverse64(uint64 i, uint32 nbits)
 {
 	uint32 pad_bits = 64-nbits;
+	uint64 out;
 	uint8 *bin8 = (uint8 *)&i, bout8[8];
 	bout8[0] = brev8[bin8[7]];
 	bout8[1] = brev8[bin8[6]];
@@ -3382,7 +3383,9 @@ uint64 reverse64(uint64 i, uint32 nbits)
 	bout8[5] = brev8[bin8[2]];
 	bout8[6] = brev8[bin8[1]];
 	bout8[7] = brev8[bin8[0]];
-	return (*(uint64 *)bout8) >> pad_bits;
+	// See the identical read-back in mi64.c:brev64() for why this is a memcpy and not a cast:
+	memcpy(&out, bout8, sizeof(out));
+	return out >> pad_bits;
 }
 
 /******* Bit-level utilities: ********/
