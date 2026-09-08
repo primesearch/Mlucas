@@ -153,26 +153,25 @@ try_lto() {
 }
 
 # Returns success iff $CC, given the KNL flag set passed as arguments, generates no AVX512VL
-# instructions for a real Mlucas translation unit; 1 if it emits some; 2 if the check could not be
-# run (no objdump, or the compile failed). Probing the generated code is the only reliable test:
-# accepting -march=knl is necessary but NOT sufficient, since GCC 14 takes the flag and still emits
-# 256-bit EVEX ops, which Knights Landing cannot execute. radix48_ditN_cy_dif1.c is used because it
-# is one of the smaller translation units that still reproduces this (~1s to compile).
+# instructions for a real Mlucas translation unit; 1 if it emits some; 2 if the probe could not be
+# run at all. Probing the generated code is the only reliable test: accepting -march=knl is
+# necessary but NOT sufficient, since GCC 14 takes the flag and still emits 256-bit EVEX ops, which
+# Knights Landing cannot execute. Compiling to assembly with -S keeps this to the compiler alone -
+# no objdump, no assembler, no object file - and is quicker than -c into the bargain.
+# radix48_ditN_cy_dif1.c is used because it is one of the smaller translation units that still
+# reproduces this. -DINCLUDE_GMP=0 so the probe does not need the GMP headers installed; it only
+# inspects vector codegen in an FFT kernel, which GMP has no bearing on.
 knl_vl_clean() {
-	local cc=${CC:-gcc} od tmpdir n src
+	local cc=${CC:-gcc} tmpdir src
 	src=$(dirname -- "$0")/src
-	od=$(command -v objdump || command -v llvm-objdump) || return 2
 	[[ -r $src/radix48_ditN_cy_dif1.c ]] || return 2
 	tmpdir=$(mktemp -d) || return 2
 	trap 'rm -rf "$tmpdir"' RETURN
-	# -DINCLUDE_GMP=0 so the probe does not need the GMP headers installed; it only inspects
-	# vector codegen in an FFT kernel, which GMP has no bearing on.
-	"$cc" -c -O3 -w -D_GNU_SOURCE -DUSE_THREADS -DUSE_AVX512 -DINCLUDE_GMP=0 "$@" \
-		-I "$src" -o "$tmpdir/probe.o" "$src/radix48_ditN_cy_dif1.c" >/dev/null 2>&1 || return 2
-	# 256-bit EVEX inserts/extracts (no zmm operand) need AVX512VL; the 512-bit forms do not.
-	n=$("$od" -d "$tmpdir/probe.o" 2>/dev/null \
-		| grep -E 'vinsert[fi]32x4|vextract[fi]32x4' | grep -cv zmm) || n=0
-	[[ $n -eq 0 ]]
+	"$cc" -S -O3 -w -D_GNU_SOURCE -DUSE_THREADS -DUSE_AVX512 -DINCLUDE_GMP=0 "$@" \
+		-I "$src" -o "$tmpdir/probe.s" "$src/radix48_ditN_cy_dif1.c" >/dev/null 2>&1 || return 2
+	# A 256-bit EVEX insert/extract - one naming a ymm register but no zmm - needs AVX512VL.
+	# The 512-bit forms name a zmm and are fine on KNL.
+	! grep -E 'vinsert[fi]32x4|vextract[fi]32x4' "$tmpdir/probe.s" | grep ymm | grep -qv zmm
 }
 
 if [[ ! $OSTYPE == darwin* ]]; then
@@ -364,13 +363,11 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			#     SDE-ERROR: Executed instruction not valid for specified chip (KNL):
 			#       vinsertf32x4 ymm0, ymm0, xmm1, 0x1     radix40_ditN_cy_dif1
 			# while a clang-built one runs to a correct residue on an emulated KNL.
-			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			if ! try_flag -march=knl; then
 				echo "Error: ${CC:-gcc} does not support -march=knl, so it cannot target Knights Landing/Mill. GCC removed the flag in 15. Use GCC <= 13 or Clang for this build mode, or build with 'avx512' instead if you are targeting Skylake-SP or later." >&2
 				exit 1
 			fi
 			ARGS+=(-march=knl)
-			# shellcheck disable=SC2310 # a failed probe is an answer, not an error
 			# 'set -e' is in force, so capture the status via '||' rather than a bare call:
 			knl_vl_status=0
 			knl_vl_clean -mavx512f -mavx512cd -mfma -march=knl || knl_vl_status=$?
@@ -378,18 +375,8 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 				echo "Error: ${CC:-gcc} accepts -march=knl but still generates AVX512VL instructions, which Knights Landing/Mill cannot execute - the binary would build and then die on the first one. GCC 14 is known to do this. Use GCC <= 13 or Clang for this build mode." >&2
 				exit 1
 			elif [[ $knl_vl_status -eq 2 ]]; then
-				# The direct check could not run (no objdump, or the probe would not compile). Rather
-				# than build something that may not run, fall back to what has been measured: every GCC
-				# from 14 on emits AVX512VL here, so refuse those. This is a stand-in for the codegen
-				# check, not a replacement - anything else only gets a warning, since a version number
-				# is exactly the kind of assumption the probe exists to avoid.
-				knl_cc_id=$("${CC:-gcc}" --version 2>/dev/null | head -1)
-				knl_cc_major=$("${CC:-gcc}" -dumpversion 2>/dev/null | cut -d. -f1)
-				if [[ $knl_cc_id != *[Cc]lang* && ${knl_cc_major:-0} =~ ^[0-9]+$ && ${knl_cc_major:-0} -ge 14 ]]; then
-					echo "Error: cannot verify that ${CC:-gcc} avoids AVX512VL for this target (no objdump, or the probe failed to compile), and GCC $knl_cc_major is known to generate it regardless of -march=knl, which Knights Landing/Mill cannot execute. Refusing rather than building a binary that would die on the first one. Use GCC <= 13 or Clang for this build mode, or install binutils so the check can run." >&2
-					exit 1
-				fi
-				echo "Warning: could not verify that ${CC:-gcc} avoids AVX512VL for this target (no objdump, or the probe failed to compile). Proceeding on the strength of -march=knl alone; if the resulting binary dies on a Xeon Phi with an illegal-instruction fault, this is why." >&2
+				echo "Error: could not run the AVX512VL codegen check - ${CC:-gcc} failed to compile the probe translation unit. Refusing rather than guessing; re-run with the compiler in a working state." >&2
+				exit 1
 			fi
 			# ER/PF are a separate axis from -march=knl, not implied by it: Clang 19 and later still accept
 			# -march=knl but have dropped -mavx512er/-mavx512pf and do not define __AVX512ER__. That is safe
@@ -397,8 +384,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			# on __AVX512ER__ - is unreachable: its sole caller sits inside a commented-out test harness. So
 			# a toolchain without ER/PF builds a functionally identical binary. Warn rather than refuse:
 			for knl_flag in -mavx512er -mavx512pf; do
-				# shellcheck disable=SC2310 # a failed probe is an answer, not an error
-				if try_flag "$knl_flag"; then
+					if try_flag "$knl_flag"; then
 					ARGS+=("$knl_flag")
 				else
 					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result still runs on Knights Landing/Mill; the only code this gates is currently unreachable, so the binary is functionally the same." >&2
