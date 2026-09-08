@@ -146,10 +146,16 @@ Options - again note the user can override the default iteration count based on 
 	       medium      756.1s      345.0s       417.6s
 	       large      2225.8s     1068.1s      1233.8s
 
-	   4 threads is 2.1 - 2.6x one thread rather than 4x, and was independently measured at
-	   2.25x on different hardware. Past that it inverts: at medium and large, 16 threads is
-	   slower than 4. Unless you have measured otherwise on your own hardware, 4 threads is a
-	   good default for these tiers.
+	   Read those as self-test costs, not as how well Mlucas itself threads. A self-test runs
+	   every radix set for the length, good and bad, and adds the bookkeeping to pick a winner,
+	   so its wall clock averages over candidates rather than reporting the one you end up
+	   using. Pinned to a single radix set and FFT length, 1 -> 4 cores measures about 3x here,
+	   against a ceiling nearer 3.5x once the all-core clock drop is allowed for.
+
+	   For choosing how to run a self-test, though, the table is the relevant thing: 4 threads
+	   is the sweet spot, and past it the extra iterations cost more than the extra threads
+	   return, so at medium and large 16 threads finishes later than 4. Unless you have
+	   measured otherwise on your own hardware, 4 threads is a good default for these tiers.
 
  -s teensy	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 15 Mersenne exponents,
  -s tt		covering FFT lengths 1K-15K. Useful as a quick post-build smoke test; see the table above
