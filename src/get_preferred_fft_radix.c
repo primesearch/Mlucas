@@ -148,8 +148,8 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 									// we have current radix k = 8, an opening while( isspace(*char_addr++)) increments char_addr to the WS
 									// *following* the 8, and the loop continues, causing us to "lose the current radix",
 									// leading to an eventual ASSERT in the kprod-based looping sanity checks.
-									while( isspace(*char_addr)) char_addr++;	// 1. First skip any WS preceding current numeric token
-									while(!isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
+									while( isspace((unsigned char)*char_addr)) char_addr++;	// 1. First skip any WS preceding current numeric token
+									while(!isspace((unsigned char)*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
 									if(j == 0)
 										ASSERT(k <= 1024, "get_preferred_fft_radix: Leading radix > 1024: out of range!");
 									else if(k) {

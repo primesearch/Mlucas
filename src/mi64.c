@@ -8313,7 +8313,7 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 	imax = strlen(char_buf);
 	for(i = 0; i < imax; i++) {
 		c = char_buf[i];
-		if(!isspace(c)) {
+		if(!isspace((unsigned char)c)) {
 			break;
 		}
 	}
@@ -8329,7 +8329,7 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 	imin = i;
 	for(i = imin; i < imax; i++) {
 		c = char_buf[i];
-		if(!isdigit(c)) {
+		if(!isdigit((unsigned char)c)) {
 			free((void *)mi64_vec);	*len = 0;	return 0x0;
 		}
 		curr_digit = (uint64)(c - CHAROFFSET);

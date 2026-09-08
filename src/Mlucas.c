@@ -569,12 +569,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		fprintf(stderr," %s entry: %s\n",WORKFILE,g_in_line);
 		/* Skip any whitespace at beginning of the line: */
 		char_addr = g_in_line;
-		while(isspace(*char_addr)) {
+		while(isspace((unsigned char)*char_addr)) {
 			++char_addr;
 		}
 		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic; print "Ignoring (copy of workfile line)" for all entries not so.
 		// NB: Discontinue support for numeric leading char, i.e. Mersenne-exponent-only legacy format:
-		if(!isalpha(*char_addr)) {
+		if(!isalpha((unsigned char)*char_addr)) {
 			fprintf(stderr," Leading non-WS char of %s entry is not alphabetic ... skipping to next entry.\n",WORKFILE);
 			goto read_next_assignment;
 		}
@@ -674,7 +674,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
 				cptr = strstr(g_in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
-				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
+				cptr++;	while(isspace((unsigned char)*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
 				if(is_hex_string(cptr, 32)) {
 					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 				} else
@@ -832,7 +832,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ASSERT((char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
 			char_addr++;
 			/* Skip any whitespace following the equals sign:*/
-			while(isspace(*char_addr)) { ++char_addr; }
+			while(isspace((unsigned char)*char_addr)) { ++char_addr; }
 			/* Check for a 32-hex-digit PrimeNet v5 assignment ID preceding the exponent: */
 			if(is_hex_string(char_addr, 32))
 				char_addr += 33;
@@ -987,7 +987,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 						ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 						// Format the p-1 assignment into cbuf:
 						char_addr = strstr(g_in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
-						char_addr++;	while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+						char_addr++;	while(isspace((unsigned char)*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
 						if(is_hex_string(char_addr, 32)) {
 							strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 						} else
@@ -2862,9 +2862,9 @@ GET_NEXT_ASSIGNMENT:
 		}
 		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic;
 		char_addr = g_in_line;	j = 0;
-		while(isspace(g_in_line[j])) { ++j; }
+		while(isspace((unsigned char)g_in_line[j])) { ++j; }
 		char_addr += j;
-		if(!isalpha(g_in_line[j]))
+		if(!isalpha((unsigned char)g_in_line[j]))
 			goto GET_NEXT;
 
 		// Look for m in first eligible assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
@@ -4338,7 +4338,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		{
 			if(nargs < argc) {
 				snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
-				if(isdigit(stFlag[0])) {
+				if(isdigit((unsigned char)stFlag[0])) {
 					PRP_BASE = atoll(stFlag);
 					if(PRP_BASE+1 == 0) {
 						snprintf(cbuf,sizeof(cbuf), "*** ERROR: Numeric arg to -prp flag, '%s', overflows uint32 field.\n", stFlag);
@@ -4940,7 +4940,7 @@ uint64	parse_cmd_args_get_shift_value(void)
 			/* Convert the shift argument to a uint64: */
 			i64arg = 0;
 			for(i = 0; i < sizeof(stFlag) && stFlag[i] != '\0'; i++) {
-				if(isdigit(stFlag[i])) {
+				if(isdigit((unsigned char)stFlag[i])) {
 					i64arg = 10*i64arg + (stFlag[i]-CHAROFFSET);
 					/* Check for overflow: */
 					if(i64arg % (uint64)10 != (uint64)(stFlag[i]-CHAROFFSET))
@@ -6131,7 +6131,7 @@ int	is_hex_string(const char *s, int len)
 	ASSERT(s != 0x0, "Null ptr to is_hex_string()");
 	for(i = 0; i < len; ++i)
 	{
-		if( !isxdigit(s[i]) )
+		if( !isxdigit((unsigned char)s[i]) )
 			return FALSE;
 	}
 	return TRUE;
@@ -6168,7 +6168,7 @@ char *check_kbnc(char *in_str, uint64 *p) {
 			fprintf(stderr,"Expected '=' not found in assignment-specifying line!"); break;
 		}
 		char_addr++;
-		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+		while(isspace((unsigned char)*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
 		if(is_hex_string(char_addr, 32)) {
 			cptr = char_addr + 32;
 			if((char_addr = strstr(cptr, ",")) == 0x0) {
@@ -6264,11 +6264,11 @@ void generate_JSON_report(
 	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
 	char_addr = 0x0;
 	while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
-		char_addr = g_in_line; while(isspace(*char_addr)) { ++char_addr; }
-		if(isalpha(*char_addr)) break;
+		char_addr = g_in_line; while(isspace((unsigned char)*char_addr)) { ++char_addr; }
+		if(isalpha((unsigned char)*char_addr)) break;
 	}
 	fclose(fp); fp = 0x0;
-	ASSERT(strlen(char_addr) != 0 && isalpha(*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
+	ASSERT(strlen(char_addr) != 0 && isalpha((unsigned char)*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
 	if(!strstr(g_in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP)) ) {
 		snprintf(cbuf,sizeof(cbuf), "ERROR: Current exponent %s not found in %s file!\n",ESTRING,WORKFILE);
 		ASSERT(0,cbuf);
@@ -6277,7 +6277,7 @@ void generate_JSON_report(
 	char_addr = strstr(g_in_line, "=");
 	if(char_addr) {
 		char_addr++;
-		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+		while(isspace((unsigned char)*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
 		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
 			strncpy(aid,char_addr,32);
 	}
