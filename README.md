@@ -225,10 +225,10 @@ The recommended way to fetch and manage GIMPS assignments is [AutoPrimeNet](http
 The [PrimeNet manual testing pages](https://www.mersenne.org/) are deprecated in favor of AutoPrimeNet above, but still work if you'd rather manage assignments yourself: create a PrimeNet account, check out exponents from the [Manual Test Assignments](https://www.mersenne.org/manual_assignment/) page, then paste the returned assignment lines directly into `worktodo.txt` (one directory per Mlucas instance; **note that Mlucas v21's workfile is named `worktodo.txt`, not the old `worktodo.ini`** — rename any pre-v21 workfile before starting a v21 build). Mlucas supports these assignment line formats:
 
 ```
-Test={aid},{exponent},{TF bits},{P-1 done? 0|1}                                   # LL, first-time or double-check
-DoubleCheck={aid},{exponent},{TF bits},{P-1 done? 0|1}
-PRP={aid},1,2,{exponent},-1,{TF bits},{tests saved if factor found}                # PRP, first-time
-PRP={aid},1,2,{exponent},-1,{TF bits},{tests saved if factor found},{base},{residue type}  # PRP double-check
+Test=[aid,]{exponent},{TF bits},{P-1 done? 0|1}                                   # LL, first-time or double-check
+DoubleCheck=[aid,]{exponent},{TF bits},{P-1 done? 0|1}
+PRP=[aid,]1,2,{exponent},-1,{TF bits},{tests saved if factor found}                # PRP, first-time
+PRP=[aid,]1,2,{exponent},-1,{TF bits},{tests saved if factor found},{base},{residue type}  # PRP double-check
 Pminus1=[aid,]1,2,{exponent},-1,{B1},{B2}[,{TF bits}][,{B2 start}][,"{known factors}"]
 Pfactor=[aid,]1,2,{exponent},-1,{TF bits},{LL/PRP tests saved if factor found}
 ```
