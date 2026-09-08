@@ -1,1 +1,21 @@
 obj*/
+*.o
+
+# Files Mlucas and Mfactor write at run time, in whatever directory they are
+# started from - which is not necessarily one of the obj*/ build dirs.
+mlucas.cfg
+fermat.cfg
+results.txt
+worktodo.txt
+WINI.TMP
+*.stat
+
+# Savefiles: p<exponent> and its q<exponent> twin (Mersenne), f<exponent>
+# (Fermat), t<exponent> (Mfactor), plus the .G, .s1, .s2 and .<n>M variants.
+# The exponent is always a decimal string, so anchoring on a trailing digit
+# keeps these from swallowing sources such as src/f2psp.h.
+[fpqt][0-9]
+[fpqt][0-9]*[0-9]
+[fpqt][0-9]*[0-9].G
+[fpqt][0-9]*[0-9].s[12]
+[fpqt][0-9]*[0-9].[0-9]*M
