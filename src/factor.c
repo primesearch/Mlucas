@@ -3391,17 +3391,27 @@ MFACTOR_HELP:
 							/* Make sure that q == 1 (mod 2p) and that q is a base-2 PRP: */
 							mi64_clear(u64_arr, lenQ);	// Use q2 for quotient [i.e. factor-candidate k] and u64_arr for remainder
 							mi64_div(q,two_p,lenQ,lenQ,q2,u64_arr);
+							/* The %s operands below render into cbuf2, never into cbuf: cbuf is snprintf's own
+							destination, and handing snprintf a source string that lives inside its destination
+							is a restrict violation - gcc says so, "'snprintf' argument 7 may overlap
+							destination object 'cbuf'".
+							That puts both renderings of the second message in cbuf2, so they need somewhere
+							separate to sit or the later one would overwrite the earlier before snprintf reads
+							it. cbuf2 is STR_MAX_LEN*2, and convert_mi64_base10_char() calls through with
+							n_alloc_chars = STR_MAX_LEN, enforced by ASSERT(MAX_DIGITS < n_alloc_chars) - so a
+							rendering touches at most STR_MAX_LEN chars and cbuf2 holds exactly two of them: */
+							char *const qstr = cbuf2, *const rstr = cbuf2 + STR_MAX_LEN;
 							if(mi64_getlen(q2, lenQ) != 1) {
 								snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: k must be 64-bit!\n",
-									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
+									(uint32)(count >> CMASKBITS),CMASKBITS,k,&qstr[convert_mi64_base10_char(qstr, q, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
 								ASSERT(0, cbuf);
 							}
 							if(!mi64_cmp_eq_scalar(u64_arr, 1ull, lenQ))
 							{
 								snprintf(cbuf, sizeof(cbuf), "ERROR: Count = %u * 2^%u: k = %" PRIu64 ", Current q = %s: q mod (2p) = %s != 1!\n",
-									(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)],
-									&cbuf2[convert_mi64_base10_char(cbuf2, u64_arr, lenQ, 0)]);
+									(uint32)(count >> CMASKBITS),CMASKBITS,k,&qstr[convert_mi64_base10_char(qstr, q, lenQ, 0)],
+									&rstr[__convert_mi64_base10_char(rstr, STR_MAX_LEN, u64_arr, lenQ, 0)]);
 								fprintf(fp,"%s", cbuf);
 								ASSERT(0, cbuf);
 							}
