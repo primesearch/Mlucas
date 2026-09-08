@@ -38,6 +38,9 @@ TARGET=$Mlucas
 ARGS=(-DUSE_THREADS) # Optional compile args
 WORDS=''
 C_ARGS=()
+# Mfactor's factor.c gets an explicit TRYQ. This is the value for a build with no word size
+# named on the command line; a word-size build picks its own in the block below.
+TRYQ_ARG=-DTRYQ=4
 # Optional link args
 LD_ARGS=()
 # Optional Make args
@@ -275,6 +278,19 @@ if [[ -n $WORDS ]]; then
 		else
 			WORDS=-DP"${arg::1}"WORD
 		fi
+		# TRYQ is how many candidate factors the modpow step handles per call, and factor.c only has
+		# batch-dispatch arms for the word sizes that have batch modpow routines. NWORD and P4WORD
+		# have none: their modpows (mi64_twopmodq, twopmodq256) are scalar-only, so those two builds
+		# want TRYQ = 1, which is both factor.h's own default for them and what the P4WORD recipes in
+		# docs/Mfactor_buildnotes.txt use. Leave TRYQ unset for them rather than overriding it here;
+		# factor.c now rejects the unsupported combinations outright instead of quietly compiling its
+		# single-word arm.
+		# Set this per word size rather than by exception, so a word size that later grows a batch
+		# modpow - or wants some other width - names its own value here instead of inheriting one:
+		case ${arg} in
+			4word | nword) TRYQ_ARG= ;;
+			*) TRYQ_ARG=-DTRYQ=4 ;;
+		esac
 		Mfactor+="_$arg"
 		TARGET=$Mfactor
 		# The word-size macro is a property of the whole build, not just factor.c: factor.h keys
@@ -535,7 +551,7 @@ $Mlucas: \${OBJS}
 $Mfactor: \${OBJS_MFAC}
 	\${CC} \${LDFLAGS} \${CFLAGS} -o $Mfactor \${OBJS_MFAC} \${LDLIBS}
 factor.o: ../src/factor.c
-	\${CC} \${CFLAGS} \${CPPFLAGS} -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS -DTRYQ=4 -o factor.o ../src/factor.c
+	\${CC} \${CFLAGS} \${CPPFLAGS} -c ${ARGS[@]} -DFACTOR_STANDALONE $WORDS $TRYQ_ARG -o factor.o ../src/factor.c
 .c.o:
 	\${CC} \${CFLAGS} \${CPPFLAGS} -c ${ARGS[@]} ${WORDS:+$WORDS -DFACTOR_STANDALONE} -o \$@ \$<
 clean:
