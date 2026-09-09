@@ -1,22 +1,60 @@
+
+==========================
+***Debug code for testing 3-limb factor:***
+k = 1289179925;
+q[lenP] = mi64_mul_scalar( p, 2*k, q, lenP);
+q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
+ASSERT(HERE, mi64_pprimeF(q, 3ull, lenQ). "bzzt!");
+ASSERT(HERE, mi64_twopmodq(p, lenP, 2*k, q, lenQ, q2) == 1, "bzzt2!");
+ASSERT(HERE, 0ull == mi64_mul_scalar(two_p,k,(uint64*)&q192,lenQ), "2.k.p overflows!");
+q192.d0 += 1;	// No need to check for carry since 2.k.p even
+p192.d0 = p[0]; p192.d1 = p[1]; p192.d2 = p[2];
+t192 = twopmodq192(p192,q192);
+res = CMPEQ192(t192, ONE192);
+==========================
+
 Nov 2021: PM with tdulcet's makemake.sh-script changes needed to allow Mfactor builds:
 
 https://www.mersenneforum.org/private.php?do=showpm&pmid=173425
 
+Hi, Teal:
+
+Been thinking about the best way to add Mfactor support to the current build script, here my thinking:
+
+1. Treat "build Mfactor" much as we currently do a specified architecture: 'bash makemake.sh mfac" would create an obj_mfac directory ex to /src and build Mfactor in it. It would also be nice to support an optional number-of-limbs flag, e.g. '2word', which would only be allowed fo Mfactor builds, not Mlucas ones.
+
+2. Build only the minimal fileset, which for Mfactor is (relative to obj_mfac):
+
+	../src/factor.c.txt ../src/getRealTime.c ../src/get_fft_radices.c ../src/get_cpuid.c ../src/get_fp_rnd_const.c ../src/imul_macro.c ../src/mi64.c ../src/qfloat.c ../src/rng_isaac.c ../src/two*c ../src/types.c ../src/threadpool.c ../src/util.c
+
+All sources can be built using the same preprocessor flags, '-DUSE_THREADS -DFACTOR_STANDALONE -DP[n]WORD', where DFACTOR_STANDALONE is ignored by all input files other than factor.c. Here the link step for default "single-limb-plus factors" build mode, meaning up to 96 bits:
+
+	gcc -o Mfactor *o -lm -lpthread -lrt
+
+For 2-limb it would be good to link to 'Mfactor_2word', and so forth.
+
+I've appended my current working copy of the build script - you'll note the added-arg support, that is to allow control over whether GMP and HWLOC are used in the build. The above Mfactor stuff needs to be worked in.
+
 =============================
 
-Aug 2020: Updated ||-int64-build notes:
+Aug 2022: Updated ||-int64-build notes:
+[Note: -DTF_CLASSES=4620 main3y useful on manycore systems, when want to split work among > 16 cores]
+Other flags to try: -DTRYQ=[n] -DP[n]WORD
 
-clang -c -Os get*c
-clang -c -Os imul_macro.c mi64.c qfloat.c rng_isaac.c two*c types.c
-clang -c -Os -DUSE_THREADS twopmodq96.c
-clang -c -Os -DUSE_THREADS -DFACTOR_STANDALONE -DTRYQ=4 -DTF_CLASSES=4620 -DP2WORD factor.c
-clang -c -Os -DUSE_THREADS threadpool.c util.c
-clang -o Mfactor-base-2w-tfc-mt *o -lm -lpthread
-./Mfactor-base-2w-tfc-mt -m 2147483647 -bmin 67 -bmax 68 -nthread 16
+clang -c -Os -DINCLUDE_GMP=0 -DUSE_THREADS -DFACTOR_STANDALONE ../src/factor.c ../src/getRealTime.c ../src/get_fft_radices.c ../src/get_cpuid.c ../src/get_fp_rnd_const.c ../src/imul_macro.c ../src/mi64.c ../src/qfloat.c ../src/rng_isaac.c ../src/two*c ../src/types.c ../src/threadpool.c ../src/util.c
+clang -o Mfactor *o -lm -lpthread -lrt
+./Mfactor -m 2147483647 -bmin 67 -bmax 68 -nthread 2
+
+2-Limb:
+clang -c -Os -DINCLUDE_GMP=0 -DUSE_THREADS -DFACTOR_STANDALONE -DP2WORD ../src/factor.c
+clang -o Mfactor_2word *o -lm -lpthread -lrt
+./Mfactor -m 2147483647 -bmin 67 -bmax 68 -nthread 2
 
 Here is the minimal-fileset needed for the build:
 M*h align.h carry*.h dft_macro.h f2psp*h fac*h float_intrin.h imul*h masterdefs.h mi64.h platform.h prefetch.h qfloat.h rng_isaac.h threadpool.h two*h types.h util.h
-factor.c getRealTime.c get_cpuid.c get_fft_radices.c get_fp_rnd_const.c imul_macro.c mi64.c qfloat.c rng_isaac.c threadpool.c two*c types.c util.c
+factor.c
+getRealTime.c get_cpuid.c get_fft_radices.c get_fp_rnd_const.c
+imul_macro.c mi64.c qfloat.c rng_isaac.c threadpool.c two*c types.c util.c
 
 
 
@@ -24,32 +62,32 @@ Oct 2018: On x86_64 (Core2Duo):
 
 cd ~/mlucas/src/obj_mfac
 INT64:
-clang -c -Os ../get*c && rm get_preferred_fft_radix.o
-clang -c -Os ../imul_macro.c ../mi64.c ../qfloat.c ../rng_isaac.c ../two*c ../types.c ../util.c
-clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c
+clang -c -Os ../src/get*c && rm get_preferred_fft_radix.o
+clang -c -Os ../src/imul_macro.c ../src/mi64.c ../src/qfloat.c ../src/rng_isaac.c ../src/two*c ../src/types.c ../src/util.c
+clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 ../src/factor.c
 clang -o Mfactor *o -lm
 MULTITHREAD:
-clang -c -Os -DUSE_THREADS -DFACTOR_STANDALONE -DTRYQ=4 ../factor.c
-clang -c -Os -DUSE_THREADS ../threadpool.c ../util.c
+clang -c -Os -DUSE_THREADS -DFACTOR_STANDALONE -DTRYQ=4 ../src/factor.c
+clang -c -Os -DUSE_THREADS ../src/threadpool.c ../src/util.c
 
 SSE2:
-clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 -DUSE_FLOAT -DUSE_SSE2 ../factor.c ../twopmodq80.c
+clang -c -Os -DFACTOR_STANDALONE -DTRYQ=4 -DUSE_FLOAT -DUSE_SSE2 ../src/factor.c ../src/twopmodq80.c
 
 *** Haswell: ***
-gcc -c -Os ../src/get*c && rm get_preferred_fft_radix.o
-gcc -c -Os ../src/imul_macro.c ../src/mi64.c ../src/qfloat.c ../src/rng_isaac.c ../src/two*c ../src/types.c ../src/util.c
-gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=4 ../src/factor.c
+gcc -c -Os ../src/src/get*c && rm get_preferred_fft_radix.o
+gcc -c -Os ../src/src/imul_macro.c ../src/src/mi64.c ../src/src/qfloat.c ../src/src/rng_isaac.c ../src/src/two*c ../src/src/types.c ../src/src/util.c
+gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=4 ../src/src/factor.c
 gcc -o Mfactor *o -lm -lrt
 
 AVX:
-gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=8 -DUSE_FLOAT -DUSE_AVX ../src/factor.c ../src/twopmodq80.c && gcc -o Mfactor *o -lm -lrt && time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
+gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=8 -DUSE_FLOAT -DUSE_AVX ../src/src/factor.c ../src/src/twopmodq80.c && gcc -o Mfactor *o -lm -lrt && time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
 TRYQ=4, Int64: 44 sec
 TRYQ=8:  58 sec
 TRYQ=16: 48 sec
 
 AVX2 - build of factor.c needs AVX-only, not AVX2:
-gcc -c -Os -DUSE_AVX2 ../src/twopmodq80.c
-gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=8 -DUSE_FLOAT -DUSE_AVX ../src/factor.c && gcc -o Mfactor *o -lm -lrt && time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
+gcc -c -Os -DUSE_AVX2 ../src/src/twopmodq80.c
+gcc -c -Os -DFACTOR_STANDALONE -DTRYQ=8 -DUSE_FLOAT -DUSE_AVX ../src/src/factor.c && gcc -o Mfactor *o -lm -lrt && time ./Mfactor -m 2147483647 -bmax 68 -passmin 15
 TRYQ=8:  58 sec [For 8-way modexp there is no specialized avx2-code, i.e. we get same as avx build]
 TRYQ=16: 36 sec
 
