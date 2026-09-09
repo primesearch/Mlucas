@@ -6602,14 +6602,21 @@ uint32 extract_known_factors(uint64 p, char *fac_start) {
 	// Multiply each known-factor with current partial product of factors.
 	// Use BASE_MULTIPLIER_BITS to store factor product here, but need curr_fac[] for intermediate partial products:
 	BASE_MULTIPLIER_BITS[0] = 1ull;	lenf = 1;
-	uint64 curr_fac[20];
-	for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
+	// Same three defects as the factor-product loop in Suyama_CF_PRP(), in the same shape - see the comments
+	// there. KNOWN_FACTORS[] holds up to 10 factors of up to 4 limbs each, so their product needs up to 40
+	// limbs, not 20; the loop needs an explicit i-bound because KNOWN_FACTORS[] has exactly that many elts
+	// and so carries no 0-sentinel past the last one; and the size check has to precede the write it guards:
+	const uint32 nlimb_kf = sizeof(KNOWN_FACTORS)/sizeof(KNOWN_FACTORS[0]);	// = 40
+	uint64 curr_fac[sizeof(KNOWN_FACTORS)/sizeof(KNOWN_FACTORS[0])];
+	for(i = 0; i < nlimb_kf && KNOWN_FACTORS[i] != 0ull; i += 4) {
 		k = mi64_getlen(KNOWN_FACTORS+i,4);	// k = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
+		// mi64_mul_vector writes (lenf + k) limbs of curr_fac[], so bounds-check the write *before* it happens:
+		ASSERT(lenf+k <= nlimb_kf, "Product of factors too large to fit into curr_fac[]!");
 		// Multiply factor into current partial product of factors; use curr_fac[] array to store product to work around none-of-3-input-pointers-may-coincide restriction in mi64_mul_vector:
 		mi64_mul_vector(BASE_MULTIPLIER_BITS,lenf, KNOWN_FACTORS+i,k, curr_fac,&lenf);
 		mi64_set_eq(BASE_MULTIPLIER_BITS,curr_fac,lenf);
 	}
-	ASSERT(lenf <= 20, "Product of factors too large to fit into curr_fac[]!");
+	ASSERT(lenf <= nlimb_kf, "Product of factors too large to fit into curr_fac[]!");
 
 	// Since F << N, use Mont-mul-div for C - quotient overwrites N, no rem-vec needed, just verify that F is in fact a divisor:
 	ASSERT(1 == mi64_div(mvec,BASE_MULTIPLIER_BITS, j,lenf, qvec,0x0), "C = N/F should have 0 remainder!");
