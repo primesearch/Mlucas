@@ -314,9 +314,10 @@ jobs:
   ASan-Linux:
     name: AddressSanitizer Linux
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -335,23 +336,55 @@ jobs:
     - name: Script
       run: |
         set -x
-        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
-        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
-        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
+        # On x86, build NOSIMD under the sanitizer (see PR #71 discussion): on macOS the SIMD asm
+        # fails to assemble under -Og ("invalid CFI advance_loc expression"), and NOSIMD exercises
+        # the same C-level logic. #221 picks the x86 SIMD coverage back up separately (AVX2
+        # natively, AVX-512 under SDE).
+        #
+        # aarch64/Linux has no such assembler problem, so there the native (ASIMD) build is the one
+        # to instrument - it is the only place in CI where hand-tuned SIMD asm gets built under a
+        # sanitizer at all. Issue #12, a SEGV in radix48_dit_pass1 during 'Mlucas -s m', was
+        # reported by ASan on an ARM runner, and with every sanitizer job pinned to NOSIMD there is
+        # currently nothing left that could find its like.
+        if [[ $HOSTTYPE == aarch64 ]]; then MODE=; else MODE=nosimd; fi
+        bash -e -o pipefail -- makemake.sh use_hwloc $MODE
+        (cd obj${MODE:+_$MODE}; make clean)
+        # config-fermat.sh runs from the NOSIMD build on aarch64, as in the Linux job above, so
+        # that build is needed there in addition to the ASIMD one:
+        if [[ -z $MODE ]]; then
+            bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+            (cd obj_nosimd; make clean)
+        fi
         for word in '' 1word 2word 3word 4word nword; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj_nosimd
+        cd obj${MODE:+_$MODE}
+        # Guard against the ARM cell silently degrading into a second copy of the x86 one if
+        # auto-detection ever changes: makemake.sh announces the selected mode on stdout but does
+        # not record it in build.log, so ask the binary itself what it was built as.
+        if [[ -z $MODE ]]; then
+            ./Mlucas -s tt -cpu 0 > mode.log 2>&1
+            grep -q 'Build uses ARMv8 advanced-SIMD' mode.log || {
+                echo '::error::ARM cell is not an ASIMD build - it would be testing nothing'; exit 1; }
+        fi
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs
+        # ("No TF support on ARMv8!" in twopmodq80.c, under #ifdef USE_ARM_V8_SIMD), so
+        # config-fermat.sh and the Mfactor self-tests run from the NOSIMD builds - the same
+        # substitution the Linux and Singlethread-Linux jobs make.
+        cd ../obj_nosimd
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_mlucas
+        path: ${{ github.workspace }}
 
   TSan-Linux:
     name: ThreadSanitizer Linux
