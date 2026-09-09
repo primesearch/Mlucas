@@ -1458,7 +1458,6 @@ void host_init(void)
 	uint32 imax = 100000;
 	fprintf(stderr,"INFO: Testing 64-bit 2^p (mod q) functions with %u random (p, q odd) pairs...\n",imax);
 	ASSERT(test_twopmodq64(imax) == 0, "test_twopmodq64() returns nonzero!");
-	ASSERT(test_is_prime() == 0, "test_is_prime() returns nonzero!");
 #ifdef TEST_MI64_PRP
 	const uint32 max_test_dim = 1024;
 	uint32 i,ihi = 1000,j,jhi;
@@ -3969,7 +3968,8 @@ DEV uint32 is_prime(uint32 n) {
 
 /* v21: Self-test for is_prime()/next_prime(): the twelve base-2 pseudoprimes < 20000 with a factor of 3 or 5
 (which the f2psp[] table deliberately omits), the prime count pi(20000) = 2262, and next_prime() stepping over
-561 in both directions. Returns 0 on success, else the number of failures: */
+561 in both directions. Returns 0 on success, else the number of failures. Called from the -s self-test rather
+than from host_init(), so production runs pay nothing for it: */
 uint32 test_is_prime(void) {
 	const uint32 psp35[12] = {561,645,1105,1905,2465,4371,8481,10585,11305,12801,16705,18705};
 	const uint32 small_primes[8] = {2,3,5,7,11,13,17,19};

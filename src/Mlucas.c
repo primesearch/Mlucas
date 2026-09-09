@@ -4554,6 +4554,8 @@ TIMING_TEST_LOOP:
 
 	if(selfTest) {
 		fprintf(stderr, "\n           Mlucas selftest running.....\n\n");
+		// v21: is_prime()/next_prime() self-test - see util.c. Costs ~1 ms, and only self-test runs pay it:
+		ASSERT(test_is_prime() == 0, "test_is_prime() returns nonzero!");
 		/* We have precomputed 100, 1000 and 10000-iteration residues for the predefined self-test exponents: */
 		if( userSetExponent && (modType == MODULUS_TYPE_MERSENNE) ) {
 			fprintf(stderr, "\n********** Non-default exponent - you will need to manually verify that the residue **********");
