@@ -58,8 +58,11 @@ uint32 SYSTEM_RAM = 0;	// Total usable main memory size in MB, and max. % of tha
 
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 int REINIT_LOCAL_DATA_TABLES = 0;
-// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
-int MLUCAS_KEEP_RUNNING = 1;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action.
+// volatile sig_atomic_t: written by the async signal handler, polled by the main control loop (see Mdata.h note).
+volatile sig_atomic_t MLUCAS_KEEP_RUNNING = 1;
+// Signal number of a received graceful-quit signal, so the main thread can report it safely (0 = none):
+volatile sig_atomic_t MLUCAS_INTERRUPT_SIGNO = 0;
 // v18: Enable savefile-on-interrupt-signal, access to argc/argv outside main():
 char **global_argv;
 
@@ -225,27 +228,46 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 /****** END(Allocate storage for Globals (externs)). ******/
 
 #ifndef NO_USE_SIGNALS
+	/*
+	Async-signal-safe graceful-quit handler.
+
+	The Dec-2021 "long-running jobs refuse to quit" instability, which is why savefile-on-interrupt
+	was disabled, came from the old handler calling fprintf/sprintf and exit() - none of them
+	async-signal-safe (signal-safety(7)). Delivered to an FFT worker already holding the malloc or
+	stdio lock, it deadlocked; which thread got the signal is nondeterministic, hence the
+	intermittency. It also raced the main thread for the shared cbuf.
+
+	So this handler now only stores two volatile sig_atomic_t flags - the sole data a handler may
+	safely touch - and everything else (messaging, the savefile write) is deferred to the main
+	control loop, which polls MLUCAS_KEEP_RUNNING between mod-squarings. Nothing here can take a
+	lock, so it is safe on whichever thread the kernel picks.
+	*/
 	void sig_handler(int signo)
 	{
-		if (signo == SIGINT) {
-			fprintf(stderr,"received SIGINT signal.\n");	sprintf(cbuf,"received SIGINT signal.\n");
-		} else if(signo == SIGTERM) {
-			fprintf(stderr,"received SIGTERM signal.\n");	sprintf(cbuf,"received SIGTERM signal.\n");
+		MLUCAS_INTERRUPT_SIGNO = signo;	// Record which signal, for the main thread to report safely later
+		MLUCAS_KEEP_RUNNING = 0;		// The main control loop polls this between iterations and quits gracefully
+	}
+
+	/*
+	Install sig_handler for the graceful-quit signals. Called from the mod-squaring functions; the
+	static guard makes it a no-op after the first call. plain signal() rather than sigaction()
+	because a handler that only does two volatile stores gains nothing from sa_mask or SA_RESTART,
+	and using one call everywhere leaves the four signals Windows lacks as the only #ifdef here.
+	*/
+	void mlucas_install_signal_handlers(void)
+	{
+		static int installed = 0;
+		if(installed) return;
+		installed = 1;
+
+		if(signal(SIGINT , sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGINT.\n");
+		if(signal(SIGTERM, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGTERM.\n");
 	#ifndef __MINGW32__
-		} else if(signo == SIGHUP) {
-			fprintf(stderr,"received SIGHUP signal.\n");	sprintf(cbuf,"received SIGHUP signal.\n");
-		} else if(signo == SIGALRM) {
-			fprintf(stderr,"received SIGALRM signal.\n");	sprintf(cbuf,"received SIGALRM signal.\n");
-		} else if(signo == SIGUSR1) {
-			fprintf(stderr,"received SIGUSR1 signal.\n");	sprintf(cbuf,"received SIGUSR1 signal.\n");
-		} else if(signo == SIGUSR2) {
-			fprintf(stderr,"received SIGUSR2 signal.\n");	sprintf(cbuf,"received SIGUSR2 signal.\n");
+		if(signal(SIGHUP , sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGHUP.\n");
+		if(signal(SIGALRM, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGALRM.\n");
+		if(signal(SIGUSR1, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGUSR1.\n");
+		if(signal(SIGUSR2, sig_handler) == SIG_ERR) fprintf(stderr,"Can't catch SIGUSR2.\n");
 	#endif
-		}
-	// Dec 2021: Until resolve run-to-run inconsistencies in signal handling, kill it with fire:
-	exit(1);
-		// Toggle a global to allow desired code sections to detect signal-received and take appropriate action:
-		MLUCAS_KEEP_RUNNING = 0;
 	}
 #endif
 
@@ -1883,8 +1905,20 @@ READ_RESTART_FILE:
 					/* If interrupt *and* we're past the first subinterval, need to undo initial-fwd-FFT-pass and DWT-weighting on b[],
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
-					if(ierr == ERR_INTERRUPT && !first_sub)
-						ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+					// This b[]-undo is only to make b[] savefile-consistent for the ensuing interrupt
+					// checkpoint-write. Its return must NOT land in ierr, which has to stay ERR_INTERRUPT so
+					// the downstream savefile-write-and-exit handling fires (else the interrupt is lost and
+					// the PRP test spins to maxiter and aborts in the post-test residue step) - but it is
+					// still worth reporting, since a failure here means the Gerbicz checkproduct written to
+					// the savefile is not the one the residue expects, and the mismatch would only surface
+					// as a spurious G-check failure after the next resume:
+					if(ierr == ERR_INTERRUPT && !first_sub) {
+						int ierr_undo = func_mod_square(b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
+						if(ierr_undo) {
+							snprintf(cbuf,sizeof(cbuf),"WARNING: b[]-undo prior to the interrupt checkpoint returned error code[%u] = %s. The Gerbicz checkproduct in the savefile may be inconsistent with the residue; if the next resume reports a Gerbicz-check failure, restart from an earlier savefile.\n",ierr_undo,returnMlucasErrCode(ierr_undo));
+							mlucas_fprint(cbuf,1);
+						}
+					}
 					break;
 				}
 				/* At end of each subinterval, do a single modmul of current residue a[] with Gerbicz-checkproduct to update the latter:
@@ -2070,15 +2104,30 @@ READ_RESTART_FILE:
 		if(INTERACT && (ierr == ERR_INTERRUPT))
 			exit(0);
 
-		// In non-interactive (production-run) mode, write savefiles and exit gracefully on signal:
+		// In non-interactive (production-run) mode, write a consistent savefile and exit gracefully on signal.
+		// This block runs on the main thread at a safe point: the inner mod-squaring loop exited cleanly
+		// *between* squarings (it polls MLUCAS_KEEP_RUNNING every iteration), so the residue just converted
+		// into arrtmp[] above is the exact last-completed-iteration residue - nothing is torn or in-flight.
+		// We do NOT exit here: we fall through to the normal checkpoint-write code below (which then does
+		// 'if(ierr == ERR_INTERRUPT) exit(0);' after the savefile has been safely written and fclosed).
 		if(ierr == ERR_INTERRUPT) {
-			// First print the signal-handler-generated message:
+			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here; savefile is written for this iter
+			// Report the signal safely here on the main thread (the async handler only recorded the number):
+			const char *signame;
+			switch(MLUCAS_INTERRUPT_SIGNO) {
+				case SIGINT:  signame = "SIGINT";  break;
+				case SIGTERM: signame = "SIGTERM"; break;
+			#ifndef __MINGW32__
+				case SIGHUP:  signame = "SIGHUP";  break;
+				case SIGALRM: signame = "SIGALRM"; break;
+				case SIGUSR1: signame = "SIGUSR1"; break;
+				case SIGUSR2: signame = "SIGUSR2"; break;
+			#endif
+				default:      signame = "unknown"; break;
+			}
+			snprintf(cbuf,sizeof(cbuf),"Received %s signal: writing savefile at Iter = %u and exiting.\n",signame,ihi);
 			mlucas_fprint(cbuf,1);
-			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here
-		/*** Nov 2021: interrupt-handling still not stable ... runs that have been underway for a day or more refuse to quit. Just clean-exit w/o savefile write for now: ***/
-		//	sprintf(cbuf,"Iter = %u: Writing savefiles and exiting.\n",ihi);
-			sprintf(cbuf,"Exiting at Iter = %u.\n",ihi); mlucas_fprint(cbuf,1);
-			exit(1);
+			// Fall through to the checkpoint-write path below.
 		}
 
 		/*...Done?	*/
@@ -2718,7 +2767,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// types via bit tests, not equality or (as used pre-bitmask, to work around distinct hits of the
 				// same error type within one batch summing to an integer multiple of it) modulo tests:
 				if(ierr == ERR_INTERRUPT) {
-					// First print the signal-handler-generated message:
+					// p-1 stage 2 does its own interior checkpointing (see pm1.c); on interrupt we resume
+					// from the last stage-2 checkpoint, so just report and exit. The async handler only
+					// recorded the signal number, so build the message here on the main thread:
+					snprintf(cbuf,sizeof(cbuf),"Received quit signal (%d) in p-1 stage 2: exiting; will resume from last stage-2 checkpoint.\n",(int)MLUCAS_INTERRUPT_SIGNO);
 					mlucas_fprint(cbuf,1);
 					exit(1);
 				} else if(ierr & (1<<ERR_ROUNDOFF)) {	// One or more modmuls hit a roundoff error - bump FFT length and restart

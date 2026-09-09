@@ -70,8 +70,13 @@ extern uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max
 
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 extern int REINIT_LOCAL_DATA_TABLES;
-// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
-extern int MLUCAS_KEEP_RUNNING;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action.
+// Must be volatile sig_atomic_t: it is written from the async signal handler and polled by the main control loop;
+// this is the only type the C standard guarantees can be safely shared with a signal handler (see signal-safety(7)).
+extern volatile sig_atomic_t MLUCAS_KEEP_RUNNING;
+// Records the signal number that requested the graceful quit, so the main thread (not the async-unsafe handler)
+// can print the human-readable "received <signal>" message at the next safe check point. 0 = none received.
+extern volatile sig_atomic_t MLUCAS_INTERRUPT_SIGNO;
 typedef void sigfunc(int);
 sigfunc *signal(int, sigfunc*);
 
