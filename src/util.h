@@ -291,6 +291,7 @@ DEV void	mvbits64 (uint64 x, uint32 src_bit_start, uint32 nbits, uint64*y, uint3
 DEV int		pprimeF	(uint32 p, uint32 z);
 DEV uint32	is_f2psp(uint32 n, uint32*idx_next_psp);
 DEV uint32	is_prime(uint32 n);
+uint32		test_is_prime(void);
 DEV uint32	next_prime(uint32 n, int dir);
 DEV uint32	nprimes_in_range(uint32 b1, uint32 b2);
 DEV int		pprimeF64(uint64 p, uint64 z);
