@@ -462,13 +462,15 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	processor cores.
 
 	NOTE on logical-CPU numbering: the -cpu indices are the operating system's logical-processor
-	numbers, and which of those are hyperthread (SMT) siblings of one physical core differs by OS
-	and vendor. Linux on Intel usually numbers siblings as i and i+(number of cores), so '-cpu 0:3'
-	is four physical cores; Windows, FreeBSD and most AMD systems number siblings adjacently, so the
-	same '-cpu 0:3' is two physical cores with both hyperthreads each. At startup Mlucas prints how
-	many physical cores the selected set spans and warns when siblings share a core; use '-core
-	lo:hi:1' (hwloc builds) or list one logical CPU per core (e.g. '-cpu 0:6:2') for one thread per
-	core. The detected L2 (per core) and L3 cache sizes are printed on the same occasion.
+	numbers, and which of those are hyperthread (SMT) siblings of one physical core is decided by
+	firmware, so it varies from system to system and is not a property of the CPU vendor. Two
+	layouts are common: siblings numbered adjacently, so that CPUs 0 and 1 share a core, and
+	siblings numbered i and i+(number of cores), so that CPUs 0 and 8 share a core on an 8-core
+	part. Under the first, '-cpu 0:3' is two physical cores with both hyperthreads each; under the
+	second it is four separate cores. At startup Mlucas prints how many physical cores the selected
+	set spans and warns when siblings share a core; use '-core lo:hi:1' (hwloc builds) or list one
+	logical CPU per core (e.g. '-cpu 0:6:2') for one thread per core. The detected L2 (per core) and
+	L3 cache sizes are printed on the same occasion.
 
 ======================
 

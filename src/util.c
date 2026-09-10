@@ -9416,10 +9416,12 @@ exit(0);
 			fprintf(stderr, "INFO: %u logical CPUs selected on %u physical core%s (up to %u thread%s per core).\n",
 				nsel, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
 			if(maxper > 1 && !user_chose_smt) {
-				fprintf(stderr, "WARN: some selected logical CPUs are SMT siblings on the same physical core. Logical-CPU numbering\n"
-				                "      differs by OS and vendor (Windows, FreeBSD and most AMD systems number siblings adjacently, Intel/Linux\n"
-				                "      typically as i and i+ncores), so '-cpu 0:3' is not always 4 cores. To run one thread per core use\n"
-				                "      '-core lo:hi:1' (hwloc builds) or list one logical CPU per core explicitly, e.g. '-cpu 0:6:2'.\n");
+				fprintf(stderr, "WARN: some selected logical CPUs are SMT siblings on the same physical core. Which logical\n"
+				                "      CPUs share a core is decided by firmware and varies from system to system; it is not a\n"
+				                "      property of the CPU vendor. Siblings may be numbered adjacently (0,1) on one machine and\n"
+				                "      as i, i+ncores (0,8) on another, so '-cpu 0:3' is not always 4 distinct cores. To run one\n"
+				                "      thread per core use '-core lo:hi:1' (hwloc builds) or list one logical CPU per core\n"
+				                "      explicitly, e.g. '-cpu 0:6:2'.\n");
 			}
 		}
 		if(L2_CACHE_BYTES || L3_CACHE_BYTES)
