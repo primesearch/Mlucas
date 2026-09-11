@@ -885,6 +885,11 @@ me at: heber.tomer@gmail.com
 	}
 
 
+/* Callers must pass the run's thread count (NTHREADS), not the number of carry tasks they intend
+to dispatch. Each radix*_ditN_cy_dif1 routine caches the returned pointer for the life of the
+process, so replacing the pool because one radix wanted a different worker count would leave every
+other routine holding a freed pointer. The task count is independent of the pool size: more workers
+than tasks simply leaves some idle, and fewer makes the blocking enqueue wait. */
 struct threadpool* carry_threadpool_get(int num_threads, int num_cores)
 {
 	static struct threadpool *pool = 0x0;
