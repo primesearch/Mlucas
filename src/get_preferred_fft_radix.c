@@ -192,7 +192,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 								ASSERT(0, cbuf);
 							}
 							kprod >>= 10;
-							tbest = tcurr;
+							tbest = tcurr;	CFG_MSEC_PER_ITER = tcurr;	// v21: exported for the p-1 Gerbicz-interval default
 							if(i == kblocks) {
 								/* Product of radices must equal complex vector length (n/2): */
 								if(kprod != kblocks) {
