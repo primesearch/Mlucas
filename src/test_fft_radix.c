@@ -150,17 +150,30 @@ void matmul_fgtmod (uint128 **, uint128 *, uint128 *, int, int);
 
 void test_fft_radix(void)
 {
+#if TTYPE == 1 || TTYPE == 2	// Index-sorting scaffolding, used only by the solo-DIF and solo-DIT tests:
 	struct int_pair ipair[RADIX];
 	struct idx_cmplx sort_arr1[RADIX], sort_arr2[RADIX];
 	const int sz_int_pair = sizeof(struct int_pair), sz_idx_cmplx = sizeof(struct idx_cmplx);
-	const double err_theshold = 1e-10, sqrt_radix = sqrt(RADIX);
+	const double sqrt_radix = sqrt(RADIX);
+#endif
+#if TTYPE > 0	// Error accounting - TTYPE 0 only displays index-scramblings, it computes no residuals:
+	const double err_theshold = 1e-10;
 	double iradix = 1.0/RADIX;
+#endif
 	int rmul = 2*RE_IM_STRIDE;
-	int i,j,j1,j2,k,l,nradices, *index = 0x0, nerr,idiff, print_pass, pow2, podd;
+	int i,j,j1,k,l,nradices, *index = 0x0, pow2, podd;
+#if TTYPE > 0
+	int j2, nerr;
+#endif
+#if TTYPE == 1 || TTYPE == 2
+	int idiff;
+#endif
 	// aadix_prim stores factorization of RADIX in order reflecting order of sub-radix processing;
 	int radix_prim[12];
 	int *dit_scramble = 0x0;	/* This holds the input-perm for the DIF of the given length ... compute this using the primitive radices */
+#if TTYPE > 0
 	double err_r, err_i, abserr, maxerr, avgerr;
+#endif
 	/* "Random" inputs are just decimal digits of Pi ... make this as big as needed, currently support
 	up to complex length = 4096. NB: Do NOT use Unix bc for this! (Way too slow). use pari, e.g.:
 
@@ -306,8 +319,8 @@ void test_fft_radix(void)
 	const char* test_info_str[] = {"Show input-index-scramblings-needed for DIF and DIT","DIF","DIT","Combined DIF+DIT"};
 	double *a = 0x0, *b = 0x0, *arrtmp = 0x0, *ptmp = 0x0;
 	struct complex *ac, *bc;
-	struct complex **mat = 0x0, **matp = 0x0, **ctmpp = 0x0, *ctmp = 0x0;
-	double t0,t1,t2,t3;
+	struct complex **mat = 0x0, **ctmpp = 0x0, *ctmp = 0x0;
+	double t0,t1;
 	double theta, twopi = 6.2831853071795864769;
   #ifdef USE_FGT61
 	#if defined(USE_SSE2) || (RADIX != 16)
@@ -335,9 +348,9 @@ void test_fft_radix(void)
 	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT((ptmp != 0x0), "FATAL: unable to allocate array A_ptmp in test_fft_radix.\n");
 	arrtmp = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
 	ASSERT(((long)((void *)arrtmp) & 63) == 0x0,"test_fft_radix: arrtmp[] not aligned on 64-byte boundary!");
-	/* struct complex mat[radix][RADIX], *matp[RADIX]: */
-	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT((ctmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
-	matp  = ALIGN_POINTER(ctmpp,struct complex*);
+	/* struct complex mat[radix][RADIX]. There was a second, parallel matp[RADIX] allocation here whose
+	pointer was never read; it also left matp dangling, since ctmpp is not re-inited between the two
+	ALLOC_POINTER calls and so the second one simply realloc'd the first block out from under it: */
 	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT((ctmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
 	mat   = ALIGN_POINTER(ctmpp,struct complex*);
 	for(i = 0; i < RADIX; ++i) {
@@ -1414,7 +1427,6 @@ void test_fft_radix(void)
 	ASSERT(nerr == 0, "test_fft_radix: Mismatches detected in DIF/DIT combo!");
 
 #endif
-	printf("");
 }
 
 void matmul_double(double **mat, double vec_in[], double vec_out[], int nrow, int ncol)
