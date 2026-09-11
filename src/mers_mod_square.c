@@ -184,7 +184,11 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/* arrays storing the index values needed for the paired-block wrapper/square scheme: */
 	static int *ws_i,*ws_j1,*ws_j2,*ws_j2_start,*ws_k,*ws_m,*ws_blocklen,*ws_blocklen_sum;
 	int bimodn,simodn;					/* Mnemonic: BIMODN stands for "B times I mod N", nothing to do with bimodal.	*/
-	int i,ii,ierr = 0,iter,j,jhi,k,l,m,mm,k2,m2,l1,l2,l2_start,blocklen,blocklen_sum,outer;
+	// iter = 0 rather than uninitialized: the fwd_fft == 2 path below jumps over the iteration
+	// loop that would otherwise set it, and the guard on the [2a] retry check at the bottom of
+	// the function keeps the only read of it off that path - but gcc cannot correlate the goto
+	// with that guard, so give it a defined value too rather than leave the read UB on paper:
+	int i,ii,ierr = 0,iter = 0,j,jhi,k,l,m,mm,k2,m2,l1,l2,l2_start,blocklen,blocklen_sum,outer;
 	static uint64 psave=0;
 	static uint32 nsave=0, new_runlength=0;
 	static uint32 nwt,nwt_bits,bw,sw,bits_small;
@@ -2120,7 +2124,12 @@ undo_initial_ffft_pass:
 	// Cf. [2a] in fermat_mod_square() function: The interval-retry is successful, i.e. suffers no fatal ROE.
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	// *** v19: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
-	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
+	// The fwd_fft == 2 service call near the top of the function jumps straight to
+	// undo_initial_ffft_pass, so on that path the iteration loop never ran at all: iter is
+	// uninitialized, and there is no iteration interval whose retry could have succeeded. Test for
+	// it here rather than assert on a garbage iter - which is what gcc reports as "'iter' may be
+	// used uninitialized" at the ASSERT below.
+	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0 && fwd_fft != 2ull) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
 		// On normal loop-completion iter = ihi+1; the early-exit-on-interrupt case is filtered out by the
 		// ERR_INTERRUPT return above, *except* for a signal arriving during the final iteration, in which
 		// case the interval did complete but the post-loop iter-- leaves iter = ihi - hence 2nd clause:

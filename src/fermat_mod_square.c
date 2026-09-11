@@ -201,7 +201,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	static int *index = 0x0;		/* Bit-reversal index array and array storing S*I mod N values for DWT weights.	*/
 //	static int *index_ptmp = 0x0;
 
-	int bimodn,i,ii,ierr = 0,iter,j,j1,j2,k,l,m,mm,k1,k2;
+	// iter = 0 rather than uninitialized - see the same note in mers_mod_square():
+	int bimodn,i,ii,ierr = 0,iter = 0,j,j1,j2,k,l,m,mm,k1,k2;
 	static uint64 psave=0;
 	static uint32 nsave=0, rad0save=0, new_runlength=0;
 	static uint32 nwt,nwt_bits,bw,sw,bits_small;
@@ -1730,7 +1731,12 @@ undo_initial_ffft_pass:
 	// Cf. [2a] above: The interval-retry is successful, i.e. suffers no fatal ROE.
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	// *** v20: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
-	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
+	// The fwd_fft == 2 service call near the top of the function jumps straight to
+	// undo_initial_ffft_pass, so on that path the iteration loop never ran at all: iter is
+	// uninitialized, and there is no iteration interval whose retry could have succeeded. Test for
+	// it here rather than assert on a garbage iter - which is what gcc reports as "'iter' may be
+	// used uninitialized" at the ASSERT below.
+	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0 && fwd_fft != 2ull) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
 		// On normal loop-completion iter = ihi+1; the early-exit-on-interrupt case is filtered out by the
 		// ERR_INTERRUPT return above, *except* for a signal arriving during the final iteration, in which
 		// case the interval did complete but the post-loop iter-- leaves iter = ihi - hence 2nd clause:
