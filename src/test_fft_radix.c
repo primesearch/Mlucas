@@ -321,6 +321,12 @@ void test_fft_radix(void)
 	struct complex *ac, *bc;
 	struct complex **mat = 0x0, **ctmpp = 0x0, *ctmp = 0x0;
 	double t0,t1;
+#if RADIX == 1024 || (TTYPE == 2 && defined(USE_SSE2))
+	// t2/t3 are live in two places only: the RADIX == 1024 reference-input block below (RADIX
+	// defaults to 1024, so this is the configuration a bare compile of this file gets), and the
+	// TTYPE == 2 bit-reversal block under USE_SSE2:
+	double t2,t3;
+#endif
 	double theta, twopi = 6.2831853071795864769;
   #ifdef USE_FGT61
 	#if defined(USE_SSE2) || (RADIX != 16)
