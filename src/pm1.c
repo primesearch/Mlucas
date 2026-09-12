@@ -43,7 +43,8 @@ Then to run, e.g.
 	uint32 PM1_S2_NBUF = 0;	// # of floating-double residue-length memblocks available for Stage 2
 	uint32 B1 = 0;
 	uint64 B2 = 0ull, B2_start = 0ull;
-	char cbuf[STR_MAX_LEN*2];
+	char cbuf[STR_MAX_LEN*3];	// Must match the extern in Mdata.h - a narrower definition here is a
+								// conflicting type, and breaks the PM1_STANDALONE build outright.
 	uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
 	double MME;
 #else
