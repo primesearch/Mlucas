@@ -492,61 +492,74 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		// Oct 2014: Try getting most of the LOACC speedup with better accuracy by breaking the complex-roots-of-(-1)
 		// chaining into 2 or more equal-sized subchains, each starting with 'fresh' (unchained) complex roots:
+		// *** RADIX 4032 is 4x RADIX 1008, so for a given LOACC setting it needs 2 EXTRA folds to obtain the
+		// same complex-roots-of(-1) subchain length that radix1008 uses. The ladder below was copy-pasted verbatim
+		// from radix1008 (note the stale radix1008 filename in the #error text), which left the subchain 4x too
+		// long: at LOACC=0 the single subchain ran the full 1008 carry-macro calls and tripped a roundoff error
+		// at iteration 25. NFOLD = LOACC+2 restores parity with radix1008. ***
 		#if (LOACC == 0)
 			#warning LOACC = 0
-			#define NFOLD 0
+			#define NFOLD 2
 		#elif (LOACC == 1)
 			#warning LOACC = 1
-			#define NFOLD 1
+			#define NFOLD 3
 		#elif (LOACC == 2)
 			#warning LOACC = 2
-			#define NFOLD 2
+			#define NFOLD 4
 		#elif (LOACC == 3)
 			#warning LOACC = 3
-			#define NFOLD 3
+			#define NFOLD 5
 		#elif (LOACC == 4)
 			#warning LOACC = 4
-			#define NFOLD 4
+			#define NFOLD 6
 		#elif (LOACC == 5)
 			#warning LOACC = 5
-			#define NFOLD 5
+			#define NFOLD 7
 		#else
-			#error If LOACC defined for build of radix1008_ditN_cy_dif1.c, must be given value 0,1,2,3,4 or 5!
+			#error If LOACC defined for build of radix4032_ditN_cy_dif1.c, must be given value 0,1,2,3,4 or 5!
 		#endif
 
 		#ifdef USE_AVX512
 		// For NFOLD > 3,  RADIX not divisible by 2^(3+NFOLD), so use a more-general inner-loop scheme which can handle that:
 		  #if NFOLD == 0
-			const int nexec[] = {126};
+			const int nexec[] = {504};
 		  #elif NFOLD == 1
-			const int nexec[] = {63,63};
+			const int nexec[] = {252,252};
 		  #elif NFOLD == 2
-			const int nexec[] = {32,31,32,31};
+			const int nexec[] = {126,126,126,126};
 		  #elif NFOLD == 3
-			const int nexec[] = {16,16,16,15,16,16,16,15};
+			const int nexec[] = {63,63,63,63,63,63,63,63};
 		  #elif NFOLD == 4
-			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
+			const int nexec[] = {32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31};
 		  #elif NFOLD == 5
-			const int nexec[] = {4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3};
+			const int nexec[] = {16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15};
+		  #elif NFOLD == 6
+			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
+		  #elif NFOLD == 7
+			const int nexec[] = {4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3};
 		  #else
-			#error NFOLD may only range from 0-5!
+			#error NFOLD may only range from 0-7!
 		  #endif
 		#elif defined(USE_AVX)
 		// For NFOLD > 3,  RADIX not divisible by 2^(3+NFOLD), so use a more-general inner-loop scheme which can handle that:
 		  #if NFOLD == 0
-			const int nexec[] = {252};
+			const int nexec[] = {1008};
 		  #elif NFOLD == 1
-			const int nexec[] = {126,126};
+			const int nexec[] = {504,504};
 		  #elif NFOLD == 2
-			const int nexec[] = {63,63,63,63};
+			const int nexec[] = {252,252,252,252};
 		  #elif NFOLD == 3
-			const int nexec[] = {32,31,32,31,32,31,32,31};
+			const int nexec[] = {126,126,126,126,126,126,126,126};
 		  #elif NFOLD == 4
-			const int nexec[] = {16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15};
+			const int nexec[] = {63,63,63,63,63,63,63,63,63,63,63,63,63,63,63,63};
 		  #elif NFOLD == 5
-			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
+			const int nexec[] = {32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31,32,31};
+		  #elif NFOLD == 6
+			const int nexec[] = {16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15,16,16,16,15};
+		  #elif NFOLD == 7
+			const int nexec[] = {8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7,8,8,8,8,8,8,8,7};
 		  #else
-			#error NFOLD may only range from 0-5!
+			#error NFOLD may only range from 0-7!
 		  #endif
 		#endif
 
@@ -595,7 +608,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x7e00, 0x1f80,0x3f00,0x5e80, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
+				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x7e00, 0xfc0,0x1f80,0x2f40, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
 				tm0 += 16; tm1++;
 				MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
@@ -617,7 +630,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x7e00, 0x1f80,0x3f00,0x5e80, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
+				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x7e00, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
 				tm0 += 8; tm1++;
 				MOD_ADD32(ic_idx, 4, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 4, ODD_RADIX, jc_idx);
