@@ -1016,24 +1016,15 @@ struct qfloat qfmul(struct qfloat q1, struct qfloat q2)
 	a = (hi1<<11) + (lo1>>53);
 	c = (hi2<<11) + (lo2>>53);
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(a,c,&lo,&hi);	/* start the integer product ASAP, since it will generally have a large latency. */
-#else
 	MUL_LOHI64(a,c,lo,hi);
-#endif
 
 	b = (lo1 << 11) >> 11;
 	d = (lo2 << 11) >> 11;
 
 #ifndef USE_FMUL_FOR_LOW_WORD
 
-  #ifdef MUL_LOHI64_SUBROUTINE
-	adhi = __MULH64(a,d);
-	bchi = __MULH64(b,c);
-  #else
 	MULH64(a,d,adhi);
 	MULH64(b,c,bchi);
-  #endif
 
 #else	// USE_FMUL_FOR_LOW_WORD
 
@@ -3007,9 +2998,6 @@ int qtest(void)
 	double td = 0, tdiff, cycles, cycles_for_qfdbl;
 #endif
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	printf("INFO: qfloat routines using subroutine form of MUL_LOHI\n");
-#endif
 
 #ifdef X87_ASM
 	// Test long-double interface used for high-precision inits of NR seeds for certain transcendental functions:
