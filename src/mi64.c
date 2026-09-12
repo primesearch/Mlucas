@@ -6187,11 +6187,10 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 			"cmovcq %%rbx,%%rax	\n\t"/* if CF = 1 (CMPSD = true), overwrite dest (rax = itmp64-q) with source (rbx = itmp64+q), else leave dest = itmp64-q. */\
 		"rad_pow64_end: 	\n\t"\
 			"movq	%%rax,%[__itmp64]	\n\t"\
-		:	/* outputs: none */\
+		: [__itmp64] "=m" (itmp64)	/* outputs: the template stores into these */\
 		: [__fquo] "m" (fquo)	/* All inputs from memory addresses here */\
 		 ,[__rnd] "m" (rnd)	\
 		 ,[__q] "m" (q)	\
-		 ,[__itmp64] "m" (itmp64)	\
 		: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1"	/* Clobbered registers */\
 		);
 
@@ -6352,11 +6351,10 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy] "=m" (cy)	/* outputs: the template stores into these */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy] "m" (cy)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10"	/* Clobbered registers */\
 		);
@@ -6382,11 +6380,10 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy] "=m" (cy)	/* outputs: the template stores into these */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy] "m" (cy)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10"	/* Clobbered registers */\
 		);
@@ -6489,7 +6486,10 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	"jnz loop4x 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q0] "m" (q0)	/* All inputs from memory addresses here */\
 	 ,[__q1] "m" (q1)	\
 	 ,[__q2] "m" (q2)	\
@@ -6499,10 +6499,6 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	 ,[__qinv2] "m" (qinv2)	\
 	 ,[__qinv3] "m" (qinv3)	\
 	 ,[__x] "m" (x)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -6592,12 +6588,11 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 	"jnz loop2a 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
-		:	/* outputs: none */\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12"		/* Clobbered registers */\
 		);
@@ -6724,14 +6719,13 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (x)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -6772,14 +6766,13 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (x)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -7190,12 +7183,11 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop2b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12"		/* Clobbered registers */\
 		);
@@ -7252,12 +7244,11 @@ See similar behavior for 4-way-split version of the algorithm.
 		"andq	%%rsi,%%rdi			\n\t	andq	%%rsi,%%rdx		\n\t"/* q & (-cy0|1) */\
 		"addq	%%rdi,%%rax			\n\t	addq	%%rdx,%%r12		\n\t"/* cy0|1 = tmp0|1 + ((-cy0|1)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r12,%[__cy1]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		 ,[__n] "m" (nshift)	\
 		 ,[__iptr0] "m" (iptr0)	/* Output pointers (will both point to itmp64 if no quotient desired.) */\
@@ -7353,14 +7344,13 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx	\n\t"\
 	"jnz loop2d			\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "+m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
 		 ,[__iptr1] "m" (iptr1)	\
 		 ,[__y] "m" (y)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14"		/* Clobbered registers */\
 		);
@@ -7391,14 +7381,13 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx	\n\t"\
 	"jnz loop2d			\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"							\n\t	movq	%%rdx,%[__cy1]	"/* Only useful carryout is cy1, check-equal-to-zero */\
-		:	/* outputs: none */\
+		: [__cy1] "+m" (cy1)	/* outputs: the template stores into these */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
 		 ,[__iptr1] "m" (iptr1)	\
 		 ,[__y] "m" (y)	\
 		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
 		 ,[__len2] "m" (len2)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","r14"		/* Clobbered registers */\
 		);
@@ -7631,14 +7620,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz 0b \n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (iptr0)	\
-	 ,[__cy0] "m" (cy0)	\
-	 ,[__cy1] "m" (cy1)	\
-	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -7693,14 +7681,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz 0b	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
+		 ,[__cy2] "=m" (cy2)\
+		 ,[__cy3] "=m" (cy3)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
-		 ,[__cy2] "m" (cy2)	\
-		 ,[__cy3] "m" (cy3)	\
 		 ,[__len] "m" (len)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 		);
@@ -7770,14 +7757,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		"addq	%%r9 ,%%r12			\n\t	addq	%%rdx,%%r13		\n\t"/* cy2|3 = tmp2|3 + ((-cy2|3)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r11,%[__cy1]	\n\t"\
 		"movq	%%r12,%[__cy2]		\n\t	movq	%%r13,%[__cy3]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "+m" (cy1)\
+		 ,[__cy2] "+m" (cy2)\
+		 ,[__cy3] "+m" (cy3)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
-		 ,[__cy2] "m" (cy2)	\
-		 ,[__cy3] "m" (cy3)	\
 		 ,[__len4] "m" (len4)	\
 		 ,[__n] "m" (nshift)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
@@ -7857,14 +7843,13 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		"addq	%%r9 ,%%r12			\n\t	addq	%%rdx,%%r13		\n\t"/* cy2|3 = tmp2|3 + ((-cy2|3)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r11,%[__cy1]	\n\t"\
 		"movq	%%r12,%[__cy2]		\n\t	movq	%%r13,%[__cy3]	\n\t"\
-		:	/* outputs: none */\
+		: [__cy0] "+m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "+m" (cy1)\
+		 ,[__cy2] "+m" (cy2)\
+		 ,[__cy3] "+m" (cy3)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
-		 ,[__cy0] "m" (cy0)	\
-		 ,[__cy1] "m" (cy1)	\
-		 ,[__cy2] "m" (cy2)	\
-		 ,[__cy3] "m" (cy3)	\
 		 ,[__len4] "m" (len4)	\
 		 ,[__n] "m" (nshift)	\
 		 ,[__iptr0] "m" (iptr0)	/* Output base-pointer */\
@@ -8000,7 +7985,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rax,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy3] "+m" (cy3)	/* outputs: the template stores into these */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (iptr0)	\
@@ -8008,7 +7993,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	 ,[__cy0] "m" (cy0)	\
 	 ,[__cy1] "m" (cy1)	\
 	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
@@ -8057,7 +8041,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdx,%[__cy3]	\n\t"\
-	:	/* outputs: none */\
+	: [__cy3] "+m" (cy3)	/* outputs: the template stores into these */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
@@ -8066,7 +8050,6 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	 ,[__cy0] "m" (cy0)	\
 	 ,[__cy1] "m" (cy1)	\
 	 ,[__cy2] "m" (cy2)	\
-	 ,[__cy3] "m" (cy3)	\
 	 ,[__len4] "m" (len4)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
