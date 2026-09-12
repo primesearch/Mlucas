@@ -751,12 +751,18 @@ jobs:
         # The windows-11-arm runner ships no native aarch64 toolchain (no MSYS2/CLANGARM64), so its
         # "gcc" is really an x86_64-w64-mingw32 compiler running under emulation. Both $HOSTTYPE
         # (x86_64) and the matrix OS label (arm) mislead here, so key the arch off what the compiler
-        # itself targets:
-        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
-            $CC -dM -E -mcpu=native - </dev/null
-        else
-            $CC -dM -E -march=native - </dev/null
-        fi
+        # itself targets.
+        #
+        # This whole block only dumps predefined macros for the log, so it must not be able to fail
+        # the job. On windows-11-arm the emulated compiler dies on the probe with 0x80000004 and takes
+        # the step with it, before anything has been built - which is how that cell has been failing.
+        {
+            if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
+                $CC -dM -E -mcpu=native - </dev/null
+            else
+                $CC -dM -E -march=native - </dev/null
+            fi
+        } || echo "::warning::predefined-macro probe failed; it is diagnostic only, continuing."
     - name: Script
       shell: bash
       run: |
