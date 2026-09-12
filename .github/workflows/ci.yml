@@ -75,8 +75,24 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m l; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -149,8 +165,22 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -346,8 +376,22 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
@@ -496,8 +540,24 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m l; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -557,8 +617,22 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -608,8 +682,22 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
@@ -698,7 +786,18 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for compile
         # coverage: this VM may not be able to execute what they target - running them per-mode is
@@ -783,8 +882,24 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m l; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+            st=${PIPESTATUS[0]}
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -842,8 +957,22 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
+        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st == 1 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
