@@ -9335,6 +9335,132 @@ exit(0);
 		}
 	}
 
+	/* Return the physical-core key of logical CPU `cpu`, or -1 if unknown. Keys are only compared
+	   for equality, so any stable encoding works: (package << 16 | core_id) on Linux, hwloc CORE
+	   logical index, Windows core ordinal. */
+	static int cpu_core_key(uint32 cpu)
+	{
+	#if INCLUDE_HWLOC
+		/* Consistent with threadpool.c, which binds worker i to HWLOC_OBJ_PU with *logical* index i: */
+		hwloc_obj_t pu = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, cpu);
+		if(pu) {
+			hwloc_obj_t core = hwloc_get_ancestor_obj_by_type(hw_topology, HWLOC_OBJ_CORE, pu);
+			if(core) return (int)core->logical_index;
+		}
+		return -1;
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+		char path[128]; FILE *f; int core = -1, pkg = 0;
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/topology/core_id", cpu);
+		if((f = fopen(path, "r"))) { if(fscanf(f, "%d", &core) != 1) core = -1; fclose(f); }
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/topology/physical_package_id", cpu);
+		if((f = fopen(path, "r"))) { if(fscanf(f, "%d", &pkg) != 1) pkg = 0; fclose(f); }
+		return (core < 0) ? -1 : ((pkg & 0x7fff) << 16) | (core & 0xffff);
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		/* Enumerate RelationProcessorCore records; the k-th record is core k; a CPU belongs to it if
+		   its (group, bit) is in the record's GroupMask array. */
+		DWORD len = 0; int key = -1, k = 0;
+		GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
+		if(len == 0) return -1;
+		char *buf = malloc(len); if(!buf) return -1;
+		if(GetLogicalProcessorInformationEx(RelationProcessorCore, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+			char *p = buf;
+			while(p < buf + len) {
+				SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
+				for(WORD g = 0; g < rec->Processor.GroupCount; g++) {
+					GROUP_AFFINITY *ga = &rec->Processor.GroupMask[g];
+					if(ga->Group == (WORD)(cpu >> 6) && (ga->Mask & ((KAFFINITY)1 << (cpu & 63)))) { key = k; break; }
+				}
+				if(key >= 0) break;
+				p += rec->Size; k++;
+			}
+		}
+		free(buf);
+		return key;
+	#else
+		(void)cpu; return -1;
+	#endif
+	}
+	
+	/* Fill L2_CACHE_BYTES (per-core L2) and L3_CACHE_BYTES; leave 0 where unknown. */
+	static void detect_cache_sizes(void)
+	{
+	#if INCLUDE_HWLOC
+		hwloc_obj_t o;
+		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L2CACHE, 0)) && o->attr) L2_CACHE_BYTES = o->attr->cache.size;
+		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L3CACHE, 0)) && o->attr) L3_CACHE_BYTES = o->attr->cache.size;
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+		/* /sys/devices/system/cpu/cpu0/cache/indexN/{level,type,size}; size is like "256K" or "16384K" */
+		for(int i = 0; i < 8; i++) {
+			char path[128], type[32] = ""; int level = 0; unsigned long sz = 0; char unit = 0; FILE *f;
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/level", i);
+			if(!(f = fopen(path, "r"))) break;
+			if(fscanf(f, "%d", &level) != 1) level = 0;
+			fclose(f);
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/type", i);
+			if((f = fopen(path, "r"))) { if(fscanf(f, "%31s", type) != 1) type[0] = 0; fclose(f); }
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/size", i);
+			if((f = fopen(path, "r"))) { if(fscanf(f, "%lu%c", &sz, &unit) < 1) sz = 0; fclose(f); }
+			if(unit == 'K') sz <<= 10; else if(unit == 'M') sz <<= 20;
+			if(strcmp(type, "Instruction") == 0) continue;
+			if(level == 2) L2_CACHE_BYTES = sz; else if(level == 3) L3_CACHE_BYTES = sz;
+		}
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		DWORD len = 0;
+		GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
+		if(len) {
+			char *buf = malloc(len);
+			if(buf && GetLogicalProcessorInformationEx(RelationCache, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+				for(char *p = buf; p < buf + len; ) {
+					SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
+					if(rec->Cache.Type != CacheInstruction) {
+						if(rec->Cache.Level == 2 && !L2_CACHE_BYTES) L2_CACHE_BYTES = rec->Cache.CacheSize;
+						if(rec->Cache.Level == 3 && !L3_CACHE_BYTES) L3_CACHE_BYTES = rec->Cache.CacheSize;
+					}
+					p += rec->Size;
+				}
+			}
+			free(buf);
+		}
+	#endif
+	}
+	
+	/* Call once after CORE_SET/NTHREADS are final. `user_chose_smt` = TRUE when the set came from
+	   '-core lo:hi:tpc' with tpc > 1, i.e. sharing cores was requested. */
+	void report_cpu_topology(int user_chose_smt)
+	{
+		uint32 i, word, bit, nsel = 0, nunknown = 0, ncores = 0, maxper = 0;
+		int keys[MAX_CORES]; uint32 cnt[MAX_CORES];
+		detect_cache_sizes();
+		for(i = 0; i < MAX_CORES; i++) {
+			word = i >> 6; bit = i & 63;
+			if(!(CORE_SET[word] & (1ull << bit))) continue;
+			nsel++;
+			int k = cpu_core_key(i), j;
+			if(k < 0) { nunknown++; continue; }
+			for(j = 0; j < (int)ncores; j++) if(keys[j] == k) break;
+			if(j == (int)ncores) { keys[ncores] = k; cnt[ncores] = 0; ncores++; }
+			cnt[j]++; if(cnt[j] > maxper) maxper = cnt[j];
+		}
+		if(nunknown == nsel) {
+			fprintf(stderr, "INFO: %u logical CPUs selected; physical-core topology not available on this platform.\n", nsel);
+		} else {
+			fprintf(stderr, "INFO: %u logical CPUs selected on %u physical core%s (up to %u thread%s per core).\n",
+				nsel, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			if(maxper > 1 && !user_chose_smt) {
+				fprintf(stderr, "WARN: some selected logical CPUs are SMT siblings on the same physical core. Which logical\n"
+				                "      CPUs share a core is decided by firmware and varies from system to system; it is not a\n"
+				                "      property of the CPU vendor. Siblings may be numbered adjacently (0,1) on one machine and\n"
+				                "      as i, i+ncores (0,8) on another, so '-cpu 0:3' is not always 4 distinct cores. To run one\n"
+				                "      thread per core use '-core lo:hi:1' (hwloc builds) or list one logical CPU per core\n"
+				                "      explicitly, e.g. '-cpu 0:6:2'.\n");
+			}
+		}
+		if(L2_CACHE_BYTES || L3_CACHE_BYTES)
+			fprintf(stderr, "INFO: cache: L2 = %llu KB per core, L3 = %llu KB.\n",
+				(unsigned long long)(L2_CACHE_BYTES >> 10), (unsigned long long)(L3_CACHE_BYTES >> 10));
+	}
+	
+
 #endif	// MULTITHREAD ?
 
 /***********************/
