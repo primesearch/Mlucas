@@ -142,20 +142,20 @@ EOF
 # old binutils) only shows up once the linker actually has to combine LTO object files from more than
 # one translation unit - which is exactly what building Mlucas's ~90 source files does:
 try_lto() {
-	local cc=${CC:-gcc} flag=${1:--flto} tmpdir
+	local cc=${CC:-gcc} flag=${1} tmpdir
 	tmpdir=$(mktemp -d) || return 1
 	trap 'rm -rf "$tmpdir"' RETURN
 	printf 'int mm_lto_probe_helper(void){return 0;}\n' >"$tmpdir/a.c"
 	printf 'int mm_lto_probe_helper(void);\nint main(void){return mm_lto_probe_helper();}\n' >"$tmpdir/b.c"
 	(
-		cd "$tmpdir" && \
-		"$cc" "$flag" -c a.c -o a.o && \
-		"$cc" "$flag" -c b.c -o b.o && \
-		"$cc" "$flag" a.o b.o -o out
+		cd "$tmpdir" &&
+			"$cc" "$flag" -c a.c -o a.o &&
+			"$cc" "$flag" -c b.c -o b.o &&
+			"$cc" "$flag" a.o b.o -o out
 	) >/dev/null 2>&1
 }
 
-if [[ ! $OSTYPE == darwin* ]]; then
+if [[ $OSTYPE != darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
 fi
 # librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
@@ -273,7 +273,7 @@ fi
 if [[ -n $WORDS ]]; then
 	if [[ $TARGET == "$Mfactor" ]]; then
 		arg=$WORDS
-		if [[ ${arg} == 'nword' ]]; then
+		if [[ ${arg} == nword ]]; then
 			WORDS=-DNWORD
 		else
 			WORDS=-DP"${arg::1}"WORD
@@ -288,7 +288,7 @@ if [[ -n $WORDS ]]; then
 		# Set this per word size rather than by exception, so a word size that later grows a batch
 		# modpow - or wants some other width - names its own value here instead of inheriting one:
 		case ${arg} in
-			4word | nword) TRYQ_ARG= ;;
+			[4n]word) TRYQ_ARG= ;;
 			*) TRYQ_ARG=-DTRYQ=4 ;;
 		esac
 		Mfactor+="_$arg"
@@ -437,7 +437,7 @@ int main(void)
 }
 EOF
 
-	"${CC:-gcc}" -std=gnu99 -Wall -g -O3 -Isrc -o "$tmpdir/simd" "$tmpdir/simd.c"
+	"${CC:-gcc}" -std=gnu99 -Wall -Wextra -g -O3 -Isrc -o "$tmpdir/simd" "$tmpdir/simd.c"
 	if ! output=$("$tmpdir/simd"); then
 		echo "$output"
 		echo "Error: Unable to detect the SIMD build mode" >&2
@@ -514,7 +514,7 @@ fi
 # before invoking this script has NO effect - a build that needs different flags entirely (the sanitizer
 # CI jobs) has to rewrite the generated "CFLAGS =" line, which is what those jobs now do. Prefer
 # -flto=auto (parallel LTO codegen, see #56) over plain -flto when supported:
-C_ARGS=(-std=gnu99 -Wall -g -O3)
+C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
 if try_flag -fdiagnostics-color; then
 	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
 fi
