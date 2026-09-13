@@ -1,3 +1,40 @@
+Sep 2022: Fermat-mod with shift gives incorrect Res35,36m1:
+
+./Mlucas -f 24 -fft 1M -iters 1000 -radset 10 -shift 0
+1000 iterations of F24 with FFT length 1048576 = 1024 K, final residue shift count = 0
+Res64: 40F2DECE9C351236. AvgMaxErr = 0.001945370. MaxErr = 0.002441406. Program: E20.1.1
+Res mod 2^35 - 1 =           9074286032
+Res mod 2^36 - 1 =          38590877049
+Clocks = 00:00:39.251
+
+./Mlucas -f 24 -fft 1M -iters 1000 -radset 10
+1000 iterations of F24 with FFT length 1048576 = 1024 K, final residue shift count = 2842577
+Res64: 40F2DECE9C351236. AvgMaxErr = 0.001944221. MaxErr = 0.002441406. Program: E20.1.1
+Res mod 2^35 - 1 =          21814034864	<*** These are wrong! ***
+Res mod 2^36 - 1 =          29219735865
+Clocks = 00:00:39.677
+
+Non-power-of-2 FFT:
+./Mlucas -f 24 -fft 896K -iters 1000 -radset 4 -shift 0
+1000 iterations of F24 with FFT length 917504 = 896 K, final residue shift count = 0
+Res64: 40F2DECE9C351236. AvgMaxErr = 0.078930601. MaxErr = 0.101562500. Program: E20.1.1
+Res mod 2^35 - 1 =           9074286032
+Res mod 2^36 - 1 =          38590877049
+Clocks = 00:00:37.724
+
+=============================
+
+Aug 2022: Some timings for various multiword-TF settings:
+							Cycles (2-thread on my Core2Duo Mac)
+Name			max_bits	per q:	per modmul:
+Mfactor			 96			 1800	 33		./Mfactor_2word -f 61 -bmax 96 -nthread 2
+Mfactor_2word	128			 6300	 75		./Mfactor_2word -f 91 -bmax 124 -nthread 2
+Mfactor_3word	192			15700	112		./Mfactor_3word -f 147 -bmax 179 -nthread 2
+Mfactor_4word	256			35670	227		./Mfactor_4word -f 164 -bmax 196 -nthread 2
+Mfactor_nword	unlimted
+
+
+==============================
 Aug 2022: Mfactor bugfixes and adding support for to make scipt:
 EWM:
 Been thinking about the best way to add Mfactor support to the current build script, here my thinking:
@@ -23,16 +60,9 @@ EWM: replies to above:
 
 To prevent the combinatorial explosion of possible combinations of options you mention, I've added a few "mutually exclusive" clauses to the arg-processing, specifically:
 
-o Since Mfactor at present does not benefit signicantly from use if SIMD instructions at any "number of words" setting (word = 64-bit limb), arch-specific falgs are of n use. Further, it makes sense to auto-build all the various #words build setting for factor.c hen building the TF binary. Thus I am treating 'mfac' and mutually exclusive with all other args. When said flag is invoked, the script starts by building the default "1-word" Mfactor, where I use the quotes because it's a bit of a mismomer: the default build supports TF depths to 96 bits.
+o Since Mfactor at present does not benefit signicantly from use if SIMD instructions at any "number of words" setting (word = 64-bit limb), arch-specific flags are of no use. Further, it makes sense to auto-build all the various #words build setting for factor.c hen building the TF binary. Thus I am treating 'mfac' and mutually exclusive with all other args. When said flag is invoked, the script starts by building the default "1-word" Mfactor, where I use the quotes because it's a bit of a mismomer: the default build supports TF depths to 96 bits.
 
 Again with sole arg 'mfac', the script then recompiles just factor.c with flags -DP[n]WORD and n = 2,3,4 (the only supported values for this flag) and also -DNWORD, which allows for arbitrary factor candidate lengths but uses simple quadratic-complexity multiword MULs, thus not recommended to use for > 10 words. We end up with the following executables, with their associated max bits listed in the right column:
-
-Name			max_bits
-Mfactor			 96
-Mfactor_2word	128
-Mfactor_3word	192
-Mfactor_4word	256
-Mfactor_nword	unlimted
 
 
 ===============================

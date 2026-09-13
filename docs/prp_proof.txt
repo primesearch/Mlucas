@@ -44,7 +44,18 @@ p	s	ihi	points[] indices
 7	2	128	2*[1:255:2]-1		[2,6,...,506,510]-1		1,5,...,505,509
 8	1	256	1*[1:511:2]-1		[1,3,...,509,511]-1		0,2,4,...,508,510
 			gpu->writeIn(*bufIt++, w);	// Copy residues w into sequential bufVect[] entries
+------------------------
+void Gpu::writeIn(Buffer<int>& buf, const vector<u32>& words) { writeIn(buf, expandBits(words, N, E)); }
+Here, the function
+	vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E)
+Takes a packed-bit residue and expands it into variable-base form (thus assumes bkgwords of the latter <= 32 bits).
+------------------------
 			for (u32 k = 0; i & (1u << k); ++k) {	<****** parse this indexing *****
+	Ex: p = 5, i runs from 0-31
+	i = 0: k = 0
+	i = 1: k = 0,1
+	i = 2: k = 0
+	i = 3: k = 0,
 				assert(k <= p - 1);
 				--bufIt;
 				u64 h = hashes[p - 1 - k];
@@ -70,16 +81,21 @@ o Notes re Proof::verify():
 	// Use E = 216091, power = 9 for example:
 	u32 span = E;	// Init span = 216091; values of span on the ensuing (power) loop-execs are:
 	// Loop over the [power] middles:
-	for (u32 i = 0; i < power; ++i, span = (span + 1) / 2) {// span = 216091,108046,54023,27012,13506,67533377,1689,845
+************** Simulate this loop: **************
+power = 3: span = 216091,108046,54023
+power = 9: span = 216091,108046,54023,27012,13506,6753,3377,1689,845,423
+*************************************************
+	for (u32 i = 0; i < power; ++i, span = (span + 1) / 2) {
 		const Words& M = middles[i];
 		hash = proof::hashWords(E, hash, M);
 		u64 h = hash[0];
-		A = gpu->expMul(A, h, M);
-
-		if (span % 2) {
-			B = gpu->expMul2(M, h, B);
+		A = gpu->expMul(A, h, M);	// A = A^h[i] * M[i]
+A: Init = PRP seed (3), for each middle M[i] with 64-bit hash h[i], update as A = A^h[i] * M[i]
+B: Init = final PRP residue, for each middle M[i] with 64-bit hash h[i], update as B *= M[i]^h[i]
+		if (span % 2) {	*********************** what does expMul2() do in terms of its args? ******************
+			B = gpu->expMul2(M, h, B);	// B = M[i]^h[i] * B, followed by modMul(bufData, bufData, bufCheck, buf1, buf2, buf3);
 		} else {
-			B = gpu->expMul(M, h, B);
+			B = gpu->expMul(M, h, B);	// B = M[i]^h[i] * B
 		}
 
 		log("%u : A %016" PRIx64 ", M %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(M), res64(B), h);
@@ -745,14 +761,93 @@ and this is equivalent to verifying f(x, p) == y, but still no reduction in work
 Because the two verification "branches" above share the same exponent p/2, they can be combined and verified together. Choosing a random [exponent] "r1" (let's say "r1" is a 64-bit number), the verifier computes the new seed x1 = x^r1 * u, and verifies that:
 	f(x1, p/2) == y1, where y1 == u^r1 * y.
 [
+******************************************************************************************************************
 EWM: This is the crux - the random-linear-combination result can only be true (we believe) if f(x,p) == y.
-1. Starting with the prover-supplied seed x and waypoints (middle and final residue), verifier computes modified ones:
-	x1 = x^r1 * u;
-	y1 = u^r1 * y;		<*** This costs the verifier O(1) iterations ***
+
+For a sequential sequence of T mod-squarings starting from an initial seed x:
+
+1. Starting with the prover-supplied seed x and waypoints (middle residue u = f(x,T/2) and final residue y = f(u,T/2)), verifier computes modified ones which include a verifier-generated random small (e.g. 64-bit) exponent r1:
+
+	x1 = x^r1 * u;		<*** Random linear combination (in the logarithmic sense) of start and end value of subinterval
+	y1 = u^r1 * y;		<*** This costs the verifier O(1) mod-squarings ***
+
 2. and verifies that
-	f(x1, p/2) == y1.	<*** This costs the verifier T/2 iterations ***
-Thus this costs half as much work as the full PRP-test, and we can recursively do firher halvings as far
-the binary exponent p and prover+verifier bandwidth/disk-storage allow.
+
+	f(x1, p/2) == y1.	<*** This costs the verifier T/2 mod-squarings ***
+
+Thus this costs half as much work as the full PRP-test.
+
+Try a small example, 10000 squarings mod M(1279):
+	p=1279; m=2^p-1; x = 3
+	u = modpow_lr(3,2^5000,m)
+	y = modpow_lr(u,2^5000,m)
+	y == modpow_lr(3,2^10000,m), returns 1 as expected, but costs same work as total of the above 2-steps.
+Now do above linear-combo verify scheme, pick 64-bit r = 4032736408553861526:
+x1 = modpow_lr(x,r,m) * u % m
+y1 = modpow_lr(u,r,m) * y % m
+y1 == modpow_lr(x1,2^5000,m), check.
+*** CONTINUE HERE ***
+x = 3
+u = f(x,T/2) =
+y = f(u,T/2) =
+
+Further, we can recursively do further halvings as far the binary exponent T and prover+verifier bandwidth/disk-storage allow. Each thus-halved length-T' iteration subinterval consists of prover-supplied residues
+
+	[beg]; [mid] = f([beg],T'/2); [end] = f([mid],T'/2);
+
+and is checked by verifier first generating a random exponent r, then checking that
+
+	x' = [beg]^r * [mid]; y' = [mid]^r * [end]; f(x', T'/2) == y';
+
+Mihai's comments describe this, but it's not made clear whether for each such recursive halving, the above verify step is applied to both lower and upper halves of the so-subdivided iteration interval - he gives an example where he does it for just the upper half.
+
+E.g. we have a T-iteration interval we wish to verify. As usual define f(x, T) := x^(2^T) mod m. Prover computes 4 intermediate residues:
+	u1 = f(x,T/4), u2 = f(u1,T/4), u3 = f(u2,T/4) and final residue y = f(u3,T/4).
+We thus have 3 length-T/2 subintervals we can verify:
+
+	[  0,  T/2]: beg =  x; mid = u1; end = u2;
+	[T/4,3*T/4]: beg = u1; mid = u2; end = u3;
+	[T/2,  T  ]: beg = u2; mid = u3; end =  y;
+
+Verifier generates 3 random small exponents r1,r2,r3, one for each of the 3 subintervals above, and verifies that the prover-sent seed and residues x,u1,u2,u3,y satisfy
+
+	x' = beg^r1 * mid; y' = mid^r1 * end; f(x', T/2) == y';
+	x' = beg^r2 * mid; y' = mid^r2 * end; f(x', T/2) == y';
+	x' = beg^r3 * mid; y' = mid^r3 * end; f(x', T/2) == y';
+
+BUT, doing things thi way costs asymptotically as much work as the original full PRP-run. (Here, each of the 3 verify subintervals costs O(T/4) mod-squarings.)
+
+BC-code: Again, 10000 squarings mod M(1279):
+p=1279; m=2^p-1; x = 3; iter = 10000; i2 = iter/2; i4 = iter/4;
+u1 = modpow_lr( x,2^i4,m);
+u2 = modpow_lr(u1,2^i4,m);
+u3 = modpow_lr(u2,2^i4,m);
+ y = modpow_lr(u3,2^i4,m);
+
+r1 = 4032736408553861526;
+[  0,  T/2]: beg =  x; mid = u1; end = u2;
+[T/4,3*T/4]: beg = u1; mid = u2; end = u3;
+[T/2,  T  ]: beg = u2; mid = u3; end =  y;
+Each of these 3 init-steps followed by:
+xp = modpow_lr(beg,r1,m) * mid % m;
+yp = modpow_lr(mid,r1,m) * end % m;
+yp == modpow_lr(xp,2^i4,m)
+
+Now retry intervals 2,3 with different 64-bit random expos:
+r2 = 5131871703155765479
+beg = u1; mid = u2; end = u3;
+xp = modpow_lr(beg,r2,m) * mid % m;
+yp = modpow_lr(mid,r2,m) * end % m;
+yp == modpow_lr(xp,2^i4,m)
+
+r3 = 9729974643031855378
+beg = u2; mid = u3; end =  y;
+xp = modpow_lr(beg,r3,m) * mid % m;
+yp = modpow_lr(mid,r3,m) * end % m;
+yp == modpow_lr(xp,2^i4,m)
+
+
+******************************************************************************************************************
 ]
 So we transformed the verification f(x,p) = y into f(x1,p/2) = y1, halving the work. This "halving" is possible because the author sent to the verifier the value "u" (the middle value between x and y) -- so "u" is part of the proof.
 
@@ -843,10 +938,70 @@ E.g. for q = topK/8:
 	v6 = u6.u5^h6	w6 = u7.u6^h6
 	v7 = u7.u6^h7	w7 = u8.u7^h7
 
-2. But the whole point is to be able to reliably verify the *entire* squaring chain starting from a set of N interim residues u[i] provided by the prover, using O(1/N) times the work of computing the full chain. To that end, we omit the (v[i]^q == w[i]) link-verify step in [1] and instead use the computed v[] and w[] to accumulate a pair of lumped residues, which we cross-verify using q mod-squarings:
+2. But the whole point is to be able to reliably verify the *entire* squaring chain starting from a set of N interim residues u[i] provided by the prover, using O(log N) work, versus the O(N) work of computing the full chain. To that end, we omit the (v[i]^q == w[i]) link-verify step in [1] and instead use the computed v[] and w[] to accumulate a pair of lumped residues, which we cross-verify using q mod-squarings:
+
 	(v[1] * ... * v[N])^q == w[1] * ... * w[N] (mod n) .
+
 E.g. for q = topK/8:
+
 	(u0^h1 * u1^(h2+1) * ... * u6^(h7+1) * u7)^q == (u1^h1 * u2^(h2+1) * ... * u7^(h7+1) * u8)
+====================================
+Jul 2022: try same example as above for M607, now with 8 subintervals, again using p+1 = 608 for the overall power since it is divisible by 8:
+x = 3; e = p = 607; n = 2^p-1; e8 = (p+1)/8;
+u[0] = x;
+for(i = 1; i <= 8; i++) {
+	u[i] = u[i-1];
+	for(j = 0; j < e8; j++) { u[i] = u[i]^2%n; }
+}
+gives u[8] = 81 = 9^2 = (-3)^4, as expected. These are the interim residues the prover would send to the verifier.
+Define 7 random 64-bit small-expos:
+r1 = 17810981966934742652;
+r2 = 10797783645192598121;
+r3 = 13628685960879915820;
+r4 = 17311389551423073011;
+r5 = 16563178570998716619;
+r6 =  2102249872244986396;
+r7 =  7576313917162551893;
+
+Now do 8 eighth-length subchecks using differnt 64-bit random exponent for each:
+
+for(i = 1; i <= 8; i++) {
+	v[i] = u[i  ] * modpow_lr(u[i-1],r[i],n) % n;	/* v[i] := u[i].u[i-1]^r[i] */
+	w[i] = u[i+1] * modpow_lr(u[i  ],r[i],n) % n;	/* w[i] := u[i+1].u[i]^r[i] */
+	yp = v[i]; for(j = 0; j < e8; j++) { yp = yp^2%n; };	/* Check that v[i]^(2^(T/8)) == v[i+1] */
+	print "checking subinterval ",i," of ",e/j," ... ";
+	if(yp == w[i]) {
+		print "ok.\n";
+	} else {
+		print "fails!\n";
+	}
+}
+
+Now try lumped-residues scheme:
+	(u0^r1 * u1^(r2+1) * ... * u6^(r7+1) * u7)^q == (u1^r1 * u2^(r2+1) * ... * u7^(r7+1) * u8)
+
+v[0] = modpow_lr(u[0],r[1],n) % n;	/* Init LHS accumulator */
+w[0] = modpow_lr(u[1],r[1],n) % n;	/* Init RHS accumulator */
+for(i = 1; i < 8; i++) {
+	v[i] = u[i  ];
+	w[i] = u[i+1];
+	if(i < 7) {
+		j = r[i+1] + 1;
+		v[i] = modpow_lr(v[i],j,n) % n;
+		w[i] = modpow_lr(w[i],j,n) % n;
+	}
+	v[0] = v[0] * v[i] % n;	/* Update LHS accumulator */
+	w[0] = w[0] * w[i] % n;	/* Update RHS accumulator */
+}
+print "Checking lumped mod-powers... ";
+yp = v[0]; for(j = 0; j < e8; j++) { yp = yp^2%n; };
+if(yp == w[0]) {
+	print "ok.\n";
+} else {
+	print "fails!\n";
+}
+
+====================================
 So Mihai's above scheme is just a variant of this which lends itself to a divide-and-conquer approach - instead of sequential accumulation, he has the prover lump together various power-of-2-based index-offset residue subproducts, e.g. for power = 8 we lump together u0-255, the 8 subgroups contain the following residues:
 
 1	128+[0]
