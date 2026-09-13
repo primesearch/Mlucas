@@ -545,10 +545,22 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ITERS_BETWEEN_CHECKPOINTS = 65536;
 		else
 			ITERS_BETWEEN_CHECKPOINTS =  8192;
-	} else if(check_interval < 1000) {
-		ASSERT(0,"User-set value of check_interval must >= 1000.");
-	} else
-		ITERS_BETWEEN_CHECKPOINTS = check_interval;
+	} else if(check_interval < 1024) {
+		ASSERT(0,"User-set value of check_interval must be >= 1024.");
+	} else {
+		/* v21: the intervals are powers of two, and the G-check chain requires
+		ITERS_BETWEEN_GCHECK_UPDATES | ITERS_BETWEEN_CHECKPOINTS | ITERS_BETWEEN_GCHECKS.
+		A pre-v21 mlucas.ini may well carry a decimal CheckInterval such as 10000, which satisfies
+		neither; rather than abort such a run at the ASSERT below, round down to the largest power
+		of two that does, and say so: */
+		uint32 ci = check_interval, pow2ci = 1024;
+		while((pow2ci << 1) <= ci && (pow2ci << 1) <= (uint32)ITERS_BETWEEN_GCHECKS) { pow2ci <<= 1; }
+		if(pow2ci != ci) {
+			fprintf(stderr,"INFO: CheckInterval = %u is not a power of two in [%u, %u]; using %u instead.\n",
+				ci, (uint32)ITERS_BETWEEN_GCHECK_UPDATES, (uint32)ITERS_BETWEEN_GCHECKS, pow2ci);
+		}
+		ITERS_BETWEEN_CHECKPOINTS = pow2ci;
+	}
 
 	fprintf(stderr,"Setting ITERS_BETWEEN_CHECKPOINTS = %u.\n",ITERS_BETWEEN_CHECKPOINTS);
 
@@ -1391,9 +1403,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		USE_SHORT_CY_CHAIN = 1;
 	const char *arr_sml[] = {"long","medium","short","hiacc"};
 	fprintf(stderr,"Initial DWT-multipliers chain length = [%s] in carry step.\n",arr_sml[USE_SHORT_CY_CHAIN]);
-	// v20: If exp_ratio > 0.98, set ITERS_BETWEEN_CHECKPOINTS = 10000 irrespective of #threads or user-forced greater value;
+	// v20: If exp_ratio > 0.98, cap ITERS_BETWEEN_CHECKPOINTS irrespective of #threads or user-forced greater value.
+	// v21: the cap must itself be a valid savefile-update interval, i.e. a power of two that ITERS_BETWEEN_GCHECKS
+	// divides and that divides by ITERS_BETWEEN_GCHECK_UPDATES - 8192 is the small-thread default and satisfies both.
+	// The old value 10000 predates the power-of-two intervals: MIN(65536,10000) = 10000 is not a multiple of 1024,
+	// which trips the G-check divisibility ASSERT below and aborts every PRP/Pepin run with > 4 threads:
 	if(USE_SHORT_CY_CHAIN)
-		ITERS_BETWEEN_CHECKPOINTS = MIN(ITERS_BETWEEN_CHECKPOINTS,10000);
+		ITERS_BETWEEN_CHECKPOINTS = MIN(ITERS_BETWEEN_CHECKPOINTS,8192);
 
 	if(kblocks < (i = get_default_fft_length(p))) {
 		/* If it's at least close, allow it but print a warning; otherwise error out: */
@@ -2301,8 +2317,17 @@ READ_RESTART_FILE:
 		then simply rename the (not yet updated) p-savefile to add the -M extension, and open a
 		new version of the p-savefile on the ensuing checkpointing:
 		*/
-		if((ilo > 0) && (ilo%10000000 == 0)) {
-			sprintf(cbuf, ".%dM", ilo/1000000);
+		/* v21: ilo only ever takes multiples of ITERS_BETWEEN_CHECKPOINTS, and 10^7 = 2^7 * 78125, so no
+		power-of-two interval above 128 divides it - an (ilo%10000000 == 0) test can never fire under the v21
+		intervals and the .NM archives would silently stop being written. Trigger on *crossing* a 10-million
+		boundary instead, which is the same first-checkpoint-past-x-million the original comment describes and
+		is identical to the old behaviour whenever the interval does divide 10^7: */
+		if((ilo >= (uint32)ITERS_BETWEEN_CHECKPOINTS) && (ilo/10000000 > (ilo - ITERS_BETWEEN_CHECKPOINTS)/10000000)) {
+			/* Name from the boundary just crossed, not from ilo: with a large CheckInterval the first
+			checkpoint past a boundary can land in the following million (e.g. 280M -> ".281M" at the
+			maximum interval of 1048576). Identical to ilo/1000000 whenever ilo lands on the boundary,
+			which is what the pre-v21 decimal intervals always did: */
+			sprintf(cbuf, ".%dM", (ilo/10000000)*10);
 			strcpy(g_cstr, RESTARTFILE);
 			strcat(g_cstr, cbuf);
 			if(rename(RESTARTFILE, g_cstr)) {
