@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - freebsd
   pull_request:
     # Skip the matrix for changes that cannot affect any build or test. pull_request only:
     # pushes to main and the monthly schedule always run everything. A denylist rather than
@@ -16,623 +17,21 @@ on:
     - cron: '0 0 1 * *'
 
 jobs:
-  Linux:
-    name: Mlucas Linux
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
-        cc: [gcc, clang]
-      fail-fast: false
-    env:
-      CC: ${{ matrix.cc }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y libhwloc-dev
-    - name: Before script
-      run: |
-        $CC --version
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            $CC -dM -E -mcpu=native - </dev/null
-        else
-            $CC -dM -E -march=native - </dev/null
-        fi
-    - name: Script
-      run: |
-        set -x -o pipefail
-        lscpu
-        cat /proc/cpuinfo
-        MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            MODES+=( ASIMD )
-        else
-            MODES+=( SSE2 AVX AVX2 AVX512 )
-            if echo 'int main(void){return 0;}' | $CC -march=knl -mavx512f -mavx512er -x c -o /dev/null -; then
-                MODES+=( AVX512_KNL )
-            else
-                echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
-            fi
-        fi
-        for mode in "${MODES[@]}"; do
-            echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh use_hwloc $mode
-            (cd obj${mode:+_$mode}; make clean)
-            for word in '' {{1..4},n}word; do
-                echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
-            done
-        done
-        cd obj
-        echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            # M(521), not M(127): the 4-word build's 256-bit modpow needs p + 256 >= 512 to have a
-            # lead chunk to work with, and asserts ("twopmodq256 : start_index < 2!") below that.
-            # M(127) only ever passed because a stray -DTRYQ=4 sent that build down the single-word
-            # path instead. 521 is the smallest Mersenne-prime exponent every word variant handles,
-            # and costs slightly less than 127 did (726k trial divides vs 1.66M).
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
-
-  Singlethread-Linux:
-    name: Mlucas Singlethreaded Linux
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
-        cc: [gcc]
-      fail-fast: false
-    env:
-      CC: ${{ matrix.cc }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Before script
-      run: |
-        sed -i 's/-DUSE_THREADS//; s/-lpthread//' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
-        $CC --version
-    - name: Script
-      run: |
-        set -x
-        MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            MODES+=( ASIMD )
-        else
-            MODES+=( SSE2 AVX AVX2 AVX512 )
-            if echo 'int main(void){return 0;}' | $CC -march=knl -mavx512f -mavx512er -x c -o /dev/null -; then
-                MODES+=( AVX512_KNL )
-            else
-                echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
-            fi
-        fi
-        for mode in "${MODES[@]}"; do
-            echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh $mode
-            (cd obj${mode:+_$mode}; make clean)
-            for word in '' {{1..4},n}word; do
-                echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
-            done
-        done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
-
-  Linux-old:
-    name: Mlucas Linux old
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"] # "ubuntu:12.04"
-        cc: [gcc, clang]
-        exclude:
-          # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
-          # cannot assemble the inline asm in dft_macro.c on ARM ("unknown register name 'v0'").
-          # Its gcc builds fine there, as do both compilers on x86-64, so drop only this one combo.
-          - os: ubuntu-24.04-arm
-            container: "ubuntu:14.04"
-            cc: clang
-      fail-fast: false
-    env:
-      CC: ${{ matrix.cc }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Before script
-      run: |
-        sed -i 's/^MAX=29/MAX=25/' config-fermat.sh
-    - name: Script
-      run: |
-        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace -e CC=$CC "${{ matrix.container }}" ${{ startsWith(matrix.container, 'alpine:') && 'sh -c "apk add bash; exec bash -s"' || 'bash -s' }} <<'EOF'
-        set -ex -o pipefail
-        if [[ "${{ matrix.container }}" == ubuntu:* ]]; then
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential libgmp-dev libhwloc-dev
-            HAVE_HWLOC=1
-            if [[ $CC == clang ]]; then
-                apt-get install -y clang
-            fi
-        elif [[ "${{ matrix.container }}" == alpine:* ]]; then
-            apk update
-            apk add build-base gmp-dev
-            if apk add hwloc-dev; then
-                HAVE_HWLOC=1
-            fi
-            if [[ $CC == clang ]]; then
-                apk add clang
-            fi
-        fi
-
-        $CC --version
-        ldd --version || true
-
-        MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            MODES+=( ASIMD )
-        else
-            MODES+=( SSE2 AVX AVX2 )
-            # Only test the AVX-512 build mode if the compiler's assembler can handle the AVX-512 constructs
-            # Mlucas's kernels use: the extended registers (zmm16-31/xmm16-31/k0-7). Ancient clang can't -
-            # clang 3.8 (ubuntu:16.04) rejects the extended register names ("unknown register name 'xmm30'").
-            # (The one AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c routine and is now gated to
-            # KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an ER-capable assembler -
-            # which is why clang 5.0 on alpine:3.8 can now build AVX-512.) Probe and skip AVX-512 rather than
-            # fail the build on a mode that provably can't work here.
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma -x c -o /dev/null -; then
-                MODES+=( AVX512 )
-            else
-                echo "::warning::Skipping the AVX512 build mode as the '$($CC --version | head -n1)' assembler cannot handle the required AVX512 extended registers (zmm16-31/xmm16-31/k0-7)."
-            fi
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -march=knl -mavx512f -mavx512er -x c -o /dev/null -; then
-                MODES+=( AVX512_KNL )
-            else
-                echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
-            fi
-        fi
-        for mode in "${MODES[@]}"; do
-            echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh ${HAVE_HWLOC:+use_hwloc} $mode
-            (cd obj${mode:+_$mode}; make clean)
-            for word in '' {{1..4},n}word; do
-                echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
-            done
-        done
-        cd obj
-        for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-        EOF
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: container-${{ strategy.job-index }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
-
-  Linux-K1OM:
-    name: Mlucas K1OM
-
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Download
-      run: |
-          # https://web.archive.org/web/20210307201727/https://software.intel.com/content/www/us/en/develop/articles/intel-manycore-platform-software-stack-mpss.html
-          wget -nv 'https://web.archive.org/web/20200818141734id_/http://registrationcenter-download.intel.com/akdlm/irc_nas/15904/mpss-3.8.6-linux.tar'
-          tar -xvf mpss-3.8.6-linux.tar
-    - name: Script
-      run: |
-        docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace centos:7 bash -s <<'EOF'
-        set -e -o pipefail
-        sed -i '/^mirrorlist/d;/^#baseurl=/{s|^#||;s|/mirror|/vault|;}' /etc/yum.repos.d/CentOS*.repo
-        # yum update -y
-        yum install -y make
-        yum localinstall -y mpss-3.8.6/mpss-sdk-k1om-3.8.6-1.x86_64.rpm
-        source /opt/mpss/3.8.6/environment-setup-k1om-mpss-linux
-
-        export CC=k1om-mpss-linux-gcc
-        # unset CFLAGS CPPFLAGS
-        $CC --version
-        k1om-mpss-linux-ld --version
-        $CC -dM -E - </dev/null
-
-        bash -e -o pipefail -- makemake.sh no_gmp k1om
-        (cd obj_k1om; make clean)
-        for word in '' {{1..4},n}word; do
-            echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh no_gmp mfac $word k1om
-            (cd obj_mfac${word:+_$word}_k1om; make clean)
-        done
-        EOF
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: linux_k1om_mlucas
-        path: |
-          ${{ github.workspace }}
-          !mpss-*
-
-  ASan-Linux:
-    name: AddressSanitizer Linux
-
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        cc: [gcc, clang]
-      fail-fast: false
-    env:
-      CC: ${{ matrix.cc }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y libhwloc-dev
-    - name: Before script
-      run: |
-        sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
-        $CC --version
-    - name: Script
-      run: |
-        set -x
-        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
-        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
-        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
-        for word in '' {{1..4},n}word; do
-            echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
-        done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-
-  TSan-Linux:
-    name: ThreadSanitizer Linux
-
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        cc: [gcc, clang]
-        exclude:
-          - cc: gcc # Too slow
-      fail-fast: false
-    env:
-      CC: ${{ matrix.cc }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y libhwloc-dev
-    - name: Before script
-      run: |
-        sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=thread/' makemake.sh
-        $CC --version
-    - name: Script
-      run: |
-        set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        cd obj_nosimd
-        make clean
-        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))"
-
-  GCC-analyzer:
-    name: GCC analyzer
-
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: GCC analyzer
-      run: |
-        set -x -o pipefail
-        gcc -c -fdiagnostics-color -std=gnu99 -g -O3 -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
-        rm -- *.o
-        echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-
-  Clang-Tidy:
-    name: Clang-Tidy
-
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y libhwloc-dev
-    - name: Clang-Tidy
-      run: |
-        set -x -o pipefail
-        clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -std=gnu99 -Wall -Wextra -O3 -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
-        echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-
-  Cppcheck:
-    name: Cppcheck
-
-    runs-on: ubuntu-22.04 # ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y cppcheck libhwloc-dev
-    - name: Cppcheck
-      run: |
-        mkdir build
-        cppcheck --std=c99 --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build -j "$(nproc)" --clang .
-        cppcheck --std=c99 --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build --clang . &> cppcheck.log
-        echo -e '## Cppcheck\n```' >> $GITHUB_STEP_SUMMARY
-        grep '\(error\|warning\|style\|performance\|portability\|information\):' cppcheck.log | awk '{ print $2, $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-
-  ShellCheck:
-    name: ShellCheck
-
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: ShellCheck
-      run: shellcheck --version; shopt -s globstar; shellcheck -o avoid-nullary-conditions,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
-
-  macOS:
-    name: Mlucas macOS
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-14, macos-15-intel, macos-15, macos-26-intel, macos-26]
-      fail-fast: false
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        brew install hwloc
-    - name: Before script
-      run: |
-        clang --version
-        if [[ $HOSTTYPE == arm64 ]]; then
-            clang -dM -E -mcpu=native - </dev/null
-        else
-            clang -dM -E -march=native - </dev/null
-        fi
-    - name: Script
-      run: |
-        set -x -o pipefail
-        sysctl -a
-        MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == arm64 ]]; then
-            MODES+=( ASIMD )
-        else
-            MODES+=( SSE2 AVX AVX2 AVX512 )
-        fi
-        for mode in "${MODES[@]}"; do
-            echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh use_hwloc $mode
-            (cd obj${mode:+_$mode}; make clean)
-            for word in '' {{1..4},n}word; do
-                echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
-            done
-        done
-        cd obj
-        echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
-        grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        if [[ $HOSTTYPE == arm64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == arm64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: ${{ matrix.os }}_mlucas
-        path: ${{ github.workspace }}
-
-  Singlethread-macOS:
-    name: Mlucas Singlethreaded macOS
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-26-intel, macos-latest]
-      fail-fast: false
-    steps:
-    - uses: actions/checkout@v7
-    - name: Before script
-      run: |
-        sed -i '' 's/-DUSE_THREADS//' makemake.sh
-        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
-        clang --version
-    - name: Script
-      run: |
-        set -x
-        MODES=( '' NOSIMD )
-        if [[ $HOSTTYPE == arm64 ]]; then
-            MODES+=( ASIMD )
-        else
-            MODES+=( SSE2 AVX AVX2 AVX512 )
-        fi
-        for mode in "${MODES[@]}"; do
-            echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh $mode
-            (cd obj${mode:+_$mode}; make clean)
-            for word in '' {{1..4},n}word; do
-                echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
-            done
-        done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
-        if [[ $HOSTTYPE == arm64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == arm64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: ${{ matrix.os }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
-
-  ASan-macOS:
-    name: AddressSanitizer macOS
-
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        brew install hwloc
-    - name: Before script
-      run: |
-        sed -i '' 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
-        clang --version
-    - name: Script
-      run: |
-        set -x
-        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
-        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
-        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
-        for word in '' {{1..4},n}word; do
-            echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
-        done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-
-  TSan-macOS:
-    name: ThreadSanitizer macOS
-
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install
-      run: |
-        brew install hwloc
-    - name: Before script
-      run: |
-        sed -i '' 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=thread/' makemake.sh
-        clang --version
-    - name: Script
-      run: |
-        set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        cd obj_nosimd
-        make clean
-        # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
-        # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
-        # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
-        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-
   FreeBSD:
     name: Mlucas FreeBSD
 
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        release: [12, 13, 14, 15]
+        release: [10, 11, 12, 13, 14, 15]
+        arch: [x86_64, aarch64]
+        exclude:
+          - release: 10
+            arch: aarch64
+          - release: 11
+            arch: aarch64
+          - release: 12
+            arch: aarch64
       fail-fast: false
     env:
       CC: clang
@@ -642,39 +41,45 @@ jobs:
       uses: vmactions/freebsd-vm@v1
       with:
         release: ${{ matrix.release }}
+        arch: ${{ matrix.arch }}
+        cpu: 4 # Defaults to 2 CPUs on aarch64
         envs: 'CC'
         usesh: true
-        sync: nfs
+        # sync: nfs
         prepare: |
           set -e
-          if [ "${{ matrix.release }}" = "12" ]; then
-            cat >/etc/pkg/FreeBSD.conf <<'EOF'
-          FreeBSD: {
-            url: "https://mirror.sg.gs/freebsd-pkg/${ABI}/latest",
-            mirror_type: "none",
-            signature_type: "fingerprints",
-            fingerprints: "/usr/share/keys/pkg",
-            enabled: yes
-          }
-          EOF
-            env PACKAGESITE='https://mirror.sg.gs/freebsd-pkg/FreeBSD:12:amd64/latest' /usr/sbin/pkg bootstrap -f -y
-            pkg update -f
-          fi
-          pkg install -y bash gmp hwloc2
+          case "${{ matrix.release }}" in
+            1[01]) export SSL_NO_VERIFY_PEER=yes ;;
+          esac
+          pkg install -y bash gmp ${{ matrix.release == '10' && 'hwloc' || 'hwloc2' }}
     - name: Before script
       shell: freebsd {0} 
       run: |
-        set -e -o pipefail
+        set -e # -o pipefail
         sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
-        $CC -dM -E -march=native - </dev/null
+        if [ "${{ matrix.arch }}" = aarch64 ]; then
+            $CC -dM -E -mcpu=native - </dev/null
+        else
+            $CC -dM -E -march=native - </dev/null
+        fi
     - name: Script
       shell: freebsd {0} 
       run: |
-        set -ex -o pipefail
+        set -ex # -o pipefail
         sysctl -a
-        for mode in '' NOSIMD SSE2 AVX AVX2 AVX512; do
-          echo -e "\n$mode\n"
+        if [ "${{ matrix.arch }}" = aarch64 ]; then
+            MODES='ASIMD'
+        else
+            MODES='SSE2 AVX AVX2'
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -mavx512f -mavx512cd -mfma -x c -o /dev/null -; then
+                MODES="$MODES AVX512"
+            else
+                echo "::warning::Skipping the AVX512 build mode as the '$($CC --version | head -n1)' assembler cannot handle the required AVX512 extended registers (zmm16-31/xmm16-31/k0-7)."
+            fi
+        fi
+        for mode in '' NOSIMD $MODES; do
+            echo -e "\n$mode\n"
             bash -e -o pipefail -- makemake.sh use_hwloc $mode
             (cd obj${mode:+_$mode}; make clean)
             for word in '' 1word 2word 3word 4word nword; do
@@ -683,145 +88,24 @@ jobs:
                 (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
             done
         done
+        if [ "${{ matrix.arch }}" = aarch64 ]; then
+            exit # ARM CPU emulation is too slow
+        fi
         cd obj
         for s in tt t s m; do time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        # Mfactor self-test on the native build only. The explicit-ISA builds above are for compile
-        # coverage: this VM may not be able to execute what they target - running them per-mode is
-        # what makes the AVX-512 binary SIGILL on three of the four releases on main today.
-        for word in '' 1word 2word 3word 4word nword; do
-            (cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
-    - uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: freebsd-${{ matrix.release }}-mlucas
-        path: ${{ github.workspace }}
-
-  Windows:
-    name: Windows
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest]
-        cc: [gcc, clang]
-        include:
-          - os: windows-11-arm
-            cc: clang
-      fail-fast: false
-    env:
-      CC: ${{ matrix.cc }}
-      PREFIX: ${{ endsWith(matrix.os, '-arm') && 'clangarm64' || 'mingw64' }}
-      PACKAGE_PREFIX: mingw-w64-${{ endsWith(matrix.os, '-arm') && 'clang-aarch64' || 'x86_64' }}-
-    steps:
-    - uses: actions/checkout@v7
-    - name: Before Install
-      run: |
-        echo "C:\msys64\${env:PREFIX}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "CPPFLAGS=-IC:\msys64\${env:PREFIX}\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "LDFLAGS=-LC:\msys64\${env:PREFIX}\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-    - name: Install
-      run: |
-        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
-        & $env:CC --version
-    - name: Install Clang
-      if: ${{ matrix.cc == 'clang' }}
-      run: |
-        pacman -S --noconfirm "${env:PACKAGE_PREFIX}clang"
-    - name: Before script
-      shell: bash
-      run: |
-        $CC --version
-        if [[ "${{ matrix.os }}" == *-arm ]]; then
-            $CC -dM -E -mcpu=native - </dev/null
-        else
-            $CC -dM -E -march=native - </dev/null
-        fi
-    - name: Script
-      shell: bash
-      run: |
-        set -x
-        MODES=( '' NOSIMD )
-        if [[ "${{ matrix.os }}" == *-arm ]]; then
-            MODES+=( ASIMD )
-        else
-            MODES+=( SSE2 AVX AVX2 AVX512 )
-        fi
-        for mode in "${MODES[@]}"; do
-            echo -e "\n$mode\n"
-            bash -e -o pipefail -- makemake.sh use_hwloc $mode
-            (cd obj${mode:+_$mode}; make clean)
-            for word in '' {{1..4},n}word; do
-                echo -e "\nMfactor $word\n"
-                bash -e -o pipefail -- makemake.sh mfac $word $mode
-                (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
-            done
-        done
-        cd obj
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        if [[ "${{ matrix.os }}" == *-arm ]]; then
+        if [ "${{ matrix.arch }}" = aarch64 ]; then
             cd ../obj_NOSIMD
         fi
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage; running them means executing a binary this runner may not support, which is
-        # how the FreeBSD jobs came to SIGILL. Test the build matched to this host instead.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ "${{ matrix.os }}" == *-arm ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        # Mfactor self-test on the native build only. The explicit-ISA builds above are for compile
+        # coverage: this VM may not be able to execute what they target
+        if [ "${{ matrix.arch }}" = aarch64 ]; then mode=NOSIMD; else mode=; fi
+        for word in '' 1word 2word 3word 4word nword; do
             (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
+        name: freebsd-${{ matrix.release }}-${{ matrix.arch }}-mlucas
         path: ${{ github.workspace }}
-
-  ASan-Windows:
-    name: AddressSanitizer Windows
-
-    runs-on: windows-latest
-    env:
-      CC: clang
-      PACKAGE_PREFIX: mingw-w64-clang-x86_64-
-    steps:
-    - uses: actions/checkout@v7
-    - name: Before Install
-      run: |
-        echo "C:\msys64\clang64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "CPPFLAGS=-IC:\msys64\clang64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "LDFLAGS=-LC:\msys64\clang64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-    - name: Install
-      run: |
-        pacman -S --noconfirm "${env:PACKAGE_PREFIX}toolchain"
-        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
-    - name: Before script
-      shell: bash
-      run: |
-        sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
-        $CC --version
-    - name: Script
-      shell: bash
-      run: |
-        set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
-        for word in '' {{1..4},n}word; do
-            echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
-        done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
