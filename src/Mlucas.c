@@ -485,8 +485,11 @@ RANGE_BEG:
 	if(dtmp != 0) {
 		if(dtmp != dtmp) {
 			sprintf(cbuf,"User did not set CheckInterval in %s ... using default.\n",MLUCAS_INI_FILE);
-		} else if(dtmp < 1000 || dtmp > 1000000) {
-			sprintf(cbuf,"User set CheckInterval = %f in %s ... values < 10^3 or > 10^6 are not supported, ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		/* v21: bound this by the G-check chain rather than by the decimal 10^3/10^6 it was written with -
+		otherwise the largest chain-valid interval, ITERS_BETWEEN_GCHECKS = 2^20 = 1048576, exceeds 10^6 and
+		is silently unreachable from the .ini. The chain itself is enforced below: */
+		} else if(dtmp < ITERS_BETWEEN_GCHECK_UPDATES || dtmp > ITERS_BETWEEN_GCHECKS) {
+			sprintf(cbuf,"User set CheckInterval = %f in %s ... values < %u or > %u are not supported, ignoring.\n",dtmp,MLUCAS_INI_FILE,(uint32)ITERS_BETWEEN_GCHECK_UPDATES,(uint32)ITERS_BETWEEN_GCHECKS);
 		} else if(DNINT(dtmp) != dtmp) {
 			sprintf(cbuf,"User set non-whole-number CheckInterval = %f in %s ... ignoring.\n",dtmp,MLUCAS_INI_FILE);
 		} else {
@@ -545,22 +548,18 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ITERS_BETWEEN_CHECKPOINTS = 65536;
 		else
 			ITERS_BETWEEN_CHECKPOINTS =  8192;
-	} else if(check_interval < 1024) {
-		ASSERT(0,"User-set value of check_interval must be >= 1024.");
-	} else {
+	} else if(check_interval % (uint32)ITERS_BETWEEN_GCHECK_UPDATES || (uint32)ITERS_BETWEEN_GCHECKS % check_interval) {
 		/* v21: the intervals are powers of two, and the G-check chain requires
-		ITERS_BETWEEN_GCHECK_UPDATES | ITERS_BETWEEN_CHECKPOINTS | ITERS_BETWEEN_GCHECKS.
-		A pre-v21 mlucas.ini may well carry a decimal CheckInterval such as 10000, which satisfies
-		neither; rather than abort such a run at the ASSERT below, round down to the largest power
-		of two that does, and say so: */
-		uint32 ci = check_interval, pow2ci = 1024;
-		while((pow2ci << 1) <= ci && (pow2ci << 1) <= (uint32)ITERS_BETWEEN_GCHECKS) { pow2ci <<= 1; }
-		if(pow2ci != ci) {
-			fprintf(stderr,"INFO: CheckInterval = %u is not a power of two in [%u, %u]; using %u instead.\n",
-				ci, (uint32)ITERS_BETWEEN_GCHECK_UPDATES, (uint32)ITERS_BETWEEN_GCHECKS, pow2ci);
-		}
-		ITERS_BETWEEN_CHECKPOINTS = pow2ci;
-	}
+		ITERS_BETWEEN_GCHECK_UPDATES | ITERS_BETWEEN_CHECKPOINTS | ITERS_BETWEEN_GCHECKS. Reject anything
+		that breaks that chain here, where we can name the offending value and the valid range, rather
+		than several thousand lines later at the bare (i%k != 0) assertion in the PRP path. A pre-v21
+		mlucas.ini may well carry a decimal CheckInterval such as 10000, which satisfies neither divisor: */
+		snprintf(cbuf,sizeof(cbuf),"User-set value of CheckInterval = %u is not usable: it must be a multiple of %u which divides %u (i.e. a power of two in [%u, %u]).",
+			check_interval, (uint32)ITERS_BETWEEN_GCHECK_UPDATES, (uint32)ITERS_BETWEEN_GCHECKS,
+			(uint32)ITERS_BETWEEN_GCHECK_UPDATES, (uint32)ITERS_BETWEEN_GCHECKS);
+		ASSERT(0,cbuf);
+	} else
+		ITERS_BETWEEN_CHECKPOINTS = check_interval;
 
 	fprintf(stderr,"Setting ITERS_BETWEEN_CHECKPOINTS = %u.\n",ITERS_BETWEEN_CHECKPOINTS);
 
@@ -2310,31 +2309,29 @@ READ_RESTART_FILE:
 		/* Make sure we start with primary restart file: */
 		RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
-		/* Oct 2014: Add every-10-million-iter file-checkpointing: deposit a unique-named restart file
-		             p[exponent].xM every 10 million iterations, on top of the usual checkpointing.
+		/* Oct 2014: Add periodic archival file-checkpointing: deposit a unique-named restart file
+		             p[exponent].xMi every ITERS_BETWEEN_ARCHIVES iterations, on top of the usual checkpointing.
 		To avoid having to write an extra copy of the p-savefile, wait for the *next* checkpoint -
-		i.e. ihi = (x million + ITERS_BETWEEN_CHECKPOINTS), or more simply, ilo = (x million) -
-		then simply rename the (not yet updated) p-savefile to add the -M extension, and open a
+		i.e. ihi = (x Mi + ITERS_BETWEEN_CHECKPOINTS), or more simply, ilo = (x Mi) -
+		then simply rename the (not yet updated) p-savefile to add the -Mi extension, and open a
 		new version of the p-savefile on the ensuing checkpointing:
 		*/
 		/* v21: ilo only ever takes multiples of ITERS_BETWEEN_CHECKPOINTS, and 10^7 = 2^7 * 78125, so no
 		power-of-two interval above 128 divides it - an (ilo%10000000 == 0) test can never fire under the v21
-		intervals and the .NM archives would silently stop being written. Trigger on *crossing* a 10-million
-		boundary instead, which is the same first-checkpoint-past-x-million the original comment describes and
-		is identical to the old behaviour whenever the interval does divide 10^7: */
-		if((ilo >= (uint32)ITERS_BETWEEN_CHECKPOINTS) && (ilo/10000000 > (ilo - ITERS_BETWEEN_CHECKPOINTS)/10000000)) {
-			/* Name from the boundary just crossed, not from ilo: with a large CheckInterval the first
-			checkpoint past a boundary can land in the following million (e.g. 280M -> ".281M" at the
-			maximum interval of 1048576). Identical to ilo/1000000 whenever ilo lands on the boundary,
-			which is what the pre-v21 decimal intervals always did: */
-			sprintf(cbuf, ".%dM", (ilo/10000000)*10);
+		intervals and the archives would silently stop being written. Archive every 10 Mi = 10*2^20 instead,
+		which every power-of-two interval divides, so the every-N-iterations test is again an exact one and
+		the archive still lands on the interval boundary rather than at the next checkpoint past it: */
+		if(ilo && (ilo % ITERS_BETWEEN_ARCHIVES) == 0) {
+			/* Mi rather than M in the suffix because that is what the count now is - p[exponent].10Mi is
+			at iteration 10485760, not 10000000: */
+			sprintf(cbuf, ".%uMi", ilo/(1u<<20));
 			strcpy(g_cstr, RESTARTFILE);
 			strcat(g_cstr, cbuf);
 			if(rename(RESTARTFILE, g_cstr)) {
-				snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping every-10M-iteration restart file archiving\n",WORKFILE,g_cstr);
+				snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping periodic restart file archiving\n",WORKFILE,g_cstr);
 				fprintf(stderr,"%s",cbuf);
 			}
-		}	// ilo a multiple of 10 million?
+		}	// ilo a multiple of 10 Mi?
 
 	WRITE_RESTART_FILE:
 
