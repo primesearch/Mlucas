@@ -38,6 +38,7 @@ TARGET=$Mlucas
 ARGS=(-DUSE_THREADS) # Optional compile args
 WORDS=''
 C_ARGS=()
+CPP_ARGS=()
 # Mfactor's factor.c gets an explicit TRYQ. This is the value for a build with no word size
 # named on the command line; a word-size build picks its own in the block below.
 TRYQ_ARG=-DTRYQ=4
@@ -49,6 +50,7 @@ MAKE_ARGS=()
 MODES=()
 GMP=1
 HWLOC=0
+STATIC=0
 
 case $OSTYPE in
 	darwin*)
@@ -155,6 +157,54 @@ try_lto() {
 	) >/dev/null 2>&1
 }
 
+static_libs() {
+	local library=$1 archive libdir
+
+	if command -v pkg-config >/dev/null && pkg-config --exists "$library"; then
+		local arg flags=()
+		libdir=$(pkg-config --variable=libdir "$library")
+		archive="$libdir/lib${library}.a"
+
+		if [[ ! -f $archive ]]; then
+			echo "Error: Static library '$archive' was not found." >&2
+			return 1
+		fi
+
+		if ! output=$(pkg-config --static --libs "$library"); then
+			echo "Error: pkg-config could not determine the static link flags for '$library'." >&2
+			return 1
+		fi
+
+		read -r -a flags <<<"$output"
+
+		for arg in "${flags[@]}"; do
+			if [[ $arg == "-l$library" ]]; then
+				LD_ARGS+=("$archive")
+			else
+				LD_ARGS+=("$arg")
+			fi
+		done
+
+		return
+	fi
+
+	if archive=$("${CC:-gcc}" $LDFLAGS -L/usr/local/lib -L/opt/homebrew/lib -print-file-name="lib${library}.a" 2>/dev/null) && [[ -n $archive && $archive != "lib${library}.a" && -f $archive ]]; then
+		LD_ARGS+=("$archive")
+		return
+	fi
+
+	for libdir in /usr/local/lib /usr/lib64 /usr/lib /opt/homebrew/lib; do
+		archive="$libdir/lib${library}.a"
+		if [[ -f $archive ]]; then
+			LD_ARGS+=("$archive")
+			return
+		fi
+	done
+
+	echo "Error: Static library 'lib${library}.a' was not found." >&2
+	return 1
+}
+
 if [[ ! $OSTYPE == darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
 fi
@@ -232,6 +282,9 @@ for arg in "$@"; do
 		use_hwloc)
 			HWLOC=1
 			;;
+		static)
+			STATIC=1
+			;;
 		avx512_skylake | avx512_knl | avx512 | k1om | avx2 | avx | sse2 | asimd | nosimd)
 			MODES+=("$arg")
 			;;
@@ -252,7 +305,11 @@ for arg in "$@"; do
 done
 
 if ((GMP)); then
-	LD_ARGS+=(-lgmp)
+	if ((STATIC)); then
+		static_libs gmp
+	else
+		LD_ARGS+=(-lgmp)
+	fi
 else
 	echo "Building sans Gnu-MP ... this means no GCDs will be taken in p-1 work."
 	ARGS+=(-DINCLUDE_GMP=0)
@@ -261,7 +318,16 @@ fi
 if ((HWLOC)); then
 	echo "Building with HWLOC hardware-topology support."
 	ARGS+=(-DINCLUDE_HWLOC=1)
-	LD_ARGS+=(-lhwloc)
+
+	if ((STATIC)); then
+		static_libs hwloc
+
+		if [[ $OSTYPE == darwin* ]]; then
+			LD_ARGS+=(-framework Foundation -framework IOKit -framework OpenCL)
+		fi
+	else
+		LD_ARGS+=(-lhwloc)
+	fi
 fi
 
 if [[ $TARGET == "$Mfactor" ]]; then
@@ -309,6 +375,11 @@ if [[ $OSTYPE == msys || $OSTYPE == cygwin ]]; then
 	Mlucas+=.exe
 	Mfactor+=.exe
 	TARGET+=.exe
+	CPP_ARGS+=(-DWINVER=0x0601 -D_WIN32_WINNT=0x0601)
+
+	if ((STATIC)); then
+		LD_ARGS+=(-static)
+	fi
 fi
 
 # First if/elif clause handles cross-platform builds and non-default values for "Use GMP?" and "Use HWLOC?":
@@ -535,9 +606,9 @@ fi
 cat <<EOF >Makefile
 CC ?= gcc
 CFLAGS = ${C_ARGS[*]}
-CPPFLAGS += -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
+CPPFLAGS += -D_GNU_SOURCE ${CPP_ARGS[*]} -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS += -L/usr/local/lib -L/opt/homebrew/lib
-LDLIBS = ${LD_ARGS[@]} # -static
+LDLIBS = ${LD_ARGS[@]}
 
 VPATH = ../src
 .PATH: ../src

@@ -1971,7 +1971,7 @@ uint32 get_system_ram(void) {
 // Nov 2024: Ditto for MinGW Windows, but only on 64-bit, otherwise we get false positives on ARMv7.
 #ifdef CPU_IS_ARM_EABI
 
-  #if defined(OS_TYPE_MACOSX) || defined(__MINGW32__)
+  #if defined(OS_TYPE_MACOSX) || defined(__FreeBSD__) || defined(__MINGW32__)
 
 	int has_asimd(void)
 	{
