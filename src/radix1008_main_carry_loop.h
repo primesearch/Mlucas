@@ -218,7 +218,15 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		addr = &prp_mult;
 		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass:
-		incr = 4;	// incr must divide RADIX/8!
+		// *** incr must divide nloop = RADIX/8 = 126, and be <= 8. 4 does NOT divide 126: with incr = 4 the
+		// inner l-loop below overran nloop by 2 on its final pass, reading poff[252],poff[254] past the end of
+		// poff[RADIX>>2] and writing 2 carry-macro calls' worth of data past cy_r/bjmodn, which silently zeroed
+		// the residue (Res64 = 0 with a perfect-looking AvgMaxErr). 3 is the largest divisor of 126 that is <= 4,
+		// so it restores the invariant without lengthening the carry chain. ***
+		incr = 3;	// incr must divide RADIX/8!
+	#if ((RADIX>>3) % 3)
+		#error carry-chain length incr must divide nloop = RADIX>>3 !
+	#endif
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
@@ -643,7 +651,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x1f80, 0x3c0,0x780,0xb40, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
+				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x1f80, 0xfc0,0x1f80,0x2f40, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
 				tm0 += 16; tm1++;
 				MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
