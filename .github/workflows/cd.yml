@@ -1,0 +1,425 @@
+name: CD
+
+on:
+  push:
+    tags:
+      - '*'
+      - '!ci-*'
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  Linux:
+    name: Mlucas Linux
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+          - os: ubuntu-latest
+            platform: linux/386
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64/v8
+          - os: ubuntu-24.04-arm
+            platform: linux/arm/v7
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v7
+    - name: Download
+      run: |
+          wget -nv 'https://download.open-mpi.org/release/hwloc/v1.11/hwloc-1.11.13.tar.gz'
+          tar -xzvf hwloc-1.11.13.tar.gz
+    - name: Script
+      run: |
+        docker run --rm -i --platform "${{ matrix.platform }}" -v "$GITHUB_WORKSPACE:/workspace" -w /workspace centos:7 bash -s -e -o pipefail <<'EOF'
+        sed -i '/^mirrorlist/d;/^#baseurl=/{s|^#||;s|/mirror|/vault|;}' /etc/yum.repos.d/CentOS*.repo
+        # yum update -y
+        case "$HOSTTYPE" in
+            i686)
+                yum install -y gcc make gmp-devel gmp-static # hwloc-devel
+                ;;
+            armv7hl)
+                echo armhfp > /etc/yum/vars/basearch
+                echo armv7hl > /etc/yum/vars/arch
+                echo armv7hl-redhat-linux-gnu > /etc/rpm/platform
+                yum install -y gcc make gmp-devel gmp-static # hwloc-devel
+                ;;
+            *)
+                yum install -y centos-release-scl epel-release
+                if [[ $HOSTTYPE == aarch64 ]]; then repo=altarch; else repo=centos; fi
+                sed -i "s|/centos/7/|/$repo/7/|g;/^mirrorlist/d;/^# *baseurl=/{s|^# *||;s|/mirror|/vault|;}" /etc/yum.repos.d/CentOS-SCLo-*.repo
+                yum install -y devtoolset-10-gcc make gmp-devel gmp-static # hwloc-devel
+                source /opt/rh/devtoolset-10/enable
+                ;;
+        esac
+
+        gcc --version
+        
+        (
+            cd hwloc-1.11.13
+            ./configure --prefix=/usr/local --disable-shared --enable-static # --disable-io
+            make -j "$(nproc --all)"
+            make check -j "$(nproc --all)"
+            make install
+        )
+        export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+
+        MODES=( NOSIMD )
+        case "$HOSTTYPE" in
+            aarch64) MODES+=( ASIMD ) ;;
+            x86_64) MODES+=( SSE2 AVX AVX2 AVX512 AVX512_KNL ) ;;
+        esac
+        for mode in "${MODES[@]}"; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc static $mode
+            (cd obj_${mode}; make clean)
+            for word in {{1..4},n}word; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh static mfac $word $mode
+                (cd obj_mfac_${word}_${mode}; make clean)
+            done
+        done
+        (cd obj_NOSIMD && ./Mlucas -h)
+        for word in {{1..4},n}word; do
+            (cd obj_mfac_${word}_NOSIMD && ./Mfactor_${word} -h)
+        done
+        mkdir "${MODES[@]}"
+        for mode in "${MODES[@]}"; do
+            mv -v obj_${mode}/Mlucas obj_mfac_[1-4n]word_${mode}/Mfactor_[1-4n]word $mode/
+        done
+        EOF
+    - uses: actions/upload-artifact@v7
+      with:
+        name: Mlucas_linux_${{ case(matrix.platform == 'linux/amd64', 'x86_64', matrix.platform == 'linux/386', 'i686', matrix.platform == 'linux/arm64/v8', 'aarch64', matrix.platform == 'linux/arm/v7', 'armv7', '') }}
+        path: |
+          README.md
+          docs/*.md
+          LICENSE
+          help.txt
+          config-fermat.sh
+          NOSIMD/
+          SSE2/
+          AVX*/
+          ASIMD/
+
+  macOS:
+    name: Mlucas macOS
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-15-intel, macos-15]
+      fail-fast: false
+    env:
+      MACOSX_DEPLOYMENT_TARGET: 10.13
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install GMP
+      run: |
+        set -x
+        mkdir local
+        curl -fLO 'https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz'
+        tar -xf gmp-6.3.0.tar.xz
+        cd gmp-6.3.0
+        ./configure --prefix="$GITHUB_WORKSPACE/local" --disable-shared --enable-static --with-pic --enable-fat
+        make -j "$(sysctl -n hw.ncpu)"
+        make check -j "$(sysctl -n hw.ncpu)"
+        make install
+    - name: Install hwloc
+      run: |
+        set -x
+        curl -fLO 'https://download.open-mpi.org/release/hwloc/v2.14/hwloc-2.14.0.tar.bz2'
+        tar -xf hwloc-2.14.0.tar.bz2
+        cd hwloc-2.14.0
+        ./configure --prefix="$GITHUB_WORKSPACE/local" --disable-shared --enable-static # --disable-io
+        make -j "$(sysctl -n hw.ncpu)"
+        make check -j "$(sysctl -n hw.ncpu)"
+        make install
+        echo "CPPFLAGS=-I$GITHUB_WORKSPACE/local/include" >> "$GITHUB_ENV"
+        echo "LDFLAGS=-L$GITHUB_WORKSPACE/local/lib" >> "$GITHUB_ENV"
+        echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+    - name: Before script
+      run: |
+        clang --version
+    - name: Script
+      run: |
+        set -x -o pipefail
+        MODES=( NOSIMD )
+        if [[ $HOSTTYPE == arm64 ]]; then
+            MODES+=( ASIMD )
+        else
+            MODES+=( SSE2 AVX AVX2 AVX512 )
+        fi
+        for mode in "${MODES[@]}"; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc static $mode
+            (cd obj_${mode}; make clean)
+            for word in {{1..4},n}word; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh static mfac $word $mode
+                (cd obj_mfac_${word}_${mode}; make clean)
+            done
+        done
+        (cd obj_NOSIMD && ./Mlucas -h)
+        for word in {{1..4},n}word; do
+            (cd obj_mfac_${word}_NOSIMD && ./Mfactor_${word} -h)
+        done
+        mkdir "${MODES[@]}"
+        for mode in "${MODES[@]}"; do
+            mv -v obj_${mode}/Mlucas obj_mfac_[1-4n]word_${mode}/Mfactor_[1-4n]word $mode/
+        done
+    - uses: actions/upload-artifact@v7
+      with:
+        name: Mlucas_macos_${{ endsWith(matrix.os, '-intel') && 'x86_64' || 'aarch64' }}
+        path: |
+          README.md
+          docs/*.md
+          LICENSE
+          help.txt
+          config-fermat.sh
+          NOSIMD/
+          SSE2/
+          AVX*/
+          ASIMD/
+
+  FreeBSD:
+    name: Mlucas FreeBSD
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - release: 11
+            arch: x86_64
+          - release: 10
+            arch: i386
+          - release: 12
+            arch: aarch64
+          - release: 13
+            arch: armv7
+      fail-fast: false
+    env:
+      CC: clang
+    steps:
+    - uses: actions/checkout@v7
+    - name: Download
+      if: matrix.arch == 'aarch64'
+      run: |
+          # FreeBSD 12 aarch64 packages recovered from: https://web.archive.org/web/20231120175454/https://pkg.freebsd.org/FreeBSD:12:aarch64/
+          wget -nv 'https://github.com/user-attachments/files/32473773/freebsd12-aarch64-packages.zip'
+          unzip -o freebsd12-aarch64-packages.zip
+    - name: Download
+      if: matrix.arch == 'armv7'
+      run: |
+          # FreeBSD 12 armv7 packages recovered from: https://web.archive.org/web/20231120175407/https://pkg.freebsd.org/FreeBSD:12:armv7/
+          wget -nv 'https://github.com/user-attachments/files/32482403/freebsd12-armv7-packages.zip'
+          unzip -o freebsd12-armv7-packages.zip
+    - name: Script
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: ${{ matrix.release }}
+        arch: ${{ matrix.arch == 'i386' && 'x86_64' || matrix.arch == 'armv7' && 'aarch64' || matrix.arch }}
+        cpu: 4 # Defaults to 2 on ARM
+        mem: 12288 # Defaults to 6144 MiB
+        envs: 'CC'
+        usesh: true
+        prepare: |
+          set -e
+          case "${{ matrix.release }}" in
+            1[01]) export SSL_NO_VERIFY_PEER=yes ;;
+          esac
+          if [ "${{ matrix.arch }}" = i386 ]; then
+            JAIL=/usr/jails/mlucas-${{ matrix.arch }}
+            mkdir -p "$JAIL/workspace"
+            fetch -o /tmp/ 'https://archive.freebsd.org/old-releases/i386/10.4-RELEASE/base.txz'
+            tar -C "$JAIL" -xpf /tmp/base.txz
+            rm -f /tmp/base.txz
+            cp /etc/resolv.conf "$JAIL/etc/resolv.conf"
+            cat >"$JAIL/etc/pkg/FreeBSD.conf" <<'EOF'
+          FreeBSD: {
+            url: "http://mirror.sg.gs/freebsd-pkg/${ABI}/latest",
+            mirror_type: "none",
+            signature_type: "fingerprints",
+            fingerprints: "/usr/share/keys/pkg",
+            enabled: yes
+          }
+          EOF
+            jail -c name=mlucas path="$JAIL" ip4=inherit ip6=inherit mount="$(pwd) $JAIL/workspace nullfs rw 0 0" mount.devfs persist
+            jexec mlucas sh -ex <<'EOF'
+          env ASSUME_ALWAYS_YES=yes /usr/sbin/pkg bootstrap -f
+          pkg update -f
+          EOF
+          elif [ "${{ matrix.arch }}" = armv7 ]; then
+            JAIL=/usr/jails/mlucas-${{ matrix.arch }}
+            MNT=/mnt/mlucas-${{ matrix.arch }}
+            mkdir -p "$JAIL/workspace" "$MNT"
+            fetch -o /tmp/ 'https://archive.freebsd.org/old-releases/arm/armv7/ISO-IMAGES/12.4/FreeBSD-12.4-RELEASE-arm-armv7-GENERICSD.img.xz'
+            xz -dc /tmp/FreeBSD-12.4-RELEASE-arm-armv7-GENERICSD.img.xz >/tmp/FreeBSD-12.4-RELEASE-arm-armv7-GENERICSD.img
+            md=$(mdconfig -a -t vnode -o readonly -f /tmp/FreeBSD-12.4-RELEASE-arm-armv7-GENERICSD.img)
+            mount -t ufs -o ro "/dev/${md}s2a" "$MNT"
+            tar -C "$MNT" -cf - . | tar -C "$JAIL" -xpf -
+            umount "$MNT"
+            mdconfig -d -u "$md"
+            rm -f /tmp/FreeBSD-12.4-RELEASE-arm-armv7-GENERICSD.img /tmp/FreeBSD-12.4-RELEASE-arm-armv7-GENERICSD.img.xz
+            cp /etc/resolv.conf "$JAIL/etc/resolv.conf"
+            jail -c name=mlucas path="$JAIL" ip4=inherit ip6=inherit osrelease=12.4-RELEASE osreldate=1204000 mount="$(pwd) $JAIL/workspace nullfs rw 0 0" mount.devfs persist
+          fi
+          if [ "${{ matrix.arch }}" = aarch64 ]; then
+            tar -C /tmp --strip-components=4 -xf freebsd12-aarch64-packages/pkg-*.pkg /usr/local/sbin/pkg-static
+            /tmp/pkg-static add freebsd12-aarch64-packages/*.pkg
+          elif [ "${{ matrix.arch }}" = armv7 ]; then
+            tar -C "$JAIL/tmp" --strip-components=4 -xf freebsd12-armv7-packages/pkg-*.txz /usr/local/sbin/pkg-static
+            jexec mlucas sh -c '/tmp/pkg-static add /workspace/freebsd12-armv7-packages/*.txz'
+          else
+            ${{ (matrix.arch == 'i386' || matrix.arch == 'armv7') && 'jexec mlucas' || '' }} pkg install -y bash gmp ${{ matrix.release == '10' && 'hwloc' || 'hwloc2' }} pkgconf
+          fi
+    - name: Before script
+      shell: freebsd {0}
+      run: |
+        set -e ${{ matrix.release != '10' && '-o pipefail' || '' }}
+        ${{ (matrix.arch == 'i386' || matrix.arch == 'armv7') && 'jexec mlucas' || '' }} $CC --version
+        if [ "${{ matrix.arch }}" = armv7 ]; then
+            sed -i '' 's/-flto=auto//; s/-flto//' makemake.sh
+        fi
+    - name: Script
+      shell: freebsd {0}
+      run: |
+        set -ex ${{ matrix.release != '10' && '-o pipefail' || '' }}
+        ${{ (matrix.arch == 'i386' || matrix.arch == 'armv7') && 'jexec mlucas sh -c "cd /workspace && exec sh -ex"' || 'sh -ex' }} <<'EOF'
+        MODES=NOSIMD
+        case "${{ matrix.arch }}" in
+            aarch64) MODES="$MODES ASIMD" ;;
+            x86_64) MODES="$MODES SSE2 AVX AVX2 AVX512 AVX512_KNL" ;;
+        esac
+        for mode in $MODES; do
+            echo -e "\n$mode\n"
+            bash -e -o pipefail -- makemake.sh use_hwloc static $mode
+            (cd obj_${mode}; make clean)
+            for word in 1word 2word 3word 4word nword; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh static mfac $word $mode
+                (cd obj_mfac_${word}_${mode}; make clean)
+            done
+        done
+        (cd obj_NOSIMD && ./Mlucas -h)
+        for word in 1word 2word 3word 4word nword; do
+            (cd obj_mfac_${word}_NOSIMD && ./Mfactor_${word} -h)
+        done
+        mkdir $MODES
+        for mode in $MODES; do
+            mv -v obj_${mode}/Mlucas obj_mfac_[1-4n]word_${mode}/Mfactor_[1-4n]word $mode/
+        done
+        EOF
+    - uses: actions/upload-artifact@v7
+      with:
+        name: Mlucas_freebsd-${{ matrix.arch == 'armv7' && '12' || matrix.release }}_${{ matrix.arch }}
+        path: |
+          README.md
+          docs/*.md
+          LICENSE
+          help.txt
+          config-fermat.sh
+          NOSIMD/
+          SSE2/
+          AVX*/
+          ASIMD/
+
+  Windows:
+    name: Windows
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            cc: gcc
+            sys: mingw64
+            env: x86_64
+          - os: windows-latest
+            cc: gcc
+            sys: mingw32
+            env: i686
+          - os: windows-11-arm
+            cc: clang
+            sys: clangarm64
+            env: clang-aarch64
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      PACKAGE_PREFIX: mingw-w64-${{ matrix.env }}-
+    steps:
+    - uses: actions/checkout@v7
+    - name: Before Install
+      run: |
+        echo "C:\msys64\${{ matrix.sys }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\${{ matrix.sys }}\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\${{ matrix.sys }}\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Install
+      run: |
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}toolchain"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp"
+        if ("${{ matrix.sys }}" -eq "mingw32") {
+          pacman -U --noconfirm "https://mirror.msys2.org/mingw/mingw32/mingw-w64-i686-hwloc-2.13.0-1-any.pkg.tar.zst"
+        } else {
+          pacman -S --noconfirm "${env:PACKAGE_PREFIX}hwloc"
+        }
+        & $env:CC --version
+    - name: Install GCC 13 for KNL
+      if: matrix.sys == 'mingw64'
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/niXman/mingw-builds-binaries/releases/download/13.2.0-rt_v11-rev1/x86_64-13.2.0-release-posix-seh-msvcrt-rt_v11-rev1.7z" -OutFile "$env:RUNNER_TEMP\gcc13.7z"
+        New-Item -ItemType Directory -Force -Path C:\gcc13
+        7z x "$env:RUNNER_TEMP\gcc13.7z" -oC:\gcc13 -y
+        C:\gcc13\mingw64\bin\gcc --version
+    - name: Before script
+      shell: bash
+      run: |
+        $CC --version
+    - name: Script
+      shell: bash
+      run: |
+        set -x
+        MODES=( NOSIMD )
+        case "${{ matrix.sys }}" in
+            clangarm64) MODES+=( ASIMD ) ;;
+            mingw64) MODES+=( SSE2 AVX AVX2 AVX512 AVX512_KNL ) ;;
+        esac
+        for mode in "${MODES[@]}"; do
+            echo -e "\n$mode\n"
+            if [[ $mode == AVX512_KNL ]]; then
+                export CC=C:/gcc13/mingw64/bin/gcc
+                export LDFLAGS=-BC:/msys64/mingw64/lib/
+            fi
+            bash -e -o pipefail -- makemake.sh use_hwloc static $mode
+            (cd obj_${mode}; make clean)
+            for word in {{1..4},n}word; do
+                echo -e "\nMfactor $word\n"
+                bash -e -o pipefail -- makemake.sh static mfac $word $mode
+                (cd obj_mfac_${word}_${mode}; make clean)
+            done
+        done
+        (cd obj_NOSIMD && ./Mlucas -h)
+        for word in {{1..4},n}word; do
+            (cd obj_mfac_${word}_NOSIMD && ./Mfactor_${word} -h)
+        done
+        mkdir "${MODES[@]}"
+        for mode in "${MODES[@]}"; do
+            mv -v obj_${mode}/Mlucas.exe obj_mfac_[1-4n]word_${mode}/Mfactor_[1-4n]word.exe $mode/
+        done
+    - uses: actions/upload-artifact@v7
+      with:
+        name: Mlucas_windows_${{ case(matrix.sys == 'mingw64', 'x86_64', matrix.sys == 'mingw32', 'i686', matrix.sys == 'clangarm64', 'aarch64', '') }}
+        path: |
+          README.md
+          docs/*.md
+          LICENSE
+          help.txt
+          config-fermat.sh
+          NOSIMD/
+          SSE2/
+          AVX*/
+          ASIMD/

@@ -1941,15 +1941,23 @@ uint32 get_system_ram(void) {
 		};
 	*/
 	struct sysinfo info;
-	sysinfo(&info);
-	fprintf(stderr,"System total RAM = %lu, free RAM = %lu\n",info.totalram>>20,info.freeram>>20);
-	return (info.freeram)>>20;
+	if (sysinfo(&info)) {
+		fprintf(stderr, "sysinfo failed: %s\n", strerror(errno));
+		return 0;
+	}
+	uint64 totalram = (uint64)info.totalram * info.mem_unit;
+	uint64 freeram = (uint64)info.freeram * info.mem_unit;
+	fprintf(stderr,"System total RAM = %" PRIu64 ", free RAM = %" PRIu64 "\n",totalram>>20,freeram>>20);
+	return freeram>>20;
 
 #elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 
 	MEMORYSTATUSEX memInfo;
 	memInfo.dwLength = sizeof(memInfo);
-	GlobalMemoryStatusEx(&memInfo);
+	if (!GlobalMemoryStatusEx(&memInfo)) {
+		fprintf(stderr,"GlobalMemoryStatusEx failed with error %lu.\n", (unsigned long)GetLastError());
+		return 0;
+	}
 	fprintf(stderr, "System total RAM = %" PRIu64 ", free RAM = %" PRIu64 "\n", memInfo.ullTotalPhys>>20, memInfo.ullAvailPhys>>20);
 	return memInfo.ullAvailPhys>>20;
 
@@ -1959,8 +1967,37 @@ uint32 get_system_ram(void) {
 	https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctlbyname.3.html. */
 	uint64 totalram;	// Under OS X, this needs to be an int (size_t gave garbage results)
 	size_t len = sizeof(totalram);
-	sysctlbyname("hw.memsize", &totalram, &len, NULL, 0);
+	if (sysctlbyname("hw.memsize", &totalram, &len, NULL, 0)) {
+		fprintf(stderr, "sysctl hw.memsize failed: %s\n", strerror(errno));
+		return 0;
+	}
 	return (totalram >> 20);
+
+#elif defined(OS_TYPE_FreeBSD_kernel)
+
+	unsigned long physmem;
+	unsigned free_count, page_size;
+	size_t len = sizeof(physmem);
+	if (sysctlbyname("hw.physmem", &physmem, &len, NULL, 0)) {
+		fprintf(stderr, "sysctl hw.physmem failed: %s\n", strerror(errno));
+		return 0;
+	}
+
+	len = sizeof(free_count);
+	if (sysctlbyname("vm.stats.vm.v_free_count", &free_count, &len, NULL, 0)) {
+		fprintf(stderr, "sysctl vm.stats.vm.v_free_count failed: %s\n", strerror(errno));
+		return 0;
+	}
+
+	len = sizeof(page_size);
+	if (sysctlbyname("vm.stats.vm.v_page_size", &page_size, &len, NULL, 0)) {
+		fprintf(stderr, "sysctl vm.stats.vm.v_page_size failed: %s\n", strerror(errno));
+		return 0;
+	}
+
+	uint64 freeram = (uint64)free_count * page_size;
+	fprintf(stderr, "System total RAM = %lu, free RAM = %" PRIu64 "\n", physmem>>20, freeram>>20);
+	return freeram>>20;
 
 #endif
 }
@@ -1971,7 +2008,7 @@ uint32 get_system_ram(void) {
 // Nov 2024: Ditto for MinGW Windows, but only on 64-bit, otherwise we get false positives on ARMv7.
 #ifdef CPU_IS_ARM_EABI
 
-  #if defined(OS_TYPE_MACOSX) || defined(__MINGW32__)
+  #if defined(OS_TYPE_MACOSX) || defined(OS_TYPE_FreeBSD_kernel) || defined(__MINGW32__)
 
 	int has_asimd(void)
 	{
