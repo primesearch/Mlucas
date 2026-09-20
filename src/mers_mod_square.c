@@ -1369,7 +1369,7 @@ for(i=0; i < NRT; i++) {
 		// MAX_THREADS is the max. no. of threads we expect to be able to make use of, at 1 thread per core.
 		ASSERT(MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
-		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
+		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: chunk count ceil(radix0/2) not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
 		pool_work_units = nchunks;
 		// Free any threadpool left over from a prior runlength/radix-set before creating the new one,
