@@ -1215,10 +1215,14 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	due to truncation-on-integer-div, if jmod := (j % RE_IM_STRIDE) < RE_IM_STRIDE/2, subtract jmod from j, otherwise
 	add (RE_IM_STRIDE - jmod) to j: */
 	k = j & (RE_IM_STRIDE - 1);	// k holds jmod
-	if(k < (RE_IM_STRIDE>>1))
-		j -= k;
-	else
-		j += (RE_IM_STRIDE - k);
+	if(k) {			// Only fiddle j if it is not already a multiple of RE_IM_STRIDE. In a scalar build the stride
+					// is 1, so k is always 0 and j needs no adjustment; without this guard the (k < stride/2)
+					// test below is 0 < 0, and the else-arm rounds j *up* by a full stride instead.
+		if(k < (RE_IM_STRIDE>>1))
+			j -= k;
+		else
+			j += (RE_IM_STRIDE - k);
+	}
 	// Populate the parts of the thread-specific data structs which remain fixed from one call to the next:
 	for(i = 0, k = 0; i < NTHREADS; ++i, k += j) {
 		tdat[i].tid = i;
