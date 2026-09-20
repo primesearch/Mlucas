@@ -1962,6 +1962,31 @@ uint32 get_system_ram(void) {
 	sysctlbyname("hw.memsize", &totalram, &len, NULL, 0);
 	return (totalram >> 20);
 
+#else
+
+	/* Catch-all for every OS_TYPE with no branch of its own above - Solaris, AIX, GNU/Hurd,
+	DEC OSF and VMS today, plus anything added later. Without it the function runs off its end,
+	which is undefined behavior, and in practice returns whatever is in the return register -
+	and SYSTEM_RAM, which sizes the p-1 stage 2 buffers, gets seeded from that garbage.
+
+	sysconf() is the one query these share; there is no portable free-memory equivalent, so
+	report total physical RAM, exactly as the MacOS branch above does with hw.memsize: */
+	#include <unistd.h>
+
+  #if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
+	const long npage = sysconf(_SC_PHYS_PAGES), pagesize = sysconf(_SC_PAGESIZE);
+	if(npage < 1 || pagesize < 1) {
+		fprintf(stderr,"INFO: sysconf() was unable to determine the system RAM size.\n");
+		return 0;
+	}
+	const uint64 totalram = (uint64)npage * (uint64)pagesize;
+	fprintf(stderr,"System total RAM = %" PRIu64 "\n", totalram>>20);
+	return (uint32)(totalram>>20);
+  #else
+	#warning No system-RAM query is implemented for this OS ... reporting 0 MB.
+	return 0;
+  #endif
+
 #endif
 }
 
