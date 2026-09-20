@@ -3081,6 +3081,31 @@ MFACTOR_HELP:
 		else
 			get_startval(MODULUS_TYPE, 0ull, findex, two_p, lenQ, bit_len, interval_lo, incr, nclear, nprime, p_last_small, pdiff, startval);
 
+	#if defined(USE_AVX512) && !defined(USE_IMCI512)
+		// Does this pass's sieve contain any of get_startval()'s 0xFFFFFFFF sentinel start-values? The
+		// vectorized bit-clearing below cannot carry one: its Loop #1 ends with startval[m] = l-bit_len
+		// unconditionally, and the asm Loop #2 subtracts bit_len from every lane, masked-off ones
+		// included - so a sentinel decays into an ordinary offset and, 15774 sweeps later, that prime
+		// starts clearing live candidate bits. Nothing reports it: a cleared bit just means "not a
+		// candidate", so the run completes and quietly misses factors. The scalar loop preserves the
+		// sentinel (see its `& -(l != 0xffffffff)`), so use it whenever one is present.
+		//
+		// Test the sieve rather than the exponent. get_startval() sets the sentinel whenever the current
+		// sieving prime divides 2*p - Ernst's Dec 2019 change, which "also catches curr_p-divides-exponent
+		// for composite exponents" - and odd composite exponents are explicitly allowed above (ATH's TF of
+		// M(p^2) for known Mersenne primes). So a sentinel is reachable at *any* exponent size, e.g.
+		// p = 1009*3001, while an exponent-size test only catches the tiny ones. This is strictly weaker
+		// than the old `p <= MAX_SIEVING_PRIME` test: the sieving-prime table is capped at ~2*p whenever p
+		// is small (see the `(curr_p+29) > two_p[0]` break in the table build), and every prime factor of
+		// such a p is below that cap, so every case the size test caught sets a sentinel here too.
+		//
+		// Once per pass, against thousands of sweeps inside it, so the scan does not show up in profiles.
+		uint32 sieve_has_sentinel = 0;
+		for(m = nclear; m < nprime; m++) {
+			if(startval[m] == 0xffffffff) { sieve_has_sentinel = 1; break; }
+		}
+	#endif
+
 		for(sweep = interval_lo; sweep < interval_hi; ++sweep)
 		{
 #ifdef MULTITHREAD
@@ -3191,12 +3216,9 @@ MFACTOR_HELP:
 			// [ = 272272 or 226304, resp., depending on whether TF_CLASSES = 60 or 4620].
 			// We vectorize the 2nd loop, since each prime therein will hit at most one bit of the sievelet,
 			// i.e. we require no while-loop, only an if(curr_p's startval < bit_len or not) conditional.
-			// The vectorized bit-clearing below cannot handle the 0xFFFFFFFF 'p == curr_p' sentinel start-value
-			// get_startval() sets when the exponent p is itself within the sieving-prime range - only reachable
-			// by tiny exponents (e.g. the '-m 127 -bmax 20' self-test). Fall back to the scalar loop for that
-			// case; the AVX-512 path handles all real (large) exponents, where no sieving prime equals p.
-			const uint32 small_p = (lenP == 1) && (p[0] <= MAX_SIEVING_PRIME);
-			if(!small_p) {
+			// Fall back to the scalar loop for any pass whose sieve carries a 0xFFFFFFFF sentinel
+			// start-value, which this path cannot represent - see the sieve_has_sentinel scan above.
+			if(!sieve_has_sentinel) {
 		// Loop #1:
 			curr_p = p_last_small;
 			for(m = nclear; m < nprime; m++)
@@ -3258,7 +3280,7 @@ MFACTOR_HELP:
 			);
 		/*	}	*/
 
-			} else	// small_p: the vectorized sieve can't handle the p==curr_p sentinel; use the scalar loop below
+			} else	// sieve_has_sentinel: the vectorized sieve can't carry the sentinel; use the scalar loop below
 		#endif
 			{	/******** Non-SIMD (pre-AVX512) - also the small-exponent fallback from the AVX-512 path above **********/
 
