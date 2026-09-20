@@ -78,6 +78,13 @@ Then to run, e.g.
 #endif
 
 /*************** Bytewise utility routines needed by prime-pairing algorithm ***************/
+// v21: mod-2^64 sum of a uint64 vector, for the stage 2 static-table checksums:
+static uint64 pm1_s2_checksum(const uint64 a[], uint32 len) {
+	uint64 s = 0ull; uint32 i;
+	for(i = 0; i < len; i++) s += a[i];
+	return s;
+}
+
 void bytevec_bitstr(uint8*x, int nbytes, char*ostr)
 {
 	int i;
@@ -1045,6 +1052,12 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	static double **buf = 0x0;	// on whether bigstep = [210,330,420 or 840]. a[] is simply a tmp-ptr used to init buf[]
 								// and then as an alias for mult[3]. 	<**** NOTE! ****
 	static double *vone = 0x0;	// Holds fwdFFT(1)
+	/* v21: stage 2 exact checks (help.txt section [9]): checksums of the static buf[] tables, taken after their
+	fwd-FFT and re-verified at checkpoints; a scratch array for recomputing the A^((kD)^2) ladder value from the
+	stage 1 residue; and the previous checkpoint's accumulator checksum triplet for the stuck-accumulator test: */
+	static uint64 *bufsum = 0x0, *s2chk_A = 0x0;	static double *s2chk_ptmp = 0x0, *s2chk = 0x0;
+	static uint32 s2chk_round = 0, s2chk_have = 0;	static uint64 s2chk_r64 = 0ull, s2chk_r35 = 0ull, s2chk_r36 = 0ull;
+	static double s2chk_tlast = 0.0, s2chk_tdur = 0.0;
   #ifdef macintosh
 	argc = ccommand(&argv);			/* Macintosh CW */
   #endif
@@ -1431,6 +1444,10 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	sprintf(cbuf,"Using Bigstep %u, pairing-window multiplicity M = %u: Init M*%u = %u [base^(A^(b^2)) %% n] buffers for Stage 2...\n",bigstep,m,num_b,m*num_b);
 	mlucas_fprint(cbuf,pm1_standlone+1);
 	// [a] Generate set of precomputed buffers A^(b^2) (A = s1 residue stored in pow[]) for b-values corr. to our choice of D:
+	// v21: keep a packed copy of the stage 1 residue A for the checkpoint ladder check (pow[] holds A, pure-int, here):
+	if(s2chk_A) free((void *)s2chk_A);
+	s2chk_A = (uint64 *)calloc(nlimb+1, sizeof(uint64));	ASSERT(s2chk_A != 0x0, "calloc of stage 2 check residue copy failed!");
+	convert_res_FP_bytewise(pow, (uint8*)s2chk_A, n, p, 0x0,0x0,0x0);
 	memcpy(buf[0] ,pow,nbytes);	// b[0] = 1 --> Copy of A^1 into buf[0]
 	memcpy(mult[0],pow,nbytes);	// Another copy of A^1 into mult[0][] - this will hold ascending odd-square powers A^1,9,25,...
 	memcpy(mult[1],pow,nbytes);	// A third copy of A^1 into mult[1][] - this will end up holding A^8 in fwd-FFTed form:
@@ -1751,6 +1768,16 @@ MME = 0;
 		//                                                                    vvvvvvvv
 		ierr = func_mod_square(buf[i], 0x0, n, 0,1, 4ull + (uint64)(mode_flag - (i==0)), p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 	}	ASSERT(nerr == 0, "fwdFFT of buf[] entries returns error!");
+	/* v21: The buf[] tables never change from here on, so checksum each now; checkpoints re-verify a rotating 1/16
+	of them (a full pass streams the whole table set - tens of GB at 100M-digit exponents), or all of them when the
+	periodic-check clock is set to "every checkpoint". Also allocate the scratch array the ladder check needs: */
+	if(bufsum) free((void *)bufsum);
+	bufsum = (uint64 *)calloc(m*num_b, sizeof(uint64));	ASSERT(bufsum != 0x0, "calloc of stage 2 buffer checksums failed!");
+	for(i = 0; i < m*num_b; i++) bufsum[i] = pm1_s2_checksum((uint64 *)buf[i], nbytes>>3);
+	if(s2chk_ptmp) { free((void *)s2chk_ptmp); s2chk_ptmp = s2chk = 0x0; }
+	s2chk_ptmp = ALLOC_DOUBLE(s2chk_ptmp, npad);	ASSERT(s2chk_ptmp != 0x0, "alloc of stage 2 check scratch array failed!");
+	s2chk = ALIGN_DOUBLE(s2chk_ptmp);
+	s2chk_round = 0; s2chk_have = 0; s2chk_tlast = getRealTime(); s2chk_tdur = 0.0;
 
 	// Accumulate the cycle count in a floating double on each pass to avoid problems
 	// with integer overflow of the clock() result, if clock_t happens to be 32-bit int on the host platform:
@@ -2507,6 +2534,69 @@ MME = 0;
 			ierr = func_mod_square(a, 0x0, n, 0,1, 8ull, p, scrnFlag,&tdif2, FALSE, 0x0);
 			arrtmp[nlimb-1] = 0ull;
 			convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
+		#ifdef MLUCAS_FAULT_INJECT
+			/* Test-only fault injector for stage 2 (cf. the stage 1 one in Mlucas.c): at the first checkpoint whose q reaches
+			$MLUCAS_FAULT_S2_Q, add 1.0 to element 0 of the ladder value mult[0] ("ladder"), of table entry buf[1] ("table")
+			or of the accumulator pow[] ("accum", which nothing can catch - the documented gap). Fires once per process: */
+			{
+				static int fi_done = 0; const char *fi_what = getenv("MLUCAS_FAULT_S2"), *fi_q = getenv("MLUCAS_FAULT_S2_Q");
+				if(fi_what && fi_q && !fi_done && (q+bigstep) >= strtoull(fi_q,0x0,10)) {
+					fi_done = 1;
+					if(!strcmp(fi_what,"ladder")) mult[0][0] += 1.0;
+					else if(!strcmp(fi_what,"table")) buf[1][0] += 1.0;
+					else if(!strcmp(fi_what,"accum")) { pow[0] += 1.0; memcpy(a,pow,nbytes); ierr = func_mod_square(a, 0x0, n, 0,1, 8ull, p, scrnFlag,&tdif2, FALSE, 0x0); arrtmp[nlimb-1] = 0ull; convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1); }
+					snprintf(cbuf,sizeof(cbuf), "FAULT INJECTION: stage 2 %s perturbed at q = %" PRIu64 ".\n",fi_what,q+bigstep);
+					mlucas_fprint(cbuf,pm1_standlone+1);
+				}
+			}
+		#endif
+			/* v21: Stage 2 exact checks. There is no algebraic invariant for the accumulator itself (a product of
+			differences of powers), so it gets sanity tests only; the two *inputs* every later term is built from -
+			the A^((kD)^2) ladder and the static buf[] tables - have closed forms and are checked exactly. All three
+			abort on failure: the .s2 checkpoint on disk is intact, and a restart rebuilds ladder and tables from
+			the stage 1 residue and resumes the accumulator from the file.
+			[1] Accumulator: never zero (every term is a nonzero difference mod N... a zero would mean a term was
+			    exactly 0 mod N, i.e. a factor was found by the ladder hitting a table entry, probability ~1/N),
+			    and never identical to the previous checkpoint's value: */
+			if(mi64_iszero(arrtmp, nlimb)) {
+				snprintf(cbuf,sizeof(cbuf), "ERROR: %s stage 2 accumulator is identically zero at q = %" PRIu64 " - not a possible value; memory corruption or a broken build. Aborting; the .s2 checkpoint is intact and a restart resumes from it.\n",PSTRING,q+bigstep);
+				mlucas_fprint(cbuf,pm1_standlone+1); ASSERT(0,cbuf);
+			}
+			if(s2chk_have && Res64 == s2chk_r64 && Res35m1 == s2chk_r35 && Res36m1 == s2chk_r36) {
+				snprintf(cbuf,sizeof(cbuf), "ERROR: %s stage 2 accumulator did not change over the checkpoint interval ending at q = %" PRIu64 " - the run is not advancing (stuck data or a broken build). Aborting; the .s2 checkpoint is intact.\n",PSTRING,q+bigstep);
+				mlucas_fprint(cbuf,pm1_standlone+1); ASSERT(0,cbuf);
+			}
+			s2chk_have = 1; s2chk_r64 = Res64; s2chk_r35 = Res35m1; s2chk_r36 = Res36m1;
+			/* [2] Static tables: a rotating 1/16 of buf[] per checkpoint, all of them when JacobiCheckHours = 0: */
+			{
+				uint32 nb = m*num_b, per = (JACOBI_CHECK_HOURS == 0.0) ? nb : (nb + 15)/16, lo = s2chk_round*per, hi = MIN(nb, lo+per);
+				for(i = lo; i < hi; i++) {
+					if(pm1_s2_checksum((uint64 *)buf[i], nbytes>>3) != bufsum[i]) {
+						snprintf(cbuf,sizeof(cbuf), "ERROR: %s stage 2 table entry %u of %u fails its checksum at q = %" PRIu64 " - the precomputed A^(b^2) buffers have been corrupted in memory. Aborting; the .s2 checkpoint is intact and a restart rebuilds the tables.\n",PSTRING,i,nb,q+bigstep);
+						mlucas_fprint(cbuf,pm1_standlone+1); ASSERT(0,cbuf);
+					}
+				}
+				s2chk_round = (hi >= nb) ? 0 : s2chk_round+1;
+			}
+			/* [3] Ladder: recompute A^((kD)^2) from the stage 1 residue (packed form kept in vec1[]) by the same
+			two-step modpow the stage 2 setup uses - D^2 first, then k^2 - forward-FFT it as the loop does, and require
+			the result to be bit-identical to mult[0]. Same integer, same carry normalisation, same FFT, so it is.
+			~130 modmuls, so it rides the periodic-check clock (JacobiCheckHours, 0 = every checkpoint) with the
+			100x-previous-duration guard: */
+			if(JACOBI_CHECK && (JACOBI_CHECK_HOURS == 0.0 || (getRealTime() - s2chk_tlast) >= MAX(JACOBI_CHECK_HOURS*3600.0, 100.0*s2chk_tdur))) {
+				double t0 = getRealTime();
+				convert_res_bytewise_FP((uint8*)s2chk_A, s2chk, n, p);	// s2chk = A, pure-int
+				modpow(s2chk, a, TRUE , (uint64)bigstep*bigstep, func_mod_square, p, n, scrnFlag,&tdif2);	// s2chk = A^(D^2)
+				modpow(s2chk, a, FALSE, (uint64)k*k, func_mod_square, p, n, scrnFlag,&tdif2);			// s2chk = A^((kD)^2)
+				ierr = func_mod_square(s2chk, 0x0, n, 0,1, 4ull + 1ull, p, scrnFlag,&tdif2, FALSE, 0x0);	// fwd-FFT, as [1b] does for mult[0]
+				s2chk_tdur = getRealTime() - t0; s2chk_tlast = getRealTime();
+				if(ierr || memcmp(s2chk, mult[0], nbytes) != 0) {
+					snprintf(cbuf,sizeof(cbuf), "ERROR: %s stage 2 ladder check FAILED at q = %" PRIu64 " (k = %u): A^((kD)^2) recomputed from the stage 1 residue differs from the running value - every term since the last passing check is suspect. Aborting; the .s2 checkpoint is intact and a restart rebuilds the ladder.\n",PSTRING,q+bigstep,k);
+					mlucas_fprint(cbuf,pm1_standlone+1); ASSERT(0,cbuf);
+				}
+				snprintf(cbuf,sizeof(cbuf), "Stage 2 ladder check passed at q = %" PRIu64 " (k = %u, %.1f sec).\n",q+bigstep,k,s2chk_tdur);
+				mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
+			}
 		  #ifdef RTIME
 			clock2 = getRealTime();	*tdiff = clock2 - clock1;	clock1 = clock2;
 		  #endif
@@ -2612,6 +2702,9 @@ ERR_RETURN:
 	free((void *)buf); buf = 0x0;
 	free((void *)b); b = 0x0;
 	free((void *)map); map = 0x0;
+	if(bufsum) { free((void *)bufsum); bufsum = 0x0; }	// v21: stage 2 check data
+	if(s2chk_A) { free((void *)s2chk_A); s2chk_A = 0x0; }
+	if(s2chk_ptmp) { free((void *)s2chk_ptmp); s2chk_ptmp = s2chk = 0x0; }
   #ifdef MULTITHREAD
 	if(tpool) { threadpool_free(tpool); tpool = 0x0; }	// Join+free the Stage-2 worker pool so it does not linger after this call
 	free((void *)thr_ret ); thr_ret  = 0x0;
