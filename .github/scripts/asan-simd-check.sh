@@ -10,8 +10,9 @@
 #                Needed for avx512 because GitHub's Azure runner SKUs are inconsistent
 #                about AVX-512 support; Intel SDE removes that dependency entirely.
 #
-# Reads CC / CFLAGS / LDFLAGS from the environment (makemake.sh's generated Makefile uses
-# "CFLAGS ?=", so an exported CFLAGS wins outright). Do NOT export CPPFLAGS: makemake.sh
+# Reads CC / CFLAGS / LDFLAGS from the environment. CFLAGS cannot simply be exported: the
+# generated Makefile emits "CFLAGS =", a hard assignment, so this script rewrites that line in
+# makemake.sh before building (see the note at the build step). Do NOT export CPPFLAGS: makemake.sh
 # sets "CPPFLAGS ?= -D_GNU_SOURCE ...", and without -D_GNU_SOURCE threadpool.c loses
 # CPU_ZERO/CPU_SET/sched_setaffinity on current glibc.
 #
@@ -90,6 +91,19 @@ rm -rf -- "$OBJ"
 echo "::group::Build $MODE under AddressSanitizer"
 echo "CC=${CC:-gcc}"
 echo "CFLAGS=${CFLAGS:-<makemake default>}"
+# makemake.sh writes "CFLAGS = ..." into the Makefile it generates - a hard assignment, not
+# "CFLAGS ?=" - so an exported CFLAGS never reaches the compiler. Rewrite that line instead, which
+# is what makemake.sh itself prescribes and what the other sanitizer jobs in this workflow do.
+# Exporting is not merely ineffective here, it is actively misleading: the tree then compiles as an
+# ordinary -O3 -flto=auto build with no instrumentation and only the *link* gets -fsanitize=address,
+# at which point LTO code generation applies the sanitizer and the 14-register asm in
+# mi64_div_by_scalar64_u4 has nothing left to allocate - "'asm' operand has impossible constraints",
+# which reads convincingly as a compiler bug and is not one. LDFLAGS and CPPFLAGS need no such
+# handling: those lines are "+=", so the environment is honoured.
+if [[ -n ${CFLAGS:-} ]]; then
+	sed -i "s|^CFLAGS = .*|CFLAGS = $CFLAGS|" makemake.sh
+	grep -m1 '^CFLAGS = ' makemake.sh
+fi
 bash -e -o pipefail -- makemake.sh "$MODE"
 echo "::endgroup::"
 
