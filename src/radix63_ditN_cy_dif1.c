@@ -542,14 +542,21 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// fwd-DWT weight 2^(target_idx*sw % n)/n at the target word
 			target_set = target_idx / NDIVR;	// which of the RADIX(=63) independent carry sub-chains holds the target
 			target_idx -= target_set*NDIVR;		// target_idx now = index within that sub-chain
-			// Main-loop stride is 2*RE_IM_STRIDE and a power of 2, so AND-minus-1 does the mod. Derive it
-			// from RE_IM_STRIDE here rather than reading the function-scope 'stride': PR #210 deletes that
-			// declaration along with the physical-stride main-array loop it served (its loop advances by a
-			// logical 2 instead), and the two PRs merge without a git conflict, so a use that depends on
-			// the declaration compiles or not depending purely on which of them lands second.
-			tidx_mod_stride = target_idx & (((int)RE_IM_STRIDE << 1) - 1);
-			target_idx -= tidx_mod_stride;		// stride-align
-			target_set = (target_set << (L2_SZ_VD-2)) + tidx_mod_stride;	// non-SIMD: shift = 1; low bit selects Re/Im part
+			// radix-63 is scalar all the way through - DIT, carry and DIF each handle one complex datum per
+			// loop pass - so the main loop counts complex data, advancing by a logical 2 whatever the build,
+			// and the target index aligns to that, not to the SIMD width. (The physical layout is still
+			// interleaved: the carry loop maps the logical j to j1 through the same br4/br8/br16 scramble
+			// the DIF/DIT passes use, and the Im part sits RE_IM_STRIDE doubles above the Re part - which is
+			// where RE_IM_STRIDE enters, at the decode in radix63_main_carry_loop.h, not here.)
+			//
+			// So do NOT follow radix60's `target_set << (L2_SZ_VD-2)` packing here. That is right for a
+			// routine whose SIMD carry works out of an s1p00 local store, where a sub-chain occupies
+			// 2*RE_IM_STRIDE contiguous doubles and the low bits of target_set index into it. radix63 has
+			// no such store: its carry writes a[] directly, one complex datum per pass, so the low bit is
+			// simply Re-or-Im, exactly as in a scalar build.
+			tidx_mod_stride = target_idx & 1;	// 0|1 = [Re|Im] part of the target complex datum
+			target_idx -= tidx_mod_stride;		// align to the loop's logical stride of 2
+			target_set = (target_set << 1) + tidx_mod_stride;	// low bit selects Re/Im part
 			target_cy = target_wtfwd * (-(int)(2u << (itmp64 & 255)));	// = -2 * 2^within-word-shift * fwd-DWT-weight
 		} else {
 			target_idx = target_set = 0;
