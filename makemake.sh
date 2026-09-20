@@ -172,9 +172,26 @@ knl_vl_clean() {
 	trap 'rm -rf "$tmpdir"' RETURN
 	"$cc" -S -O3 -w -D_GNU_SOURCE -DUSE_THREADS -DUSE_AVX512 -DINCLUDE_GMP=0 "$@" \
 		-I "$src" -o "$tmpdir/probe.s" "$src/radix48_ditN_cy_dif1.c" >/dev/null 2>&1 || return 2
-	# A 256-bit EVEX insert/extract - one naming a ymm register but no zmm - needs AVX512VL.
-	# The 512-bit forms name a zmm and are fine on KNL.
-	! grep -E 'vinsert[fi]32x4|vextract[fi]32x4' "$tmpdir/probe.s" | grep ymm | grep -qv zmm
+	# A 256-bit EVEX op - one naming a ymm register but no zmm - needs AVX512VL, which KNL lacks.
+	# The 512-bit forms name a zmm and are fine. The mnemonic list is EVEX-only encodings seen in
+	# this tree's codegen (GCC 14/15/16 reach for the inserts; the others are here so the next
+	# compiler that picks a different EVEX-only op is caught too). It is a heuristic, not a
+	# decoder: a plain VEX ymm op such as vaddpd is AVX2 and runs on KNL, so 'names a ymm' alone
+	# cannot be the test, and the CI job's run under SDE -knl remains the real backstop.
+	#
+	# Counted in one awk pass rather than 'grep ... | grep -q ...': grep -q exits at the first
+	# match, killing the upstream grep with SIGPIPE, and under 'set -o pipefail' - which the CI
+	# Build step enables - that 141 becomes the pipeline's status, so the leading '!' would report
+	# a dirty file as clean. Measured with GNU grep 3.12: a probe file with 200000 matching lines
+	# reported "clean" 50 times out of 50, a 4-line one 0 times out of 200, i.e. the construct
+	# fails in exactly the direction this gate exists to prevent, and only once the output grows
+	# past a pipe buffer. One process, no pipeline, no early exit.
+	! awk '
+		/%ymm/ && !/%zmm/ && \
+		/v(insert|extract)[fi]32x4|vpternlog[dq]|vperm[it]2[a-z]+|vpblendm[dq]|vmovdq[au](8|16|32|64)|vbroadcast[fi]32x[248]|vp(and|or|xor|andn)[dq]|vrndscale[ps][sd]|vscalef[ps][sd]|vrcp14[ps][sd]|vrsqrt14[ps][sd]|vp(compress|expand)[dq]|vgetmant[ps][sd]|vfixupimm[ps][sd]/ \
+			{ found = 1 }
+		END { exit !found }
+	' "$tmpdir/probe.s"
 }
 
 if [[ ! $OSTYPE == darwin* ]]; then
@@ -400,7 +417,7 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			# on __AVX512ER__ - is unreachable: its sole caller sits inside a commented-out test harness. So
 			# a toolchain without ER/PF builds a functionally identical binary. Warn rather than refuse:
 			for knl_flag in -mavx512er -mavx512pf; do
-					if try_flag "$knl_flag"; then
+				if try_flag "$knl_flag"; then
 					ARGS+=("$knl_flag")
 				else
 					echo "Warning: ${CC:-gcc} does not support $knl_flag - building without it. The result still runs on Knights Landing/Mill; the only code this gates is currently unreachable, so the binary is functionally the same." >&2
