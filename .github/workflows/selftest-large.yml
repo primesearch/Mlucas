@@ -1,0 +1,103 @@
+name: Large self-test
+
+# The 'large' self-test covers FFT lengths 8M-60M across 24 exponents. help.txt puts it at ~10 hours
+# on a fast CPU at 1000 iterations; CI runs it at 4 threads, which selects the 100-iteration count,
+# so it lands around an hour a job. Measured on 4 cores of a modern desktop for comparison, the rest
+# of the ladder is 1 s for 'tt', 2 s for 't', 24 s for 's' and 290 s for 'm' - so 'l' was roughly
+# 90% of the self-test cost of every job that ran it, on every push and every pull request.
+#
+# It is worth running, just not on that cadence: it is the same numerical code as the shorter
+# ladders, exercised at lengths a change is unlikely to break selectively, and nothing found this
+# year needed it (every wrong-residue bug was at 1K-4032K, inside 'tt' through 'm'). So it runs here
+# weekly against main instead, and ci.yml's ladders stop at 'm'.
+on:
+  schedule:
+    # Wednesdays at 10:00 UTC. A scheduled run always uses the default branch, so this is main.
+    - cron: '0 10 * * 3'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  Large:
+    name: Large self-test
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One configuration per platform that used to run 'l' in ci.yml: x86-64 Linux, ARM Linux,
+      # Apple Silicon, and Windows. Not the full matrix - this is a numerical check at length, and
+      # the per-compiler and per-release axes are already covered by the shorter ladders.
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+          - os: ubuntu-24.04-arm
+            cc: gcc
+          - os: macos-latest
+            cc: clang
+          - os: windows-latest
+            cc: gcc
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install (Linux)
+      if: startsWith(matrix.os, 'ubuntu')
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
+
+    - name: Install (macOS)
+      if: startsWith(matrix.os, 'macos')
+      run: brew install hwloc
+
+    - name: Before Install (Windows)
+      if: startsWith(matrix.os, 'windows')
+      run: |
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Install (Windows)
+      if: startsWith(matrix.os, 'windows')
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-hwloc
+        & $env:CC --version
+
+    - name: Build
+      shell: bash
+      run: |
+        set -x
+        $CC --version
+        # Native build only. The explicit-ISA builds in ci.yml are for compile coverage; what this
+        # job is for is running the largest FFT lengths on whatever the runner actually executes.
+        bash -e -o pipefail -- makemake.sh use_hwloc
+
+    - name: Large self-test
+      shell: bash
+      run: |
+        set -x
+        cd obj
+        if [[ $OSTYPE == msys || $OSTYPE == cygwin ]]; then
+            NCPU=$NUMBER_OF_PROCESSORS
+        elif [[ $OSTYPE == darwin* ]]; then
+            NCPU=$(sysctl -n hw.ncpu)
+        else
+            NCPU=$(nproc --all)
+        fi
+        time ./Mlucas -s l -cpu "0:$(( NCPU - 1 ))" |& tee -a large.log
+
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        # Logs and the cfg only - the whole workspace would be the build tree as well.
+        name: ${{ matrix.os }}_${{ matrix.cc }}_large_selftest
+        path: |
+          obj/large.log
+          obj/mlucas.cfg
+        if-no-files-found: warn
