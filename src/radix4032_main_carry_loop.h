@@ -426,6 +426,11 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
 	  #if HIACC
+		#error The HIACC Fermat-mod carry arm does not work for the ODD_RADIX == 63 radices. Measured on\
+ AVX2 with -DHIACC=1: radix1008 F24 at 1008K halts on roundoff, radix4032 F26 at 4032K returns\
+ Res64 = 0000000000000000 at MaxErr 0 - i.e. one of the silent all-zero residues this file's LOACC\
+ arm was fixed to stop producing. Neither is reachable in a stock build, since nothing defines\
+ HIACC here; this guard is so that defining it fails loudly instead. Use the LOACC arm below.
 		// Hi-accuracy version needs RADIX/4 copies of each base root:
 		l = (j >> 1);	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
 		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
@@ -480,7 +485,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x7e00, 0x1f80,0x3f00,0x5e80, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
+			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x7e00, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
 			tm0 += 8; tm1++; tmp += 8; l -= 0xc0;
 			MOD_ADD32(ic_idx, 4, ODD_RADIX, ic_idx);
 			MOD_ADD32(jc_idx, 4, ODD_RADIX, jc_idx);
