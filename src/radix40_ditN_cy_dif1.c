@@ -232,18 +232,12 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int n_div_nwt;
   #ifndef MULTITHREAD
 	int col,co2,co3;
-  #endif
-  #ifdef USE_AVX512
-   #ifndef MULTITHREAD
+   #ifdef USE_AVX512
 	double t0,t1,t2,t3;
 	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-   #endif
-  #elif defined(USE_AVX)
-   #ifndef MULTITHREAD
+   #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
-   #endif
-  #else
-   #ifndef MULTITHREAD
+   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
    #endif
