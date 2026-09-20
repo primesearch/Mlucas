@@ -101,7 +101,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Singlethread-Linux:
     name: Mlucas Singlethreaded Linux
@@ -170,7 +174,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Linux-old:
     name: Mlucas Linux old
@@ -308,8 +316,10 @@ jobs:
       with:
         name: linux_k1om_mlucas
         path: |
-          ${{ github.workspace }}
-          !mpss-*
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   ASan-Linux:
     name: AddressSanitizer Linux
@@ -517,7 +527,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Singlethread-macOS:
     name: Mlucas Singlethreaded macOS
@@ -578,7 +592,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   ASan-macOS:
     name: AddressSanitizer macOS
@@ -710,7 +728,11 @@ jobs:
       if: always()
       with:
         name: freebsd-${{ matrix.release }}-mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Windows:
     name: Windows
@@ -808,7 +830,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   ASan-Windows:
     name: AddressSanitizer Windows
