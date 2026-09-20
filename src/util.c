@@ -1894,8 +1894,8 @@ void set_stacklimit_restart(char *argv[])
 		fprintf(stderr, "Call to getrlimit() failed.\n");
 		ASSERT(0, "Exiting.");
 	}
-	printf("Old stack_limits: cur = %zu, max = %zu, [RLIM_INFINITY = %zu]\n",
-	       stack_limits.rlim_cur, stack_limits.rlim_max, RLIM_INFINITY);
+	printf("Old stack_limits: cur = %" PRIu64 ", max = %" PRIu64 ", [RLIM_INFINITY = %" PRIu64 "]\n",
+	       (uint64)stack_limits.rlim_cur, (uint64)stack_limits.rlim_max, (uint64)RLIM_INFINITY);
 
 	if (stack_limits.rlim_cur == stack_limits.rlim_max)
 		return;
@@ -1905,8 +1905,8 @@ void set_stacklimit_restart(char *argv[])
 		fprintf(stderr, "Call to setrlimit() failed.\n");
 		ASSERT(0, "Exiting.");
 	}
-	printf("New stack_limits: cur = %zu, max = %zu\n",
-	       stack_limits.rlim_cur, stack_limits.rlim_max);
+	printf("New stack_limits: cur = %" PRIu64 ", max = %" PRIu64 "\n",
+	       (uint64)stack_limits.rlim_cur, (uint64)stack_limits.rlim_max);
 
 	if(execvp(argv[0], argv)) {
 		fprintf(stderr, "Call to execvp() failed.\n");
