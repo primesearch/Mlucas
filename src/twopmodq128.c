@@ -65,6 +65,23 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	if(dbg) printf("twopmmodq128: computing 2^%s (mod %s)\n",&char_buf[convert_uint128_base10_char(char_buf,p)],&g_cstr[convert_uint128_base10_char(g_cstr,q)]);
 #endif
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
+	/* If p > 128 we need the Montgomery-mul powering loop, which needs an odd modulus, so strip
+	any power of 2 from q *here*, ahead of the (p <= 128) early-out below: the strip lowers p by
+	nshift and can drop it into the early-out range. Doing the early-out first instead leaves
+	p in (128, 128+nshift) falling through to (pshift = p - 128), which wraps. The (p > 128)
+	guard keeps p >= nshift, so the identity 2^p mod q = 2^nshift * (2^(p-nshift) mod q') holds. */
+	nshift = 0;
+	if(!(p.d1 == 0 && p.d0 <= 128)) {
+		nshift = trailz128(q);
+		if(nshift) {
+			x.d0 = (uint64)nshift; x.d1 = 0ull; SUB128(p,x,p);	// p >= nshift guaranteed here:
+			RSHIFT128(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
+			RSHIFT_FAST128(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
+		#if FAC_DEBUG
+			if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint128_base10_char(char_buf,q)]);
+		#endif
+		}
+	}
 	// If p <= 128, directly compute 2^p (mod q):
 	if(p.d1 == 0 && p.d0 <= 128) {
 		// Lshift (1 << j) to align with leading bit of q, then do (p - j) repeated mod-doublings:
@@ -75,23 +92,22 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 			LSHIFT128(x,(uint32)p.d0,x);
 		} else {
 			LSHIFT128(x,j,x);
+			// 2^j <= q < 2^(j+1), so the aligned seed is < q *except* when q is an exact power
+			// of 2, where 2^j == q and the seed needs reducing to 0 - the doublings below never
+			// reduce it otherwise, and the routine would return q (or 2^nshift) in place of 0:
+			if(CMPEQ128(x, q)) { x.d0 = x.d1 = 0ull; }
 		}
 		for( ; j < p.d0; j++) {
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT128(x, qhalf)){ ADD128(x, x, x); SUB128(x, q, x); }else{ ADD128(x, x, x); }
 		}
+		// Restore any power of 2 stripped from the modulus above:
+		if(nshift) {
+			LSHIFT128(x,nshift,x);
+		}
 		return x;
 	}
-	// If get here, p > 128: set up for Montgomery-mul-based powering loop:
-	nshift = trailz128(q);
-	if(nshift) {
-		x.d0 = (uint64)nshift; x.d1 = 0ull; SUB128(p,x,p);	// p >= nshift guaranteed here:
-		RSHIFT128(q,nshift,q);	// Right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
-		RSHIFT_FAST128(q, 1, qhalf);	// Must recompute (q-1)/2: the mod-doublings in the powering loop reduce (mod q'), not (mod q)
-	#if FAC_DEBUG
-		if(dbg) printf("Removed power-of-2 from q: q' = (q >> %u) = %s\n",nshift,&char_buf[convert_uint128_base10_char(char_buf,q)]);
-	#endif
-	}
+	// If get here, p > 128 and q is odd: set up for Montgomery-mul-based powering loop.
 	// Extract leftmost 8 bits of (p - 128); if > 128, use leftmost 7 instead:
 	x.d0 = 128ull; x.d1 = 0ull; SUB128(p,x,pshift); j = leadz128(pshift);
 	if(j > 120) {	// pshift < 128, i.e. fewer than 8 significant bits: the 8-bit extraction below would
