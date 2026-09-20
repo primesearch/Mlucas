@@ -431,9 +431,9 @@ for(outer=0; outer <= 1; outer++)
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 			// v21: inject the LL residue-shift target carry when the main-loop reaches the target word.
-			// (target_idx was set to -1 for a zero shift's word-0 case handled by cy0=-2 below? No: for the
-			// zero-shift case target_idx==0 and target_set==0, so this fires at j==0 into a[j1], exactly
-			// replacing the old 'cy0 = -2'. Set target_idx = -1 after firing so it happens exactly once.)
+			// A zero shift is not a special case: it gives target_idx == 0 and target_set == 0, so this
+			// fires at j == 0 into a[j1], exactly replacing the old 'cy0 = -2' seed. target_idx is set to
+			// -1 after firing, so it happens exactly once per pass.
 			if(target_idx == j) {
 				const int poff18[18] = {0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17};
 				int tset = target_set >> 1;	// which of the RADIX DIT-output complex data holds the target
