@@ -1,6 +1,6 @@
 [***** This file best-viewed with a 4-column tab setting, with line-wrapping *****]
 
-================= Mlucas v20.1.1 command line options listing =================
+================= Mlucas v21.0.2 command line options listing =================
 
 Note: besides the basic post-build self-test flags covered by the online README page
 ( http://www.mersenneforum.org/mayer/README.html ),
@@ -109,37 +109,83 @@ Supported command-line arguments:
 
 Options - again note the user can override the default iteration count based on #threads via
 '-iters {+int}', though only 100|1000|10000-iteration cases have precomputed reference residues.
-The (very rough) time estimates are for 1000 iterations done using 4 or more cores.
 
  -s {anything other than the mnemonics below}: Self-test, user must also supply exponent (via -m or -f),
 	iteration number and (optionally) FFT length to use.
 
- -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
- -s t		covering FFT lengths 8K-120K. This will take around 1 minute on a fast CPU.
+	How long each tier takes. Treat these as orders of magnitude: the same test spans well over
+	10x across machines. They are for one core at the default 100 iterations, which is the only
+	configuration that compares cleanly between systems, and were measured on two x86-64 laptop
+	CPUs several generations apart. The last two rows are from the older of the two only.
 
- -s small	Runs 100 or 1000-iteration self-tests on a set of 32 Mersenne exponents, covering
- -s s		FFT lengths 120K-1920K. This will take around 10 minutes on a fast CPU..
+	  -s         FFT lengths      one core, 100 iters
+	  teensy     1K - 15K         a second or less
+	  tiny       16K - 240K       5 - 10 seconds
+	  small      256K - 1.875M    1 - 2 minutes
+	  medium     2M - 15M         13 - 21 minutes
+	  large      16M - 60M        35 - 60 minutes
+	  huge       64M - 240M       about 5 hours
+	  egregious  256M - 512M      about 14 hours
+
+	A small ARM core is much slower: a Raspberry Pi 4B measured roughly 10x the x86 figures at
+	the tiers where both were run.
+
+	Two things make wall-clock time counter-intuitive:
+
+	 - Crossing 4 threads multiplies the work by ten, because the default iteration count is
+	   100 for <= 4 threads and 1000 for more, and run time is linear in the iteration count
+	   to within a couple of percent. '-s small' takes 25 seconds on 4 cores and 165 seconds
+	   on 16 - the 16-core run is slower in wall-clock terms because it is doing ten times as
+	   much work.
+
+	 - Extra cores do not pay off proportionally, and past 4 they can cost. Normalising the
+	   iteration counts so that equal work is compared, on an 8-core/16-thread x86-64 machine:
+
+	                  1 thread   4 threads   16 threads   (cost per 100 iterations)
+	       small        64.8s       24.5s        16.5s
+	       medium      756.1s      345.0s       417.6s
+	       large      2225.8s     1068.1s      1233.8s
+
+	   Read those as self-test costs, not as how well Mlucas itself threads. A self-test runs
+	   every radix set for the length, good and bad, and adds the bookkeeping to pick a winner,
+	   so its wall clock averages over candidates rather than reporting the one you end up
+	   using. Pinned to a single radix set and FFT length, 1 -> 4 cores measures about 3x here,
+	   against a ceiling nearer 3.5x once the all-core clock drop is allowed for.
+
+	   For choosing how to run a self-test, though, the table is the relevant thing: 4 threads
+	   is the sweet spot, and past it the extra iterations cost more than the extra threads
+	   return, so at medium and large 16 threads finishes later than 4. Unless you have
+	   measured otherwise on your own hardware, 4 threads is a good default for these tiers.
+
+ -s teensy	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 15 Mersenne exponents,
+ -s tt		covering FFT lengths 1K-15K. Useful as a quick post-build smoke test; see the table above
+		for run times.
+
+ -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
+ -s t		covering FFT lengths 16K-240K.
+
+ -s small	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
+ -s s		FFT lengths 256K-1.875M.
 
 **************** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: *************
 *                                                                                             *
-* -s medium Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering *
-* -s m      FFT lengths from 2M to 7.5M. This will take around an hour on a fast CPU.         *
+* -s medium Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering *
+* -s m      FFT lengths from 2M to 15M.                                                       *
 *                                                                                             *
 ***********************************************************************************************
 
- -s large	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
- -s l		FFT lengths 8M to 60M. This will take around 10 hours on a fast CPU.
+ -s large	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering
+ -s l		FFT lengths 16M to 60M.
 
  -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
- -s a		This will take around 12 hours on a fast CPU.
+ -s a		Note this covers teensy through large only, not huge or egregious.
 
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
- -s h		of 16 M(p), covering FFT lengths 64M-240M. This will take several days on a fast CPU.
+ -s h		of 16 M(p), covering FFT lengths 64M-240M.
 
  -s xxl		[The 'e' form is short for 'egregious'.] Runs 100 or 1000-iteration self-tests on a set
- -s e		of 9 M(p), covering FFT lengths 256M-512M. This will take several days on a fast CPU, and
-			requires '-shift 0' also be added to the command line, which restriction will be removed
-			at a later date.
+ -s e		of 9 M(p), covering FFT lengths 256M-512M. Requires '-shift 0' also be
+			added to the command line, which restriction will be removed at a later date.
 
 ======================
 
@@ -602,6 +648,11 @@ mersenneforum.org thread specific to the release you are using in the mersennefo
 Mlucas subforum at https://www.mersenneforum.org/forumdisplay.php?f=118.
 If you don't find anything, make a post describing your problem.
 
+o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation (e.g. -maxalloc set too high for the
+actual available RAM, or too little free RAM for the requested FFT length or p-1 stage 2 buffer count),
+Mlucas exits with a clear out-of-memory message. If you see this, lower -maxalloc, use fewer p-1 stage 2
+buffers (via -pm1_s2_nbuf), or free up system RAM.
+
 [14a]: How to safely interrupt a running instance:
 
 Note that halting (as opposed to merely suspending using 'kill -CONT' as described below) an Mlucas
@@ -635,7 +686,9 @@ Once you have identified the desired process IDs:
 	interval completes, i.e. until the latest savefile update occurs.
 
 For the current list of signal types which the program listens for, see the sig_handler() function near
-the top of Mlucas.c . As of this writing (v20.1.1), the program listens for INT,TERM,HUP,ALRM,USR1 and USR2.
+the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2 on
+Unix-like systems (Linux, *BSD including FreeBSD, and macOS); native Windows/MinGW builds only catch
+INT and TERM.
 
 ======================
 
