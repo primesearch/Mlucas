@@ -18,16 +18,20 @@ Sections:
 [5]: Fermat-number primality testing
 [6]: Residue shift
 [7]: Probable-primality testing mode
+	[7a]: Cofactor-PRP (PRP-CF) testing
 [8]: Iteration-number setting
 [9]: P-1 Factoring:
 	[9a]: Setting maximum-percentage of system free-RAM to use per stage 2 instance
 	[9b]: How to run stage 2 continuation for a given stage 1 bound
+	[9c]: Setting the p-1 stage bounds from the command line
 [10]: Setting threadcount and CPU core affinity
 [11]: User control options in mlucas.ini
 [12]: Savefile format and creation
 [13]: *** DON'Ts ***
 [14]: General troubleshooting
 	[14a]: How to safely interrupt a running instance
+[15]: The workfile (worktodo.txt) and its assignment formats
+[16]: Files read and written by the program, and where they live
 
 ===============================================================================
 
@@ -66,8 +70,14 @@ don't forget to generously tip the waitstaff."
 Supported command-line arguments:
 
 [0]:
-	<CR>	Default mode: looks for a worktodo.ini file in the local directory;
+	<CR>	Default mode: looks for a worktodo.txt file in the local directory;
 			if none found, prompts for manual keyboard entry
+
+	-h		Refers the user to this help.txt file for the full command-line options
+			listing, and exits. (The program version and the URL of the online README
+			page are printed at startup irrespective of which flags are given.) Any
+			unrecognized or malformed command-line flag produces the same referral,
+			after first naming the offending flag.
 
 ======================
 
@@ -150,7 +160,7 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
  	available at that length, unless the -radset flag is invoked (see below for details).
  	If -fft is invoked without the -iters flag, it is assumed the user wishes to do a
  	production run with a non-default FFT length, in this case the program requires a
- 	valid worktodo.ini-file entry with exponent not more than 5% larger than the
+ 	valid worktodo.txt-file entry with exponent not more than 5% larger than the
  	default maximum for that FFT length.
 
 	Without the optional [K|M] alphabetic suffixes (i.e. with a pure-integer argument),
@@ -212,14 +222,14 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	optionally, -radset) to be supplied.
 		If the -fft option (and optionally -radset) is also invoked but -iters is not, the
 	program first checks the first eligible (any line whose first non-whitespace caharcter
-	is alphabetic is treated as such) line of the worktodo.ini file to see if the assignment
+	is alphabetic is treated as such) line of the worktodo.txt file to see if the assignment
 	specified there is a Lucas-Lehmer test with the same exponent as specified via the -m
 	argument. If so, the -fft argument is treated as a user override of the default FFT
 	length for the exponent. If -radset is also invoked, this is similarly treated as a user-
 	specified radix set for the user-set FFT length; otherwise the program will use the
 	mlucas.cfg file to select the radix set to be used for the user-forced FFT length.
 
-	If the first eligible worktodo.ini file entry does not specify an LL-test (i.e. does not
+	If the first eligible worktodo.txt file entry does not specify an LL-test (i.e. does not
 	begin with "Test=" or "DoubleCheck=") of an exponent matching the -m value, a set of
 	timing self-tests is run on the user-specified Mersenne number using all sets of FFT
 	radices available at the specified FFT length.
@@ -287,6 +297,27 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	we check whether b^(N+1) == b^2 (mod N). For N = M(p) we have N+1 = 2^p, thus this variant
 	requires (p-1) pure mod-squarings. Any self-tests done in PRP mode will do the first (iters)
 	of these.
+
+ -base {+int}
+	Sets the PRP base independently of the -prp flag. Whichever of the two comes later on the
+	command line determines the base, since -prp only falls back on the default base of 3 if no
+	base has been set by the time it is parsed. Note that -base on its own does not select PRP
+	mode; it only sets the base which a PRP test would use.
+
+[7a]: Cofactor-PRP (PRP-CF) testing:
+
+	A PRP test of M(p) or F(m) may be followed by a Suyama cofactor-PRP test of the cofactor
+	which remains after dividing out one or more already-known prime factors. There is no
+	command-line flag for this - it is requested via the workfile, by a PRP= assignment which
+	specifies residue type 5 and appends a list of the known factors; see section [15] for the
+	assignment syntax. Only residue types 1 (plain PRP) and 5 (PRP followed by a cofactor-PRP
+	check) are accepted, a known-factors list requires type 5, and for Fermat-number cofactor
+	tests the PRP base must be 3.
+
+	Each supplied factor is checked at run-start to confirm that it really does divide the
+	modulus; if one does not, the program names that entry and asks you to correct or remove it.
+	The cofactor result is written to results.txt as a JSON line carrying "residue-type":5 and a
+	"known-factors" array - see section [16].
 
 ======================
 
@@ -356,7 +387,7 @@ On completion of an initial p-1 run with stage bounds B1 and B2 and a contiguous
 in a pair of savefiles named p[exp].s1 and p[exp].s2, respectively. The former of these may
 be re-used for one or more deeper stage 2 interval runs, in distributed fashion (multiple
 program instances, each of which processes a given stage 2 interal so as to cover a desired
-expanded prime interval), if desired. Say the original run used a worktodo.ini assignment
+expanded prime interval), if desired. Say the original run used a worktodo.txt assignment
 
 	Pminus1={aid,}k,b,n,c,B1,B2
 
@@ -379,6 +410,28 @@ where any known factors should be in form of a comma-separated list of known boo
 with "", e.g. known factors f1 and f2 appear as "f1,f2". These will not be reported if
 found in any of the GCD steps which test for a factor having been found, and the run
 will only exit if a new factor (one not appearing in the known_factors list) is found.
+
+[9c]: Setting the p-1 stage bounds from the command line:
+
+The three flags below are the command-line counterpart of the B1, B2 and B2_start fields of a
+Pminus1= workfile assignment. Each of them selects p-1 factoring as the test type, and so each
+requires a modulus to have been specified via -m or -f; each is also rejected if -prp has
+already been given, since an assignment cannot be both a p-1 run and a PRP test.
+
+ -b1 {+int}
+	Stage 1 bound; must be < 2^32. This is the minimum a command-line p-1 run needs: without it
+	the program exits with "P-1 requires at least a nonzero Stage 1 bound to be specified via
+	the -b1 flag." A value below 10000 is raised to 10000, with a note to that effect, to avoid
+	an underflow in the stage 2 buffer arithmetic.
+
+ -b2 {+int}
+	Stage 2 bound; unlike B1 this may exceed 2^32. If omitted or given as 0, only stage 1 is
+	run. If set to a nonzero value below B1, no stage 2 is run and the program says so.
+
+ -b2_start {+int}
+	Lower end of the stage 2 prime interval, for stage 2 continuation runs; defaults to B1.
+	Must satisfy B2_start <= B2, and B1 must not exceed B2. A value greater than B1 is what
+	marks the run as a stage 2 continuation; see section [9b].
 
 ======================
 
@@ -416,6 +469,11 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	of (hi - lo + 1) threads."
 	o All three argument are supplied: "run 'threads_per_core' threads on each of physical
 	processors 'lo' through 'hi', for a total of (hi - lo + 1)*threads_per_core threads."
+
+	NOTE: -core is only compiled in if the build was configured to use hwloc - that is the
+	'use_hwloc' argument to makemake.sh, which adds -DINCLUDE_HWLOC=1 and links against
+	-lhwloc. Hwloc is not enabled by default, and a build without it supports only -nthread
+	and -cpu, rejecting -core as an unrecognized flag.
 ==========================
  (Obsolescent - not recommended, please use the -cpu flag instead:)
  -nthread {int}
@@ -537,6 +595,8 @@ modes for low-RAM systems:
 	LowMem = 2 excludes both PRP-testing and p-1 stage 2. This is the minimum-memory option.
 	For QA-testing purposes, this allows self-tests to some modest number of iterations to
 	be done up to the maximum supported FFT length of 512M on systems with 8GB of memory.
+	Note that it also disables the Gerbicz error check on Fermat-number Pe'pin tests, which
+	are otherwise G-checked in the same way as Mersenne-number PRP tests are.
 
 o DISABLING INTERIM GCDs IN P-1 STAGE 2: Set InterimGCD = 0 in mlucas.ini. This will cause
 the program to wait until any p-1 stage 2 is finished to take a GCD (check for a factor),
@@ -639,4 +699,122 @@ the top of Mlucas.c . As of this writing (v20.1.1), the program listens for INT,
 
 ======================
 
-Last updated: 28 Nov 2021
+[15]: The workfile (worktodo.txt) and its assignment formats:
+
+The workfile holds the list of assignments to be worked through. It is read at program start
+and again after each completed assignment, so new entries may be appended to it while a run is
+in progress. NOTE: through v20.1.1 this file was named worktodo.ini; v21 renamed it to
+worktodo.txt, so a run directory carried over from an older version needs the file renamed.
+
+Only lines whose first non-whitespace character is alphabetic are treated as assignments. Any
+other line - including the bare-Mersenne-exponent format accepted by versions prior to v20.1.1 -
+is skipped, with a note to that effect in the terminal output. A line which does begin with a
+letter but matches none of the formats below draws a "WARN: Unrecognized/Unsupported option or
+empty assignment line" and is likewise skipped.
+
+In the formats below, {aid} is an optional 32-hexit PrimeNet assignment ID, which may be omitted
+altogether or given as 'n/a'. The quartet k,b,n,c specifies the modulus k*b^n + c: for the
+Mersenne number M(p) that is 1,2,p,-1, and for the Fermat number F(m) it is 1,2,2^m,+1.
+
+	Test={aid,}{exponent}
+	DoubleCheck={aid,}{exponent}
+		Lucas-Lehmer test of M(exponent).
+
+	Fermat,Test={aid,}{index}
+		Pe'pin test of the Fermat number F(index). It is the leading "Fermat," keyword which
+		selects the Fermat modulus; "Mersenne," is accepted as its (default) counterpart.
+
+	PRP={aid,}k,b,n,c[,TF_BITS,tests_saved[,base,residue_type[,"f1,f2,..."]]]
+	PRPDC={aid,}k,b,n,c,...
+		Probable-primality test; PRPDC is the double-check form, and parses identically. With
+		only the k,b,n,c fields present, the base defaults to 3 and the residue type to 1.
+		Only residue types 1 and 5 are accepted. The optional trailing list of already-known
+		factors - comma-separated and bookended with "", exactly as for Pminus1= - requests a
+		Suyama cofactor-PRP test (section [7a]) and requires residue type 5.
+			The tests_saved field is the number of primality tests which would be saved were
+		p-1 factoring to turn up a factor; it must lie in [0,2] and may be fractional. If it is
+		nonzero, the program reads the assignment as "p-1 factoring is still wanted here": it
+		works out suitable stage bounds, inserts a corresponding Pminus1= line ahead of this one
+		in the workfile, and rewrites this line's tests_saved field to 0, so that the p-1 run is
+		done first and the PRP test follows it.
+
+	Pminus1={aid,}k,b,n,c,B1,B2[,TF_BITS[,B2_start]][,"f1,f2,..."]
+		P-1 factoring to the stated stage bounds. The trailing fields are optional but ordered,
+		i.e. a B2_start field is only looked for if a TF_BITS field precedes it; a known-factors
+		list may however follow B2 directly, since it is recognized by its leading double-quote.
+		A B2_start greater than B1 is what marks the run as a stage 2 continuation - see section
+		[9b] for how to set one of those up, and for what the known-factors list does.
+
+	Pfactor={aid,}k,b,n,c,TF_BITS,tests_saved
+		P-1 factoring with the stage bounds chosen by the program, from the how-far-factored
+		depth TF_BITS and the tests_saved value (again constrained to [0,2]). The bounds actually
+		used are recorded in the run logfile. This is the p-1 assignment type the PrimeNet server
+		normally issues.
+
+Trial-factoring (Factor=) and ECM assignment types are not supported by current builds, and lines
+specifying them are skipped as unrecognized.
+
+======================
+
+[16]: Files read and written by the program, and where they live:
+
+o FILE LOCATION: By default, Mlucas reads and writes all of the files below in the directory it
+was started in. Every one of those accesses goes through a single wrapper function which prepends
+the string MLUCAS_PATH to the filename, so setting that prefix relocates the whole set at once.
+It can be set in either of two ways:
+
+	o At run time, via an environment variable of the same name, MLUCAS_PATH.
+	o At build time, by compiling with -DMLUCAS_DEFAULT_PATH='"..."'.
+
+The environment variable takes precedence over any compiled-in default. The value is expanded by
+the shell before use, so entries such as "$HOME/.mlucas.d/" work as written. It must end with a
+slash; if it does not, the program prints an error and exits. If it is non-empty, the program
+creates the corresponding directory - including any missing parent directories - at startup, and
+the startup informational output includes a line reading
+
+	INFO: MLUCAS_PATH is set to "..."
+
+Note that MLUCAS_PATH is a plain string prefix rather than a directory setting as such, which is
+why the trailing slash is required rather than merely conventional. Distribution packages of
+Mlucas are commonly built with a default of "$HOME/.mlucas.d/"; a build straight from these
+sources defaults to the empty string, i.e. to the current working directory.
+
+o FILES: In the names below, {exponent} is the Mersenne exponent p. For Fermat-number work the
+leading 'p' becomes an 'f' and {exponent} is replaced by the Fermat index m, e.g. the logfile for
+a Pe'pin test of F(30) is f30.stat .
+
+	worktodo.txt		The workfile - the list of assignments to work through, in the formats
+						detailed in section [15].
+
+	results.txt			One JSON-formatted result line per completed assignment. Common to all
+						of them are the status, exponent, worktype, fft-length, program name
+						and version, timestamp, and the assignment ID if the workfile entry
+						carried one. LL results add res64, shift-count, an error-code and a
+						Roundoff error count; PRP results add a 2048-bit residue and a Gerbicz
+						error count alongside those, and state the residue type (1, or 5 for a
+						cofactor-PRP result, which also lists the known-factors used); p-1
+						results instead report the bounds B1 and B2, and any factor found.
+
+	mlucas.cfg			The best-timing FFT radix set at each FFT length, as determined by the
+						self-tests of section [1], and used to pick the radix set for a
+						production run.
+	fermat.cfg			The same thing for Fermat-number work; the two have identical format,
+						and which of them is used follows from the modulus type being tested.
+
+	mlucas.ini			Optional user settings, re-read at every program (re)start. See
+						section [11] for the supported options.
+
+	p{exponent}			The primary savefile and its redundant backup copy. See section [12].
+	q{exponent}
+
+	p{exponent}.stat	The run logfile for this assignment: progress lines, interim residues,
+						roundoff-error and Gerbicz-check reporting, and the p-1 stage bounds
+						actually used for a Pfactor= assignment.
+
+	p{exponent}.s1		P-1 savefiles: the stage 1 residue, the stage 2 residue, and the
+	p{exponent}.s2		precomputed stage 1 prime-powers product. See sections [9b] and [12].
+	p{exponent}.s1_prod
+
+======================
+
+Last updated: 6 Sep 2026
