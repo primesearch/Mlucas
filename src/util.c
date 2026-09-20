@@ -9835,12 +9835,19 @@ double mlucas_getOptVal(const char*fname, char*optname)
 	double result = strtod("NaN", 0x0);
 	if(fptr) {
 		while(fgets(cstr, STR_MAX_LEN, fptr)) {
-			if((cptr = strstr(cstr,optname)) != 0x0) {
-				if((cadd = strstr(cptr + strlen(optname),"=")) != 0x0) {
-				 	result = strtod(cadd+1,0x0);	// Could insert a ptr in place of 0x0 to hold ptr to any unconverted suffix, but
-				 									// in the case of an mlucas.ini entry it would typically just contain a newline.
-				 	return result;	// Return first occurrence of option in file
-				}
+			/* v21: Match the option name as a whole word, not as a substring - strstr() alone made "JacobiCheck" match a
+			"JacobiCheckHours = 0" line (returning 0 for an option that was never set). The name must start the line (after
+			any leading whitespace) and be followed by whitespace or '=': */
+			cptr = cstr;
+			while(*cptr == ' ' || *cptr == '\t') cptr++;
+			if(strncmp(cptr, optname, strlen(optname)) != 0) continue;
+			cadd = cptr + strlen(optname);
+			if(*cadd != ' ' && *cadd != '\t' && *cadd != '=') continue;
+			if((cadd = strstr(cadd,"=")) != 0x0) {
+			 	result = strtod(cadd+1,0x0);	// Could insert a ptr in place of 0x0 to hold ptr to any unconverted suffix, but
+			 									// in the case of an mlucas.ini entry it would typically just contain a newline.
+			 	fclose(fptr);
+			 	return result;	// Return first occurrence of option in file
 			}
 		}
 		fclose(fptr);	fptr = 0x0;
