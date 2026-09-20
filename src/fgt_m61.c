@@ -99,11 +99,7 @@ uint64 prodq8(const uint64 x, const uint64 y)
 	uint64 lo,hi;
 
 	// Find hi, lo so 2^64*hi + lo = x*y
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(x,y, &lo,&hi);
-#else
 	MUL_LOHI64(x,y,  lo, hi);
-#endif
 	ASSERT((lo & 7) == 0, "ERROR: product not divisible by 8 in PRODQ8!");
 //if(hi + (lo >> 3) > q2) fprintf(stderr, "PRODQ8 inputs: %" PRIu64 ",%" PRIu64 ", outputs: %" PRIu64 ",%" PRIu64 ", result = %" PRIu64 "\n",x,y,lo,hi,hi + (lo >> 3));
 //	ASSERT(hi + (lo >> 3) <= q2, "ERROR: result out of range in PRODQ8!");

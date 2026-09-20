@@ -623,12 +623,6 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	}
 
 	// Get next 64 bits of qinv via   qinv.d1 = MULL_64(-qinv.d0, MULL_64(q.d1, qinv.d0) + UMULH_64(q.d0, qinv.d0)):
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -638,7 +632,6 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + lo64_1);
 	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + lo64_2);
 	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + lo64_3);
-#endif
 
 	// Now that have bottom 128 bits of qinv, do one more Newton iteration using full 192-bit operands:
 	MULL192(q0, qinv0, x0);	SUB192 (TWO192, x0, x0);	MULL192(qinv0, x0, qinv0);
@@ -1019,12 +1012,6 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 	}
 
 	// Get next 64 bits of qinv via   qinv.d1 = MULL_64(-qinv.d0, MULL_64(q.d1, qinv.d0) + UMULH_64(q.d0, qinv.d0)):
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -1034,7 +1021,6 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + lo64_1);
 	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + lo64_2);
 	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + lo64_3);
-#endif
 
 	// Now that have bottom 128 bits of qinv, do one more Newton iteration using full 192-bit operands:
 	MULL192(q0, qinv0, x0);	SUB192 (TWO192, x0, x0);	MULL192(qinv0, x0, qinv0);
