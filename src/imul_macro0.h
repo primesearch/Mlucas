@@ -538,7 +538,9 @@ or the with functions using them (if we declare no _-prepended variables local t
 		/*	"movl	$0, %%eax	\n\t"*/\
 		/*	"adcl	%[sumhh_], %%eax	\n\t"*/\
 		/*	"movl	%%eax	,%[sumhh_]	\n\t"*/\
-			: /* outputs: none */\
+			: [sumhh_] "=m" (sumhh_)	/* outputs: the asm writes each of these before reading it back, */\
+			 ,[sumhl_] "=m" (sumhl_)	/* so they carry nothing in and must not be declared as inputs */\
+			 ,[sumlh_] "=m" (sumlh_)	\
 			: [hahbh_] "m" (hahbh_)	/* All inputs from memory/register here */\
 			 ,[hahbl_] "m" (hahbl_)	\
 			 ,[halbh_] "m" (halbh_)	\
@@ -546,9 +548,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 			 ,[lahbh_] "m" (lahbh_)	\
 			 ,[lahbl_] "m" (lahbl_)	\
 			 ,[lalbh_] "m" (lalbh_)	\
-			 ,[sumhh_] "m" (sumhh_)	\
-			 ,[sumhl_] "m" (sumhl_)	\
-			 ,[sumlh_] "m" (sumlh_)	\
 			: "cc","memory","eax"	/* Clobbered registers */\
 			);\
 		}\
@@ -594,12 +593,11 @@ or the with functions using them (if we declare no _-prepended variables local t
 		/*	"movl	$0, %%eax	\n\t"*/\
 		/*	"adcl	%[sumhh_], %%eax	\n\t"*/\
 		/*	"movl	%%eax	,%[sumhh_]	\n\t"*/\
-			: /* outputs: none */\
+			: [sumhh_] "+m" (sumhh_)	/* outputs: unlike MUL_LOHI64 above, these are seeded in C */\
+			 ,[sumhl_] "+m" (sumhl_)	/* just above and then read-modify-written here, so "+m" */\
+			 ,[sumlh_] "+m" (sumlh_)	\
 			: [halal_] "m" (halal_)	/* All inputs from memory/register here */\
 			 ,[lahah_] "m" (lahah_)	\
-			 ,[sumhh_] "m" (sumhh_)	\
-			 ,[sumhl_] "m" (sumhl_)	\
-			 ,[sumlh_] "m" (sumlh_)	\
 			: "cc","memory","eax"	/* Clobbered registers */\
 			);\
 		}\
