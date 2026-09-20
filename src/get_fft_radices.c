@@ -2714,7 +2714,14 @@ the paper, which recommends something around unity) seems to fit the observed da
 uint64 given_N_get_maxP(uint32 N)
 {
 	const double Bmant = 53;
-#ifdef USE_FMADD
+/* The FMA bonus is measured on AVX2 but not on AVX-512, which shares USE_FMADD via USE_AVX2.
+AVX-512 has no HIACC carry macro for the power-of-2 radices - see the "No HIACC mode for AVX-512"
+guards in radix{32,64,128,256,1024}_main_carry_loop.h - so USE_SHORT_CY_CHAIN = 3, which every
+exponent within 1% of maxp asks for, buys it nothing. Bisecting for the largest exponent that runs
+clean at radix set 0 and inverting the formula below gives an implied AsympConst of 0.60 at 64K and
+0.70 at 16K, never the 0.4 this build was being granted. ARMv8 SIMD carries the identical guard and
+is likely in the same position, but that has not been measured, so it is left alone here. */
+#if defined(USE_FMADD) && !defined(USE_AVX512)
 	const double AsympConst = 0.4;	// Allow slightly larger maxp if FMA used for floating-point arithmetic
 #else
 	const double AsympConst = 0.6;
