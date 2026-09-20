@@ -540,7 +540,10 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
 		"movq	%%r15,%[__x3]	\n\t"\
-		:	/* outputs: none */\
+		: [__x0] "+m" (x0)	/* outputs: the template stores into these */\
+		 ,[__x1] "+m" (x1)\
+		 ,[__x2] "+m" (x2)\
+		 ,[__x3] "+m" (x3)\
 		: [__q0] "m" (q0)	/* All inputs from memory addresses here */\
 		 ,[__q1] "m" (q1)	\
 		 ,[__q2] "m" (q2)	\
@@ -549,10 +552,6 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		 ,[__qinv1] "m" (qinv1)	\
 		 ,[__qinv2] "m" (qinv2)	\
 		 ,[__qinv3] "m" (qinv3)	\
-		 ,[__x0] "m" (x0)	\
-		 ,[__x1] "m" (x1)	\
-		 ,[__x2] "m" (x2)	\
-		 ,[__x3] "m" (x3)	\
 		 ,[__pshift] "m" (pshift)	\
 		 ,[__j] "m" (j)	/* Only need this if debug and explicit loop enabled, but try with/sans for each version of the asm, pivk faster one. */\
 		 ,[__start_index] "m" (start_index)	\
@@ -693,7 +692,19 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		x7 = y7;
 	}
 
+	/* The eight qinv values reach the asm below as one array-pointer operand rather than eight
+	separate "m" inputs. Not a style choice: x0-x7 must be declared "+m" - the asm loads, updates
+	and stores them back - and a "+m" costs two of gcc's 30 asm operand slots, being implemented
+	as an output plus a matching input. Spelled out, this block needs 35 slots and does not
+	compile ("more than 30 operands in 'asm'"). Folding the qinv's into one operand, and dropping
+	__j which the template never referenced, brings it to 27. */
+	const uint64 qinv_arr[8] = {qinv0,qinv1,qinv2,qinv3,qinv4,qinv5,qinv6,qinv7};
+	const uint64*qinv_ptr = qinv_arr;
+
 	__asm__ volatile (\
+	/* Base address of the qinv[8] array. Nothing else in this block touches rdi, so this
+	survives the loop below: */\
+		"movq	%[__qinv],%%rdi	\n\t"\
 	/* Load the x's into r8-15: */\
 		"movq	%[__x0],%%r8 	\n\t"\
 		"movq	%[__x1],%%r9 	\n\t"\
@@ -745,14 +756,14 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"\n\t"\
 	/* MULL_q4((qinv*, lo*, lo*): */\
 		"\n\t"\
-		"imulq	%[__qinv0],%%r8 	\n\t"\
-		"imulq	%[__qinv1],%%r9 	\n\t"\
-		"imulq	%[__qinv2],%%r10	\n\t"\
-		"imulq	%[__qinv3],%%r11	\n\t"\
-		"imulq	%[__qinv4],%%r12	\n\t"\
-		"imulq	%[__qinv5],%%r13	\n\t"\
-		"imulq	%[__qinv6],%%r14	\n\t"\
-		"imulq	%[__qinv7],%%r15	\n\t"\
+		"imulq	0x00(%%rdi),%%r8 	\n\t"\
+		"imulq	0x08(%%rdi),%%r9 	\n\t"\
+		"imulq	0x10(%%rdi),%%r10	\n\t"\
+		"imulq	0x18(%%rdi),%%r11	\n\t"\
+		"imulq	0x20(%%rdi),%%r12	\n\t"\
+		"imulq	0x28(%%rdi),%%r13	\n\t"\
+		"imulq	0x30(%%rdi),%%r14	\n\t"\
+		"imulq	0x38(%%rdi),%%r15	\n\t"\
 		"\n\t"\
 	/* UMULH_q4((q*, lo*, lo*): lo0-3 in r8-11: */\
 		"\n\t"\
@@ -906,7 +917,14 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movq	%%r13,%[__x5]	\n\t"\
 		"movq	%%r14,%[__x6]	\n\t"\
 		"movq	%%r15,%[__x7]	\n\t"\
-		:	/* outputs: none */\
+		: [__x0] "+m" (x0)	/* outputs: the template stores into these */\
+		 ,[__x1] "+m" (x1)\
+		 ,[__x2] "+m" (x2)\
+		 ,[__x3] "+m" (x3)\
+		 ,[__x4] "+m" (x4)\
+		 ,[__x5] "+m" (x5)\
+		 ,[__x6] "+m" (x6)\
+		 ,[__x7] "+m" (x7)\
 		: [__q0] "m" (q0)	/* All inputs from memory addresses here */\
 		 ,[__q1] "m" (q1)	\
 		 ,[__q2] "m" (q2)	\
@@ -915,26 +933,10 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		 ,[__q5] "m" (q5)	\
 		 ,[__q6] "m" (q6)	\
 		 ,[__q7] "m" (q7)	\
-		 ,[__qinv0] "m" (qinv0)	\
-		 ,[__qinv1] "m" (qinv1)	\
-		 ,[__qinv2] "m" (qinv2)	\
-		 ,[__qinv3] "m" (qinv3)	\
-		 ,[__qinv4] "m" (qinv4)	\
-		 ,[__qinv5] "m" (qinv5)	\
-		 ,[__qinv6] "m" (qinv6)	\
-		 ,[__qinv7] "m" (qinv7)	\
-		 ,[__x0] "m" (x0)	\
-		 ,[__x1] "m" (x1)	\
-		 ,[__x2] "m" (x2)	\
-		 ,[__x3] "m" (x3)	\
-		 ,[__x4] "m" (x4)	\
-		 ,[__x5] "m" (x5)	\
-		 ,[__x6] "m" (x6)	\
-		 ,[__x7] "m" (x7)	\
+		 ,[__qinv] "m" (qinv_ptr)	/* base of the qinv[8] array; see the note above */\
 		 ,[__pshift] "m" (pshift)	\
-		 ,[__j] "m" (j)	/* Only need this if debug and explicit loop enabled, but try with/sans for each version of the asm, pivk faster one. */\
 		 ,[__start_index] "m" (start_index)	\
-		: "cc","memory","rax","rbx","rcx","rdx","r8","r9","r10","r11","r12","r13","r14","r15"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13","r14","r15"		/* Clobbered registers */\
 		);
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
