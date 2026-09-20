@@ -1343,6 +1343,11 @@ exit(0);
 		// Init savefile with above read_savefile fields so ensuing checkpoint-writes only need to update the pass# and k:
 //		ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
 	} else {
+		snprintf(cbuf, sizeof(cbuf), "Factoring savefile %s found ... reading ...\n",RESTARTFILE);
+		fprintf(stderr,"%s",cbuf);
+	#ifndef FACTOR_STANDALONE
+		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
+	#endif
 		ASSERT(!itmp,"There were errors reading the savefile ... aborting");
 		count = 0ull;	// Need to reset == 0 prior to sieving so kvector-fill code works properly
 
@@ -3085,8 +3090,8 @@ MFACTOR_HELP:
 		// Does this pass's sieve contain any of get_startval()'s 0xFFFFFFFF sentinel start-values? The
 		// vectorized bit-clearing below cannot carry one: its Loop #1 ends with startval[m] = l-bit_len
 		// unconditionally, and the asm Loop #2 subtracts bit_len from every lane, masked-off ones
-		// included - so a sentinel decays into an ordinary offset and, 15774 sweeps later, that prime
-		// starts clearing live candidate bits. Nothing reports it: a cleared bit just means "not a
+		// included - so a sentinel decays into an ordinary offset and, ~2^32/bit_len sweeps later, that
+		// prime starts clearing live candidate bits. Nothing reports it: a cleared bit just means "not a
 		// candidate", so the run completes and quietly misses factors. The scalar loop preserves the
 		// sentinel (see its `& -(l != 0xffffffff)`), so use it whenever one is present.
 		//
@@ -3094,7 +3099,7 @@ MFACTOR_HELP:
 		// sieving prime divides 2*p - Ernst's Dec 2019 change, which "also catches curr_p-divides-exponent
 		// for composite exponents" - and odd composite exponents are explicitly allowed above (ATH's TF of
 		// M(p^2) for known Mersenne primes). So a sentinel is reachable at *any* exponent size, e.g.
-		// p = 1009*3001, while an exponent-size test only catches the tiny ones. This is strictly weaker
+		// p = 1009*1013, while an exponent-size test only catches the tiny ones. This is strictly weaker
 		// than the old `p <= MAX_SIEVING_PRIME` test: the sieving-prime table is capped at ~2*p whenever p
 		// is small (see the `(curr_p+29) > two_p[0]` break in the table build), and every prime factor of
 		// such a p is below that cap, so every case the size test caught sets a sentinel here too.
@@ -4541,11 +4546,10 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 	if(!fp) {
 		return -1;
 	} else {
-		snprintf(cbuf, sizeof(cbuf), "Factoring savefile %s found ... reading ...\n",fname);
-		fprintf(stderr,"%s",cbuf);
-	#ifndef FACTOR_STANDALONE
-		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
-	#endif
+		/* No "savefile found" announcement here: write_savefile() calls this routine at every
+		checkpoint to recover the run-invariant fields, so announcing the read would print once per
+		checkpoint - and, in the non-standalone build, append a line to STATFILE each time. The
+		startup caller does the announcing, where there is exactly one read to announce. */
 		/* Line 1: pstring */
 		++curr_line;
 		if(!fgets(g_in_line, STR_MAX_LEN, fp)) {
