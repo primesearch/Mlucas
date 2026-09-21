@@ -7363,12 +7363,22 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	int dbg = 0;
 #endif
 	int len = lenu,len4 = (len>>2),nshift,lshift = -1;	// lenu is a multiple of 4 here (see dispatch above)
-#ifndef YES_ASM	// i and len2 are used only by the portable-C arm below:
-	int i,len2 = (len>>1);
+#ifndef YES_ASM	// i is used only by the portable-C arm below:
+	int i;
+#endif
+#if !defined(YES_ASM) || !defined(USE_AVX2)
+	// len2 is used by the portable-C arm and by the pre-AVX2 asm arm's pointer increments:
+	int len2 = (len>>1);
 #endif
 	uint64 qinv,cy0,cy1,cy2,cy3,rpow,rem_save = 0,mask,*iptr0;
 #ifndef YES_ASM	// likewise iptr1..3:
 	uint64 *iptr1,*iptr2,*iptr3;
+#elif !defined(USE_AVX2)
+	/* The pre-AVX2 asm arm walks the dividend with a second and third pointer and its own
+	increments. main declares these in a YES_ASM/!USE_AVX2 arm which the declaration-block
+	restructuring above dropped; without them that arm does not compile. */
+	uint64 *iptr1,*iptr2;
+	uint64 ptr_incr,ptr_inc2;
 #endif
 	uint64 *xy_ptr_diff;
 	// Local-alloc-related statics - these should only ever be updated in single-thread mode:
