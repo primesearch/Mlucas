@@ -24,6 +24,16 @@
 #include "util.h"
 #include "factor.h"	// Needed for twopmodq64() prototype
 #include "imul_macro.h"
+/* mkdir_p() below needs these. They belong up here rather than beside it: reached from partway
+down the file, <sys/stat.h> on glibc 2.31 and older pulls in bits/statx.h -> linux/stat.h before
+linux/types.h has supplied __s64/__u32, and the build dies with "unknown type name '__s64'".
+Ubuntu 20.04 and earlier hit this; newer glibc happens to tolerate it. */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <direct.h>
+#else
+	#include <sys/types.h>
+	#include <sys/stat.h>
+#endif
 #ifdef TEST_SIMD
 	#include "dft_macro.h"
   #ifdef USE_SSE2
@@ -9529,13 +9539,11 @@ char *quote_spaces(char *dest, char *src)
 	return dest;
 }
 
-/* MinGW's mkdir() takes no mode argument, and MSVC spells it _mkdir(); both live in <direct.h>: */
+/* MinGW's mkdir() takes no mode argument, and MSVC spells it _mkdir(); the headers these need
+are included at the top of this file - see the note there for why they cannot live here: */
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
-	#include <direct.h>
 	#define MKDIR(p)	_mkdir(p)
 #else
-	#include <sys/types.h>
-	#include <sys/stat.h>
 	#define MKDIR(p)	mkdir((p), 0777)
 #endif
 #define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
