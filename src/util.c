@@ -9580,8 +9580,20 @@ exit(0);
 	{
 	#if INCLUDE_HWLOC
 		hwloc_obj_t o;
+	  #if HWLOC_API_VERSION >= 0x00020000
 		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L2CACHE, 0)) && o->attr) L2_CACHE_BYTES = o->attr->cache.size;
 		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L3CACHE, 0)) && o->attr) L3_CACHE_BYTES = o->attr->cache.size;
+	  #else
+		/* hwloc 1.x has no per-level cache object types: there is one HWLOC_OBJ_CACHE and the level
+		lives in attr->cache.depth. Walk the cache objects and pick out L2 and L3. Ubuntu 18.04 and
+		older ship hwloc 1.x, where the 2.x-only HWLOC_OBJ_L2CACHE/L3CACHE do not compile at all. */
+		int nc = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_CACHE), i;
+		for(i = 0; i < nc; i++) {
+			if(!(o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CACHE, i)) || !o->attr) continue;
+			if(o->attr->cache.depth == 2 && !L2_CACHE_BYTES) L2_CACHE_BYTES = o->attr->cache.size;
+			if(o->attr->cache.depth == 3 && !L3_CACHE_BYTES) L3_CACHE_BYTES = o->attr->cache.size;
+		}
+	  #endif
 	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 		/* /sys/devices/system/cpu/cpu0/cache/indexN/{level,type,size}; size is like "256K" or "16384K" */
 		for(int i = 0; i < 8; i++) {
