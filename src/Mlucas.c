@@ -4998,6 +4998,7 @@ int 	main(int argc, char *argv[])
 	int		radix_set, radix_best, nradix_set_succeed, nradix_set_skipped, nradix_set_tried;
 
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
+	int have_ref = FALSE;		/* Is there a reference residue for this iteration count? */
 	uint32 new_data;
 	/* v21: Self-test failure accounting. Prior to v21 the -s/-iters paths always returned 0, so no
 	caller - the CI self-test steps in particular - could tell a clean sweep from one in which every
@@ -5893,7 +5894,11 @@ TIMING_TEST_LOOP:
 				iters = 100;
 		}
 
-		if(iters == 100 || iters == 1000 || iters == 10000) {
+		// The reference triplets only cover 100, 1000 and 10000 iterations. For any other -iters
+		// value mvec_res_t_idx keeps its initial 0, so without this flag the run below would be
+		// compared against the 100-iteration reference and report a bogus Res64 Error:
+		have_ref = (iters == 100 || iters == 1000 || iters == 10000);
+		if(have_ref) {
 			mvec_res_t_idx = NINT( log((double)iters)/log(10.) ) - 2;	/* log10(iters) - 2, use slower NINT rather than DNINT here since latter needs correct rounding mode */
 			ASSERT(mvec_res_t_idx < 3,"main: mvec_res_t_idx out of range!");
 			// Use empty-data-slot at top of MersVec[] or MvecPRP[], respectively, for primality & prp single-case tests:
@@ -5931,16 +5936,17 @@ TIMING_TEST_LOOP:
 		{
 			if(modType == MODULUS_TYPE_FERMAT)
 			{
-				Res64   = FermVec[xNum].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh2;
+				// Zero means "no reference": ernstMain then stores the computed value instead of comparing.
+				Res64   = have_ref ? FermVec[xNum].res_t[mvec_res_t_idx].sh0 : 0ull;
+				Res35m1 = have_ref ? FermVec[xNum].res_t[mvec_res_t_idx].sh1 : 0ull;
+				Res36m1 = have_ref ? FermVec[xNum].res_t[mvec_res_t_idx].sh2 : 0ull;
 				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].Fidx    ,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else if(modType == MODULUS_TYPE_MERSENNE)
 			{
-				Res64   = MvecPtr[xRow].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = MvecPtr[xRow].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = MvecPtr[xRow].res_t[mvec_res_t_idx].sh2;
+				Res64   = have_ref ? MvecPtr[xRow].res_t[mvec_res_t_idx].sh0 : 0ull;
+				Res35m1 = have_ref ? MvecPtr[xRow].res_t[mvec_res_t_idx].sh1 : 0ull;
+				Res36m1 = have_ref ? MvecPtr[xRow].res_t[mvec_res_t_idx].sh2 : 0ull;
 				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xRow].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else if(testType == TEST_TYPE_PM1) {
