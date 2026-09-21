@@ -2370,7 +2370,7 @@ READ_RESTART_FILE:
 				so run it against the zeroed private bit array (found by the oracle test, which compares b[] against a Python
 				product of the same residues): */
 				if(TEST_TYPE == TEST_TYPE_PM1) { bmb_save = BASE_MULTIPLIER_BITS; mi64_clear(gchk_bits, gchk_bits_len); BASE_MULTIPLIER_BITS = gchk_bits; }
-				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
+				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)(uintptr_t)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
 				if(TEST_TYPE == TEST_TYPE_PM1) { BASE_MULTIPLIER_BITS = bmb_save; }
 				if(ierr) {
 					if(ierr == ERR_INTERRUPT) {

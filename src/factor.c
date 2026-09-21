@@ -751,7 +751,7 @@ int main(int argc, char *argv[])
 	// factor_ptmp allocation, so only factor_ptmp can be passed to free() - and it is, near the
 	// end of main(). Nulling it here made that free() a no-op on NULL, leaking the allocation.
 	factor_k = ALIGN_UINT64(factor_ptmp);
-	ASSERT(((uint64)factor_k & 0x3f) == 0, "factor_k not 64-byte aligned!");
+	ASSERT(((uintptr_t)factor_k & 0x3f) == 0, "factor_k not 64-byte aligned!");
 
 /*...initialize logicals and factoring parameters...	*/
 	restart = FALSE;

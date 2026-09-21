@@ -9151,7 +9151,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)(intptr_t)status);
 					isum += retval[tid];
 				}
 			}
@@ -9177,7 +9177,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)(intptr_t)status);
 					isum += retval[tid];
 				}
 			}

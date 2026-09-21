@@ -1840,7 +1840,7 @@ void fermat_process_chunk(
 	istart = l*incr;
 	jstart = istart + ((istart >> DAT_BITS) << PAD_BITS );
 	if(fwd_fft > 1)	// v20: Add support for 2-input modmul, as did for Mersenne-mod case already in v19
-		bptr = (uint64)((double*)fwd_fft + jstart);
+		bptr = (uint64)(uintptr_t)((double*)(uintptr_t)fwd_fft + jstart);
 	else
 		bptr = fwd_fft;
 	if(c) cptr = c + jstart;
