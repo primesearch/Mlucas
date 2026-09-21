@@ -498,6 +498,13 @@ jobs:
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
+        # Cheapest first, self-test ladder last. Measured on run 34702153019, this job's own log:
+        # the '-s m' sweep is 42m20s of a 60-minute job, config-fermat.sh takes about a minute and
+        # the Mfactor runs seconds apiece - and those two are where this job's findings have come
+        # from, the radix1008 global-buffer-overflow and the Mfactor leaks. Running the ladder last
+        # means a real sanitizer report lands in minutes rather than behind a 42-minute sweep.
+        # Nothing here depends on the ladder having run: config-fermat.sh computes its own FFT
+        # lengths from a table and never reads mlucas.cfg.
         cd obj${MODE:+_$MODE}
         # Guard against the ARM cell silently degrading into a second copy of the x86 one if
         # auto-detection ever changes: makemake.sh announces the selected mode on stdout but does
@@ -507,6 +514,17 @@ jobs:
             grep -q 'Build uses ARMv8 advanced-SIMD' mode.log || {
                 echo '::error::ARM cell is not an ASIMD build - it would be testing nothing'; exit 1; }
         fi
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs
+        # ("No TF support on ARMv8!" in twopmodq80.c, under #ifdef USE_ARM_V8_SIMD), so
+        # config-fermat.sh and the Mfactor self-tests run from the NOSIMD builds - the same
+        # substitution the Linux and Singlethread-Linux jobs make.
+        cd ../obj_nosimd
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
+        done
+        # Back to the build under test for the self-test ladder, which runs last (see above):
+        cd ../obj${MODE:+_$MODE}
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
@@ -523,15 +541,6 @@ jobs:
             if (( st == 1 )); then rc=1; fi
         done
         (( rc == 0 ))
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs
-        # ("No TF support on ARMv8!" in twopmodq80.c, under #ifdef USE_ARM_V8_SIMD), so
-        # config-fermat.sh and the Mfactor self-tests run from the NOSIMD builds - the same
-        # substitution the Linux and Singlethread-Linux jobs make.
-        cd ../obj_nosimd
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
-        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -955,6 +964,7 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
+        # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
@@ -975,6 +985,8 @@ jobs:
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -1245,6 +1257,7 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
+        # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
@@ -1265,3 +1278,5 @@ jobs:
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
