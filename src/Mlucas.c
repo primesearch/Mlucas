@@ -4534,7 +4534,25 @@ struct testMers MersVec[numTest+1] =
 	{    14,    299903ull, { {0xDB8E39C67F8CCA0Aull, 20506717562ull, 44874927985ull}, {0x4E7CCB446371C470ull, 34135369163ull, 61575700812ull}, {0x04ACC83FFE9CEAD4ull, 26179715264ull, 65445483729ull} } },
 	{    15,    320851ull, { {0xB3C5A1C03E26BB17ull, 22101045153ull,  4420560161ull}, {0x923A9870D65BC73Dull, 29411268414ull, 30739991617ull}, {0xB3F1ACF3A26C4D72ull, 32179253815ull, 68615042306ull} } },
 	/* Tiny: */
-	{    16,    341749ull, { {0x8223DF939E46A0FFull, 32377771756ull, 38218252095ull}, {0xC6A5D4B6034A34B8ull, 31917858141ull, 59888258577ull}, {0x93EF44581866E318ull, 18805111197ull,  8333640393ull} } },
+	// 16K: exponent lowered from 341749, which is above the achievable maximum for this length.
+	// Measured at radix set 2 {16,16,32} - the worst of the three - single-threaded, shift 0:
+	//   M341749 @  100 iters: nosimd 0 warnings, avx2 1, avx512 3 and halts on maxerr 0.5
+	//   M341749 @ 1000 iters: nosimd 2 warnings, avx2 4, avx512 3 and halts
+	// So the old entry passed only because -s runs 100 iterations at <= 4 threads, and only on the
+	// build with the least roundoff.
+	//
+	// The self-test's own iteration counts are too short to certify an exponent: they measure the
+	// running maximum of a fluctuating error, so it keeps creeping up with run length. M339257 is
+	// clean at 100, 1000 and 10000 iterations on every build and radix set, and still halts at
+	// iteration 38312 of a full-length run. An exponent is only safe if it survives p iterations,
+	// which is what a real test of M(p) does.
+	//
+	// M334993 does. Verified over a full 334993-iteration run on nosimd, avx2 and avx512 at all
+	// three radix sets - nine runs, zero roundoff warnings, all returning 5AABEF51F52E9B86. The edge
+	// above it is noisy rather than sharp (M337607 is clean while M337511, M337543 and M337583 each
+	// warn once, and M336899 warns on scalar radix set 0 but not on AVX-512), so this leaves margin
+	// rather than sitting on the knife edge.
+	{    16,    334993ull, { {0x6EF437FDC148E90Dull, 17312756124ull, 55801513745ull}, {0x0BCC176281B4B3E2ull, 24170933134ull, 36016041792ull}, {0x5A68F20D8BA26BD3ull, 18346861394ull,  4819651446ull} } },
 	{    18,    383521ull, { {0xBF30D4AF5ADF87C8ull, 15059093425ull, 52618040649ull}, {0x9F453732B3FE3C04ull,  4385160151ull, 47987324636ull}, {0x0DBF50D7F2142148ull,  1608653720ull, 52016825449ull} } },
 	{    20,    425149ull, { {0x6951388C3B99EEC0ull,  4401287495ull, 19242775142ull}, {0x501CEC2CB2080627ull, 21816565170ull, 41043945930ull}, {0x5A9A9BF4608090A2ull, 27025233803ull, 68581005187ull} } },
 	{    22,    466733ull, { {0xD95F8EC0F32B4756ull, 19305723506ull, 26588871256ull}, {0xB1F58184918D94B6ull,  8443388060ull, 11738516313ull}, {0xAC4B1F499BF2C2DAull,  7322105347ull, 15747709958ull} } },
@@ -4721,7 +4739,8 @@ struct testMers MvecPRP[numTest+1] =
 	{    14,    299903ull, { {0xC6D31B054D8060FAull,  6708173031ull, 49206093465ull}, {0x63823D9B911D5642ull,  9227134084ull, 41584198279ull}, {0xCFDA692C0F29F4B0ull, 25412870007ull, 64726732001ull} } },
 	{    15,    320851ull, { {0x2E13A705FBF21CCBull, 12724013307ull,  5466324004ull}, {0xCF1A064084F03CDDull, 21279551510ull, 66514817340ull}, {0xBFDED892AC53DF17ull, 26753890726ull, 19331799135ull} } },
 	/* Tiny: */
-	{    16,    341749ull, { {0xC736F1C2D213F1C1ull, 12211349626ull, 66509411860ull}, {0x8640A90521C2F7CCull, 26292223176ull, 67588668714ull}, {0x9EBE2EF30FB7D464ull, 12905240924ull, 64076380848ull} } },
+	// 16K: exponent lowered from 341749 to match the LL table above - see the note there.
+	{    16,    334993ull, { {0x7BB940C6BA69A557ull, 33820231407ull,   554259665ull}, {0x06560315086BD3F7ull, 26053104486ull, 10919820362ull}, {0x548A3C6DD76818B4ull,  7989134075ull, 55990658645ull} } },
 	{    18,    383521ull, { {0x55780FD8DC7467DAull, 23218470166ull, 68152686603ull}, {0x0D22D137224B1722ull, 32823276622ull,  6728794148ull}, {0x65452252B89A3D1Cull,   584268496ull, 27300607776ull} } },
 	{    20,    425149ull, { {0xD3C192FF131CFC3Bull, 24519426320ull, 28595715402ull}, {0xCF0C17092AA78E04ull,  2271546708ull, 64056281496ull}, {0xE1F87989962DF48Eull, 26999099038ull, 52441645398ull} } },
 	{    22,    466733ull, { {0x60DA090C844F8C53ull, 16872727324ull, 65402197126ull}, {0xA193F5A3E8ECB2DBull,   191717166ull, 21080627885ull}, {0xDCA9274F2B60D6AEull,  8835300280ull,  1994309235ull} } },
