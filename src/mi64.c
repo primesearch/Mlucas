@@ -6174,7 +6174,7 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 			"cmovcq %%rbx,%%rax	\n\t"/* if CF = 1 (CMPSD = true), overwrite dest (rax = itmp64-q) with source (rbx = itmp64+q), else leave dest = itmp64-q. */\
 		"rad_pow64_end: 	\n\t"\
 			"movq	%%rax,%[__itmp64]	\n\t"\
-		: [__itmp64] "+m" (itmp64)	/* output: itmp64 (asm stores through it) */\
+		: [__itmp64] "=m" (itmp64)	/* outputs: the template stores into these */\
 		: [__fquo] "m" (fquo)	/* All inputs from memory addresses here */\
 		 ,[__rnd] "m" (rnd)	\
 		 ,[__q] "m" (q)	\
@@ -6334,7 +6334,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
-		: [__cy] "+m" (cy)	/* output: cy (asm stores through it) */\
+		: [__cy] "=m" (cy)	/* outputs: the template stores into these */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -6363,7 +6363,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
-		: [__cy] "+m" (cy)	/* output: cy (asm stores through it) */\
+		: [__cy] "=m" (cy)	/* outputs: the template stores into these */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -6465,10 +6465,10 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	"jnz loop4x 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
-	 ,[__cy1] "+m" (cy1)	\
-	 ,[__cy2] "+m" (cy2)	\
-	 ,[__cy3] "+m" (cy3)	\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q0] "m" (q0)	/* All inputs from memory addresses here */\
 	 ,[__q1] "m" (q1)	\
 	 ,[__q2] "m" (q2)	\
@@ -6563,8 +6563,8 @@ ASSERT(!nshift, "2-way folded ISDIV requires odd q!");
 	"jnz loop2a 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -6690,10 +6690,10 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
-	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
-	 ,[__cy1] "+m" (cy1)	\
-	 ,[__cy2] "+m" (cy2)	\
-	 ,[__cy3] "+m" (cy3)	\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (x)	\
@@ -6737,10 +6737,10 @@ ASSERT(!nshift, "4-way folded ISDIV requires odd q!");
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
-	 ,[__cy1] "+m" (cy1)	\
-	 ,[__cy2] "+m" (cy2)	\
-	 ,[__cy3] "+m" (cy3)	\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (x)	\
@@ -7123,8 +7123,8 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop2b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	\n\t"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -7184,8 +7184,8 @@ See similar behavior for 4-way-split version of the algorithm.
 		"andq	%%rsi,%%rdi			\n\t	andq	%%rsi,%%rdx		\n\t"/* q & (-cy0|1) */\
 		"addq	%%rdi,%%rax			\n\t	addq	%%rdx,%%r12		\n\t"/* cy0|1 = tmp0|1 + ((-cy0|1)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r12,%[__cy1]	\n\t"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -7280,8 +7280,8 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx	\n\t"\
 	"jnz loop2d			\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0,cy1 (asm reads and stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
+		: [__cy0] "+m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "+m" (cy1)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
@@ -7317,7 +7317,7 @@ See similar behavior for 4-way-split version of the algorithm.
 	"subq	$1,%%rcx	\n\t"\
 	"jnz loop2d			\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"							\n\t	movq	%%rdx,%[__cy1]	"/* Only useful carryout is cy1, check-equal-to-zero */\
-		: [__cy1] "+m" (cy1)	/* output: cy1 (asm stores through it); cy0 is read-only below */\
+		: [__cy1] "+m" (cy1)	/* outputs: the template stores into these */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
@@ -7538,10 +7538,10 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz 0b \n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
-	: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
-	 ,[__cy1] "+m" (cy1)	\
-	 ,[__cy2] "+m" (cy2)	\
-	 ,[__cy3] "+m" (cy3)	\
+	: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+	 ,[__cy1] "=m" (cy1)\
+	 ,[__cy2] "=m" (cy2)\
+	 ,[__cy3] "=m" (cy3)\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (iptr0)	\
@@ -7599,10 +7599,10 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz 0b	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
-		 ,[__cy2] "+m" (cy2)	\
-		 ,[__cy3] "+m" (cy3)	\
+		: [__cy0] "=m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "=m" (cy1)\
+		 ,[__cy2] "=m" (cy2)\
+		 ,[__cy3] "=m" (cy3)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -7675,10 +7675,10 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		"addq	%%r9 ,%%r12			\n\t	addq	%%rdx,%%r13		\n\t"/* cy2|3 = tmp2|3 + ((-cy2|3)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r11,%[__cy1]	\n\t"\
 		"movq	%%r12,%[__cy2]		\n\t	movq	%%r13,%[__cy3]	\n\t"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm reads and stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
-		 ,[__cy2] "+m" (cy2)	\
-		 ,[__cy3] "+m" (cy3)	\
+		: [__cy0] "+m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "+m" (cy1)\
+		 ,[__cy2] "+m" (cy2)\
+		 ,[__cy3] "+m" (cy3)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -7761,10 +7761,10 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 		"addq	%%r9 ,%%r12			\n\t	addq	%%rdx,%%r13		\n\t"/* cy2|3 = tmp2|3 + ((-cy2|3)&q) */\
 		"movq	%%rax,%[__cy0]		\n\t	movq	%%r11,%[__cy1]	\n\t"\
 		"movq	%%r12,%[__cy2]		\n\t	movq	%%r13,%[__cy3]	\n\t"\
-		: [__cy0] "+m" (cy0)	/* outputs: cy0-3 (asm reads and stores through them) */\
-		 ,[__cy1] "+m" (cy1)	\
-		 ,[__cy2] "+m" (cy2)	\
-		 ,[__cy3] "+m" (cy3)	\
+		: [__cy0] "+m" (cy0)	/* outputs: the template stores into these */\
+		 ,[__cy1] "+m" (cy1)\
+		 ,[__cy2] "+m" (cy2)\
+		 ,[__cy3] "+m" (cy3)\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
 		 ,[__qinv] "m" (qinv)	\
 		 ,[__x] "m" (x)	\
@@ -7899,7 +7899,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rax,%[__cy3]	\n\t"\
-	: [__cy3] "+m" (cy3)	/* output: cy3 (asm stores through it); cy0-2 are read-only above */\
+	: [__cy3] "+m" (cy3)	/* outputs: the template stores into these */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__x] "m" (iptr0)	\
@@ -7955,7 +7955,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	"subq	$1,%%rcx \n\t"\
 	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdx,%[__cy3]	\n\t"\
-	: [__cy3] "+m" (cy3)	/* output: cy3 (asm stores through it); cy0-2 are read-only above */\
+	: [__cy3] "+m" (cy3)	/* outputs: the template stores into these */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
 	 ,[__iptr0] "m" (iptr0)	/* Input pointers (point to x,x+len2 if q odd, y,y+len2 if q even) */\
