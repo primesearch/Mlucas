@@ -3,8 +3,14 @@
 #
 # Usage: tests/jacobi-pm1.sh <Mlucas binary> [<Mlucas binary built with -DMLUCAS_FAULT_INJECT>] [<mlucas.cfg>]
 #
-# Exponent 44497 with B1 = B2 = 1500000: stage 1 is 2164275 iterations (~30 s at a 2K FFT), so with the default
+# Exponent 86243 with B1 = B2 = 1500000: stage 1 is 2164276 iterations (~30 s at a 4K FFT), so with the default
 # check interval of 10^6 there are Gerbicz checks at 1000000 and 2000000 plus the end-of-run check at 2164000.
+#
+# The exponent has to be one whose default FFT length is 4K, not 2K: an AVX-512 build cannot run 2K at all
+# (the teensy-FFT guard wants complex-length/radix_final >= 16*RE_IM_STRIDE, 128 there against 64 for
+# AVX/AVX2), so on such a host every one of these runs aborts before doing any work. Forcing it with -fft
+# does not help either - the 9/8 rule in ernstMain() discards a forced length more than one size above the
+# default for a Mersenne run. M86243 is the Mersenne prime in the 4K band.
 # Those counts are exact and machine-independent: the stage 1 exponent is 4p times the product of the prime
 # powers <= B1, so its bit length depends only on p and B1, and the end-of-run check sits at the last multiple
 # of the Gerbicz block length L below it.
@@ -27,7 +33,7 @@ CPU=${JACOBI_TEST_CPU:-0:3}
 WORK=${JACOBI_TEST_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/jacobi-pm1.XXXXXX")}
 mkdir -p "$WORK"
 PASS=0; FAIL=0; SKIP=0
-P=44497; B1=1500000; LAST=2164275; LASTCHK=2164000
+P=86243; B1=1500000; LAST=2164276; LASTCHK=2164000
 
 ok()   { echo "  ok   - $*"; PASS=$((PASS+1)); }
 bad()  { echo "  FAIL - $*"; FAIL=$((FAIL+1)); }

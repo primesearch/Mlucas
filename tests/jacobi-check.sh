@@ -214,8 +214,22 @@ if [[ -n $MLUCAS_FI ]]; then
 	if [[ $(cat "$d/exit") != 0 ]]; then ok "run stopped (exit $(cat "$d/exit"))"; else bad "run did not stop"; fi
 	if [[ -f $d/p216103 && -f $d/p216103.J ]]; then ok "savefiles left in place"; else bad "savefiles missing after the abort"; fi
 	fi
+
+	echo "-- T7: PRP run whose run flag is cleared between intervals (a signal during the checkpoint write) must stop, not run on frozen"
+	d=$WORK/t7; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS_FI" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+	printf 'PRP=1,2,216091,-1,75,0,3,1\n' > "$d/worktodo.txt"; printf 'CheckInterval = 10000\n' > "$d/mlucas.ini"
+	run "$d" MLUCAS_FAULT_STOP_AT=50000; S=$d/p216091.stat
+	expect_grep "$S" "FAULT INJECTION: run flag cleared between intervals at iteration 50000" "flag cleared between intervals"
+	expect_grep "$S" "Received SIGINT signal: writing savefile at Iter = 50000 and exiting" "treated as an interrupt at the last completed iteration"
+	expect_nogrep "$S" "Iter# = 60000" "no further intervals were 'completed' after the stop"
+	expect_nogrep "$S" "MaxErr = 0.000000000" "no frozen-residue checkpoints"
+	if [[ $(cat "$d/exit") == 0 ]]; then ok "clean exit after the savefile write"; else bad "exit $(cat "$d/exit")"; fi
+	run "$d"
+	expect_grep "$S" "Restarting M216091 at iteration = 50000" "resumed at the interrupted iteration"
+	expect_grep "$S" "Gerbicz check passed" "the run's Gerbicz check passed after the resume"
+	expect_grep "$S" "M216091 is a known MERSENNE PRIME" "correct PRP verdict"
 else
-	skip "T5/T6 need the -DMLUCAS_FAULT_INJECT build"
+	skip "T5/T6/T7 need the -DMLUCAS_FAULT_INJECT build"
 fi
 
 # ---------------------------------------------------------------------------------------------
