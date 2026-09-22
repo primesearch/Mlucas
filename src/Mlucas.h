@@ -86,6 +86,7 @@ void	generate_JSON_report(
 	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial, char *p_cstr
 );
 void	print_help(void);
+void	cfgDropStaleEntry(uint32 kblocks);
 int		cfgNeedsUpdating(const char *p_in_line);
 const char *returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);

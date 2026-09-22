@@ -6134,6 +6134,11 @@ TIMING_TEST_LOOP:
 		#else
 			tdiff = runtime_best/((double)iters*CLOCKS_PER_SEC);
 		#endif
+			/* Replace any entry this file already holds for this FFT length, rather than appending a
+			second one that get_preferred_fft_radix() would then refuse to read past. See the
+			cfgDropStaleEntry() comment: */
+			if(!new_cfg)
+				cfgDropStaleEntry((uint32)iarg);
 			fp = mlucas_fopen(CONFIGFILE,FILE_ACCESS_MODE);
 			if(!fp) {
 				sprintf(cbuf  , "INFO: Unable to open %s file in %s mode ... \n", CONFIGFILE, FILE_ACCESS_MODE);
@@ -6294,6 +6299,60 @@ void print_help(void)
 {
 	fprintf(stderr, "Please refer to the help.txt file for the full list of command line options.\n");
 	exit(EXIT_SUCCESS);
+}
+
+/******************/
+
+/* The self-test appends one line per FFT length to the .cfg file, and only truncates the file when
+its version string is out of date. So a second self-test run in the same directory - re-running a
+tier, or running the Mersenne ladder and then the PRP one over the same lengths, which is what the
+CI job does - appended a *second* entry for every length already present.
+
+get_preferred_fft_radix() refuses a .cfg file holding two entries for one length ("Multiple cfg-file
+entries for FFT length %uK ... please delete or comment out all but one entry"), so two self-tests in
+one directory were enough to leave behind a .cfg file that aborted every subsequent production run
+there, until the user hand-edited it. The program was writing a file it then refused to read.
+
+Drop any existing entry for this FFT length before the caller appends the new one. The thread count
+is part of an entry's identity where the file records one - get_preferred_fft_radix() only trusts
+entries whose count matches the current run, so a .cfg file may legitimately hold one entry per
+(FFT length, thread count) - hence only an entry with a matching count is replaced. An entry with no
+thread-count field is replaced unconditionally: it is exactly what this run is re-timing.
+
+Writes via a scratch file next to the target and rename()s over it, so an interrupted rewrite cannot
+truncate the .cfg file. A failure at any step leaves the original untouched; the worst case is that
+this run's entry is appended after all, which is the old behaviour.
+*/
+void cfgDropStaleEntry(uint32 kblocks)
+{
+	char cfg_path[2*STR_MAX_LEN+1], tmp_path[2*STR_MAX_LEN+8], line[STR_MAX_LEN];
+	FILE *fp, *ft;
+	char *nt_addr;
+	uint32 i, nt, ndrop = 0;
+	int first = TRUE;
+
+	snprintf(cfg_path, sizeof(cfg_path), "%s%s"    , MLUCAS_PATH, CONFIGFILE);
+	snprintf(tmp_path, sizeof(tmp_path), "%s%s.new", MLUCAS_PATH, CONFIGFILE);
+	if(!(fp = fopen(cfg_path, "r")))	// No .cfg file yet - nothing to drop
+		return;
+	if(!(ft = fopen(tmp_path, "w"))) {	// Read-only directory - leave the file alone
+		fclose(fp);	return;
+	}
+	while(fgets(line, sizeof(line), fp)) {
+		if(first) {	// Line 1 is the program version, not an entry - and would parse as a length
+			first = FALSE;	fputs(line, ft);	continue;
+		}
+		if(sscanf(line, "%u", &i) == 1 && i == kblocks) {
+			nt_addr = strstr(line, "nthreads =");
+			if(!nt_addr || (sscanf(nt_addr + 10, "%u", &nt) == 1 && nt == (uint32)NTHREADS)) {
+				++ndrop;	continue;
+			}
+		}
+		fputs(line, ft);
+	}
+	fclose(fp);
+	if(fclose(ft) || !ndrop || rename(tmp_path, cfg_path))
+		remove(tmp_path);
 }
 
 /******************/
