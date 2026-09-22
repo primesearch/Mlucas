@@ -4,7 +4,7 @@
 # Usage: tests/jacobi-check.sh <Mlucas binary> [<Mlucas binary built with -DMLUCAS_FAULT_INJECT>] [<mlucas.cfg>]
 #
 # Runs small LL tests in a scratch directory and asserts on the .stat file, the savefiles and the
-# results.txt JSON line. Exponents: M44497 and M216091 (known primes, whole LL in seconds) and 44501 /
+# results.txt JSON line. Exponents: M86243 and M216091 (known primes, whole LL in seconds) and 86249 /
 # 216103 (prime exponents with composite Mersenne numbers, so a results line is emitted). The
 # fault-injection tests need the second binary; they are skipped with a notice if it is not given.
 #
@@ -67,35 +67,38 @@ echo "== Jacobi residue check: end-to-end tests (work dir $WORK)"
 echo "   Mlucas: $MLUCAS"; echo "   fault-inject build: ${MLUCAS_FI:-(none - fault-injection tests skipped)}"
 
 # ---------------------------------------------------------------------------------------------
-# T1 and T2 force -fft 4. Left to itself the default FFT length for these exponents is 2K, which an
-# AVX-512 build cannot run at all: the teensy-FFT guard in mers_mod_square.c requires
-# complex-length/radix_final >= 16*RE_IM_STRIDE, which is 128 there against 64 for AVX/AVX2, and no 2K
-# radix set reaches it. On such a host every 2K radix set is rejected, no mlucas.cfg entry can exist,
-# the remedial timing self-test at 2K fails the same way, and the run aborts before doing any work -
-# "The timing self-test at FFT length 2 K yielded no usable radix set". 4K clears the guard on every
-# build mode and is still well inside the range for these exponents (max recommended exponent at 4K is
-# 88438). The forced length changes none of the counts asserted below, which follow from the exponent
-# and CheckInterval alone.
-echo "-- T1: clean LL of a Mersenne prime (M44497), check at every checkpoint"
-d=$(setup t1 44497 1000); run "$d" -- -fft 4
-S=$d/p44497.stat
-expect_grep  "$S" "M44497 is a known MERSENNE PRIME" "correct verdict"
-expect_count "$S" "Jacobi check passed" 45 "a pass logged at every checkpoint plus the final residue"
+# T1 and T2 use exponents whose *default* FFT length is 4K, not 2K. An AVX-512 build cannot run 2K at
+# all: the teensy-FFT guard in mers_mod_square.c wants complex-length/radix_final >= 16*RE_IM_STRIDE,
+# which is 128 there against 64 for AVX/AVX2, and no 2K radix set reaches it. On such a host every 2K
+# radix set is rejected, no mlucas.cfg entry for 2K can exist, the remedial timing self-test at 2K
+# fails the same way, and the run aborts before doing any work. Measured on a Zen 4: 'Mlucas -s tt'
+# passes 4 of 26 cases there and writes cfg entries for 4K and 8K only.
+#
+# Forcing the length with -fft does not work around it: for a Mersenne production run the 9/8 rule in
+# ernstMain() discards any forced length more than one size above the default, so '-fft 4' on a 2K
+# exponent is silently reverted to 2K (8*4 > 9*2). The exponent has to be one whose default is already
+# usable. M86243 is the Mersenne prime in the 4K band (66742 < p <= 88438) and 86249 is a prime whose
+# Mersenne number is composite, so T2 still gets its results line.
+echo "-- T1: clean LL of a Mersenne prime (M86243), check at every checkpoint"
+d=$(setup t1 86243 1000); run "$d"
+S=$d/p86243.stat
+expect_grep  "$S" "M86243 is a known MERSENNE PRIME" "correct verdict"
+expect_count "$S" "Jacobi check passed" 87 "a pass logged at every checkpoint plus the final residue"
 expect_nogrep "$S" "FAILED" "no failure on a clean run"
-expect_grep  "$S" "At iteration 44495, shift = [0-9]*: Jacobi check passed" "final residue checked before the verdict"
-if [[ -f $d/p44497.J && -f $d/p44497.J1 ]]; then ok ".J and .J1 written"; else bad ".J/.J1 missing"; fi
-if [[ -f $d/q44497 ]]; then bad "q44497 left behind after completion"; else ok "q44497 removed at completion"; fi
+expect_grep  "$S" "At iteration 86241, shift = [0-9]*: Jacobi check passed" "final residue checked before the verdict"
+if [[ -f $d/p86243.J && -f $d/p86243.J1 ]]; then ok ".J and .J1 written"; else bad ".J/.J1 missing"; fi
+if [[ -f $d/q86243 ]]; then bad "q86243 left behind after completion"; else ok "q86243 removed at completion"; fi
 
 # ---------------------------------------------------------------------------------------------
-echo "-- T2: clean LL of a composite Mersenne number (M44501): results line carries the Jacobi count"
-d=$(setup t2 44501 1000); run "$d" -- -fft 4
-S=$d/p44501.stat
-expect_grep "$S" "M44501 is not prime" "correct verdict"
-expect_count "$S" "Jacobi check passed" 45 "a pass logged at every checkpoint plus the final residue"
+echo "-- T2: clean LL of a composite Mersenne number (M86249): results line carries the Jacobi count"
+d=$(setup t2 86249 1000); run "$d"
+S=$d/p86249.stat
+expect_grep "$S" "M86249 is not prime" "correct verdict"
+expect_count "$S" "Jacobi check passed" 87 "a pass logged at every checkpoint plus the final residue"
 if [[ -f $d/results.txt ]]; then ok "results.txt written"; else bad "results.txt missing"; fi
 if grep -qE '"error-code":"[0-9A-F]{6}0[0-9A-F]"' "$d/results.txt"; then ok "clean Jacobi nibble in error-code"; else bad "Jacobi nibble != 0 on a clean run"; fi
 expect_grep "$d/results.txt" '"errors":{"Roundoff":0, "jacobi":0}' "jacobi count 0 in the errors object"
-CLEAN_44501=$(res64_of "$d"); if [[ ${#CLEAN_44501} -eq 16 ]]; then ok "clean Res64 recorded: $CLEAN_44501"; else bad "no Res64 in results.txt"; fi
+CLEAN_86249=$(res64_of "$d"); if [[ ${#CLEAN_86249} -eq 16 ]]; then ok "clean Res64 recorded: $CLEAN_86249"; else bad "no Res64 in results.txt"; fi
 
 # ---------------------------------------------------------------------------------------------
 echo "-- T3: interrupt and resume (M216091): the loaded residue is Jacobi-checked before use"
