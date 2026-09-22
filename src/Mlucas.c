@@ -2729,6 +2729,13 @@ READ_RESTART_FILE:
 		{
 			uint32 ih, nh = (reshist_n < RESHIST_LEN) ? reshist_n : RESHIST_LEN;
 			for(ih = 0; ih < nh; ih++) {
+				/* Only *distinct* intervals are evidence, which is what the check rests on. The same
+				interval can reach here twice: an interrupt arriving between intervals - a signal during
+				the checkpoint write, or MLUCAS_KEEP_RUNNING cleared - sends the loop back through this
+				block to write the savefile at the iteration just completed. Comparing that residue with
+				its own history entry is a tautology, and reporting it told the user to go looking for
+				hardware errors after an ordinary ^C. */
+				if(reshist[ih].iter == ihi) continue;
 				if(reshist[ih].r0 != Res64 || reshist[ih].r1 != Res35m1 || reshist[ih].r2 != Res36m1) continue;
 				snprintf(cbuf,sizeof(cbuf)," ***   Stalled-iteration Error   ***\n Res64 %016" PRIX64 " at iteration %u is identical to that at iteration %u.\n Distinct intervals cannot repeat a residue by chance; the iteration is not advancing.\n", Res64, ihi, reshist[ih].iter);
 				mlucas_fprint(cbuf,1);
