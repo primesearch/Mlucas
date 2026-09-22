@@ -748,21 +748,26 @@ jobs:
       shell: bash
       run: |
         $CC --version
-        # The windows-11-arm runner ships no native aarch64 toolchain (no MSYS2/CLANGARM64), so its
-        # "gcc" is really an x86_64-w64-mingw32 compiler running under emulation. Both $HOSTTYPE
-        # (x86_64) and the matrix OS label (arm) mislead here, so key the arch off what the compiler
-        # itself targets.
-        #
-        # This whole block only dumps predefined macros for the log, so it must not be able to fail
-        # the job. On windows-11-arm the emulated compiler dies on the probe with 0x80000004 and takes
-        # the step with it, before anything has been built - which is how that cell has been failing.
-        {
-            if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
-                $CC -dM -E -mcpu=native - </dev/null
-            else
-                $CC -dM -E -march=native - </dev/null
-            fi
-        } || echo "::warning::predefined-macro probe failed; it is diagnostic only, continuing."
+    # Dumping the compiler's predefined macros is diagnostic only - nothing downstream reads it - so
+    # it gets a step of its own with continue-on-error rather than sharing one with a check that
+    # matters. On windows-11-arm this probe kills its step outright: the runner ships no native
+    # aarch64 toolchain (no MSYS2/CLANGARM64), so its "gcc" is an x86_64-w64-mingw32 compiler running
+    # under emulation, and the probe dies with 0x80000004 (-2147483644), which the step's exit status
+    # then carries. An in-script '{ ... } || echo' guard does not contain that - it was tried, and the
+    # cell kept failing on main - because the status is not an ordinary non-zero exit bash can trap.
+    # continue-on-error is a step-level property the runner applies whatever the process did, and the
+    # runner itself survives (the steps after the failing one have always run), so it holds here.
+    - name: Predefined macros (diagnostic)
+      continue-on-error: true
+      shell: bash
+      run: |
+        # $HOSTTYPE (x86_64) and the matrix OS label (arm) both mislead on windows-11-arm, so key the
+        # arch off what the compiler itself targets.
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
+            $CC -dM -E -mcpu=native - </dev/null
+        else
+            $CC -dM -E -march=native - </dev/null
+        fi
     - name: Script
       shell: bash
       run: |
