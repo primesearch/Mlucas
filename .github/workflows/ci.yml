@@ -811,16 +811,19 @@ jobs:
         # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
         # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
         # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
-        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
-        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
-        # the failing pipeline ends the step and the status is never examined at all.
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to rc = 0 alone.
+        # This job runs under the VM's /bin/sh (usesh: true above), not bash, so: no ${PIPESTATUS[n]}
+        # - 'set -o pipefail' at the top of the step already makes the pipeline carry Mlucas's status,
+        # since tee always succeeds - and no (( ... )) arithmetic commands. The '|| st=$?' is not
+        # optional either way: the step runs under set -e, so without it the failing pipeline ends the
+        # step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
-            time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log || st=${PIPESTATUS[0]}
-            if (( st != 0 && st != 2 )); then rc=1; fi
+            time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log || st=$?
+            if [ "$st" -ne 0 ] && [ "$st" -ne 2 ]; then rc=1; fi
         done
-        (( rc == 0 ))
+        [ "$rc" -eq 0 ]
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for compile
         # coverage: this VM may not be able to execute what they target - running them per-mode is
