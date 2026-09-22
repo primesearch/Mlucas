@@ -981,6 +981,13 @@ jobs:
         done
         cd obj_nosimd
         # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
+        # The ladder runs last (PR #296): config-fermat.sh and the Mfactor runs take about a minute
+        # between them and are where this job's findings have come from, so a real sanitizer report
+        # lands in minutes rather than behind the '-s m' sweep. Nothing below depends on the ladder.
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
+        done
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
@@ -1001,12 +1008,6 @@ jobs:
             if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
-        for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
-        done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -1283,6 +1284,13 @@ jobs:
         done
         cd obj_nosimd
         # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
+        # The ladder runs last (PR #296): config-fermat.sh and the Mfactor runs take about a minute
+        # between them and are where this job's findings have come from, so a real sanitizer report
+        # lands in minutes rather than behind the '-s m' sweep. Nothing below depends on the ladder.
+        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+        for word in '' 1word 2word 3word 4word nword; do
+            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
+        done
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
@@ -1303,9 +1311,3 @@ jobs:
             if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-        for word in '' 1word 2word 3word 4word nword; do
-            ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
-        done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
