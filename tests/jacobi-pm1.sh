@@ -50,12 +50,12 @@ run() {	# run <dir> [env...] [-- <extra Mlucas args>]
 run_until_iter_then_interrupt() {	# <dir> <iteration>
 	local d=$1 it=$2 pid i
 	( cd "$d" && exec ./Mlucas -cpu "$CPU" > run.log 2>&1 ) & pid=$!
-	for i in $(seq 1 1200); do
+	for ((i = 0; i < 1200; ++i)); do
 		sleep 0.5
 		grep -q "S1 bit = $it " "$d/p$P.stat" 2>/dev/null && break
-		kill -0 $pid 2>/dev/null || break
+		kill -0 "$pid" 2>/dev/null || break
 	done
-	kill -INT $pid 2>/dev/null; wait $pid 2>/dev/null; echo $? > "$d/exit"
+	kill -INT "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; echo $? > "$d/exit"
 }
 final_res64() { grep "S1 bit = $LAST " "$1/p$P.stat" | grep -o "Res64: [0-9A-F]*" | tail -1 | cut -d' ' -f2; }
 
@@ -88,7 +88,7 @@ expect_nogrep "$S" "Gerbicz check passed\|Gerbicz check iteration\|Gerbicz check
 expect_grep "$S" "Stage 1 final residue passed the Jacobi check (.* sec)." "final Jacobi check ran inline (no scratch array for the thread)"
 expect_nogrep "$S" "overlapped with the GCD" "(and not on a thread)"
 expect_grep "$S" "GCD" "stage 1 completed to the GCD"
-[[ ! -f $d/p$P.G ]] && ok "no .G file without the check" || bad ".G written without a check"
+if [[ ! -f $d/p$P.G ]]; then ok "no .G file without the check"; else bad ".G written without a check"; fi
 
 echo "-- P0d: Fermat number F16 = 2^65536+1, stage 1 with GerbiczCheckInterval = 10000: the same checks on the Fermat-mod path"
 d=$WORK/p0d; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
@@ -123,9 +123,9 @@ expect_grep  "$S" "At iteration $LASTCHK, shift = 0: Gerbicz check passed" "end-
 expect_nogrep "$S" "Gerbicz check iteration" "no failures"
 expect_grep  "$S" "Stage 1 final residue passed the Jacobi check" "final-residue Jacobi (conversion-path) check passed"
 expect_grep  "$S" "GCD" "stage 1 GCD ran"
-[[ -f $d/p$P.G ]] && ok ".G (last-good-check) savefile written" || bad ".G missing"
+if [[ -f $d/p$P.G ]]; then ok ".G (last-good-check) savefile written"; else bad ".G missing"; fi
 expect_grep "$d/results.txt" '"errors":{"Roundoff":[0-9]*, "gerbicz":0, "jacobi":0}' "results line carries zero Gerbicz and Jacobi counts"
-CLEAN=$(final_res64 "$d"); [[ ${#CLEAN} -eq 16 ]] && ok "clean final stage 1 Res64 $CLEAN" || bad "no final stage 1 Res64 in the .stat file"
+CLEAN=$(final_res64 "$d"); if [[ ${#CLEAN} -eq 16 ]]; then ok "clean final stage 1 Res64 $CLEAN"; else bad "no final stage 1 Res64 in the .stat file"; fi
 
 # ---------------------------------------------------------------------------------------------
 echo "-- P2: interrupt mid-epoch and resume: the stored check-product carries the epoch across the restart"
@@ -135,7 +135,7 @@ if grep -q "Received SIGINT signal: writing savefile at Iter = " "$S"; then
 	expect_grep  "$S" "Restart file p$P (stage 1 iteration [0-9]*) passed the Jacobi check" "loaded residue passed the Jacobi read check"
 	expect_nogrep "$S" "carries no Gerbicz check-product" "the epoch continued from the stored product (no new epoch)"
 	expect_grep  "$S" "At iteration 2000000, shift = 0: Gerbicz check passed" "the check spanning the restart passed"
-	[[ $(final_res64 "$d") == "$CLEAN" ]] && ok "final stage 1 Res64 matches the clean run" || bad "final Res64 $(final_res64 "$d") != clean $CLEAN"
+	if [[ $(final_res64 "$d") == "$CLEAN" ]]; then ok "final stage 1 Res64 matches the clean run"; else bad "final Res64 $(final_res64 "$d") != clean $CLEAN"; fi
 else
 	bad "could not interrupt the run in time"
 fi
@@ -150,7 +150,7 @@ if [[ -f $d/p$P && -f $d/q$P ]]; then
 	run "$d"
 	expect_grep "$S" "read_ppm1_savefiles Failed on savefile p$P" "damaged primary rejected"
 	expect_grep "$S" "Restart file q$P (stage 1 iteration [0-9]*) passed the Jacobi check" "secondary passed the Jacobi read check"
-	[[ $(final_res64 "$d") == "$CLEAN" ]] && ok "final stage 1 Res64 matches the clean run" || bad "final Res64 $(final_res64 "$d") != clean $CLEAN"
+	if [[ $(final_res64 "$d") == "$CLEAN" ]]; then ok "final stage 1 Res64 matches the clean run"; else bad "final Res64 $(final_res64 "$d") != clean $CLEAN"; fi
 else
 	bad "expected p/q savefiles after the interrupt"
 fi
@@ -165,7 +165,7 @@ else
 	expect_grep "$S" "Gerbicz check iteration 2000000 failed! Restarting from last-good-Gerbicz-check data" "caught at the next check"
 	expect_grep "$S" "Restart file p$P.G (stage 1 iteration 1000000) passed the Jacobi check" "rolled back to the .G checkpoint at 10^6"
 	expect_grep "$S" "At iteration 2000000, shift = 0: Gerbicz check passed" "the retried block passed"
-	[[ $(final_res64 "$d") == "$CLEAN" ]] && ok "final stage 1 Res64 matches the clean run" || bad "final Res64 $(final_res64 "$d") != clean $CLEAN"
+	if [[ $(final_res64 "$d") == "$CLEAN" ]]; then ok "final stage 1 Res64 matches the clean run"; else bad "final Res64 $(final_res64 "$d") != clean $CLEAN"; fi
 	expect_grep "$d/results.txt" '"gerbicz":1' "one Gerbicz error counted in the results line"
 	# bits 20-23 = 3rd hex digit of the 8-digit code (digits are bits 31-28, 27-24, 23-20, ...)
 	if grep -qE '"error-code":"[0-9A-F]{2}1[0-9A-F]{5}"' "$d/results.txt"; then ok "Gerbicz nibble (bits 20-23) = 1 in the error-code"; else bad "Gerbicz nibble != 1: $(grep -o '"error-code":"[0-9A-F]*"' "$d/results.txt")"; fi
@@ -180,8 +180,8 @@ if [[ -n $MLUCAS_FI ]]; then
 	expect_count "$S" "FAULT INJECTION: added 1.0 to residue digit 0 at iteration 15000" 4 "injection re-fired on every retry"
 	expect_count "$S" "Gerbicz check iteration 20000 failed! Restarting from last-good-Gerbicz-check data" 3 "three rollbacks to .G"
 	expect_grep "$S" "Gerbicz check at iteration 20000 failed 4 times in a row" "fourth failure aborts with the hardware warning"
-	[[ $(cat "$d/exit") != 0 ]] && ok "run stopped (exit $(cat "$d/exit"))" || bad "run did not stop"
-	[[ -f $d/p$P && -f $d/p$P.G ]] && ok "savefiles left in place" || bad "savefiles missing after the abort"
+	if [[ $(cat "$d/exit") != 0 ]]; then ok "run stopped (exit $(cat "$d/exit"))"; else bad "run did not stop"; fi
+	if [[ -f $d/p$P && -f $d/p$P.G ]]; then ok "savefiles left in place"; else bad "savefiles missing after the abort"; fi
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -203,20 +203,20 @@ d=$(setup2 p5); run "$d"; S=$d/p$P.stat
 expect_count "$S" "Stage 2 ladder check passed at q = " 5 "ladder recomputation passed at the stage 2 checkpoints"
 expect_nogrep "$S" "ERROR: M$P stage 2" "no stage 2 check failure"
 expect_grep "$d/results.txt" '"B2":2000000' "stage 2 completed and reported"
-CLEAN2=$(s2_final "$d" | tail -1); [[ -n $CLEAN2 ]] && ok "clean stage 2 final accumulator $CLEAN2" || bad "no stage 2 Res64 in the .stat file"
+CLEAN2=$(s2_final "$d" | tail -1); if [[ -n $CLEAN2 ]]; then ok "clean stage 2 final accumulator $CLEAN2"; else bad "no stage 2 Res64 in the .stat file"; fi
 
 if [[ -n $MLUCAS_FI ]]; then
 	echo "-- P6: stage 2 ladder corrupted at q ~ 1000000: caught exactly by the recomputation; restart finishes clean"
 	d=$(setup2 p6 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_S2=ladder MLUCAS_FAULT_S2_Q=1000000; S=$d/p$P.stat
 	expect_grep "$S" "FAULT INJECTION: stage 2 ladder perturbed" "injection fired"
 	expect_grep "$S" "stage 2 ladder check FAILED" "ladder mismatch detected"
-	[[ $(cat "$d/exit") != 0 ]] && ok "run stopped (exit $(cat "$d/exit")) with the .s2 checkpoint intact" || bad "run did not stop"
-	[[ -f $d/p$P.s2 ]] && ok ".s2 checkpoint present" || bad ".s2 checkpoint missing"
+	if [[ $(cat "$d/exit") != 0 ]]; then ok "run stopped (exit $(cat "$d/exit")) with the .s2 checkpoint intact"; else bad "run did not stop"; fi
+	if [[ -f $d/p$P.s2 ]]; then ok ".s2 checkpoint present"; else bad ".s2 checkpoint missing"; fi
 	run "$d"	# restart: rebuilds ladder and tables from the stage 1 residue, resumes the accumulator from .s2
 	# (A restarted stage 2 rebuilds its prime-pairing window from the checkpoint q, so its final accumulator is a
 	# legitimately different product from an uninterrupted run's - the same is true of a plain interrupt/resume -
 	# hence recovery is asserted through completion and clean checks, not through accumulator equality.)
-	[[ $(grep -c "stage 2 ladder check FAILED" "$S") -eq 1 ]] && ok "no repeat failure on restart" || bad "ladder failure recurred after restart"
+	if [[ $(grep -c "stage 2 ladder check FAILED" "$S") -eq 1 ]]; then ok "no repeat failure on restart"; else bad "ladder failure recurred after restart"; fi
 	expect_grep "$d/results.txt" '"B2":2000000' "restarted stage 2 completed"
 	expect_count "$S" "Stage 2 ladder check passed at q = " 3 "ladder checks pass after the restart"
 
@@ -225,14 +225,14 @@ if [[ -n $MLUCAS_FI ]]; then
 	expect_grep "$S" "FAULT INJECTION: stage 2 table perturbed" "injection fired"
 	expect_grep "$S" "stage 2 table entry 1 of [0-9]* fails its checksum" "checksum mismatch detected on the corrupted entry"
 	run "$d"
-	[[ $(grep -c "fails its checksum" "$S") -eq 1 ]] && ok "no repeat failure on restart" || bad "checksum failure recurred after restart"
+	if [[ $(grep -c "fails its checksum" "$S") -eq 1 ]]; then ok "no repeat failure on restart"; else bad "checksum failure recurred after restart"; fi
 	expect_grep "$d/results.txt" '"B2":2000000' "restarted stage 2 completed"
 
 	echo "-- P8: stage 2 accumulator corrupted: NOT caught (no invariant exists) - the run ends with a different result"
 	d=$(setup2 p8 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_S2=accum MLUCAS_FAULT_S2_Q=1000000; S=$d/p$P.stat
 	expect_grep "$S" "FAULT INJECTION: stage 2 accum perturbed" "injection fired"
 	expect_nogrep "$S" "ERROR: M$P stage 2" "nothing catches it - this is the documented limit of the stage 2 checks"
-	[[ $(s2_final "$d" | tail -1) != "$CLEAN2" ]] && ok "run ends with a WRONG accumulator $(s2_final "$d" | tail -1) - documented, not hidden" || bad "accumulator equals the clean one?!"
+	if [[ $(s2_final "$d" | tail -1) != "$CLEAN2" ]]; then ok "run ends with a WRONG accumulator $(s2_final "$d" | tail -1) - documented, not hidden"; else bad "accumulator equals the clean one?!"; fi
 else
 	skip "P6-P8: stage 2 fault-injection tests need a -DMLUCAS_FAULT_INJECT build"
 fi
