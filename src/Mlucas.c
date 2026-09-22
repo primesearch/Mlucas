@@ -1464,8 +1464,23 @@ use, unless user overrides those via -nthread or -cpu:
 		dum = get_preferred_fft_radix(kblocks);
 		if(!dum) {	// Need to run a timing self-test at this FFT length before proceeding:
 			sprintf(cbuf, "INFO: FFT length %d = %d K not found in the '%s' file.\n", n, kblocks, CONFIGFILE);
-			fprintf(stderr, "%s", cbuf); // Extra information on the default FFT selected. The following line allows the FFT to be overridden for Fermat exponents; see https://github.com/primesearch/Mlucas/pull/11
-			if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
+			fprintf(stderr, "%s", cbuf);
+			/* v21: this return is unconditional. get_preferred_fft_radix() zeroes NRADICES and
+			RADIX_VEC[] when it finds no usable cfg entry for the requested length, and nothing
+			between here and the FFT-init call repopulates them, so falling through leaves the run
+			with leading radix 0 and it dies in dif1_dit1_func_name():
+				"ERROR: radix 0 not available for [dif,dit] pass1. Halting..."
+			The "|| MODULUS_TYPE == MODULUS_TYPE_MERSENNE" carve-out that used to be here exempted
+			exactly one case from the return - a non-Mersenne modulus with a user-forced -fft length -
+			and that is the case that crashes. What issue #3 needed is the MODULUS_TYPE_MERSENNE
+			clause in the 9/8-rule test further above, which is what keeps kblocks equal to the
+			user's forced length for a Fermat run; the remedial self-test this return asks for is
+			then run at that same length rather than at the unusable default, and appends a
+			fermat.cfg entry for it. NOTE this relies on the remedial-self-test handler in main()
+			running with the production run's modulus type (modType = MODULUS_TYPE); with the older
+			unconditional modType = MODULUS_TYPE_MERSENNE there, a Fermat run's self-test writes
+			mlucas.cfg while the run needs fermat.cfg, and the retry loops. */
+			return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 		}
 		else if(dum != kblocks)
 		{
@@ -1482,7 +1497,9 @@ use, unless user overrides those via -nthread or -cpu:
 				*/
 				snprintf(cbuf,sizeof(cbuf),"WARN: get_preferred_fft_radix returned out-of-range FFT length: asked for %u, returned %u, packed value= %#8X -- ignoring and treating as 'not found' in '%s'; please rerun the self-test for this length.\n", kblocks, i, dum, CONFIGFILE);
 				fprintf(stderr, "%s", cbuf);
-				if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
+				/* Unconditional for the same reason as the not-found case above: NRADICES and
+				RADIX_VEC[] are not populated on this path either, so falling through runs radix 0. */
+				return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 			}
 			else	/* If length acceptable, extract the FFT-radix data encoded and populate the NRADICES and RADIX_VEC[] globals */
 			{
