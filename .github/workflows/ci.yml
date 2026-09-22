@@ -365,7 +365,10 @@ jobs:
         # auto-detection ever changes: makemake.sh announces the selected mode on stdout but does
         # not record it in build.log, so ask the binary itself what it was built as.
         if [[ -z $MODE ]]; then
-            ./Mlucas -s tt -cpu 0 > mode.log 2>&1
+            # '|| true': this run is only being asked what it was built as. A self-test status of 1
+            # or 2 - 1K has no usable radix set in a stock build - would otherwise end the step here
+            # under set -e, before the grep that is the actual check.
+            ./Mlucas -s tt -cpu 0 > mode.log 2>&1 || true
             grep -q 'Build uses ARMv8 advanced-SIMD' mode.log || {
                 echo '::error::ARM cell is not an ASIMD build - it would be testing nothing'; exit 1; }
         fi
