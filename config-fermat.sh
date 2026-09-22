@@ -63,6 +63,11 @@ for ((n = 0; n < 16; ++n)); do
 		fi
 	done
 done
+# Mlucas returns 1 for a wrong answer and 2 for "this build had too few usable radix sets at this
+# FFT length to write a cfg entry". This script is normally invoked as 'bash -e -o pipefail', under
+# which either status would end the loop at the first affected length and leave every larger Fermat
+# number unconfigured and untested. Carry on instead, and report at the end.
+rc=0
 for fft in "${!FFTS[@]}"; do
 	f=${FFTS[fft]}
 	if [[ -n $MIN && $f -lt $MIN ]]; then
@@ -80,5 +85,15 @@ for fft in "${!FFTS[@]}"; do
 	if [[ $f -le 17 || $f -ge 32 ]]; then
 		args+=(-shift 0)
 	fi
-	time "$MLUCAS" -f "$f" -fft "$fft" -iters "$ITERS" "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices'
+	st=0
+	time "$MLUCAS" -f "$f" -fft "$fft" -iters "$ITERS" "${args[@]}" 2>&1 | tee -a config-fermat.log | grep -i 'error\|warn\|assert\|writing\|pmax_rec\|fft radices' || st=${PIPESTATUS[0]}
+	# 2 = no cfg entry for this length, which is a property of the build, not a wrong answer. Note it
+	# and keep going. Anything else nonzero - a wrong residue, a crash - is fatal.
+	if (( st == 2 )); then
+		printf '\n\tNOTE: no fermat.cfg entry for F%s at %sK - too few usable radix sets in this build.\n' "$f" "$fft"
+	elif (( st != 0 )); then
+		printf '\n\tERROR: F%s at %sK exited %s.\n' "$f" "$fft" "$st"
+		rc=$st
+	fi
 done
+exit "$rc"
