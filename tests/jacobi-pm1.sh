@@ -3,8 +3,11 @@
 #
 # Usage: tests/jacobi-pm1.sh <Mlucas binary> [<Mlucas binary built with -DMLUCAS_FAULT_INJECT>] [<mlucas.cfg>]
 #
-# Exponent 44497 with B1 = B2 = 1500000: stage 1 is 2165373 iterations (~30 s at a 2K FFT), so with the default
-# check interval of 10^6 there are Gerbicz checks at 1000000 and 2000000 plus the end-of-run check at 2165000.
+# Exponent 44497 with B1 = B2 = 1500000: stage 1 is 2164275 iterations (~30 s at a 2K FFT), so with the default
+# check interval of 10^6 there are Gerbicz checks at 1000000 and 2000000 plus the end-of-run check at 2164000.
+# Those counts are exact and machine-independent: the stage 1 exponent is 4p times the product of the prime
+# powers <= B1, so its bit length depends only on p and B1, and the end-of-run check sits at the last multiple
+# of the Gerbicz block length L below it.
 # Stage 2 is not run (B2 = B1).
 #
 # What is asserted, and why: a clean run passes every check and the final residue passes its Jacobi check; a
@@ -24,7 +27,7 @@ CPU=${JACOBI_TEST_CPU:-0:3}
 WORK=${JACOBI_TEST_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/jacobi-pm1.XXXXXX")}
 mkdir -p "$WORK"
 PASS=0; FAIL=0; SKIP=0
-P=44497; B1=1500000; LAST=2165373; LASTCHK=2165000
+P=44497; B1=1500000; LAST=2164275; LASTCHK=2164000
 
 ok()   { echo "  ok   - $*"; PASS=$((PASS+1)); }
 bad()  { echo "  FAIL - $*"; FAIL=$((FAIL+1)); }
@@ -62,14 +65,14 @@ final_res64() { grep "S1 bit = $LAST " "$1/p$P.stat" | grep -o "Res64: [0-9A-F]*
 echo "== p-1 stage 1 Gerbicz / Jacobi checks: end-to-end tests (work dir $WORK)"
 
 # ---------------------------------------------------------------------------------------------
-echo "-- P0: GerbiczCheckInterval = 10000 (block L = 100) on a short stage 1 (B1 = 20000, 29010 iterations)"
+echo "-- P0: GerbiczCheckInterval = 10000 (block L = 100) on a short stage 1 (B1 = 20000, 28866 iterations)"
 d=$WORK/p0; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
 printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
 run "$d"; S=$d/p$P.stat
 expect_grep "$S" "p-1 stage 1 Gerbicz check every 10000 iterations (block L = 100, from GerbiczCheckInterval)" "interval taken from mlucas.ini"
 expect_grep "$S" "At iteration 10000, shift = 0: Gerbicz check passed" "check at 10^4 passed (correction with a large high part H)"
 expect_grep "$S" "At iteration 20000, shift = 0: Gerbicz check passed" "check at 2*10^4 passed"
-expect_grep "$S" "At iteration 29000, shift = 0: Gerbicz check passed" "end-of-run check at the last block boundary passed"
+expect_grep "$S" "At iteration 28800, shift = 0: Gerbicz check passed" "end-of-run check at the last block boundary passed"
 expect_nogrep "$S" "Gerbicz check iteration" "no failures"
 expect_grep "$S" "Stage 1 final residue passed the Jacobi check (.*overlapped with the GCD)" "final Jacobi check ran on its own thread alongside the GCD"
 d=$WORK/p0b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
