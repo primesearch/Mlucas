@@ -4958,6 +4958,13 @@ TIMING_TEST_LOOP:
 			*/
 			for(i = 0; i < 10; i++){ fprintf(fp,"%3u",RADIX_VEC[i]); };
 
+			/* Record the thread count the timing was taken with. The fastest radix set at one thread
+			is often not the fastest at 4 or 16 - the FFT-phase working set grows with thread count -
+			so get_preferred_fft_radix() only trusts entries whose thread count matches the current run,
+			and a cfg file may hold one entry per (FFT length, thread count). Fixed width like the rest
+			of the line; entries written by older versions lack the field and are accepted for any count: */
+			fprintf(fp, "  nthreads = %4u", NTHREADS);
+
 			/* If it's a new self-test residue being computed, add the SH residues to the .cfg file line */
 			if(new_data)
 				fprintf(fp, "\tp = %s: %d-iter Res mod 2^64, 2^35-1, 2^36-1 = %016" PRIX64 ", %11.0f, %11.0f",ESTRING,iters,new_res.sh0,(double)new_res.sh1,(double)new_res.sh2);
