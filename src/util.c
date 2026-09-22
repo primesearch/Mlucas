@@ -66,6 +66,13 @@ Ubuntu 20.04 and earlier hit this; newer glibc happens to tolerate it. */
 	#define USE_FMADD
 	#warning USE_FMADD local-defined!
 #endif
+/* Detected per-core L2 and (shared) L3 cache sizes, 0 = unknown; filled by report_cpu_topology()
+below. Defined here rather than in Mlucas.c because the references are in this file and Mfactor
+links util.o without Mlucas.o: with LTO the linker drops the unreferenced reads and the missing
+definition goes unnoticed, but any build without it - the sanitizer jobs at -Og, and every clang
+old enough that makemake.sh turns -flto off - fails with "undefined reference to L2_CACHE_BYTES". */
+uint64 L2_CACHE_BYTES = 0, L3_CACHE_BYTES = 0;
+
 /**********************************/
 /******* INFO, WARN ASSERT ********/
 /**********************************/
