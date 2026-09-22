@@ -98,10 +98,12 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	matching rejection in radix15_ditN_cy_dif1.c). Until that is ported here, reject a *shifted*
 	Fermat-mod run cleanly rather than returning a wrong answer: measured at F18, FFT length 15K,
 	radix set (30,16,16) gives Res64 7C6B681485EB86DB at shift 0 - agreeing with radix set (60,8,16) -
-	and a different, wrong value at every nonzero shift. Unshifted Fermat-mod runs are unaffected. */
+	and a different, wrong value at every nonzero shift. Unshifted Fermat-mod runs are unaffected.
+	ERR_RADIX0_UNAVAILABLE rather than ERR_ASSERT, as in radix15_ditN_cy_dif1.c: not applicable in this
+	configuration is not a wrong answer, and the self-test must not count it against the FFT length. */
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && RES_SHIFT) {
 		WARN(HERE, "radix30_ditN_cy_dif1: Fermat-mod with a nonzero residue shift needs the icycle-based carry scheme; this radix set is unshifted-Fermat- and Mersenne-only.", "", 1);
-		return(ERR_ASSERT);
+		return(ERR_RADIX0_UNAVAILABLE);
 	}
 
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
