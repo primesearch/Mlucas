@@ -110,10 +110,17 @@ try_flag() {
 
 # Returns success iff $CC's assembler accepts the AVX-512 constructs Mlucas's inline-asm kernels use:
 # the "extended" register names (zmm16-31, xmm16-31, k0-k7). Some older Clang releases reject these even
-# when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register names - so probe them,
-# exactly as the CI does (#73). (The lone AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c
-# routine and is now gated to KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an
-# ER-capable assembler and the probe need not test it.)
+# when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register names - so probe them.
+# (The lone AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c routine and is now gated to
+# KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an ER-capable assembler and the
+# probe need not test it.)
+#
+# The probe must ask for what the kernels actually do, under the flags the build actually uses. The
+# kernels reference an extended xmm only as the 128-bit operand of a 512-bit instruction - 'vmovq
+# %rax,%xmm16', 'vpmovzxbq %xmm16,%zmm16', 'vpslld %xmm31,%zmm1,%zmm1' - which is plain AVX512F. They
+# never do a 128-bit EVEX op on one; a probe that did ('vmovdqa64 %xmm16,%xmm17') was asking for
+# AVX512VL, which -mavx512f does not enable, and so rejected clang 5.0 and 6.0 even though both build
+# the AVX-512 kernels cleanly.
 try_avx512_asm() {
 	local tmpdir
 	tmpdir=$(mktemp -d) || return 1
@@ -123,9 +130,10 @@ int main(void)
 {
 	__asm__ __volatile__(
 		"vpxord %%zmm31,%%zmm31,%%zmm31\n\t"
-		"vmovdqa64 %%xmm16,%%xmm17\n\t"
+		"vmovq %%rax,%%xmm16\n\t"
+		"vpmovzxbq %%xmm16,%%zmm16\n\t"
 		"kmovw %%k1,%%eax"
-		::: "zmm31","xmm16","xmm17","k1","eax"
+		::: "zmm31","xmm16","zmm16","k1","rax"
 	);
 	return 0;
 }
