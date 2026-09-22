@@ -90,10 +90,14 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	// for odd RADIX the n/2 point falls mid-chain (contrast radix30_ditN_cy_dif1.c, which seeds both
 	// bjmodn[0] and bjmodn[15]). Odd leading radices need the newer icycle-based scheme (cf.
 	// radix63_ditN_cy_dif1.c). Until that is ported here, reject cleanly - previously this path ran to
-	// completion but produced silently-wrong residues:
+	// completion but produced silently-wrong residues. ERR_RADIX0_UNAVAILABLE, not ERR_ASSERT: this is
+	// "this build has no implementation for this leading radix", which the self-test discounts, not a
+	// wrong answer. As ERR_ASSERT it took F18 at 15K down to 1 usable radix set of 4, which is below
+	// the half-of-them threshold, so config-fermat.sh got no entry for that length and - running under
+	// bash -e - stopped there, leaving F18 through F29 unconfigured and untested.
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
 		WARN(HERE, "radix15_ditN_cy_dif1: Fermat-mod requires an even leading radix or the icycle-based carry scheme; this radix set is Mersenne-only.", "", 1);
-		return(ERR_ASSERT);
+		return(ERR_RADIX0_UNAVAILABLE);
 	}
 
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
