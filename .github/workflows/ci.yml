@@ -346,12 +346,19 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        # Cheapest first, self-test ladder last. Measured on run 34702153019, this job's own log:
+        # the '-s m' sweep is 42m20s of a 60-minute job, config-fermat.sh takes about a minute and
+        # the Mfactor runs seconds apiece - and those two are where this job's findings have come
+        # from, the radix1008 global-buffer-overflow and the Mfactor leaks. Running the ladder last
+        # means a real sanitizer report lands in minutes rather than behind a 42-minute sweep.
+        # Nothing here depends on the ladder having run: config-fermat.sh computes its own FFT
+        # lengths from a table and never reads mlucas.cfg.
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
 
   TSan-Linux:
     name: ThreadSanitizer Linux
@@ -608,12 +615,13 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -848,9 +856,10 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
