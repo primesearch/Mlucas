@@ -90,7 +90,14 @@ jobs:
         else
             NCPU=$(nproc --all)
         fi
-        time ./Mlucas -s l -cpu "0:$(( NCPU - 1 ))" |& tee -a large.log
+        # Same gate as the CI ladder: 2 means some length in the large tier had too few usable
+        # radix sets in this build, which is a property of the build rather than a wrong answer.
+        # Anything else nonzero is a failure, including a crash part-way through the sweep.
+        # The '|| st=...' is not optional: the step runs under set -e, so without it a failing
+        # pipeline ends it before the status is looked at.
+        st=0
+        time ./Mlucas -s l -cpu "0:$(( NCPU - 1 ))" |& tee -a large.log || st=${PIPESTATUS[0]}
+        if (( st != 0 && st != 2 )); then exit "$st"; fi
 
     - uses: actions/upload-artifact@v7
       if: always()
