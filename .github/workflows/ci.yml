@@ -77,20 +77,22 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m l; do
             st=0
-            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
-            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
@@ -167,18 +169,22 @@ jobs:
         cd obj
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
             time ./Mlucas -s $s || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
             time ./Mlucas -prp -s $s || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
@@ -378,18 +384,22 @@ jobs:
         cd obj_nosimd
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
             time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
             time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
@@ -542,20 +552,22 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m l; do
             st=0
-            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
-            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
@@ -619,18 +631,22 @@ jobs:
         cd obj
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
             time ./Mlucas -s $s || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
             time ./Mlucas -prp -s $s || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
@@ -684,18 +700,22 @@ jobs:
         cd obj_nosimd
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
             time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
             time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
@@ -788,14 +808,17 @@ jobs:
         cd obj
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
-            time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
@@ -890,20 +913,22 @@ jobs:
         cd obj
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m l; do
             st=0
-            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
-            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
-            st=${PIPESTATUS[0]}
-            if (( st == 1 )); then rc=1; fi
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
@@ -965,18 +990,22 @@ jobs:
         cd obj_nosimd
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
-        # to be 0, so no self-test regression could turn this job red. Gate on 1 for now - status 2
-        # still fires on a stock build at 1K and 2K - and tighten to (( rc == 0 )) once those are fixed.
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
         rc=0
         for s in tt t s m; do
             st=0
             time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         for s in tt t s; do
             st=0
             time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
-            if (( st == 1 )); then rc=1; fi
+            if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
