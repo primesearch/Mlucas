@@ -201,7 +201,6 @@ const char WORKFILE [] = "worktodo.txt";	/* File containing exponents to be test
 
 const char MLUCAS_INI_FILE[] = "mlucas.ini";	/* File containing user-customizable configuration settings [currently unused] */
 
-uint64 L2_CACHE_BYTES = 0, L3_CACHE_BYTES = 0;	// Detected per-core L2 and (shared) L3 sizes, 0 = unknown
 char CONFIGFILE[15];						/* Configuration File: contains allowed FFT lengths
 											and allows user to control (at runtime, and in
 											a modifiable way) which of a predefined set
