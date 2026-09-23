@@ -104,6 +104,10 @@ int ncmp_uint64(const void * a, const void * b)
 
 int ncmp_sint64(const void * a, const void * b)
 {
-	return ( *(sint64*)a - *(sint64*)b );
+	/* Must not return the difference: it truncates to int (a gap of 2^32 compares 'equal',
+	and 0xFFFFFFFF00000001 compares positive though a < b), and the subtraction itself is
+	signed-overflow UB for far-apart inputs. Compare instead, as ncmp_uint64 above does: */
+	const sint64 x = *(const sint64*)a, y = *(const sint64*)b;
+	return (x > y) - (x < y);
 }
 
