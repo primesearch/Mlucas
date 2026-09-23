@@ -131,15 +131,37 @@ if [[ -f $d/p216091 && -f $d/q216091 && -f $d/p216091.J ]]; then
 	# intact and must be the file the run resumes from. Seek to the middle of the file rather than a
 	# fixed byte: the header length is not the same for every build, and a fixed small offset can land
 	# in it, where the damage does not break the residue checksum and the file is accepted.
+	# Flip the byte rather than storing a fixed 0xff: if the byte already *is* 0xff the write is a
+	# no-op, the file is not damaged at all, and all three checks below then fail together with no
+	# hint as to why. The residue body is effectively random and varies with the per-run shift, so
+	# that is a ~1-in-256 flake, which is exactly the kind that wastes an afternoon later.
 	for f in p216091 q216091; do
 		sz=$(wc -c < "$d/$f")
-		printf '\xff' | dd of="$d/$f" bs=1 seek=$((sz / 2)) conv=notrunc status=none
+		off=$(( sz / 2 ))
+		old=$(dd if="$d/$f" bs=1 skip=$off count=1 status=none | od -An -tu1 | tr -d ' ')
+		new=$(( old ^ 0xff ))
+		printf "$(printf '\\x%02x' "$new")" | dd of="$d/$f" bs=1 seek=$off conv=notrunc status=none
+		got=$(dd if="$d/$f" bs=1 skip=$off count=1 status=none | od -An -tu1 | tr -d ' ')
+		if [[ $got == "$new" ]]; then
+			ok "damaged $f at byte $off ($old -> $new)"
+		else
+			bad "could not damage $f at byte $off (wanted $new, file still has $got)"
+		fi
 	done
 	run "$d"
+	t4_fail_before=$FAIL
 	expect_grep "$S" "read_ppm1_savefiles Failed on savefile p216091" "damaged primary rejected"
 	expect_grep "$S" "read_ppm1_savefiles Failed on savefile q216091" "damaged secondary rejected"
 	expect_grep "$S" "Restart file p216091.J (iteration [0-9]*) passed the Jacobi check" "resumed from the last Jacobi-passed checkpoint"
 	expect_grep "$S" "M216091 is a known MERSENNE PRIME" "correct verdict after falling through the chain"
+	# If any of those missed, show what the run actually logged. Without this the CI output says only
+	# "pattern not found" and the run directory is gone, which makes the failure uninvestigable.
+	if (( FAIL > t4_fail_before )); then
+		echo "  --- T4 diagnostic: savefiles present after the damaged run ---"
+		ls -l "$d" | sed 's/^/      /'
+		echo "  --- T4 diagnostic: last 40 lines of $(basename "$S") ---"
+		tail -40 "$S" | sed 's/^/      /'
+	fi
 else
 	bad "expected p/q/.J savefiles after the interrupt"
 fi
