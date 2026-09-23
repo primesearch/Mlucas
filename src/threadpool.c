@@ -409,7 +409,6 @@ me at: heber.tomer@gmail.com
 		// than the simpler SetThreadAffinityMask() so systems with >64 logical CPUs - which Windows partitions
 		// into 64-CPU processor groups - are handled: logical core i maps to group (i>>6), bit (i&63).
 		int i;
-		GROUP_AFFINITY grp_aff = {0};
 
 		i = my_id % pool->num_of_cores;	// get cpu index using sequential thread ID modulo #available cores
 		i = mi64_ith_set_bit(CORE_SET, i+1, MAX_CORES>>6);	// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
@@ -417,15 +416,48 @@ me at: heber.tomer@gmail.com
 			fprintf(stderr,"Affinity CORE_SET does not have a [%u]th set bit!",my_id % pool->num_of_cores);
 			ASSERT(0, "Aborting.");
 		}
+
+	  #if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x0601
+		// Windows 7 / Server 2008 R2 and later
+
+		DWORD proc = (DWORD)i;
+		const WORD group_count = GetActiveProcessorGroupCount();
+		WORD group;
+
+		for (group = 0; group < group_count; ++group) {
+			const DWORD count = GetActiveProcessorCount(group);
+
+			if (proc < count) {
+				break;
+			}
+			proc -= count;
+		}
+
 	  #if THREAD_POOL_DEBUG
-		printf("Setting affinity of worker thread id %u to logical core %d (group %u, bit %u)\n", my_id, i, (unsigned)(i>>6), (unsigned)(i&63));
+		printf("Setting affinity of worker thread id %u to logical core %d (group %u, processor %u)\n", my_id, i, (unsigned)group, (unsigned)proc);
 	  #endif
-		grp_aff.Group = (WORD)(i >> 6);
-		grp_aff.Mask  = (KAFFINITY)1 << (i & 63);
+
+		GROUP_AFFINITY grp_aff = {0};
+		grp_aff.Group = group;
+		grp_aff.Mask = (KAFFINITY)1 << proc;
 		// SetThreadGroupAffinity returns 0 (FALSE) on failure:
-		if (SetThreadGroupAffinity(GetCurrentThread(), &grp_aff, NULL) == 0) {
+		if (!SetThreadGroupAffinity(GetCurrentThread(), &grp_aff, NULL)) {
 			fprintf(stderr,"SetThreadGroupAffinity failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
 		}
+
+	  #else
+
+	  #if THREAD_POOL_DEBUG
+		printf("Setting affinity of worker thread id %u to logical core %d\n", my_id, i);
+	  #endif
+
+		if (i >= (int)(8*sizeof(DWORD_PTR))) {
+			fprintf(stderr, "Logical core %d cannot be represented by the Windows thread-affinity mask.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", i);
+		} else if (!SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << i)) {
+			fprintf(stderr,"SetThreadAffinityMask failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
+		}
+
+	  #endif
 
 	#elif defined(OS_TYPE_MACOSX)
 
