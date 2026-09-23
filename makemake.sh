@@ -616,6 +616,18 @@ C_ARGS=(-std=gnu99 -Wall -g -O3)
 if try_flag -fdiagnostics-color; then
 	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
 fi
+# Disable type-based alias analysis. This tree type-puns heavily - ~1800 inter-type pointer casts
+# across src/, and an avx2 build emits 115 -Wstrict-aliasing=2 warnings, 14 of which gcc rates as
+# "will break" rather than "might", several in the carry loops. Many of those accesses are safe only
+# because a function call separates the store from the load, and -flto=auto (added below) inlines
+# that barrier away: the wrong-lane twopmodq96_q4 miscompile needed LTO to appear at all. Measured
+# cost is nil - a 1M-class FFT benchmark, alternating builds over six reps to cancel the
+# second-run-is-slower ordering effect, puts the two within half a percent of each other, with the
+# no-strict-aliasing build marginally ahead. This is defence in depth, NOT a substitute for fixing
+# such accesses in place; they should still be found and fixed on their own merits.
+if try_flag -fno-strict-aliasing; then
+	C_ARGS+=(-fno-strict-aliasing)
+fi
 if try_lto -flto=auto; then
 	C_ARGS+=(-flto=auto)
 elif try_lto -flto; then
