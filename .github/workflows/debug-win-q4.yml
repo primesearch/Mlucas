@@ -1,0 +1,147 @@
+# Telemetry for the intermittent twopmodq96_q4 wrong-lane failure on windows-latest.
+#
+# The failure is (p,k) = (2147483647, 68745) at factor_test.h:901, res = 0XD - one of the four
+# lanes reports no factor when all four were handed the same k. It has shown up roughly one run
+# in five, and CI as it stands runs the affected binary exactly once per run and keeps nothing,
+# so a red cell tells us only that it happened.
+#
+# The strict-aliasing hoist that explains the Linux failures does NOT explain this one: the exact
+# compiler from the failing job's log (MinGW-Builds gcc 15.2.0, x86_64-posix-seh-rev1, msvcrt)
+# was reproduced locally under wine at this job's exact flags, and its codegen has no hoist - it
+# vectorises the store group into vmovdqu, so no narrow store survives to reorder against. So the
+# cause is still unknown, and guessing further from here is not productive. This job collects the
+# evidence instead: what compiler actually ran, on what CPU, what codegen came out, and how often
+# the binary is wrong when you run it more than once.
+#
+# DEBUG BRANCH ONLY - not for merge. ci.yml's matrix is disabled on this branch so an attempt
+# costs one job rather than 81, which makes it cheap to re-run until the runner lottery lands on
+# an AVX-512 part.
+name: Debug windows twopmodq96_q4
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'How many times to run the Mfactor self-test'
+        required: false
+        default: '20'
+
+# Deliberately no concurrency group: re-running this to re-roll the CPU lottery is the entire
+# point, so a new attempt must not cancel one already in flight.
+
+jobs:
+  Debug-Windows-q4:
+    name: Debug windows twopmodq96_q4
+    runs-on: windows-latest
+    env:
+      CC: gcc
+      PACKAGE_PREFIX: mingw-w64-x86_64-
+      ITERATIONS: ${{ github.event.inputs.iterations || '20' }}
+    steps:
+    - uses: actions/checkout@v7
+
+    # Byte-for-byte what the real Windows job does, so this measures that job and not a variant
+    # of it. Note these APPEND to PATH, which is why the compiler that actually runs is the
+    # image's preinstalled MinGW-Builds gcc and not the MSYS2 one these paths point at.
+    - name: Before Install
+      run: |
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Install
+      run: |
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
+
+    - name: Runner CPU
+      run: |
+        Get-CimInstance Win32_Processor |
+          Format-List Name, Manufacturer, NumberOfCores, NumberOfLogicalProcessors, Caption
+
+    # Which gcc is on PATH matters and is not what the workflow's own PATH edits imply, so record
+    # every candidate and the one that wins, not just `gcc --version`.
+    - name: Toolchain identity
+      shell: bash
+      run: |
+        set -x
+        mkdir -p telemetry
+        { echo "== which -a gcc =="; which -a gcc || true
+          echo; echo "== gcc --version =="; gcc --version
+          echo; echo "== resolved path =="; cygpath -w "$(which gcc)" || true
+          echo; echo "== objdump --version =="; objdump --version | head -1
+        } 2>&1 | tee telemetry/toolchain.txt
+
+    - name: Predefined macros for -march=native
+      continue-on-error: true
+      shell: bash
+      run: |
+        gcc -dM -E -march=native - </dev/null > telemetry/macros-native.txt
+        echo "== arch / ISA macros the runner's CPU selects =="
+        grep -oE "__[A-Za-z0-9_]+__" telemetry/macros-native.txt |
+          grep -iE "AVX|znver|SKYLAKE|ICELAKE|SAPPHIRE|ALDERLAKE|CASCADE|BMI|VAES|GFNI|AMX" |
+          sort -u
+
+    # The failing binary in the CI log is ../obj_mfac - `makemake.sh mfac` with NO mode argument,
+    # i.e. the auto-detect branch, which is the only branch that appends -march=native. Build that
+    # one and nothing else; the explicit-ISA builds are compile coverage and are not what failed.
+    - name: Build obj_mfac exactly as the failing job does
+      shell: bash
+      run: |
+        set -x
+        bash -e -o pipefail -- makemake.sh mfac
+        cp obj_mfac/Makefile telemetry/Makefile.obj_mfac
+        cp obj_mfac/build.log telemetry/build.log || true
+        echo "== the flags actually used =="
+        grep -E "^(CC|CFLAGS|CPPFLAGS|LDFLAGS|LDLIBS)" obj_mfac/Makefile
+        grep -oE '\-march=[a-z0-9]+|\-mavx512[a-z]*|\-DUSE_[A-Z0-9]+' obj_mfac/Makefile | sort -u
+
+    # Answer the codegen question in the job itself, so a green run is still informative: is the
+    # 32-bit load of a uint96 ->d1 slot placed above the store that writes it? Diagnostic only -
+    # it must never decide the job's status.
+    - name: Disassemble and check for the aliasing hoist
+      continue-on-error: true
+      shell: bash
+      run: |
+        set -x
+        objdump -d --no-show-raw-insn obj_mfac/Mfactor.exe > telemetry/Mfactor.dis.txt
+        sym=$(grep -oE "^[0-9a-f]+ <twopmodq96_q4>:" telemetry/Mfactor.dis.txt | head -1)
+        echo "twopmodq96_q4 at: ${sym:-<symbol not found>}"
+        PY=$(command -v python3 || command -v python)
+        if [[ -n $sym && -n $PY ]]; then
+            "$PY" .github/hoist-check.py telemetry/Mfactor.dis.txt "$sym" "CI build, this runner" |
+              tee telemetry/hoist-check.txt
+        else
+            echo "skipped: python=${PY:-none} symbol=${sym:-none}" | tee telemetry/hoist-check.txt
+        fi
+
+    # CI runs this binary once. Once is not a measurement of a 1-in-5 intermittent fault, and the
+    # first call is exactly the one that reads whatever the heap happened to hold, so run it
+    # repeatedly and report the rate. Never fails the job: a failure here is the data we want.
+    - name: Run the Mfactor self-test repeatedly
+      shell: bash
+      run: |
+        cd obj_mfac
+        fails=0
+        for i in $(seq 1 "${ITERATIONS}"); do
+            rc=0
+            ./Mfactor.exe -m 521 -bmax 20 > "../telemetry/run-$i.log" 2>&1 || rc=$?
+            if grep -qa "failed to find factor" "../telemetry/run-$i.log"; then
+                fails=$((fails + 1))
+                echo "run $i: FAILED rc=$rc :: $(grep -a 'failed to find factor' "../telemetry/run-$i.log" | head -1)"
+            else
+                echo "run $i: ok rc=$rc"
+                rm -f "../telemetry/run-$i.log"   # keep only the interesting ones
+            fi
+        done
+        echo "=== $fails / ${ITERATIONS} runs wrong ===" | tee ../telemetry/summary.txt
+        grep -m1 "Build uses" "../telemetry/run-1.log" 2>/dev/null || true
+
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: win-q4-telemetry-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          telemetry/**
+          obj_mfac/Mfactor.exe
+        if-no-files-found: warn

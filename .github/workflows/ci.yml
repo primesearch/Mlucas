@@ -1,19 +1,9 @@
 name: CI
+# DEBUG BRANCH ONLY - do not merge. The full matrix is disabled here so a push to this branch
+# costs one Windows job instead of 81; debug-win-q4.yml is the only workflow that fires on push.
+# Restore the push/pull_request/schedule triggers before this branch is considered for merge.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    # Skip the matrix for changes that cannot affect any build or test. pull_request only:
-    # pushes to main and the monthly schedule always run everything. A denylist rather than
-    # an allowlist, so an unrecognised new file type still runs CI rather than silently not.
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - 'help.txt'
-  schedule:
-    - cron:  '0 0 1 * *'
+  workflow_dispatch:
 
 # One run per ref. A pull_request run is superseded the moment its branch is pushed again, but
 # without a concurrency group the old run keeps its runners until it finishes on its own - and a run
