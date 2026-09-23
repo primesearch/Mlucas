@@ -8975,9 +8975,17 @@ exit(0);
 
 	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
 
+	  #if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x0601
+
+		nprocs = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+
+	  #else
+
 		SYSTEM_INFO info;
 		GetSystemInfo(&info);
 		nprocs = info.dwNumberOfProcessors;
+
+	  #endif
 
 	#elif defined(_SC_NPROCESSORS_ONLN)
 
@@ -8986,11 +8994,11 @@ exit(0);
 			fprintf(stderr, "Could not determine number of CPUs online:\n%s\n", strerror (errno));
 			exit (EXIT_FAILURE);
 		}
-		long nprocs_max = sysconf(_SC_NPROCESSORS_CONF);
+		/* long nprocs_max = sysconf(_SC_NPROCESSORS_CONF);
 		if (nprocs_max < 1) {
 			fprintf(stderr, "Could not determine number of CPUs configured:\n%s\n", strerror (errno));
 			exit (EXIT_FAILURE);
-		}
+		} */
 	//	printf ("%ld of %ld processors online\n",nprocs, nprocs_max);
 	//	exit (EXIT_SUCCESS);
 
