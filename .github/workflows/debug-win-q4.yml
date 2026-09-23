@@ -140,6 +140,20 @@ jobs:
           grep -ah -m1 "Build uses" ../telemetry/run-*.log 2>/dev/null || true
         } | tee ../telemetry/summary.txt
 
+    # Make the run's own conclusion carry the answer. The steps above deliberately never fail on a
+    # wrong result, because they have to finish collecting; this one turns "any run was wrong" into
+    # a red run so that hunting the fault across many attempts is a matter of reading conclusions
+    # rather than fetching and grepping every log. The artifact still uploads either way.
+    - name: Fail the run if any self-test was wrong
+      shell: bash
+      run: |
+        cat telemetry/summary.txt
+        n=$(sed -n 's/^=== \([0-9]*\) \/ .*/\1/p' telemetry/summary.txt)
+        if [[ -n $n && $n -gt 0 ]]; then
+            echo "::error::twopmodq96_q4 reproduced: $n wrong run(s) on this runner"
+            exit 1
+        fi
+
     - uses: actions/upload-artifact@v7
       if: always()
       with:
