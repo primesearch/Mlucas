@@ -746,36 +746,6 @@ jobs:
     - name: ShellCheck
       run: shellcheck --version; shopt -s globstar; shellcheck -o avoid-nullary-conditions,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
 
-  Inline-asm-clobbers:
-    name: Inline-asm clobber lint
-
-    # Flags x86 inline-asm blocks that use a hard register which is neither bound
-    # to an operand nor declared clobbered. The compiler is then free to keep a
-    # live value in that register across the asm, and the asm destroys it -- a
-    # wrong residue or a SIGSEGV that reads as a compiler bug. Five instances have
-    # been found in this tree, four of them first misdiagnosed as gcc/clang codegen
-    # defects.
-    #
-    # No sanitizer can see this class: there is no C-level operation to instrument,
-    # and the instrumentation perturbs register allocation enough that the symptom
-    # often disappears. A static check is the only thing that catches it.
-    #
-    # main is currently clean, so there is no baseline file and any finding fails
-    # the job. If a finding ever has to be accepted, record it with
-    #     python3 asm-clobber-lint.py --write-baseline
-    # which writes asm-clobber-baseline.txt; the job then fails only on findings
-    # outside that file.
-    #
-    # Deliberately no 'continue-on-error' and no pipe into 'tee': a CI job that
-    # cannot fail is not a CI job.
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Self-test
-      run: python3 asm-clobber-lint.py --self-test
-    - name: Registers used vs registers declared
-      run: python3 asm-clobber-lint.py --jobs "$(nproc)"
-
   macOS:
     name: Mlucas macOS
 
@@ -1322,3 +1292,34 @@ jobs:
             if (( st != 0 && st != 2 )); then rc=1; fi
         done
         (( rc == 0 ))
+
+  Lint:
+    name: Lint
+
+    # Static checks for defect classes that nothing else in this matrix can see - integer
+    # widths in and around inline asm, and hard registers used by an asm block but neither bound
+    # to an operand nor declared clobbered. No sanitizer helps with either:
+    # there is no C-level operation to instrument, and the asm is opaque to the compiler by
+    # construction, so a wrong access width is a silently wrong answer rather than a warning.
+    #
+    # This job is meant to accumulate: add a new lint as another step here rather than as a new
+    # job, so one place shows whether the tree is clean. Each lint gets its own step so a
+    # failure names the check rather than just the job.
+    #
+    # Findings that are deliberate are recorded in the lint's baseline file, which the job
+    # regenerates with --write-baseline. A baseline entry that stops reproducing is reported but
+    # does not fail the run, so a fix leaves a nudge to drop the now-dead exemption.
+    #
+    # Deliberately no 'continue-on-error' and no pipe into 'tee': a CI job that cannot fail is
+    # not a CI job.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Type-width lint self-test
+      run: python3 type-width-lint.py --self-test
+    - name: Integer widths in and around inline asm
+      run: python3 type-width-lint.py
+    - name: Inline-asm clobber lint self-test
+      run: python3 asm-clobber-lint.py --self-test
+    - name: Inline-asm registers used vs registers declared
+      run: python3 asm-clobber-lint.py --jobs "$(nproc)"
