@@ -1365,7 +1365,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"\n\t"\
 "/* If current bit of p == 1, double each output modulo q: */	\n\t"\
 		"/* if((p >> j) & (uint64)1) { */	\n\t"\
-		"movl	%[__p],%%eax	/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\n\t"\
+		"movq	%[__p],%%rax	/* p is a uint64: must load all 64 bits, else bit-tests for j >= 32 read 0 */\n\t"\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
 	"je	twopmmodq64_q4_pjmp%=			\n\t"\
