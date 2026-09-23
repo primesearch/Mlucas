@@ -506,7 +506,7 @@ void	get_startval(
 	const uint64*two_p,	// Here, need the full multiword array (of which use just LSW if P!WORD def'd)
 	const uint32 lenP,	// Manyword case
 	const uint32 bit_len,
-	const uint32 interval_lo, const uint32 incr,
+	const uint64 interval_lo, const uint32 incr,
 	const uint32 nclear, const uint32 nprime, const uint32 p_last_small,
 	const uint8 *pdiff,
 	      uint32*startval

@@ -4322,7 +4322,7 @@ void	get_startval(
 	const uint64*two_p,	// Here, need the full multiword array (of which use just LSW if P!WORD def'd)
 	const uint32 lenQ,	// Manyword case ... note we supply max #words needed to hold factor candidates here, i.e. two_p occupies no more than that
 	const uint32 bit_len,
-	const uint32 interval_lo, const uint32 incr,
+	const uint64 interval_lo, const uint32 incr,
 	const uint32 nclear, const uint32 nprime, const uint32 p_last_small,
 	const uint8 *pdiff,
 	      uint32*startval
@@ -4427,7 +4427,10 @@ void	get_startval(
 			according to the number of times we'd need to run through the sieve
 			(starting with k = 0) to get to kmin: */
 			dstartval = (uint64)(i*curr_p - bit_len);
-			dstartval = (interval_lo*dstartval) % curr_p;
+			/* Reduce interval_lo (mod curr_p) *before* the multiply, as the comment above
+			specifies: dstartval <= curr_p and interval_lo%curr_p < curr_p, both < 2^32, so the
+			product stays < 2^64. Without the reduction a full-width interval_lo overflows here: */
+			dstartval = ((interval_lo % curr_p)*dstartval) % curr_p;
 			dstartval += startval[m];
 			if(dstartval >= curr_p)
 				startval[m] = dstartval - curr_p;
