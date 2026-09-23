@@ -138,10 +138,11 @@ if [[ -f $d/p216091 && -f $d/q216091 && -f $d/p216091.J ]]; then
 	for f in p216091 q216091; do
 		sz=$(wc -c < "$d/$f")
 		off=$(( sz / 2 ))
-		old=$(dd if="$d/$f" bs=1 skip=$off count=1 status=none | od -An -tu1 | tr -d ' ')
+		old=$(dd if="$d/$f" bs=1 skip="$off" count=1 status=none | od -An -tu1 | tr -d ' ')
 		new=$(( old ^ 0xff ))
-		printf "$(printf '\\x%02x' "$new")" | dd of="$d/$f" bs=1 seek=$off conv=notrunc status=none
-		got=$(dd if="$d/$f" bs=1 skip=$off count=1 status=none | od -An -tu1 | tr -d ' ')
+		# %b so the format string stays literal: the byte value goes through as an argument.
+		printf '%b' "$(printf '\\x%02x' "$new")" | dd of="$d/$f" bs=1 seek="$off" conv=notrunc status=none
+		got=$(dd if="$d/$f" bs=1 skip="$off" count=1 status=none | od -An -tu1 | tr -d ' ')
 		if [[ $got == "$new" ]]; then
 			ok "damaged $f at byte $off ($old -> $new)"
 		else
@@ -158,7 +159,7 @@ if [[ -f $d/p216091 && -f $d/q216091 && -f $d/p216091.J ]]; then
 	# "pattern not found" and the run directory is gone, which makes the failure uninvestigable.
 	if (( FAIL > t4_fail_before )); then
 		echo "  --- T4 diagnostic: savefiles present after the damaged run ---"
-		ls -l "$d" | sed 's/^/      /'
+		find "$d" -maxdepth 1 -type f -printf '%10s %p\n' | sed 's/^/      /'
 		echo "  --- T4 diagnostic: last 40 lines of $(basename "$S") ---"
 		tail -40 "$S" | sed 's/^/      /'
 	fi
