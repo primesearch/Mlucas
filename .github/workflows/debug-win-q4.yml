@@ -131,11 +131,14 @@ jobs:
                 echo "run $i: FAILED rc=$rc :: $(grep -a 'failed to find factor' "../telemetry/run-$i.log" | head -1)"
             else
                 echo "run $i: ok rc=$rc"
-                rm -f "../telemetry/run-$i.log"   # keep only the interesting ones
+                # Keep run 1 whatever happens - it carries the 'Build uses <ISA>' line, which is
+                # how we tell afterwards whether this attempt even drew an AVX-512 runner.
+                (( i == 1 )) || rm -f "../telemetry/run-$i.log"
             fi
         done
-        echo "=== $fails / ${ITERATIONS} runs wrong ===" | tee ../telemetry/summary.txt
-        grep -m1 "Build uses" "../telemetry/run-1.log" 2>/dev/null || true
+        { echo "=== $fails / ${ITERATIONS} runs wrong ==="
+          grep -ah -m1 "Build uses" ../telemetry/run-*.log 2>/dev/null || true
+        } | tee ../telemetry/summary.txt
 
     - uses: actions/upload-artifact@v7
       if: always()
