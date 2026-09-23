@@ -1,0 +1,24 @@
+# type-width-lint baseline -- known, accepted findings.
+#
+# One key per line. Keys carry no line numbers, so unrelated edits do not invalidate them.
+#
+# The 'A' entries in twopmodq96.c are deliberate: the asm reads those uint96 d1 slots 8 bytes
+# wide, which also touches the struct padding, and that is safe only because the local store is
+# zeroed at allocation. Do not add to this list without the same guarantee.
+#
+# Regenerate with:
+#     python3 type-width-lint.py --write-baseline
+A src/twopmodq96.c %rsi+0x18 [4, 8]
+A src/twopmodq96.c %rsi+0x28 [4, 8]
+A src/twopmodq96.c %rsi+0x38 [4, 8]
+A src/twopmodq96.c %rsi+0x8 [4, 8]
+A src/twopmodq96.c %rsi+0x88 [4, 8]
+A src/twopmodq96.c %rsi+0x98 [4, 8]
+A src/twopmodq96.c %rsi+0xa8 [4, 8]
+A src/twopmodq96.c %rsi+0xb8 [4, 8]
+A src/twopmodq96.c %rsi+0xc8 [4, 8]
+# The B entry below is the defect PR #314 fixes (twopmmodq64_q4 loads a uint64 exponent with
+# movl, so every bit test for j >= 32 reads 0). It is listed here only so this job is green on
+# main before that merges; once it does, this line stops reproducing and the lint will say so.
+# Drop it then. Note that --write-baseline regenerates this file and discards these comments.
+B src/twopmodq.c %[__p] p uint64 8 4
