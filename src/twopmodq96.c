@@ -36,19 +36,19 @@
 	#define YES_ASM
 #endif
 
-/* Work around a GCC 11 register-allocator bug: when AVX-512 is enabled (-mavx512f adds the
-zmm16-31 and k0-7 registers to the allocatable file, changing IRA's decisions), GCC 11.x
-miscompiles the register-pressure-heavy, multi-q GPR-inline-asm routines in this file -
-twopmodq96_q4()/twopmodq96_q8() - returning a wrong result for one or more of the parallel
-q-lanes (lane 0 stays correct; e.g. test_fac's twopmodq96_q4(16446217, k=639280514687, x4)
-returns 0xD instead of 0xF). These routines contain no SIMD, so the AVX-512 register file is
-irrelevant to them: the bug is a GCC 11 regression - it does not occur with -mavx2, nor on
-GCC 10, GCC 12+, or Clang (all verified under Intel SDE). Forcing IRA's older 'priority'
-allocator for this translation unit restores correct codegen; scope to GCC 11 + AVX-512 so no
-other compiler or configuration is affected. */
-#if defined(USE_AVX512) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 11)
-	#pragma GCC optimize ("-fira-algorithm=priority")
-#endif
+/* NB: uint96 is {uint64 d0; uint32 d1;} - its high word is a *uint32* occupying 12 bytes of
+data in a padded 16-byte slot. The q/qinv/x/ONE96 local stores below must therefore be written
+through the struct members, never through a (uint64*) walk: a 64-bit store to a d1 slot and the
+32-bit ->d1 loads that read it back are in different TBAA alias sets, so under -fstrict-aliasing
+(default at -O2 and up) the compiler is entitled to hoist such a load above the store, and does
+- silently corrupting one of the parallel q-lanes. That was the cause of the long-standing
+intermittent "twopmodq96_q4(...) failed to find factor, res = 0xD" self-test failure, which was
+previously mis-attributed to a GCC 11 register-allocator regression and papered over with
+'#pragma GCC optimize ("-fira-algorithm=priority")'. The pragma only perturbed scheduling enough
+to hide the UB; the defect reproduces on GCC 13 as well, so do not reintroduce it.
+Paired requirement: the local store is zeroed at alloc (see ALLOC_UINT64 below), because the
+type-correct ->d1 stores are 4 bytes wide and the inline asm reads some d1 slots 8 bytes wide,
+touching the struct padding. */
 
 #ifdef __CUDACC__
 
@@ -456,7 +456,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		 int32 j;
 		uint64 tmp0, tmp1, tmp2, tmp3, r;
 		uint96 q0,q1,q2,q3;
-		uint64 pshift, *ptr64;
+		uint64 pshift;
+	#ifdef MULTITHREAD	// ptr64 now only walks the per-thread local stores; the q/ONE96 writes are type-correct:
+		uint64 *ptr64;
+	#endif
 		uint32 jshift, leadb, start_index, zshift;
 		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
@@ -486,12 +489,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			// Alloc the local-memory block:
 			sm_arr = ALLOC_UINT64(sm_arr, 0x32*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
 			sm_ptr = (uint64*)ALIGN_UINT64(sm_arr);	ASSERT(((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
+			/* Zero the whole store: the ->d1 writes below are 4 bytes wide, but the inline asm reads
+			several d1 slots 8 bytes wide (and reads qinv_i->d1's padding, which the C never writes),
+			so the uint96 padding must start - and stay - zero. ALLOC_UINT64 over-allocates by 256
+			bytes and ALIGN_UINT64 consumes at most 63 of them, so this span is always in bounds: */
+			memset(sm_ptr, 0, 0x32*max_threads*sizeof(uint64));
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
 			ptr64 = sm_ptr + 0x30;	// *** PTR-OFFSET IN TERMS OF UINT64 HERE ***
 			for(j = 0; j < max_threads; ++j) {
 				// These data fixed within each thread's local store:
-				*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
+				((uint96*)ptr64)->d0 = ONE96.d0;	((uint96*)ptr64)->d1 = ONE96.d1;
 			//	printf("INIT: Thr %d ONE96_PTR address = %" PRIX64 "; data.d0,d1 = %" PRIu64 ",%u\n",thr_id,(uint64)ptr64,((uint96 *)ptr64)->d0,((uint96 *)ptr64)->d1);
 				ptr64 += 0x32;	// Move on to next thread's local store
 			}
@@ -504,7 +512,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			qhalf0 = (uint96*)(sm_ptr + 0x20);	qhalf1 = (uint96*)(sm_ptr + 0x22);	qhalf2 = (uint96*)(sm_ptr + 0x24);	qhalf3 = (uint96*)(sm_ptr + 0x26);
 			//hi0    = (uint96*)(sm_ptr + 0x28);	hi1    = (uint96*)(sm_ptr + 0x2a);	hi2    = (uint96*)(sm_ptr + 0x2c);	hi3    = (uint96*)(sm_ptr + 0x2e);
 			ONE96_PTR = (uint96*)(sm_ptr + 0x30);
-			ptr64 = (uint64*)ONE96_PTR;	*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
+			ONE96_PTR->d0 = ONE96.d0;	ONE96_PTR->d1 = ONE96.d1;
 		#endif
 			if(init_sse2) return 0;
 		}	/* end of inits */
@@ -551,11 +559,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		q2.d0 += 1;
 		q3.d0 += 1;
 
-		ptr64 = (uint64*)qptr0;
-		*ptr64++ = q0.d0;	*ptr64++ = q0.d1;
-		*ptr64++ = q1.d0;	*ptr64++ = q1.d1;
-		*ptr64++ = q2.d0;	*ptr64++ = q2.d1;
-		*ptr64++ = q3.d0;	*ptr64++ = q3.d1;
+		qptr0->d0 = q0.d0;	qptr0->d1 = q0.d1;
+		qptr1->d0 = q1.d0;	qptr1->d1 = q1.d1;
+		qptr2->d0 = q2.d0;	qptr2->d1 = q2.d1;
+		qptr3->d0 = q3.d0;	qptr3->d1 = q3.d1;
 
 		RSHIFT_FAST96_PTR(qptr0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 		RSHIFT_FAST96_PTR(qptr1, 1, qhalf1);
