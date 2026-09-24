@@ -3385,7 +3385,7 @@ uint64 reverse64(uint64 i, uint32 nbits)
 	bout8[7] = brev8[bin8[0]];
 	// See the identical read-back in mi64.c:brev64() for why this is a memcpy and not a cast:
 	memcpy(&out, bout8, sizeof(out));
-	return out >> pad_bits;
+	return nbits ? out >> pad_bits : 0ull;	// nbits = 0 would shift by 64
 }
 
 /******* Bit-level utilities: ********/
@@ -3425,7 +3425,7 @@ DEV uint32 ishft32(uint32 x, int shift)
 DEV uint64 ishft64(uint64 x, int shift)
 {
 	uint64 r;
-	if(shift > 64)
+	if(shift >= 64)
 		r  = 0ull;
 	else if(shift > 0)
 		r  = x << shift;
@@ -3854,14 +3854,14 @@ DEV uint64 nbits64(uint64 i) { return 64-leadz64(i); }
 DEV uint32 ibits32(uint32 i, uint32 beg, uint32 nbits)
 {
 	uint32 ones_mask = 0xFFFFFFFF;
-	return ( (i >> beg) & ~(ones_mask << nbits) );
+	return ( (i >> beg) & (nbits < 32 ? ~(ones_mask << nbits) : ones_mask) );
 }
 
 DEV uint64 ibits64(uint64 i, uint32 beg, uint32 nbits)
 {
 	uint64 ib;
 	uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
-	ib = (i >> beg) & ~(ones_mask << nbits);
+	ib = (i >> beg) & (nbits < 64 ? ~(ones_mask << nbits) : ones_mask);
 	return ( ib );
 }
 
