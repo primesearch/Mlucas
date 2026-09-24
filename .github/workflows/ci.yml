@@ -854,3 +854,97 @@ jobs:
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+
+  Mfactor-known-factors:
+    name: Mfactor known factors
+
+    # The only other Mfactor run-time check is "-m 521 -bmax 20": M(521) is prime, so that test
+    # passes as long as the sieve reports the right number of trial divides, whether or not it
+    # would ever have found a factor. This job instead runs cases with known factors and requires
+    # each one to be reported, exactly once. It builds its own binaries and runs with
+    # -nthread 2 in an empty directory, so a failure here is about the factors found and nothing
+    # else (not the 1-thread savefile abort, not a leftover savefile).
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+      fail-fast: false
+    env:
+      CC: gcc
+    steps:
+    - uses: actions/checkout@v7
+    - name: Before Install
+      if: ${{ runner.os == 'Windows' }}
+      run: |
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Install
+      if: ${{ runner.os == 'Windows' }}
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-gmp
+    - name: Build
+      shell: bash
+      run: |
+        set -x
+        # macOS has no gcc; its "cc" is clang, as in the macOS job.
+        if [[ $RUNNER_OS == macOS ]]; then export CC=clang; fi
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs; use NOSIMD
+        # there, exactly as the Mfactor self-tests in the jobs above do.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MODE=NOSIMD; else MODE=; fi
+        echo "MSFX=${MODE:+_$MODE}" >> "$GITHUB_ENV"
+        # 4word and nword are left out: nword is single-threaded only (it asserts NTHREADS == 1),
+        # and the 4word build does not find these small factors at all.
+        for word in '' 2word 3word; do
+            bash -e -o pipefail -- makemake.sh mfac $word $MODE
+        done
+    - name: 'Mfactor must find known factors (fails on main until #336 is merged)'
+      shell: bash
+      run: |
+        # Each case is: exponent p | bounds | the k of every factor q = 2kp+1 of M(p) in range.
+        # Mfactor rounds the bounds out to one whole sieve interval, k < 16336320, and the list
+        # holds every k in that interval with q | M(p) (checked by brute force, pow(2,p,q) == 1),
+        # so it is complete, not a sample. The sieve works on the 16 residue classes of k mod 60,
+        # one per pass, so the cases cover both a class other than 0 and the class 0 itself:
+        #   M(205024189):  q = 8344894540679  (k = 20351,   k = 11 mod 60)
+        #   M(67):         q = 193707721      (k = 1445580, k =  0 mod 60)
+        #   M(1362286843): q = 13622868431    (k = 5,       k =  5 mod 60)
+        #                  q = 72073147715759 (k = 26453,   k = 53 mod 60)
+        # Each factor must be reported exactly once: missing it and reporting it once per pass
+        # are both failures.
+        cases=(
+            '205024189|-kmax 1000|20351'
+            '67|-bmax 30|1445580'
+            '1362286843|-kmax 100|5 26453'
+        )
+        fail=0
+        for word in '' 2word 3word; do
+            bin="$PWD/obj_mfac${word:+_$word}${MSFX}/Mfactor${word:+_$word}"
+            for c in "${cases[@]}"; do
+                IFS='|' read -r p bounds ks <<< "$c"
+                dir=$(mktemp -d)
+                rc=0
+                # $bounds is unquoted on purpose: it is an option and its value.
+                ( cd "$dir" && "$bin" -m "$p" $bounds -nthread 2 ) > "$dir/out.txt" 2>&1 || rc=$?
+                if [[ $rc -ne 0 ]]; then
+                    echo "::error::Mfactor${word:+_$word} -m $p $bounds exited with status $rc"
+                    tail -n 20 "$dir/out.txt"
+                    fail=1
+                    continue
+                fi
+                for k in $ks; do
+                    q=$(( 2 * k * p + 1 ))
+                    n=$(grep -c "Factor found: q = $q = 2\*p\*k + 1 with k = $k\." "$dir/out.txt" || true)
+                    if [[ $n -eq 1 ]]; then
+                        echo "OK   Mfactor${word:+_$word} -m $p $bounds: q = $q (k = $k) reported once"
+                    else
+                        echo "::error::Mfactor${word:+_$word} -m $p $bounds: q = $q (k = $k) reported $n times, expected exactly once"
+                        grep 'Factor found' "$dir/out.txt" || true
+                        fail=1
+                    fi
+                done
+            done
+        done
+        exit $fail
