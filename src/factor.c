@@ -2721,15 +2721,18 @@ MFACTOR_HELP:
 	#endif
 	/* Scalar 192/256-bit operands, for the one-candidate-at-a-time dispatch only: at TRYQ > 1
 	the P3WORD arm calls the batch routines twopmodq192_q4/_q8, which take the raw p[] and k
-	values, and P4WORD has no batch arm at all (see the TRYQ == 4 guard further down). */
+	values, and P4WORD has no batch arm at all (see the TRYQ == 4 guard further down).
+	q192/q256 start out zero because the dispatch builds q = 2.k.p+1 in them with
+	mi64_mul_scalar(..., lenQ), which writes only the lenQ words the largest q of the run needs;
+	the modpow reads all 3 or 4, so any word above lenQ must already be zero. */
 	#if defined(P3WORD) && (TRYQ == 1)
-		uint192 p192,q192,t192;
+		uint192 p192,q192 = {0,0,0},t192;
 	  #ifdef USE_FLOAT
 		uint256 x256;	// Needed to hold result of twopmodq200_8WORD_DOUBLE
 	  #endif
 	#endif
 	#if defined(P4WORD) && (TRYQ == 1)
-		uint256 p256,q256,t256;
+		uint256 p256,q256 = {0,0,0,0},t256;
 	#endif
 		char cbuf[STR_MAX_LEN*2], cbuf2[STR_MAX_LEN*2];
 	#ifdef CTIME
