@@ -334,7 +334,7 @@ uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	if(nwshift >= len) {
 		// If nwshift == len, save low word in lo64...
 		if(nwshift == len) {
-			lo64 = x[0];
+			lo64 = x[0] << rembits;
 		}
 		// ... because after this next line, we can only distinguish between (nwhsift < len) and (nwshift >= len):
 		nwshift = len;
@@ -619,7 +619,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	But user has specified output_len = 16, meaning they want at most 1024 bits of x[], so only copy that many and exit.
 	So allow output_len to be 1 limb smaller than 17 as a fudge factor to handle arbitrary in-word copy-bit boundaries:
 	*/
-	ASSERT(output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
+	ASSERT(nwshift >= len || output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) {
@@ -632,7 +632,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	if(nwshift >= len) {
 		// If nwshift == len, save high word in hi64...
 		if(nwshift == len) {
-			hi64 = x[len-1];
+			hi64 = x[len-1] >> rembits;
 		}
 		// ... because after this next line, we can only distinguish between (nwshift < len) and (nwshift >= len):
 		nwshift = len;
@@ -643,6 +643,8 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	if(nwshift && (nwshift < len)) {
 		hi64 = x[nwshift-1];
 	}
+	if(!nwshift && rembits)	// 0 < nshift < 64: the off-shifted bits are the low (rembits) bits of x[0]
+		hi64 = x[0] << (64-rembits);
 	if(!rembits) {	// Whole-word shift:
 		for(i = 0; i < len-nwshift; i++) {
 			y[i] = x[i+nwshift];
@@ -1750,7 +1752,7 @@ __device__
 #endif
 void mi64_set_bit(uint64 x[], uint32 bit, uint32 len, uint32 val)
 {
-	if(!len || (val > 2) || (bit > (len<<6))) return;
+	if(!len || (val > 1) || (bit >= (len<<6))) return;
 	// First zero the target bit:
 	uint32 s = (bit & 63), word = bit>>6;
 	uint64 mask = ~(1ull << s);
@@ -1766,7 +1768,7 @@ __device__
 #endif
 void mi64_flip_bit(uint64 x[], uint32 bit, uint32 len)
 {
-	if(!len || bit > (len<<6)) return;
+	if(!len || bit >= (len<<6)) return;
 	uint64 mask = 1ull << (bit & 63);
 	x[bit>>6] ^= mask;
 }
@@ -6401,9 +6403,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint32 len)
 {
 	int retval = 0;
-#ifndef YES_ASM
 	uint64 tmp0,tmp1,tmp2,tmp3;
-#endif
 #if MI64_ISDIV_X4_DBG
 	int dbg = 0;
 #endif
@@ -6411,9 +6411,8 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	uint32 nshift0,nshift1,nshift2,nshift3;
 	uint64 qinv0,qinv1,qinv2,qinv3,cy0,cy1,cy2,cy3;
 
-	ASSERT((len == 0), "0 length!");
+	ASSERT((len != 0), "0 length!");	// v21: condition was inverted (== 0), aborting on every legitimate call
 	trailx = trailz64(x[0]);
-	ASSERT(trailx < 64, "0 low word!");
 
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift0 = trailz64(q0);
@@ -6425,7 +6424,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	q1 >>= nshift1;
 	q2 >>= nshift2;
 	q3 >>= nshift3;
-	ASSERT(q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
+	ASSERT(q0 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
 	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
@@ -6439,7 +6438,10 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		qinv3 = qinv3*((uint64)2 - q3*qinv3);
 	}
 
-#ifndef YES_ASM
+	// The YES_ASM arm below is not a 4-modulus loop: it is the length-folded single-modulus loop of
+	// mi64_is_div_by_scalar64_u4 (lane j walks only the j-th quarter of x[], with crossed qinv pairings,
+	// and assumes len%4 == 0), so it reports false divisibility. Always use the portable C loop:
+#if 1
 	cy0 = cy1 = cy2 = cy3 = (uint64)0;
 	for(i = 0; i < len; ++i) {
 		tmp0 = x[i] - cy0;			tmp1 = x[i] - cy1;			tmp2 = x[i] - cy2;			tmp3 = x[i] - cy3;
@@ -7218,10 +7220,10 @@ See similar behavior for 4-way-split version of the algorithm.
 		"movq	%[__qinv],%%rbx		\n\t"\
 		"movslq	%[__len2],%%rcx		\n\t"/* ASM loop structured as for(j = len2-1; j != 0; --j){...} */\
 		"leaq	(%%r10,%%rcx,8),%%r11	\n\t"/* x + len2 */\
+		"movq	(%%r10),%%rax		\n\t	movq	(%%r11),%%r12	\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i],x[j] - before the jz, which the len2 == 1 case takes */\
 		"subq	$1,%%rcx	\n\t"\
 	/* Jan 2021: Changed jump labels loop2c -> 42 and loop2c_b0 -> 43 and corr. jumps to 42b,43f to fix Clang-9 compile error: */\
 	"jz 43f 	\n\t"/* check rsi == 0 ? here and if so, don't exec the loop. */
-		"movq	(%%r10),%%rax		\n\t	movq	(%%r11),%%r12	\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i],x[j] */\
 	"42:		\n\t"\
 		"movq	%%rcx,%%r15			\n\t"/* Move loop counter out of CL... */\
 		"movslq	%[__n],%%rcx		\n\t"/* ...and move shift count in. */\
@@ -8380,7 +8382,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 {
 	ASSERT(p != 0x0, "Null p-array pointer!");
 	ASSERT(q != 0x0, "Null q-array pointer!");
-	uint32 pow2, FERMAT = mi64_isPow2(p,len,&pow2)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+	uint32 pow2, FERMAT = mi64_isPow2(p,len_p,&pow2)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
   #if MI64_POW_DBG
 	uint32 dbg = FERMAT && pow2 == 256;//STREQ(&s0[convert_mi64_base10_char(s0, q, len, 0)], "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127");
   #endif
