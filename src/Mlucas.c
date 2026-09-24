@@ -164,6 +164,11 @@ uint32 PM1_S2_NBUF = 0;	// # of floating-double residue-length memblocks availab
 // Allow Stage 2 bounds to be > 2^32; B2_start defaults to B1, but can be set > B1 to allow for arbitrary Stage 2 prime intervals:
 uint32 B1 = 0;
 uint64 B2 = 0ull, B2_start = 0ull;
+// Stage bounds given on the command line via -b1/-b2/-b2_start. ernstMain() zeroes B1/B2/B2_start at the start of
+// every assignment, so that one workfile entry's bounds cannot leak into the next; a command-line p-1 run, which has
+// no workfile entry to re-read them from, restores them from these copies instead:
+static uint32 CMDLINE_B1 = 0;
+static uint64 CMDLINE_B2 = 0ull, CMDLINE_B2_START = 0ull;
 // Bit-depth of TF done on a given exponent. This is currently only used for auto-setting p-1 bounds:
 uint32 TF_BITS = 0;
 
@@ -1085,7 +1090,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		else if(TEST_TYPE == TEST_TYPE_PM1)	/* P-1 factoring attempt */
 		{
 			ASSERT(nbits_in_p <= MAX_PRIMALITY_TEST_BITS, "Inputs this large only permitted for trial-factoring.");
+			// The per-assignment reset at RANGE_BEG cleared the bounds main() parsed from -b1/-b2/-b2_start; restore them:
+			B1 = CMDLINE_B1; B2 = CMDLINE_B2; B2_start = CMDLINE_B2_START;
 			pm1_check_bounds();
+			if(B2 > B1)
+				fprintf(stderr,"INFO: A command-line p-1 run does Stage 1 only; ignoring b2 = %" PRIu64 ". Stage 2 needs a Pminus1= entry in the %s file.\n",B2,WORKFILE);
 			// Proper setting of timing_test_iters in this case needs us to compute the stage 1 prime-powers product:
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT and store #bits of same in PM1_S1_PROD_BITS:
 			s1p_alloc = compute_pm1_s1_product(p);
@@ -1644,7 +1653,12 @@ READ_RESTART_FILE:
 	if(!restart) {
 		/*...set initial iteration loop parameters...	*/
 		ilo = 0;
-		if(INTERACT)
+		// A p-1 stage 1 interval must not exceed ITERS_BETWEEN_CHECKPOINTS: the loop below copies only that many bits of the
+		// stage 1 prime-powers product into BASE_MULTIPLIER_BITS per interval, and the carry step reads bit (iter-1) % ITERS_BETWEEN_CHECKPOINTS.
+		// A command-line p-1 run is INTERACT, and its timing_test_iters is the full product bit length, which is normally larger:
+		if(INTERACT && TEST_TYPE == TEST_TYPE_PM1)
+			ihi = MIN(timing_test_iters, ITERS_BETWEEN_CHECKPOINTS);
+		else if(INTERACT)
 			ihi = timing_test_iters;
 		else
 			ihi = ITERS_BETWEEN_CHECKPOINTS;
@@ -2291,6 +2305,10 @@ READ_RESTART_FILE:
 			}
 		}
 
+		// A self-test (INTERACT) run only gets here between intervals of a multi-interval command-line p-1 stage 1. Don't write
+		// savefiles for it: nothing reads them back, and they would clobber those of a production run of the same exponent:
+		if(INTERACT) goto SKIP_SAVEFILE_WRITES;
+
 		/* Make sure we start with primary restart file: */
 		RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
@@ -2353,6 +2371,7 @@ READ_RESTART_FILE:
 			}	// ihi a multiple of ITERS_BETWEEN_GCHECKS?
 		}
 
+	SKIP_SAVEFILE_WRITES:
 		if(ierr == ERR_INTERRUPT) exit(0);
 
 		// For Fermats and cofactor-PRP tests of either modulus type, exit only after writing final-residue checkpoint file:
@@ -2459,6 +2478,13 @@ READ_RESTART_FILE:
 		}
 		/*...print runtime in hh:mm:ss format.	*/
 		fprintf(stderr, "Clocks =%s\n",get_time_str(tdiff) );
+		// Command-line p-1: take the Stage 1 GCD, as the workfile-driven path does below, so a factor gets reported:
+		if(TEST_TYPE == TEST_TYPE_PM1) {
+			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6; arrtmp[j-1] = 0ull;
+			convert_res_FP_bytewise(a,(uint8 *)arrtmp,n,p,0x0,0x0,0x0);
+			arrtmp[0] -= 1;	// S1 GCD needs residue-1
+			gcd(1,p,arrtmp,0x0,j,gcd_str);
+		}
 		/*exit(EXIT_SUCCESS);*/
  		return(resFlag);
 	}	/* endif(INTERACT) */
@@ -4455,6 +4481,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	// Nov 2020: Sanity-check any p-1 bounds:
 	if(testType == TEST_TYPE_PM1) {
 		ASSERT((modType == MODULUS_TYPE_MERSENNE || modType == MODULUS_TYPE_FERMAT) && userSetExponent, "P-1 in command-line mode requires a Mersenne or Fermat-number modulus to be specified via '-m [int]' or '-f [int]'.");
+		CMDLINE_B1 = B1; CMDLINE_B2 = B2; CMDLINE_B2_START = B2_start;	// Save as given, before pm1_check_bounds() adjusts them
 		pm1_check_bounds();
 	}
 
