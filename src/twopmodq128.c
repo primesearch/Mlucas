@@ -154,7 +154,7 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	at present don't care about optimizing this rarely-used function. */
 	// First compute R^2 (mod q) in prep. for Mont-mul with initial seed:
 	uint64 vtmp[5] = {0ull,0ull,0ull,0ull,1ull};	// R^2 = 2^256
-	mi64_div_binary((const uint64*)vtmp, (const uint64*)&q, 5,2, 0x0, (uint32*)&j, (uint64*)&rsqr);
+	mi64_div_binary((const uint64*)vtmp, q.w, 5,2, 0x0, (uint32*)&j, rsqr.w);
 
 	// If leadb = 128, x = 2^128 = R, thus rsqr holds our desired starting value for x:
 	if(leadb == 128)
@@ -450,7 +450,7 @@ if(dbg) printf("twopmodq128x2:\n");
 
 	// Use x as tmp to hold 2*p:
 	ADD128(p,p, x);
-	ASSERT(!mi64_mul_scalar((uint64 *)&x, k, (uint64 *)&q, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x.w, k, q.w, 2), "q must be < 2^128!");
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
@@ -757,10 +757,10 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	// Use x0 as tmp to hold 2*p:
 	ADD128(p,p, x0);
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k0, q0.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k1, q1.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k2, q2.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k3, q3.w, 2), "q must be < 2^128!");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
@@ -988,14 +988,14 @@ if(dbg) printf("twopmodq128_q8:\n");
 
 	// Use x0 as tmp to hold 2*p:
 	ADD128(p,p, x0);
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k4, (uint64 *)&q4, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k5, (uint64 *)&q5, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k6, (uint64 *)&q6, 2), "q must be < 2^128!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k7, (uint64 *)&q7, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k0, q0.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k1, q1.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k2, q2.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k3, q3.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k4, q4.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k5, q5.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k6, q6.w, 2), "q must be < 2^128!");
+	ASSERT(!mi64_mul_scalar(x0.w, k7, q7.w, 2), "q must be < 2^128!");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
