@@ -1955,7 +1955,7 @@ READ_RESTART_FILE:
 				snprintf(cbuf,sizeof(cbuf), "Savefile %s carries no Gerbicz check-product; starting a new check epoch at stage 1 iteration %u.\n",g_cstr,PM1_GCHECK_EPOCH_START);
 				mlucas_fprint(cbuf,1);
 			}
-			memcpy(d, b, nbytes);	s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;
+			memcpy(d, b, nbytes);	s1 = sum64(b_uint64_ptr, npad); s2 = s3 = s1;
 			ierr = 0;
 		  } else if(DO_GCHECK) {
 			// Cf. the matching comment at the convert_res_FP_bytewise(b,...) write call: the G-check product
