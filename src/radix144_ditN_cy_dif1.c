@@ -296,6 +296,12 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #ifdef USE_AVX2
 	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
   #endif
 #endif // MULTITHREAD
 
@@ -330,9 +336,6 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
 	#endif
 		*tmp,*tm2	// Non-static utility ptrs
-	#if !defined(MULTITHREAD) && defined(USE_AVX2)
-		,*tm0
-	#endif
 	#ifndef MULTITHREAD
 		,*tm1
 	#endif
@@ -2031,6 +2034,12 @@ void radix144_dit_pass1(double a[], int n)
 	#ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
 	#endif
 
 	#ifdef USE_SSE2
@@ -2047,9 +2056,9 @@ void radix144_dit_pass1(double a[], int n)
 	  #endif
 		double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
-	  #ifdef USE_AVX2
-			*tm0,
+		vec_dbl *tmp,*tm1,	// Non-static utility ptrs
+	  #ifndef USE_AVX512	// tm2 is referenced only from the non-AVX-512 carry paths
+			*tm2,
 	  #endif
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
