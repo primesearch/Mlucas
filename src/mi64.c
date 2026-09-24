@@ -5100,6 +5100,9 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 	static uint64 *vsave = 0x0, *yinv = 0x0,*cy = 0x0, *tmp = 0x0, *itmp = 0x0, *lo = 0x0, *rem_save = 0x0;
 	// Sep 2015: These are for repeated div calls with same modulus - doing so sped up M4423 base-3 PRP test by 10x (!):
 	static uint64 *modulus_save = 0x0, *mod_inv_save = 0x0, *basepow_save = 0x0;
+	// basepow_save = B^lenW mod y, and lenW = ceil(lenX/lenS) depends on the dividend length, so the saved
+	// power is only reusable for a dividend giving the same lenW. modulus_save and mod_inv_save depend only on y:
+	static uint32 basepow_lenW = 0;
 	static uint64 *scratch = 0x0;	// "base pointer" for local storage shared by all of the above subarrays
 	static uint64 *hi = 0x0, *v = 0x0, *w = 0x0;	// These are treated as vars (cost-offsets of the above ptrs),
 													// hence non-static. *** MUST RE-INIT ON EACH ENTRY ***
@@ -5194,7 +5197,14 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		if(r != 0x0 && fquo < TWO54FLOAT) {
 			itmp64 = (uint64)fquo;
 			// Since x,v,r may all point to same memory, need local-storage to hold y*fquo - use yinv to point to that:
-			mi64_mul_scalar(y,itmp64,yinv,lenX);
+			bw = mi64_mul_scalar(y,itmp64,yinv,lenX);
+			// (double)lo64 can round up, making the estimate larger than the true quotient; if y*itmp64 then
+			// overflows lenX words the estimate is certainly too large (y*itmp64 >= 2^(64*lenX) > x), and
+			// dropping the carry would hide the resulting borrow below. Step the estimate down until it fits:
+			while(bw && (nc < ncmax)) {
+				nc++;	--itmp64;	bw -= mi64_sub(yinv,y,yinv,lenX);	// bw:yinv -= y
+			}
+			ASSERT(!bw, "Unexpectedly large number of corrections needed for floating-double quotient!");
 			bw = mi64_sub(x,yinv,r,lenX);
 		#if MI64_DIV_MONT
 			if(dbg)printf("fquo*x = %s\n", &s0[convert_mi64_base10_char(s0, yinv, lenD, 0)]);
@@ -5356,7 +5366,10 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			for(j = 6; j < log2_numbits; j++, i <<= 1) {
 				mi64_mul_vector_lo_half(w, yinv,tmp, lenS);
 				mi64_nega              (tmp,tmp, lenS);
-				bw = mi64_add_scalar(tmp, 2ull,tmp, lenS);	ASSERT(!bw, "");
+				// Do not require no-carryout-from-add here: if yinv is already the full inverse (e.g. w = 2^128-2^64-1,
+				// whose inverse 2^64-1 the 64-bit seed already is), tmp = -1 and the +2 carries out, harmlessly, since
+				// the result mod 2^(64*lenS) is the wanted 1. Same as the loop in mi64_scalar_modpow_lr:
+				mi64_add_scalar(tmp, 2ull,tmp, lenS);
 				mi64_mul_vector_lo_half(yinv,tmp, yinv, lenS);
 			}
 			// Save inverse in case next call uses same modulus:
@@ -5443,7 +5456,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 
 	//----------------------------------
 
-		if(mod_repeat) {
+		if(mod_repeat && lenW == basepow_lenW) {
 			mi64_set_eq(tmp, basepow_save, lenS);
 		} else {
 			// Prepare to transform back out of "Montgomery space" ... first compute B^2 mod q.
@@ -5510,8 +5523,8 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 					}
 				}
 			}
-			// Save base power in case next call uses same modulus:
-			mi64_set_eq(basepow_save, tmp, lenS);
+			// Save base power in case next call uses same modulus and a dividend with the same lenW:
+			mi64_set_eq(basepow_save, tmp, lenS);	basepow_lenW = lenW;
 		}
 
 		/*
@@ -5596,8 +5609,11 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		if(nshift) {
 			// rem = (rem << nshift) + rem_save:
 			mi64_shl(cy,cy,nshift,lenD);	/*** Need to use non-right-justified length (rather than lenS) here! ***/
-			// No carryout here since we are filling in the just-vacated low bits of rem with rem_save:
-			mi64_add(cy,rem_save,rem_save,nws);
+			// No carryout here since we are filling in the just-vacated low bits of rem with rem_save.
+			// The add touches only the low nws words, so do it in cy and copy all lenD words of the result,
+			// as the lenS == 1 branch above does; writing the sum into rem_save dropped words >= nws:
+			mi64_add(cy,rem_save,cy,nws);
+			mi64_set_eq(rem_save,cy,lenD);	// Place copy of remainder into rem_save
 		} else {
 			mi64_set_eq(rem_save,cy,lenD);	// Save copy of cy in rem_save
 		}
