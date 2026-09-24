@@ -5342,7 +5342,10 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			for(j = 6; j < log2_numbits; j++, i <<= 1) {
 				mi64_mul_vector_lo_half(w, yinv,tmp, lenS);
 				mi64_nega              (tmp,tmp, lenS);
-				bw = mi64_add_scalar(tmp, 2ull,tmp, lenS);	ASSERT(!bw, "");
+				// Do not require no-carryout-from-add here: if yinv is already the full inverse (e.g. w = 2^128-2^64-1,
+				// whose inverse 2^64-1 the 64-bit seed already is), tmp = -1 and the +2 carries out, harmlessly, since
+				// the result mod 2^(64*lenS) is the wanted 1. Same as the loop in mi64_scalar_modpow_lr:
+				mi64_add_scalar(tmp, 2ull,tmp, lenS);
 				mi64_mul_vector_lo_half(yinv,tmp, yinv, lenS);
 			}
 			// Save inverse in case next call uses same modulus:
