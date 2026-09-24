@@ -5582,8 +5582,11 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		if(nshift) {
 			// rem = (rem << nshift) + rem_save:
 			mi64_shl(cy,cy,nshift,lenD);	/*** Need to use non-right-justified length (rather than lenS) here! ***/
-			// No carryout here since we are filling in the just-vacated low bits of rem with rem_save:
-			mi64_add(cy,rem_save,rem_save,nws);
+			// No carryout here since we are filling in the just-vacated low bits of rem with rem_save.
+			// The add touches only the low nws words, so do it in cy and copy all lenD words of the result,
+			// as the lenS == 1 branch above does; writing the sum into rem_save dropped words >= nws:
+			mi64_add(cy,rem_save,cy,nws);
+			mi64_set_eq(rem_save,cy,lenD);	// Place copy of remainder into rem_save
 		} else {
 			mi64_set_eq(rem_save,cy,lenD);	// Save copy of cy in rem_save
 		}
