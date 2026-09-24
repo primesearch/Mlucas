@@ -2577,11 +2577,11 @@ READ_RESTART_FILE:
 			bit array so the live exponent bits stay out of it. On exit d[] is pure-int as the PRP path expects: */
 			if(TEST_TYPE == TEST_TYPE_PM1) {
 				if(g3_L != (uint32)ITERS_BETWEEN_GCHECK_UPDATES) {
-					ierr = pm1_gcheck_g3(g3, gchk_bits, gchk_bits_len, n, p, func_mod_square, scrnFlag, &tdif2);
+					ierr = pm1_gcheck_g3(g3, gchk_bits, gchk_bits_len, n, npad, p, func_mod_square, scrnFlag, &tdif2);
 					if(ierr) { snprintf(cbuf,sizeof(cbuf),"Unhandled Error of type[%u] = %s computing 3^(2^L) for the p-1 Gerbicz check.\n",ierr,returnMlucasErrCode(ierr)); mlucas_fprint(cbuf,0); ASSERT(0,cbuf); }
 					g3_L = (uint32)ITERS_BETWEEN_GCHECK_UPDATES;
 				}
-				ierr = pm1_gcheck_apply(d, c, g2, u0, g3, gchk_H, gchk_bits, gchk_bits_len, n, p, func_mod_square, scrnFlag, &tdif2);
+				ierr = pm1_gcheck_apply(d, c, g2, u0, g3, gchk_H, gchk_bits, gchk_bits_len, n, npad, p, func_mod_square, scrnFlag, &tdif2);
 				if(ierr) {
 					snprintf(cbuf,sizeof(cbuf),"Unhandled Error of type[%u] = %s in p-1 Gerbicz-check correction step - please report this with the p*.stat file attached.\n",ierr,returnMlucasErrCode(ierr));
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
@@ -7609,14 +7609,14 @@ void *jacobi_thread_main(void *arg) {
 	return 0x0;
 }
 
-int pm1_gcheck_g3(double g3[], uint64 bits[], uint32 nbits, int n, uint64 p,
+int pm1_gcheck_g3(double g3[], uint64 bits[], uint32 nbits, int n, uint32 npad, uint64 p,
 	int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff)
 {
 	const uint32 L = ITERS_BETWEEN_GCHECK_UPDATES;
 	uint64 *bmb_save = BASE_MULTIPLIER_BITS;
 	int ierr;
 	ASSERT(L <= (uint32)ITERS_BETWEEN_CHECKPOINTS, "pm1_gcheck_g3(): L exceeds CheckInterval!");
-	memset(g3, 0, n*sizeof(double));	g3[0] = 3.0;
+	memset(g3, 0, (size_t)npad*sizeof(double));	g3[0] = 3.0;	// npad, not n: the residue arrays use the padded layout
 	mi64_clear(bits, nbits);	BASE_MULTIPLIER_BITS = bits;
 	ierr = func_mod_square(g3, 0x0, n, 0, (int)L, 0ull, p, scrnFlag, tdiff, FALSE, 0x0);	// g3 = 3^(2^L), pure-int (iterations 1..L read zeroed bits 0..L-1)
 	if(!ierr) ierr = func_mod_square(g3, 0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	// g3 <- FFT(g3)
@@ -7624,11 +7624,11 @@ int pm1_gcheck_g3(double g3[], uint64 bits[], uint32 nbits, int n, uint64 p,
 	return ierr;
 }
 
-int pm1_gcheck_apply(double d[], double c[], double g2[], double u0[], double g3[], uint64 H, uint64 bits[], uint32 nbits, int n, uint64 p,
+int pm1_gcheck_apply(double d[], double c[], double g2[], double u0[], double g3[], uint64 H, uint64 bits[], uint32 nbits, int n, uint32 npad, uint64 p,
 	int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff)
 {
 	uint64 *bmb_save = BASE_MULTIPLIER_BITS;
-	const int nbytes_dbl = n*sizeof(double);
+	const size_t nbytes_dbl = (size_t)npad*sizeof(double);	// npad, not n: the residue arrays use the padded layout
 	int ierr = 0, b;
 	mi64_clear(bits, nbits);	BASE_MULTIPLIER_BITS = bits;	// no multiply-by-base in any of the modmuls below
 	if(H) {
