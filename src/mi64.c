@@ -5171,7 +5171,14 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		if(r != 0x0 && fquo < TWO54FLOAT) {
 			itmp64 = (uint64)fquo;
 			// Since x,v,r may all point to same memory, need local-storage to hold y*fquo - use yinv to point to that:
-			mi64_mul_scalar(y,itmp64,yinv,lenX);
+			bw = mi64_mul_scalar(y,itmp64,yinv,lenX);
+			// (double)lo64 can round up, making the estimate larger than the true quotient; if y*itmp64 then
+			// overflows lenX words the estimate is certainly too large (y*itmp64 >= 2^(64*lenX) > x), and
+			// dropping the carry would hide the resulting borrow below. Step the estimate down until it fits:
+			while(bw && (nc < ncmax)) {
+				nc++;	--itmp64;	bw -= mi64_sub(yinv,y,yinv,lenX);	// bw:yinv -= y
+			}
+			ASSERT(!bw, "Unexpectedly large number of corrections needed for floating-double quotient!");
 			bw = mi64_sub(x,yinv,r,lenX);
 		#if MI64_DIV_MONT
 			if(dbg)printf("fquo*x = %s\n", &s0[convert_mi64_base10_char(s0, yinv, lenD, 0)]);
