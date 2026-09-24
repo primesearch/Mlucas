@@ -120,7 +120,12 @@
 	// a pointer-to-be-inited-at-runtime, when we set ptr to the lowest-index array element having the desired alginment:
 		double *cy;
 	  #ifdef USE_AVX512
-		double cy_dat[RADIX+8] __attribute__ ((__aligned__(8)));
+		// RADIX == 4 (mod 8) here: the AVX-512 8-lane carry-copy loops round RADIX up to the next
+		// multiple of 8 (+4 to +7 slots) and cy can start up to 6 doubles into cy_dat (alignment search,
+		// step 2), so the true high-water mark is RADIX + roundup-slop(<=7) + alignment-offset(<=6);
+		// RADIX+16 covers that with margin. RADIX+8 (2 too few) let the copy loops read/write past
+		// the array into the next thread's cy_thread_data_t.
+		double cy_dat[RADIX+16] __attribute__ ((__aligned__(8)));
 	  #else
 		double cy_dat[RADIX+4] __attribute__ ((__aligned__(8)));	// Enforce min-alignment of 8 bytes in 32-bit builds.
 	  #endif
