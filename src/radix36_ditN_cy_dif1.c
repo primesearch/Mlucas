@@ -1080,7 +1080,7 @@ for(outer=0; outer <= 1; outer++)
 		for(i = 1; i < RADIX; i++) {
 			MOD_ADD32(_bjmodn[i-1][ithread], j, n, _bjmodn[i][ithread]);
 		}
-		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+		_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 		if(!full_pass)
 			_jhi[ithread] = _jstart[ithread] + jhi_wrap;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
