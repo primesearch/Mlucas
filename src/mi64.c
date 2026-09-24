@@ -5071,6 +5071,9 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 	static uint64 *vsave = 0x0, *yinv = 0x0,*cy = 0x0, *tmp = 0x0, *itmp = 0x0, *lo = 0x0, *rem_save = 0x0;
 	// Sep 2015: These are for repeated div calls with same modulus - doing so sped up M4423 base-3 PRP test by 10x (!):
 	static uint64 *modulus_save = 0x0, *mod_inv_save = 0x0, *basepow_save = 0x0;
+	// basepow_save = B^lenW mod y, and lenW = ceil(lenX/lenS) depends on the dividend length, so the saved
+	// power is only reusable for a dividend giving the same lenW. modulus_save and mod_inv_save depend only on y:
+	static uint32 basepow_lenW = 0;
 	static uint64 *scratch = 0x0;	// "base pointer" for local storage shared by all of the above subarrays
 	static uint64 *hi = 0x0, *v = 0x0, *w = 0x0;	// These are treated as vars (cost-offsets of the above ptrs),
 													// hence non-static. *** MUST RE-INIT ON EACH ENTRY ***
@@ -5419,7 +5422,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 
 	//----------------------------------
 
-		if(mod_repeat) {
+		if(mod_repeat && lenW == basepow_lenW) {
 			mi64_set_eq(tmp, basepow_save, lenS);
 		} else {
 			// Prepare to transform back out of "Montgomery space" ... first compute B^2 mod q.
@@ -5486,8 +5489,8 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 					}
 				}
 			}
-			// Save base power in case next call uses same modulus:
-			mi64_set_eq(basepow_save, tmp, lenS);
+			// Save base power in case next call uses same modulus and a dividend with the same lenW:
+			mi64_set_eq(basepow_save, tmp, lenS);	basepow_lenW = lenW;
 		}
 
 		/*
