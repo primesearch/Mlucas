@@ -450,12 +450,13 @@ struct qfloat i64_to_q(int64 i64)
 {
 	struct qfloat q;
 	int32 lz, shift;
-	uint64 sexp;
+	uint64 sexp, u64;
 	if(!i64) return QZRO;
 
 	sexp = i64 & MASK_SIGN;
-	if(sexp) i64 = -i64;
-	lz = leadz64(i64);	/* Find # of leading zeros in |i64|. */
+	u64 = (uint64)i64;
+	if(sexp) u64 = -u64;	// |i64| in unsigned arithmetic: -INT64_MIN overflows int64
+	lz = leadz64(u64);	/* Find # of leading zeros in |i64|. */
 
 	/* Put leading ones bit of mantissa into bit position 52 of <0:63> and add to sign/exponent. */
 	shift = lz - (int)11;	/* if lz = 11, int is already correctly positioned. If <> 11,
@@ -467,12 +468,12 @@ struct qfloat i64_to_q(int64 i64)
 											extra one, i.e. 1075 - 1 - shift = 1074 - shift. */
 	if(shift < 0)
 	{
-		q.hi = sexp + (i64 >> (-shift));
-		q.lo = i64 << (64+shift);
+		q.hi = sexp + (u64 >> (-shift));
+		q.lo = u64 << (64+shift);
 	}
 	else	/* need to left-shift mantissa */
 	{
-		q.hi = sexp + (i64 << shift);
+		q.hi = sexp + (u64 << shift);
 		q.lo = (uint64)0;
 	}
 
@@ -498,10 +499,11 @@ struct qfloat i128_to_q(uint128 i)
 	shift = lz - (int)11;	/* if lz = 11, int is already correctly positioned. If <> 11,
 							i.e. shift <> 0, need to right/left-shift mantissa */
 
-	sexp += ((uint64)1074 - shift) << 52;	/* Ex: i = 3, with lz = 62 and shift = 51, should yield exponent = 0x400 = 1024
+	sexp += ((uint64)1138 - shift) << 52;	/* Ex: i = 3, with lz = 126 and shift = 115, should yield exponent = 0x400 = 1024
 											(prior to left-shift by 52 places); each bit less in lz means one more in exponent.
 											Since the leftmost mantissa bit = 1 and gets added to the exponent, subtract an
-											extra one, i.e. 1075 - 1 - shift = 1074 - shift. */
+											extra one, i.e. 1075 + 64 - 1 - shift = 1138 - shift (the 64 because the
+											leading bit sits in the high word). */
 	if(shift < 0)
 	{
 		// Unlike the 64-bit case, need to properly round any off-shifted bits, but defer for later due to complications
@@ -510,7 +512,9 @@ struct qfloat i128_to_q(uint128 i)
 		q.hi = sexp + (i.d1 >> rshift);
 		offword = (i.d0 << lshift) >> 63;	// MSB of off-shifted portion
 		q.lo = (i.d1 << lshift) + (i.d0 >> rshift) + offword;
-		ASSERT(q.lo >= offword, "Ripple-carry!");	// For now, just check for ripple-carry. Proper handling will come later.
+		// A round-carry out of q.lo goes into q.hi; if that carries out of the 52 stored mantissa bits it
+		// increments the exponent field and leaves a zero mantissa, which is the correctly renormalized result:
+		q.hi += (q.lo < offword);
 	}
 	else	/* need to left-shift mantissa */
 	{
@@ -609,7 +613,7 @@ uint128 qfnint(struct qfloat q)
 	{
 		lshift =     - rshift;
 		rshift = (64 + rshift) & 63;	/* shift count of 64 must get aliased to 0. */
-		i.d1 = (i.d1 << lshift) + (i.d0 >> rshift);
+		if(lshift) i.d1 = (i.d1 << lshift) + (i.d0 >> rshift);	// lshift = 0: i.d0 contributes nothing to i.d1
 		i.d0 = (i.d0 << lshift);
 	}
 	else if(rshift <= 53)	/* Hi part partially shifted into lo, lo part partially shifted off. */
@@ -653,7 +657,7 @@ uint128 qfnint(struct qfloat q)
 	/* If sign bit was set, negate result by arithmetic negation of lo word, logical negation of hi word. */
 	if(sign)
 	{
-		i.d1 = ~i.d1;
+		i.d1 = ~i.d1 + (i.d0 == 0);	// Carry of the +1 in -i = ~i + 1 reaches the high word iff the low word is 0
 		i.d0 = -i.d0;
 	}
 
@@ -699,7 +703,7 @@ uint128 qfint(struct qfloat q)
 		}
 		lshift =     - rshift;
 		rshift = (64 + rshift) & 63;	/* shift count of 64 must get aliased to 0. */
-		i.d1 = (i.d1 << lshift) + (i.d0 >> rshift);
+		if(lshift) i.d1 = (i.d1 << lshift) + (i.d0 >> rshift);	// lshift = 0: i.d0 contributes nothing to i.d1
 		i.d0 = (i.d0 << lshift);
 	}
 	else if(rshift <= 53)	/* Hi part partially shifted into lo, lo part partially shifted off. */
@@ -734,7 +738,7 @@ uint128 qfint(struct qfloat q)
 	/* If sign bit was set, negate result by arithmetic negation of lo word, logical negation of hi word. */
 	if(sign)
 	{
-		i.d1 = ~i.d1;
+		i.d1 = ~i.d1 + (i.d0 == 0);	// Carry of the +1 in -i = ~i + 1 reaches the high word iff the low word is 0
 		i.d0 = -i.d0;
 	}
 
