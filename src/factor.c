@@ -1111,8 +1111,6 @@ exit(0);
 		}
 	}
 
-	ASSERT(bmax > 0.0 || kmax != 0 ,"factor.c: One of bmax or kmax must be set!");
-
 	ASSERT((MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 			  || (MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
 			  || (MODULUS_TYPE ==   MODULUS_TYPE_FERMAT)
@@ -1169,18 +1167,6 @@ exit(0);
 	q       = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
 	q2      = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
 	u64_arr = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
-
-	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
-	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
-	// may be up to (len*64)-1 larger than the user-specified kmax:
-	if(kmax) {
-		interval_hi = (uint64)ceil( (double)kmax / ((uint64)len << TF_CLSHIFT) );	// Copied from restart-file code below
-		// Actual kmax used at runtime = interval_hi*(len << TF_CLSHIFT);
-		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
-		lenQ = lenP + (u64_arr[lenP] != 0);
-	} else {
-		lenQ = ( (uint32)(ceil(bmax)) + 63 ) >> 6;
-	}
 
 	// Mersenne numbers must have odd (check primality further on) exponents:
 	if((MODULUS_TYPE != MODULUS_TYPE_FERMAT) && (p[0] & 1) == 0)
@@ -1302,27 +1288,6 @@ exit(0);
 		pmodNC = mi64_div_y32(p, TF_CLASSES, 0x0, lenP);
 	}
 
-	// If user-set kmax, test factoring range vs internal limits
-	if(kmax) {
-		interval_hi = (uint64)ceil((double)kmax/((uint64)len << TF_CLSHIFT));	// Copied from restart-file code below
-		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
-		ASSERT(lenQ == lenP+(u64_arr[lenP] != 0), "");
-
-		nbits_in_q = (lenQ<<6) - mi64_leadz(u64_arr, lenQ);
-
-		if(nbits_in_q > MAX_BITS_Q)
-		{
-			fprintf(stderr,"qmax too large - limit is %u bits. Offending p, kmax = %s, %s\n", MAX_BITS_Q, pstring, &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
-			ASSERT(0,"0");
-		}
-	}
-
-	/* log2[nearest power of 2 to (nbits_in_p)*lenQ^2)] */
-	bits_in_pq2 = nbits_in_p*lenQ*lenQ;
-	bits_in_pq2 = 32 - leadz32(bits_in_pq2);
-	CMASKBITS = (30 - (bits_in_pq2>>1));
-	countmask = (1ull << CMASKBITS) - 1;
-
 /*****************************************************/
 /****************** RESTART STUFF: *******************/
 /*****************************************************/
@@ -1338,8 +1303,6 @@ exit(0);
 		fprintf(stderr,"WARN: Checkpointing only supported for single-threaded runs!\n");
 	else
 		fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
-
-	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %" PRIu64 " factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
 
 	/**** process restart-file and any command-line params: ****/
 	// Note: return value of read_savefile is signed:
@@ -1435,6 +1398,47 @@ exit(0);
 
 /************************ END(RESTART STUFF) *******************/
 
+	/* Only now are the factor bounds known: with -kplus, or when resuming from the savefile with no bounds on
+	the command line, neither bmax nor kmax is set until the savefile has been read above. So everything that
+	depends on them - the check that one is set, lenQ, the qmax limit and the checkpoint interval - goes here: */
+	ASSERT(kplus == 0 || restart, "-kplus requires the savefile of a previous run of this exponent, and none was found!");
+	ASSERT(bmax > 0.0 || kmax != 0 ,"factor.c: One of bmax or kmax must be set, unless resuming an incomplete run from its savefile!");
+
+	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
+	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
+	// may be up to (len*64)-1 larger than the user-specified kmax:
+	if(kmax) {
+		interval_hi = (uint64)ceil( (double)kmax / ((uint64)len << TF_CLSHIFT) );	// Copied from restart-file code below
+		// Actual kmax used at runtime = interval_hi*(len << TF_CLSHIFT);
+		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
+		lenQ = lenP + (u64_arr[lenP] != 0);
+	} else {
+		lenQ = ( (uint32)(ceil(bmax)) + 63 ) >> 6;
+	}
+
+	// If user-set kmax, test factoring range vs internal limits
+	if(kmax) {
+		interval_hi = (uint64)ceil((double)kmax/((uint64)len << TF_CLSHIFT));	// Copied from restart-file code below
+		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
+		ASSERT(lenQ == lenP+(u64_arr[lenP] != 0), "");
+
+		nbits_in_q = (lenQ<<6) - mi64_leadz(u64_arr, lenQ);
+
+		if(nbits_in_q > MAX_BITS_Q)
+		{
+			fprintf(stderr,"qmax too large - limit is %u bits. Offending p, kmax = %s, %s\n", MAX_BITS_Q, pstring, &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
+			ASSERT(0,"0");
+		}
+	}
+
+	/* log2[nearest power of 2 to (nbits_in_p)*lenQ^2)] */
+	bits_in_pq2 = nbits_in_p*lenQ*lenQ;
+	bits_in_pq2 = 32 - leadz32(bits_in_pq2);
+	CMASKBITS = (30 - (bits_in_pq2>>1));
+	countmask = (1ull << CMASKBITS) - 1;
+
+	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %" PRIu64 " factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
+
   #warning bmax/kmax-synchro needs re-do!
 	/* If it's not a restart of an as-yet-uncompleted run, synchronize the factoring-bound params: */
 	if(!incomplete_run)
@@ -1486,8 +1490,6 @@ exit(0);
 			fqlo = 1.0;
 		#endif
 		}
-ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
-//**** Do savefile-init here? ******
 		if(kmax || bmax) {
 			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
 				kmax = given_b_get_k(bmax, two_p, lenQ);
@@ -1927,6 +1929,12 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	kmin = interval_lo *(len << TF_CLSHIFT);
 	know = interval_now*(len << TF_CLSHIFT);
 	kmax = interval_hi *(len << TF_CLSHIFT);
+
+	/* Init the savefile only now, with these rounded-out bounds, since they are the range the run covers. A later
+	-kplus or -kmin/kmax run starts from the savefile's kmax; the unrounded one would have it redo the last sieve
+	interval of this run and report any factor there a second time: */
+	if(!incomplete_run)
+		ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
 
 	/* And now that we have the actual kmin/kmax, recalculate these: */
   #ifdef P1WORD
