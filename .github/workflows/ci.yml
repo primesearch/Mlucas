@@ -1333,6 +1333,10 @@ jobs:
     # each one to be reported, exactly once. It builds its own binaries and runs with
     # -nthread 2 in an empty directory, so a failure here is about the factors found and nothing
     # else (not the 1-thread savefile abort, not a leftover savefile).
+    #
+    # This job is red on main until the fixes it checks are merged: #336 for every build (without
+    # it every factor with k != 0 mod 60 is missed), and #341 and #342 for the 4-word build
+    # (without #341 it finds no factors at all; without #342 it aborts for every p < 256).
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -1364,12 +1368,12 @@ jobs:
         # there, exactly as the Mfactor self-tests in the jobs above do.
         if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MODE=NOSIMD; else MODE=; fi
         echo "MSFX=${MODE:+_$MODE}" >> "$GITHUB_ENV"
-        # 4word and nword are left out: nword is single-threaded only (it asserts NTHREADS == 1),
-        # and the 4word build does not find these small factors at all.
-        for word in '' 2word 3word; do
+        # nword is left out: it is single-threaded only (it asserts NTHREADS == 1), and this job
+        # runs with 2 threads so that it does not depend on the 1-thread savefile fix.
+        for word in '' 2word 3word 4word; do
             bash -e -o pipefail -- makemake.sh mfac $word $MODE
         done
-    - name: 'Mfactor must find known factors (fails on main until #336 is merged)'
+    - name: 'Mfactor must find known factors (fails on main until #336, #341 and #342 are merged)'
       shell: bash
       run: |
         # Each case is: exponent p | bounds | the k of every factor q = 2kp+1 of M(p) in range.
@@ -1388,10 +1392,21 @@ jobs:
             '67|-bmax 30|1445580'
             '1362286843|-kmax 100|5 26453'
         )
+        # All of the above have q < 2^47, so in the 4-word build the upper words of p and q are
+        # zero. This case is for the 4-word build only (p has 220 bits, too many for the others):
+        # the 243-bit q = 2kp+1 with k = 8371800 (k = 0 mod 60) is the only factor with
+        # k < 16336320. It takes the multiword-p paths through the sieve setup, the q = 2kp+1
+        # construction and twopmodq256 with all four words of p and q in use. Such a q is too
+        # large for shell arithmetic, so it is given as k=q.
+        cases4=(
+            '842498333348457493583344221469363458551160763204392890034487825871|-kmax 1000|8371800=14106455094253232889562082306594434004597215354789072793581450361253675601'
+        )
         fail=0
-        for word in '' 2word 3word; do
+        for word in '' 2word 3word 4word; do
             bin="$PWD/obj_mfac${word:+_$word}${MSFX}/Mfactor${word:+_$word}"
-            for c in "${cases[@]}"; do
+            todo=("${cases[@]}")
+            if [[ $word == 4word ]]; then todo+=("${cases4[@]}"); fi
+            for c in "${todo[@]}"; do
                 IFS='|' read -r p bounds ks <<< "$c"
                 dir=$(mktemp -d)
                 rc=0
@@ -1399,12 +1414,15 @@ jobs:
                 ( cd "$dir" && "$bin" -m "$p" $bounds -nthread 2 ) > "$dir/out.txt" 2>&1 || rc=$?
                 if [[ $rc -ne 0 ]]; then
                     echo "::error::Mfactor${word:+_$word} -m $p $bounds exited with status $rc"
+                    # stderr is unbuffered and stdout is not, so an assertion message can land well
+                    # before the end of the file: show it along with the tail.
+                    grep -E 'ERROR|Assertion' "$dir/out.txt" || true
                     tail -n 20 "$dir/out.txt"
                     fail=1
                     continue
                 fi
                 for k in $ks; do
-                    q=$(( 2 * k * p + 1 ))
+                    if [[ $k == *=* ]]; then q=${k#*=}; k=${k%%=*}; else q=$(( 2 * k * p + 1 )); fi
                     n=$(grep -c "Factor found: q = $q = 2\*p\*k + 1 with k = $k\." "$dir/out.txt" || true)
                     if [[ $n -eq 1 ]]; then
                         echo "OK   Mfactor${word:+_$word} -m $p $bounds: q = $q (k = $k) reported once"
