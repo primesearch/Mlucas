@@ -218,7 +218,11 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *addr, *addi;
 	int *itmp;	// Pointer into the bjmodn array
   #endif
-	struct complex t[RADIX]
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c
   #ifndef MULTITHREAD
 	  , *tptr
   #endif
@@ -1959,7 +1963,11 @@ void radix992_dif_pass1(double a[], int n)
 */
 	int l, j,j1/* ,j2 */, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 #if USE_COMPACT_OBJ_CODE
 	int jp;
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
@@ -2335,12 +2343,12 @@ void radix992_dif_pass1(double a[], int n)
 			ke = plo[(i64 >>  4)&0xf];		o[0x1e] = jp + ke;
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,o,RE_IM_STRIDE
 			);
 		#else
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,iptr,RE_IM_STRIDE	// *** Apr 2014: Added data strdes needed by latest version of the radix-32 DFT macros
 			);
 			iptr += 32;
@@ -2387,7 +2395,11 @@ void radix992_dit_pass1(double a[], int n)
 */
 	int l, j,j1/* ,j2 */,jp, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 #if USE_COMPACT_OBJ_CODE
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 	static int plo[32],phi[62];	// No need for separate dit_p20_cperms[] array; just need a doubled-sequence version of phi
@@ -2724,12 +2736,12 @@ void radix992_dit_pass1(double a[], int n)
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 		#else
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,	// *** Apr 2014: Added data strdes needed by latest version of the radix-32 DFT macros
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 			iptr += 32;
 		#endif
@@ -2892,7 +2904,11 @@ void radix992_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	// int data:
