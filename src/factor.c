@@ -81,8 +81,9 @@ Only main() and PerPass_tfSieve()'s mutex-protected factor-reporting code touch 
 static uint64 *tf_fac_k = 0x0;
 static uint32 tf_nfac = 0, tf_nfac_prev = 0, tf_fac_cap = 0;
 static void tf_add_reported_factor(const char*fname, uint64 k);
+static void tf_report_factor(const char*fname, const char*ofile, uint64 k, const char*rpt);
 #ifdef FACTOR_STANDALONE	// Only main() reads the list, and Mfactor has no main() in a non-standalone build
-static uint32 tf_read_reported_factors(const char*fname);
+static uint32 tf_read_reported_factors(const char*fname, const char*ofile);
 #endif
 static int tf_reported_before(uint64 k);
 
@@ -1350,7 +1351,7 @@ exit(0);
 			kmin = kmin_file; know = know_file; kmax = kmax_file;
 			kplus = 0;
 			/* The factors already reported by this run, which we must not report again: */
-			if(tf_read_reported_factors(RESTARTFILE))
+			if(tf_read_reported_factors(RESTARTFILE, OFILE))
 				fprintf(stderr,"INFO: The earlier session(s) of this run reported %u factor(s); these will not be reported again.\n", tf_nfac_prev);
 		} else {
 			count_prev = 0ull;	// A new run, whose count starts from zero
@@ -3971,10 +3972,7 @@ MFACTOR_HELP:
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
 									#endif
-										fp = mlucas_fopen(   OFILE,"a");	ASSERT(fp != 0x0,"0");
-										fprintf(fp,"%s", cbuf);
-										fclose(fp); fp = 0x0;
-										tf_add_reported_factor(RESTARTFILE, k_to_try[l]);	// Only now, so a kill in between repeats the report rather than lose it
+										tf_report_factor(RESTARTFILE, OFILE, k_to_try[l], cbuf);	// Writes cbuf to results.txt and records k in the savefile, kill-safely
 									#ifdef QUIT_WHEN_FACTOR_FOUND
 									  #ifdef MULTITHREAD
 										return;
@@ -4571,6 +4569,9 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 	Line 12+:	One line "factor k = {k}" per factor the run has reported so far (none if it has found none).
 				Optional, so a savefile without these lines, e.g. one written by an older build, still
 				reads; read_savefile() itself stops at line 11, and tf_read_reported_factors() reads these.
+				A line "pending k = {k}: {report}" is a factor whose report was being written to results.txt
+				when the run stopped, unless a "factor k = {k}" line follows it; {report} is the text of the
+				report, with backslash, newline and tab escaped as \\, \n and \t. See tf_report_factor().
 */
 
 /* Add k to the run's list of reported factors (tf_fac_k), and if fname is given, append it to that savefile.
@@ -4593,24 +4594,119 @@ static void tf_add_reported_factor(const char*fname, uint64 k)
 	if(fsave) fclose(fsave);
 }
 
+/* Report a factor: append report text rpt to results file ofile, and add k to the run's list of reported factors
+and to savefile fname. The two files cannot be updated together atomically, and a resumed run finds again any factor
+found since its last checkpoint, so the savefile is written on both sides of the results.txt write, as a write-ahead
+log: first a "pending k = {k}: {rpt}" line, then rpt goes to results.txt, then the "factor k = {k}" line. Whenever the
+run stops, each factor it found is then in one of three states:
+	- Neither line in the savefile: the report has not been written, and the savefile's checkpoint (which cannot be
+	  written between these steps) precedes the factor, so the resumed run finds it again and reports it.
+	- A "factor" line: the report is in results.txt; the resumed run skips the factor when it finds it again.
+	- Only a "pending" line: the report may or may not be in results.txt. On resuming, tf_read_reported_factors()
+	  appends it to results.txt unless it is there already, then adds the "factor" line.
+So no report is lost, and none is written twice. An empty rpt (a q with nothing new to report) only records k: */
+static void tf_report_factor(const char*fname, const char*ofile, uint64 k, const char*rpt)
+{
+	FILE *fsave, *fres;
+	const char *c;
+	int ok;
+	if(rpt[0]) {
+		fsave = mlucas_fopen(fname,"r+");	// Never "a", as in tf_add_reported_factor()
+		ok = fsave && !fseek(fsave, 0L, SEEK_END) && fprintf(fsave,"pending k = %" PRIu64 ": ", k) > 0;
+		for(c = rpt; ok && *c; c++) {
+			if(*c == '\\')     ok = (fputs("\\\\", fsave) >= 0);
+			else if(*c == '\n') ok = (fputs("\\n", fsave) >= 0);
+			else if(*c == '\t') ok = (fputs("\\t", fsave) >= 0);
+			else               ok = (fputc(*c, fsave) != EOF);
+		}
+		if(ok) ok = (fputc('\n', fsave) != EOF);
+		if(fsave && fclose(fsave)) ok = 0;
+		if(!ok)
+			fprintf(stderr,"WARN: Unable to add pending factor k = %" PRIu64 " to savefile %s; if the run stops before the factor is recorded, a resumed run will report it again.\n", k, fname);
+		fres = mlucas_fopen(ofile,"a");	ASSERT(fres != 0x0,"0");
+		fprintf(fres,"%s", rpt);
+		fclose(fres);
+	}
+	tf_add_reported_factor(fname, k);
+}
+
 #ifdef FACTOR_STANDALONE
+/* Does results file ofile contain the text rpt? Read in text mode, as it was written, so that on Windows the
+CRLF line endings read back as the \n in rpt; ftell's byte count is then only an upper bound on what fread gets: */
+static int tf_results_hold(const char*ofile, const char*rpt)
+{
+	char *buf;
+	long len;
+	int found = 0;
+	FILE *fres = mlucas_fopen(ofile,"r");
+	if(!fres) return 0;
+	if(!fseek(fres, 0L, SEEK_END) && (len = ftell(fres)) > 0 && !fseek(fres, 0L, SEEK_SET)) {
+		buf = (char *)malloc((size_t)len + 1);	ASSERT(buf != 0x0, "Unable to allocate a buffer for the results file!");
+		len = (long)fread(buf, 1, (size_t)len, fres);
+		buf[len] = '\0';
+		found = (strstr(buf, rpt) != 0x0);
+		free(buf);
+	}
+	fclose(fres);
+	return found;
+}
+
 /* Read the factors the run has reported so far from lines 12 and up of savefile fname (see the format above)
 into tf_fac_k, and mark them as reported by an earlier session. A line without its newline is the tail of an
-append that was cut short, whose factor was nonetheless reported, so the worst case is a repeat report: */
-static uint32 tf_read_reported_factors(const char*fname)
+append that was cut short, which the run had not completed: for a "factor" line, its factor was nonetheless
+reported, so the worst case is a repeat report; for a "pending" one, the report had not been written yet.
+A "pending" factor without a "factor" line is one whose report was being written when the run stopped:
+write the report to results file ofile unless it is there already, and record the factor (see tf_report_factor): */
+static uint32 tf_read_reported_factors(const char*fname, const char*ofile)
 {
-	char line[STR_MAX_LEN];
-	uint32 curr_line = 0;
-	uint64 k;
+	char line[STR_MAX_LEN*8], *c, *r, **pend_rpt = 0x0;	// A pending line holds an escaped report of up to sizeof(cbuf) chars
+	uint32 curr_line = 0, i, j, npend = 0;
+	uint64 k, *pend_k = 0x0;
 	FILE *fsave = mlucas_fopen(fname,"r");
 	if(fsave) {
-		while(fgets(line, STR_MAX_LEN, fsave)) {
+		while(fgets(line, sizeof(line), fsave)) {
 			if(++curr_line <= 11 || !strchr(line, '\n')) continue;
-			if(sscanf(line, "factor k = %" SCNu64, &k) == 1)
+			if(sscanf(line, "factor k = %" SCNu64, &k) == 1) {
 				tf_add_reported_factor(0x0, k);
+			} else if(sscanf(line, "pending k = %" SCNu64, &k) == 1 && (c = strstr(line, ": "))) {
+				pend_k   = (uint64 *)realloc(pend_k  , (npend + 1) * sizeof(uint64));
+				pend_rpt = (char  **)realloc(pend_rpt, (npend + 1) * sizeof(char *));
+				ASSERT(pend_k != 0x0 && pend_rpt != 0x0, "Unable to grow the list of pending factors!");
+				pend_k[npend] = k;
+				pend_rpt[npend] = r = (char *)malloc(strlen(c));	ASSERT(r != 0x0, "Unable to allocate a pending report!");
+				for(c += 2; *c && *c != '\n'; c++) {	// Unescape the report
+					if(*c == '\\' && c[1] && c[1] != '\n') {
+						c++;
+						*r++ = (*c == 'n') ? '\n' : (*c == 't') ? '\t' : *c;
+					} else
+						*r++ = *c;
+				}
+				*r = '\0';
+				++npend;
+			}
 		}
 		fclose(fsave);
 	}
+	/* Complete the report of each pending factor that has no "factor" line: */
+	for(i = 0; i < npend; i++) {
+		for(j = 0; j < tf_nfac; j++) {
+			if(tf_fac_k[j] == pend_k[i]) break;
+		}
+		if(j == tf_nfac && pend_rpt[i][0]) {
+			if(tf_results_hold(ofile, pend_rpt[i])) {
+				fprintf(stderr,"INFO: The previous session stopped while reporting factor k = %" PRIu64 ", after writing it to %s.\n", pend_k[i], ofile);
+			} else {
+				fprintf(stderr,"INFO: The previous session stopped while reporting factor k = %" PRIu64 ", before writing it to %s; writing it now:\n", pend_k[i], ofile);
+				fprintf(stderr,"%s", pend_rpt[i]);
+				fsave = mlucas_fopen(ofile,"a");	ASSERT(fsave != 0x0,"0");
+				fprintf(fsave,"%s", pend_rpt[i]);
+				fclose(fsave);
+			}
+			tf_add_reported_factor(fname, pend_k[i]);
+		}
+		free(pend_rpt[i]);
+	}
+	free(pend_k); free(pend_rpt);
 	tf_nfac_prev = tf_nfac;
 	return tf_nfac_prev;
 }
