@@ -257,6 +257,10 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #ifndef MULTITHREAD
    #if defined(USE_SSE2) && !USE_SCALAR_DFT_MACRO
 	static int po_lin[8];
+	// Carrier for po_lin's address. The macro below needs it in a variable - an array is not a
+	// valid "m" operand - and the asm loads the value and indexes it as the int array it is.
+	// Previously this went through a vec_dbl* temp, i.e. a cast to an unrelated type.
+	static int *po_ptr = po_lin;
    #endif
    #ifndef USE_SSE2
 	static int po_br[8];
@@ -2590,6 +2594,10 @@ void radix64_dit_pass1(double a[], int n)
 		int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
 	#if defined(USE_SSE2) && !USE_SCALAR_DFT_MACRO
 		int po_lin[8];
+		// Carrier for po_lin's address. The macro below needs it in a variable - an array is not a
+		// valid "m" operand - and the asm loads the value and indexes it as the int array it is.
+		// Previously this went through a vec_dbl* temp, i.e. a cast to an unrelated type.
+		int *po_ptr = po_lin;
 	#endif
 	#ifndef USE_SSE2
 		int po_br[8];
