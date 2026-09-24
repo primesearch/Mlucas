@@ -184,6 +184,13 @@ static int tf_reported_before(uint64 k);
 // Capacity of factor_k[], the list of the k's of the prime factors found so far in a run. The list is used to divide
 // known factors out of any composite factor found later; factors found once it is full are still reported and counted.
 #define FACTOR_K_MAX	1024
+// The k's of the composite factors reported so far in a run, i.e. of those q (or cofactors of q) whose prime factors had not
+// all been found yet. A composite can turn up more than once, e.g. for M(29), 2304167 = 1103*2089 is itself a q and is also
+// what is left of q = M(29) once 233 is divided out; this list is checked so that each is reported once. Like factor_k[] it
+// is shared by all threads and only accessed with mutex_mi64 held; factor() empties it at the start of each run. Composites
+// found once it is full are still reported, but not checked against later ones:
+static uint64 tf_comp_k[FACTOR_K_MAX];
+static uint32 tf_ncomp = 0;	// #composites reported, which can exceed FACTOR_K_MAX
 
 // printf character buffers - when using to print args in a single printf, need a separate buffer for each arg:
 char char_buf0[STR_MAX_LEN], char_buf1[STR_MAX_LEN], char_buf2[STR_MAX_LEN];
@@ -2315,7 +2322,7 @@ the appropriate q mod 8 and small-prime bit-cleared bit_atlas into memory, clear
 corresponding to multiples of the larger tabulated primes, and trial-factoring any
 candidate factors that survive sieving.	*/
 
-	nfactor = 0;
+	nfactor = 0;	tf_ncomp = 0;
 
   #ifdef FAC_DEBUG
 	/* If a known factor given, only process the given k/log2 range for that pass: */
@@ -4037,7 +4044,8 @@ MFACTOR_HELP:
 										- q a probable prime: report it and add its k to factor_k[].
 										- q composite: divide out each previously-found factor that divides it exactly, then
 										  report what is left, unless it is 1: as a new prime factor, with its own k, or else as
-										  a composite factor to be factored separately.
+										  a composite factor to be factored separately, unless that composite is already in
+										  tf_comp_k[]. A new prime factor that divides a composite reported earlier says so.
 										The primality check is a base-3 Fermat test; base 2 would be much faster due to our fast
 										Montgomery arithmetic-based powering for that, but it's useless for weeding out composite
 										Mersenne factors since those are all base-2 Fermat pseudoprimes. */
@@ -4103,8 +4111,34 @@ MFACTOR_HELP:
 													if(TRYQM1 > 1)
 														printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 												#endif
+													// Say which of the composites reported earlier this factor divides, since those need no separate factoring now:
+													for(j = 0; j < MIN(tf_ncomp, FACTOR_K_MAX); j++) {
+														mi64_clear(q2, lenQ);	// q2 = 2.k.p + 1 for the j-th composite, which fits in lenQ words like the known factors above
+														cy = mi64_mul_scalar(p, 2*tf_comp_k[j], q2, lenP);
+														if(lenQ > lenP)
+															q2[lenP] = cy;
+														else
+															ASSERT(cy == 0ull, "Unexpected carryout in composite-factor computation!");
+														q2[0] += 1;
+														if(mi64_div(q2, q, lenQ, lenQ, u64_arr, 0x0)) {
+															size_t clen = strlen(cbuf);
+															snprintf(cbuf + clen, sizeof(cbuf) - clen, "\tThis factor divides the composite factor q = %s reported earlier.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q2, lenQ, 0)]);
+														}
+													}
 												} else {
-													snprintf(cbuf, sizeof(cbuf), "\n\tComposite Factor found: q = %s; you will have to factor this one separately.%s%s%s",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],cofstr,qstr0_,eos);
+													for(j = 0; j < MIN(tf_ncomp, FACTOR_K_MAX); j++) {
+														if(tf_comp_k[j] == kfac) break;
+													}
+													if(j < MIN(tf_ncomp, FACTOR_K_MAX)) {
+														printf("\t%s%s was already reported as a composite factor; not reporting it again.\n",(ndiv ? "The cofactor " : "q = "),&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)]);
+													} else {
+														if(tf_ncomp < FACTOR_K_MAX)
+															tf_comp_k[tf_ncomp] = kfac;
+														else
+															printf("\tWARNING: list of composite factors is full; this one will not be checked against later ones.\n");
+														++tf_ncomp;
+														snprintf(cbuf, sizeof(cbuf), "\n\tComposite Factor found: q = %s; you will have to factor this one separately.%s%s%s",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],cofstr,qstr0_,eos);
+													}
 												}
 											}
 										}
