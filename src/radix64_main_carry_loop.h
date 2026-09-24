@@ -860,13 +860,13 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	/* Block 4: */
 	add0 = &a[j1] + p08;
 	//...and another kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
-	tmp = (vec_dbl*)&(po_lin[0]);	// Kludge for Arm-SIMD builds - with just po_lin as macro arg, gcc was feeding the low 8 bytes of po_lin
-	// po_lin[1,0]as arg to the macro, rather than po_lin-as-pointer. Can't feed the latter directly as arg to macro, because that causes gcc to
-	// emit "error: memory input 5 is not directly addressable" error.
+	// po_ptr (declared alongside po_lin) carries po_lin's address: passing the array itself makes gcc
+	// feed the low 8 bytes of po_lin as the arg rather than the pointer, and passing &po_lin directly
+	// draws "error: memory input 5 is not directly addressable".
 	twid_ptrs = &(w[0]);
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r08,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 	/* Block 2: */
@@ -874,7 +874,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r04,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 	/* Block 6: */
@@ -882,7 +882,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r0C,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 	/* Block 1: */
@@ -890,7 +890,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r02,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 	/* Block 5: */
@@ -898,7 +898,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r0A,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 	/* Block 3: */
@@ -906,7 +906,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r06,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 	/* Block 7: */
@@ -914,7 +914,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
 		r0E,OFF1,
-		add0,tmp,
+		add0,po_ptr,
 		twid_ptrs, two
 	);
 
