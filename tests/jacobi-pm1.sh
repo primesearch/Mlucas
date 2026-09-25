@@ -155,7 +155,16 @@ d=$(setup p3); run_until_iter_then_interrupt "$d" 1300000; S=$d/p$P.stat
 if [[ -f $d/p$P && -f $d/q$P ]]; then
 	# Flip a residue byte in p only and re-derive nothing: the S-H triplet catches this first, so also patch the
 	# triplet-consistent case would need the corruptor tool; here the point is the fall-through to q.
-	printf '\xff' | dd of="$d/p$P" bs=1 seek=100 conv=notrunc status=none
+	# Flip the byte rather than storing a fixed 0xff, as T4 of jacobi-check.sh does: the interrupt lands at a
+	# timing-dependent iteration, so the residue byte is effectively random, and if it already is 0xff the write
+	# is a no-op and the first two checks below fail together on an undamaged file (a ~1-in-256 flake).
+	off=100
+	old=$(dd if="$d/p$P" bs=1 skip="$off" count=1 status=none | od -An -tu1 | tr -d ' ')
+	new=$(( old ^ 0xff ))
+	# %b so the format string stays literal: the byte value goes through as an argument.
+	printf '%b' "$(printf '\\x%02x' "$new")" | dd of="$d/p$P" bs=1 seek="$off" conv=notrunc status=none
+	got=$(dd if="$d/p$P" bs=1 skip="$off" count=1 status=none | od -An -tu1 | tr -d ' ')
+	if [[ $got == "$new" ]]; then ok "damaged p$P at byte $off ($old -> $new)"; else bad "could not damage p$P at byte $off (wanted $new, file still has $got)"; fi
 	run "$d"
 	expect_grep "$S" "read_ppm1_savefiles Failed on savefile p$P" "damaged primary rejected"
 	expect_grep "$S" "Restart file q$P (stage 1 iteration [0-9]*) passed the Jacobi check" "secondary passed the Jacobi read check"
