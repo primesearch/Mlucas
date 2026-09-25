@@ -84,6 +84,8 @@ static void tf_add_reported_factor(const char*fname, uint64 k);
 static void tf_report_factor(const char*fname, const char*ofile, uint64 k, const char*rpt);
 #ifdef FACTOR_STANDALONE	// Only main() reads the list, and Mfactor has no main() in a non-standalone build
 static uint32 tf_read_reported_factors(const char*fname, const char*ofile);
+static void tf_replay_reported_factors(const uint64*p, const uint32 lenP, const uint32 lenQ, const uint64*two_p,
+	uint64*factor_k, uint32*nfactor, uint64*q, uint64*q2, uint64*u64_arr);
 #endif
 static int tf_reported_before(uint64 k);
 
@@ -2324,6 +2326,8 @@ corresponding to multiples of the larger tabulated primes, and trial-factoring a
 candidate factors that survive sieving.	*/
 
 	nfactor = 0;	tf_ncomp = 0;
+	/* A resumed run starts from where its earlier sessions had got to in finding prime and composite factors: */
+	tf_replay_reported_factors(p, lenP, lenQ, two_p, factor_k, &nfactor, q, q2, u64_arr);
 
   #ifdef FAC_DEBUG
 	/* If a known factor given, only process the given k/log2 range for that pass: */
@@ -2596,7 +2600,6 @@ candidate factors that survive sieving.	*/
   #endif	// MULTITHREAD ?
 
 /*...all done.	*/
-	nfactor += tf_nfac_prev;	// The summary covers the whole run, including the factors its earlier sessions reported
   #ifdef FACTOR_STANDALONE
 	if(!restart)
 	{
@@ -4039,8 +4042,10 @@ MFACTOR_HELP:
 										may also have been reported already, either directly or as the cofactor of an earlier
 										composite q: the threads work through the k-classes in parallel, so factors do not turn up
 										in order of size. factor_k[0 .. *nfactor-1] holds the k of each prime factor reported so
-										far (composites are not added); it is shared by all threads and is only accessed with
-										mutex_mi64 held. Report each prime factor exactly once:
+										far (composites are not added), in a resumed run including those its earlier sessions found
+										(tf_replay_reported_factors() rebuilds both lists, and must be kept in step with the code
+										here); it is shared by all threads and is only accessed with mutex_mi64 held. Report each
+										prime factor exactly once:
 										- q already in factor_k[] (as an earlier cofactor): nothing new to report.
 										- q a probable prime: report it and add its k to factor_k[].
 										- q composite: divide out each previously-found factor that divides it exactly, then
@@ -4892,6 +4897,81 @@ static uint32 tf_read_reported_factors(const char*fname, const char*ofile)
 	free(pend_k); free(pend_rpt);
 	tf_nfac_prev = tf_nfac;
 	return tf_nfac_prev;
+}
+
+/* For a resumed run, rebuild the lists of the prime factors (factor_k[0 .. *nfactor-1]) and of the composite factors
+(tf_comp_k) that its earlier sessions had found, which PerPass_tfSieve() divides out of, and checks against, each
+composite factor it finds. Without them a composite whose prime factors were found before the resume, e.g. for M(53)
+q = 441650591 = 6361*69431, would be reported as a new composite. The savefile keeps only the k of each q the run has
+reported, in the order reported (tf_fac_k, see tf_read_reported_factors), so each of those q is sorted again here, in
+that order, just as the factor-reporting code in PerPass_tfSieve() sorted it, which gives the same lists as when the
+run stopped; that code and this must stay in step. It includes the q that were not reported because there was
+nothing new in them, and the ones a resumed run found again and skipped, for which this finds nothing new again.
+This runs before any threads are started, so it needs no lock; factor_k[] holds up to FACTOR_K_MAX k's, and
+tf_comp_k[] as many, and *nfactor counts the prime factors, including any beyond that, as in PerPass_tfSieve(): */
+static void tf_replay_reported_factors(const uint64*p, const uint32 lenP, const uint32 lenQ, const uint64*two_p,
+	uint64*factor_k, uint32*nfactor, uint64*q, uint64*q2, uint64*u64_arr)
+{
+	uint32 i, j, nknown, ndiv, is_prime;
+	uint64 k, kfac, cy;
+	for(i = 0; i < tf_nfac_prev; i++) {
+		k = tf_fac_k[i];
+		nknown = MIN(*nfactor, FACTOR_K_MAX);
+		for(j = 0; j < nknown; j++) {
+			if(factor_k[j] == k) break;
+		}
+		if(j < nknown) continue;	// An earlier cofactor
+		// q = 2.k.p + 1, which was a factor candidate of the run, so fits in lenQ words:
+		mi64_clear(q, lenQ);
+		cy = mi64_mul_scalar(p, 2*k, q, lenP);
+		if(lenQ > lenP)
+			q[lenP] = cy;
+		else
+			ASSERT(cy == 0ull, "Unexpected carryout in reported-factor computation!");
+		q[0] += 1;
+		kfac = k;	is_prime = mi64_pprimeF(q, 3ull, lenQ);
+		if(!is_prime) {
+			// Divide out the prime factors known at the time, then sort what is left:
+			for(j = 0, ndiv = 0; j < nknown; j++) {
+				mi64_clear(q2, lenQ);
+				cy = mi64_mul_scalar(p, 2*factor_k[j], q2, lenP);
+				if(lenQ > lenP)
+					q2[lenP] = cy;
+				else
+					ASSERT(cy == 0ull, "Unexpected carryout in known-factor computation!");
+				q2[0] += 1;
+				while(mi64_div(q, q2, lenQ, lenQ, u64_arr, 0x0)) {
+					mi64_set_eq(q, u64_arr, lenQ);	++ndiv;
+				}
+			}
+			if(mi64_cmp_eq_scalar(q, 1ull, lenQ))
+				continue;	// A product of known factors
+			if(ndiv) {
+				mi64_set_eq(u64_arr, q, lenQ);
+				u64_arr[0] -= 1;
+				is_prime = mi64_div(u64_arr, two_p, lenQ, lenQ, q2, 0x0);
+				ASSERT(is_prime && mi64_getlen(q2, lenQ) <= 1, "Cofactor is not of the form 2.k.p+1!");
+				kfac = q2[0];
+				is_prime = mi64_pprimeF(q, 3ull, lenQ);
+			}
+		}
+		if(is_prime) {
+			if(*nfactor < FACTOR_K_MAX)
+				factor_k[*nfactor] = kfac;
+			++*nfactor;
+		} else {
+			for(j = 0; j < MIN(tf_ncomp, FACTOR_K_MAX); j++) {
+				if(tf_comp_k[j] == kfac) break;
+			}
+			if(j == MIN(tf_ncomp, FACTOR_K_MAX)) {
+				if(tf_ncomp < FACTOR_K_MAX)
+					tf_comp_k[tf_ncomp] = kfac;
+				++tf_ncomp;
+			}
+		}
+	}
+	if(tf_nfac_prev)
+		fprintf(stderr,"INFO: So far the run has found %u prime factor(s) and %u composite factor(s).\n", *nfactor, tf_ncomp);
 }
 #endif
 
