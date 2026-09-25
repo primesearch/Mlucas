@@ -99,11 +99,7 @@ uint64 prodq8(const uint64 x, const uint64 y)
 	uint64 lo,hi;
 
 	// Find hi, lo so 2^64*hi + lo = x*y
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(x,y, &lo,&hi);
-#else
 	MUL_LOHI64(x,y,  lo, hi);
-#endif
 	ASSERT((lo & 7) == 0, "ERROR: product not divisible by 8 in PRODQ8!");
 //if(hi + (lo >> 3) > q2) fprintf(stderr, "PRODQ8 inputs: %" PRIu64 ",%" PRIu64 ", outputs: %" PRIu64 ",%" PRIu64 ", result = %" PRIu64 "\n",x,y,lo,hi,hi + (lo >> 3));
 //	ASSERT(hi + (lo >> 3) <= q2, "ERROR: result out of range in PRODQ8!");
@@ -580,7 +576,7 @@ void prim_root_q(const uint64 ord, uint64*root_re, uint64*root_im)
 	itmp = (1ull << 60) - 1;
 	pow = itmp/(ord >> zbits);		// Odd component of the needed power; this should have 0 remainder for legal ord values
 	ASSERT(itmp == pow*(ord >> zbits), "pow does not divide 2^60-1!");
-	pow = pow << (leadz64(pow)+1);	// Left-justify pow and shift leftmost bit off.
+	pow = (pow == 1) ? 0 : pow << (leadz64(pow)+1);	// Left-justify pow and shift leftmost bit off; pow = 1 would shift by 64
 
 	// 6 + I is a primitive root of full order q^2 - 1:
 	r0 = rm = 6ull;		i0 = im = 1ull;
@@ -617,7 +613,7 @@ void prim_root_q(const uint64 ord, uint64*root_re, uint64*root_im)
 void pow_modq(const uint64 power, const uint64 re_in, const uint64 im_in, uint64*re_out, uint64*im_out)
 {
 	int i = leadz64(power), zbits = 63-i;	// zbits = Number of bits to the right of leading ones bit.
-	uint64 r0,i0,rm,im,rtmp,itmp, pow = power << (i+1);	// pow = Left-justify input power and shift leftmost bit off.
+	uint64 r0,i0,rm,im,rtmp,itmp, pow = (i < 63) ? power << (i+1) : 0;	// pow = Left-justify input power and shift leftmost bit off; power = 0,1 would shift by 65,64
 	// Special handling for 0th power:
 	if(!power) {
 		*re_out = 1ull;	*im_out = 0ull;

@@ -139,7 +139,12 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		  #endif
 			VEC_DBL_INIT(one  , 1.0);
 			VEC_DBL_INIT(two  , 2.0);
-			isrt2 += 36;	/* Move on to next thread's local store */
+			// sqrt2 was omitted from this list, leaving threads 1..N-1 with an uninitialized copy.
+			// Latent rather than live - the SSE2_RADIX8_D{IF,IT}_TWIDDLE asm reaches its consts via
+			// the isrt2 pointer and never reads the sqrt2 slot below it - but fix it anyway, since
+			// the identical omission in dft_macro.c's SSE2_RADIX_63_D{IF,IT} was a live wrong-answer bug.
+			sqrt2 += 36;	/* Move on to next thread's local store */
+			isrt2 += 36;
 			one   += 36;
 			two   += 36;
 		}
@@ -609,7 +614,12 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		  #endif
 			VEC_DBL_INIT(one  , 1.0);
 			VEC_DBL_INIT(two  , 2.0);
-			isrt2 += 36;	/* Move on to next thread's local store */
+			// sqrt2 was omitted from this list, leaving threads 1..N-1 with an uninitialized copy.
+			// Latent rather than live - the SSE2_RADIX8_D{IF,IT}_TWIDDLE asm reaches its consts via
+			// the isrt2 pointer and never reads the sqrt2 slot below it - but fix it anyway, since
+			// the identical omission in dft_macro.c's SSE2_RADIX_63_D{IF,IT} was a live wrong-answer bug.
+			sqrt2 += 36;	/* Move on to next thread's local store */
+			isrt2 += 36;
 			one   += 36;
 			two   += 36;
 		}

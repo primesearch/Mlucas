@@ -44,7 +44,7 @@ extern "C" {
 PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 
 	(except for FACTOR_PASS_MAX and MAX_BITS_P|Q, which are defined in Mdata.h,
-	 and MAX_IMUL_WORDS and MUL_LOHI64_SUBROUTINE, defined in imul_macro.h).
+	 and MAX_IMUL_WORDS, defined in imul_macro.h).
 ********/
 
 #undef P1WORD
@@ -92,12 +92,6 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#ifdef USE_95BIT
 		#error USE_65BIT may not be used together with USE_FLOAT!
 	#endif
-#elif defined(MUL_LOHI64_SUBROUTINE)
-  #ifndef TRYQ
-	#define TRYQ	4
-  #elif(TRYQ != 1 && TRYQ != 4 && TRYQ != 4)
-	#error MUL_LOHI64_SUBROUTINE option requires TRYQ = 1, 4 or 8
-  #endif
 #endif
 
 /* FMADD-based modmul is implemented only for one-word p. For multiword p, quietly fall back to the
@@ -506,7 +500,7 @@ void	get_startval(
 	const uint64*two_p,	// Here, need the full multiword array (of which use just LSW if P!WORD def'd)
 	const uint32 lenP,	// Manyword case
 	const uint32 bit_len,
-	const uint32 interval_lo, const uint32 incr,
+	const uint64 interval_lo, const uint32 incr,
 	const uint32 nclear, const uint32 nprime, const uint32 p_last_small,
 	const uint8 *pdiff,
 	      uint32*startval

@@ -15,6 +15,19 @@ on:
   schedule:
     - cron:  '0 0 1 * *'
 
+# One run per ref. A pull_request run is superseded the moment its branch is pushed again, but
+# without a concurrency group the old run keeps its runners until it finishes on its own - and a run
+# is 74 jobs and ~1734 runner-minutes against a pool that peaks at 12 concurrent jobs, about 4 of
+# them macOS and that macOS cap is account-wide rather than per run. A queued job expires if it has
+# not started within 24 hours, so runners held by a run nobody is waiting for are not just waste:
+# they push live jobs past the point where they will ever start.
+#
+# Pushes to main and the monthly schedule are deliberately not cancelled - those runs are the record
+# of what the branch does, and a later push should not erase an earlier result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   Linux:
     name: Mlucas Linux
@@ -75,8 +88,29 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # Ladder stops at 'm'. The 'l' self-test (FFT lengths 8M-60M) ran here on every push and
+        # every pull request and was ~90% of this job's self-test time; it now runs weekly against
+        # main in selftest-large.yml, and on demand via that workflow's workflow_dispatch.
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -97,11 +131,29 @@ jobs:
             # and costs slightly less than 127 did (726k trial divides vs 1.66M).
             ( cd "../obj_mfac${word:+_$word}${MSFX}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+    - name: Jacobi / Gerbicz error-check tests
+      run: |
+        set -x
+        set -o pipefail
+        # A second native build with the test-only fault injector compiled in (see tests/jacobi-check.sh
+        # for what it is used for). The native obj/ Makefile is reused with one extra define; its objects
+        # were cleaned above, so this is a full compile of the native mode.
+        mkdir obj_fi
+        sed 's/^CPPFLAGS += /CPPFLAGS += -DMLUCAS_FAULT_INJECT /' obj/Makefile > obj_fi/Makefile
+        make -C obj_fi -j "$(nproc --all)" Mlucas
+        JACOBI_TEST_CPU="0:$(( $(nproc --all) - 1 ))" JACOBI_TEST_DIR="$PWD/obj/jacobi-tests" \
+            time bash tests/jacobi-check.sh obj/Mlucas obj_fi/Mlucas obj/mlucas.cfg |& tee -a obj/test.log
+        JACOBI_TEST_CPU="0:$(( $(nproc --all) - 1 ))" JACOBI_TEST_DIR="$PWD/obj/jacobi-pm1-tests" \
+            time bash tests/jacobi-pm1.sh obj/Mlucas obj_fi/Mlucas obj/mlucas.cfg |& tee -a obj/test.log
     - uses: actions/upload-artifact@v7
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Singlethread-Linux:
     name: Mlucas Singlethreaded Linux
@@ -149,8 +201,26 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -170,7 +240,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Linux-old:
     name: Mlucas Linux old
@@ -308,15 +382,86 @@ jobs:
       with:
         name: linux_k1om_mlucas
         path: |
-          ${{ github.workspace }}
-          !mpss-*
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
+
+  Linux-KNL:
+    name: Mlucas KNL
+
+    # Pinned, not 'latest': GCC 13 is the last GCC that can target Knights Landing at all. GCC 14
+    # accepts -march=knl but generates AVX512VL anyway, and GCC 15 removed the flag; makemake.sh
+    # refuses both rather than emit a binary that dies on the first illegal instruction (see the
+    # measured table there). 24.04 ships GCC 13 and Clang 18, both of which pass, so pin to it -
+    # on a newer image this job would correctly but unhelpfully refuse to build.
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      # Intel SDE 9.38 and later removed the -knl/-knm knobs, and Intel no longer serves any
+      # pre-9.38 build -- downloadmirror.intel.com returns 403 for 9.24, 9.27 and 9.33 alike.
+      # 9.24.0 is therefore hosted as a release asset on this repository, byte-identical to
+      # Intel's original and redistributed under the Intel Simplified Software License, which
+      # permits redistribution without modification. See the ci-intel-sde-9.24.0 release.
+      SDE_URL: https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz
+      SDE_SHA256: 87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac
+      SDE_DIR: sde-external-9.24.0-2023-07-13-lin
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install Intel SDE
+      run: |
+        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        # Verify before unpacking: the pin is what makes a hosted binary trustworthy.
+        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        mkdir -p "$SDE_DIR"
+        tar -xf sde.tar.xz -C "$SDE_DIR" --strip-components=1
+        rm -f sde.tar.xz
+    - name: Before script
+      run: |
+        $CC --version
+        "./$SDE_DIR/sde64" --version
+    - name: Build
+      run: |
+        bash -e -o pipefail -- makemake.sh avx512_knl
+        # Build Mfactor for KNL too - it has its own AVX-512 sieve, a distinct body of code from
+        # Mlucas, so it is worth compile-covering here. Not run yet: under SDE it segfaults on a
+        # tiny exponent because of the AVX-512 small-p sieve bug that #114 fixes. With #114 merged
+        # in locally the same binary completes '-m 521 -bmax 20' cleanly, so the run step can be
+        # added once that lands.
+        bash -e -o pipefail -- makemake.sh mfac avx512_knl
+    - name: Self-test under emulated Knights Landing
+      run: |
+        # -knl sets both CPUID and SDE's chip check, so any instruction outside the KNL ISA aborts
+        # the run rather than silently working on the AVX-512 host. That is the point of this job:
+        # an 'avx512' (Skylake-SP) build dies here on kmovd, which is exactly the regression to catch.
+        #
+        # Threads are worth using despite the emulator: measured under 'sde64 -knl', '-s t' takes
+        # 810s on one core against 351s on four, a 2.3x speedup. ('-s tt' on its own shows almost
+        # none, but it is short enough to be dominated by startup.) That is what makes 'tiny'
+        # affordable here, and it roughly triples the FFT lengths covered: 16K-240K atop 2K-15K.
+        cd obj_avx512_knl
+        CPUS="0:$(( $(nproc --all) - 1 ))"
+        # No pipe, so no pipefail needed and no knl.log: this job uploads no artifacts, and the
+        # run's output goes to the workflow log either way.
+        for s in tt t; do
+          st=0
+          "../$SDE_DIR/sde64" -knl -- ./Mlucas -s $s -cpu "$CPUS" || st=$?
+          echo "Self-test -s $s exit status: $st"
+          # 0 = ok, 2 = too few usable radix sets at some length (informational). Else fail.
+          if (( st != 0 && st != 2 )); then exit "$st"; fi
+        done
 
   ASan-Linux:
     name: AddressSanitizer Linux
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -335,23 +480,177 @@ jobs:
     - name: Script
       run: |
         set -x
-        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
-        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
-        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
+        # On x86, build NOSIMD under the sanitizer (see PR #71 discussion): on macOS the SIMD asm
+        # fails to assemble under -Og ("invalid CFI advance_loc expression"), and NOSIMD exercises
+        # the same C-level logic. #221 picks the x86 SIMD coverage back up separately (AVX2
+        # natively, AVX-512 under SDE).
+        #
+        # aarch64/Linux has no such assembler problem, so there the native (ASIMD) build is the one
+        # to instrument - it is the only place in CI where hand-tuned SIMD asm gets built under a
+        # sanitizer at all. Issue #12, a SEGV in radix48_dit_pass1 during 'Mlucas -s m', was
+        # reported by ASan on an ARM runner, and with every sanitizer job pinned to NOSIMD there is
+        # currently nothing left that could find its like.
+        if [[ $HOSTTYPE == aarch64 ]]; then MODE=; else MODE=nosimd; fi
+        bash -e -o pipefail -- makemake.sh use_hwloc $MODE
+        (cd obj${MODE:+_$MODE}; make clean)
+        # config-fermat.sh runs from the NOSIMD build on aarch64, as in the Linux job above, so
+        # that build is needed there in addition to the ASIMD one:
+        if [[ -z $MODE ]]; then
+            bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+            (cd obj_nosimd; make clean)
+        fi
         for word in '' 1word 2word 3word 4word nword; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        # Cheapest first, self-test ladder last. Measured on run 34702153019, this job's own log:
+        # the '-s m' sweep is 42m20s of a 60-minute job, config-fermat.sh takes about a minute and
+        # the Mfactor runs seconds apiece - and those two are where this job's findings have come
+        # from, the radix1008 global-buffer-overflow and the Mfactor leaks. Running the ladder last
+        # means a real sanitizer report lands in minutes rather than behind a 42-minute sweep.
+        # Nothing here depends on the ladder having run: config-fermat.sh computes its own FFT
+        # lengths from a table and never reads mlucas.cfg.
+        cd obj${MODE:+_$MODE}
+        # Guard against the ARM cell silently degrading into a second copy of the x86 one if
+        # auto-detection ever changes: makemake.sh announces the selected mode on stdout but does
+        # not record it in build.log, so ask the binary itself what it was built as.
+        if [[ -z $MODE ]]; then
+            # '|| true': this run is only being asked what it was built as. A self-test status of 1
+            # or 2 - 1K has no usable radix set in a stock build - would otherwise end the step here
+            # under set -e, before the grep that is the actual check.
+            ./Mlucas -s tt -cpu 0 > mode.log 2>&1 || true
+            grep -q 'Build uses ARMv8 advanced-SIMD' mode.log || {
+                echo '::error::ARM cell is not an ASIMD build - it would be testing nothing'; exit 1; }
+        fi
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs
+        # ("No TF support on ARMv8!" in twopmodq80.c, under #ifdef USE_ARM_V8_SIMD), so
+        # config-fermat.sh and the Mfactor self-tests run from the NOSIMD builds - the same
+        # substitution the Linux and Singlethread-Linux jobs make.
+        cd ../obj_nosimd
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        # Back to the build under test for the self-test ladder, which runs last (see above):
+        cd ../obj${MODE:+_$MODE}
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_mlucas
+        path: ${{ github.workspace }}
+
+  ASan-SIMD-Linux:
+    name: AddressSanitizer SIMD Linux
+
+    # Deterministic, blocking, residue-checked AddressSanitizer coverage of the SIMD builds -
+    # the hand-written inline-asm kernels, which are where Mlucas's arithmetic actually lives.
+    #
+    # Not redundant with the ASan-Linux job above, on four counts. That job invokes makemake.sh
+    # with no mode argument, so it builds whatever /proc/cpuinfo reports plus -march=native:
+    # which SIMD mode gets sanitized is a property of the runner SKU, not of this file. It is
+    # wrapped in continue-on-error, so it cannot fail. Its check is ./Mlucas -s m, whose verdict
+    # is discarded - the self-test's DONE: path returns 0 unconditionally, so -s always exits 0
+    # even when it prints "PLEASE CHECK YOUR BUILD OPTIONS". And its gcc leg does not currently
+    # compile at all on an AVX2-or-better host, which continue-on-error hides. This job pins the
+    # mode, has no continue-on-error, and asserts residues.
+    #
+    # The AVX-512 leg runs under Intel SDE rather than on the runner CPU, because otherwise it
+    # cannot run at all: GitHub's Azure runner SKUs are inconsistent about AVX-512. Note that
+    # the Mlucas Linux job above *builds* AVX512 but then runs its self-tests out of obj/, the
+    # auto-detected build - so as things stand no job in this workflow ever executes an
+    # explicitly-AVX-512 binary, and whether AVX-512 code runs at all depends on which SKU the
+    # job landed on. SDE removes that dependency entirely.
+    #
+    # There is deliberately no continue-on-error here: a masked sanitizer job is
+    # indistinguishable from a job that does not exist, which is how the ASan jobs in this
+    # workflow stayed dead behind a build break for years.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      # Pinned and checksummed on purpose: with a floating "latest" download, an emulator
+      # change would surface as an unexplained residue mismatch.
+      #
+      # Hosted here rather than fetched from Intel. Intel prunes old releases -- 9.24, 9.27 and
+      # 9.33 all return 403 from downloadmirror.intel.com today -- so an upstream pin is a build
+      # break waiting to happen. This asset is byte-identical to Intel's original, redistributed
+      # under the Intel Simplified Software License, which permits redistribution unmodified.
+      #
+      # 9.24.0 rather than a later kit because it is the last one that still has -knl/-knm, which
+      # the KNL job needs; using one version everywhere keeps a single asset and a single hash.
+      # Verified equivalent for this job's purposes: the teensy and tiny self-tests of an AVX-512
+      # build under -skx give identical residues on 9.24 and 9.53 (75 residues compared over the
+      # two stages), with mlucas.cfg matching apart from the msec/iter timing column.
+      SDE_URL: https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz
+      SDE_SHA256: 87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install Intel SDE
+      run: |
+        set -x
+        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        mkdir -p "$HOME/sde"
+        tar -xf sde.tar.xz -C "$HOME/sde" --strip-components=1
+        rm -f sde.tar.xz
+        "$HOME/sde/sde64" -version
+    - name: Before script
+      run: |
+        $CC --version
+        # -O3, not the -Og used by the ASan-Linux job above: the undeclared-inline-asm-clobber
+        # defects this job exists to catch only appear once the compiler is actually keeping
+        # live values in registers across the asm blocks.
+        #
+        # address only, not address,undefined: UBSan's instrumentation duplicates asm blocks that
+        # carry hard-coded local labels, and clang then fails with
+        #   src/mi64.c:7353: error: symbol 'loop2d' is already defined
+        # at -O3 in the SIMD modes. UBSan coverage of these kernels needs those labels made unique
+        # first; plain -fsanitize=address builds clean on both compilers and both modes.
+        #
+        # NOT -fsanitize-recover=address. It is not a neutral convenience flag: adding it, and
+        # nothing else, makes a tree with the AVX-512 clobber defects produce *correct* results,
+        # so it disables the very thing this job checks. See .github/scripts/asan-simd-check.sh.
+        # Both legs get full instrumentation. gcc formerly needed --param asan-stack=0 here: the
+        # over-declared 14-GPR clobber lists in sse2_macro_gcc64.h left ASan's stack instrumentation
+        # no register to reserve, and the build died with "'asm' operand has impossible constraints"
+        # (4 such errors at AVX2, 6 at AVX-512). That was a source defect rather than a gcc
+        # limitation, and it has since been fixed on main, so the workaround - and the
+        # stack-buffer-overflow / use-after-return / use-after-scope blind spot it created - is gone.
+        CFLAGS="-fdiagnostics-color -Wall -g -O3 -std=gnu99 -fsanitize=address -fno-omit-frame-pointer"
+        echo "CFLAGS=$CFLAGS" >> "$GITHUB_ENV"
+        echo "LDFLAGS=-fsanitize=address" >> "$GITHUB_ENV"
+    - name: AVX2
+      run: bash -- .github/scripts/asan-simd-check.sh avx2
+    - name: AVX-512 under Intel SDE
+      # Runs even if the AVX2 leg failed: the AVX-512 leg is the one that covers the
+      # AVX-512-only clobber defects, and it must not be masked by an unrelated AVX2 failure.
+      if: ${{ !cancelled() }}
+      run: bash -- .github/scripts/asan-simd-check.sh avx512 "$HOME/sde/sde64" -skx --
 
   TSan-Linux:
     name: ThreadSanitizer Linux
@@ -496,8 +795,28 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        # Ladder stops at 'm'; 'l' runs weekly against main in selftest-large.yml. See the note in
+        # the Linux job above.
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -517,7 +836,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Singlethread-macOS:
     name: Mlucas Singlethreaded macOS
@@ -557,8 +880,26 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -578,7 +919,11 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   ASan-macOS:
     name: AddressSanitizer macOS
@@ -608,12 +953,34 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
+        # The ladder runs last (PR #296): config-fermat.sh and the Mfactor runs take about a minute
+        # between them and are where this job's findings have come from, so a real sanitizer report
+        # lands in minutes rather than behind the '-s m' sweep. Nothing below depends on the ladder.
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -698,7 +1065,24 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log; done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to rc = 0 alone.
+        # This job runs under the VM's /bin/sh (usesh: true above), not bash, so: no ${PIPESTATUS[n]}
+        # - 'set -o pipefail' at the top of the step already makes the pipeline carry Mlucas's status,
+        # since tee always succeeds - and no (( ... )) arithmetic commands. The '|| st=$?' is not
+        # optional either way: the step runs under set -e, so without it the failing pipeline ends the
+        # step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log || st=$?
+            if [ "$st" -ne 0 ] && [ "$st" -ne 2 ]; then rc=1; fi
+        done
+        [ "$rc" -eq 0 ]
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         # Mfactor self-test on the native build only. The explicit-ISA builds above are for compile
         # coverage: this VM may not be able to execute what they target - running them per-mode is
@@ -710,7 +1094,11 @@ jobs:
       if: always()
       with:
         name: freebsd-${{ matrix.release }}-mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Windows:
     name: Windows
@@ -748,21 +1136,26 @@ jobs:
       shell: bash
       run: |
         $CC --version
-        # The windows-11-arm runner ships no native aarch64 toolchain (no MSYS2/CLANGARM64), so its
-        # "gcc" is really an x86_64-w64-mingw32 compiler running under emulation. Both $HOSTTYPE
-        # (x86_64) and the matrix OS label (arm) mislead here, so key the arch off what the compiler
-        # itself targets.
-        #
-        # This whole block only dumps predefined macros for the log, so it must not be able to fail
-        # the job. On windows-11-arm the emulated compiler dies on the probe with 0x80000004 and takes
-        # the step with it, before anything has been built - which is how that cell has been failing.
-        {
-            if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
-                $CC -dM -E -mcpu=native - </dev/null
-            else
-                $CC -dM -E -march=native - </dev/null
-            fi
-        } || echo "::warning::predefined-macro probe failed; it is diagnostic only, continuing."
+    # Dumping the compiler's predefined macros is diagnostic only - nothing downstream reads it - so
+    # it gets a step of its own with continue-on-error rather than sharing one with a check that
+    # matters. On windows-11-arm this probe kills its step outright: the runner ships no native
+    # aarch64 toolchain (no MSYS2/CLANGARM64), so its "gcc" is an x86_64-w64-mingw32 compiler running
+    # under emulation, and the probe dies with 0x80000004 (-2147483644), which the step's exit status
+    # then carries. An in-script '{ ... } || echo' guard does not contain that - it was tried, and the
+    # cell kept failing on main - because the status is not an ordinary non-zero exit bash can trap.
+    # continue-on-error is a step-level property the runner applies whatever the process did, and the
+    # runner itself survives (the steps after the failing one have always run), so it holds here.
+    - name: Predefined macros (diagnostic)
+      continue-on-error: true
+      shell: bash
+      run: |
+        # $HOSTTYPE (x86_64) and the matrix OS label (arm) both mislead on windows-11-arm, so key the
+        # arch off what the compiler itself targets.
+        if [[ "$($CC -dM -E - </dev/null)" == *__aarch64__* ]]; then
+            $CC -dM -E -mcpu=native - </dev/null
+        else
+            $CC -dM -E -march=native - </dev/null
+        fi
     - name: Script
       shell: bash
       run: |
@@ -789,8 +1182,28 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        # Ladder stops at 'm'; 'l' runs weekly against main in selftest-large.yml. See the note in
+        # the Linux job above.
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -808,13 +1221,16 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   ASan-Windows:
     name: AddressSanitizer Windows
 
     runs-on: windows-latest
-    continue-on-error: true
     env:
       CC: clang
       PACKAGE_PREFIX: mingw-w64-clang-x86_64-
@@ -848,9 +1264,174 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        # Cheapest first, self-test ladder last - see the note in the Linux sanitizer job above.
+        # The ladder runs last (PR #296): config-fermat.sh and the Mfactor runs take about a minute
+        # between them and are where this job's findings have come from, so a real sanitizer report
+        # lands in minutes rather than behind the '-s m' sweep. Nothing below depends on the ladder.
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' 1word 2word 3word 4word nword; do
             ( cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 )
         done
+        # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
+        # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
+        # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
+        # a failure - that includes the statuses the self-test never returns, so a SIGSEGV or an
+        # abort in the middle of the ladder cannot pass as a clean run. 2 stays tolerated until the
+        # stock build stops failing every radix set at 1K and 2K; then this tightens to (( rc == 0 )).
+        # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
+        # the failing pipeline ends the step and the status is never examined at all.
+        rc=0
+        for s in tt t s m; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        for s in tt t s; do
+            st=0
+            time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" || st=$?
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
+
+  Lint:
+    name: Lint
+
+    # Static checks for defect classes that nothing else in this matrix can see - integer
+    # widths in and around inline asm, and hard registers used by an asm block but neither bound
+    # to an operand nor declared clobbered. No sanitizer helps with either:
+    # there is no C-level operation to instrument, and the asm is opaque to the compiler by
+    # construction, so a wrong access width is a silently wrong answer rather than a warning.
+    #
+    # This job is meant to accumulate: add a new lint as another step here rather than as a new
+    # job, so one place shows whether the tree is clean. Each lint gets its own step so a
+    # failure names the check rather than just the job.
+    #
+    # Findings that are deliberate are recorded in the lint's baseline file, which the job
+    # regenerates with --write-baseline. A baseline entry that stops reproducing is reported but
+    # does not fail the run, so a fix leaves a nudge to drop the now-dead exemption.
+    #
+    # Deliberately no 'continue-on-error' and no pipe into 'tee': a CI job that cannot fail is
+    # not a CI job.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Type-width lint self-test
+      run: python3 type-width-lint.py --self-test
+    - name: Integer widths in and around inline asm
+      run: python3 type-width-lint.py
+    - name: Inline-asm clobber lint self-test
+      run: python3 asm-clobber-lint.py --self-test
+    - name: Inline-asm registers used vs registers declared
+      run: python3 asm-clobber-lint.py --jobs "$(nproc)"
+
+  Mfactor-known-factors:
+    name: Mfactor known factors
+
+    # The only other Mfactor run-time check is "-m 521 -bmax 20": M(521) is prime, so that test
+    # passes as long as the sieve reports the right number of trial divides, whether or not it
+    # would ever have found a factor. This job instead runs cases with known factors and requires
+    # each one to be reported, exactly once. It builds its own binaries and runs with
+    # -nthread 2 in an empty directory, so a failure here is about the factors found and nothing
+    # else (not the 1-thread savefile abort, not a leftover savefile).
+    #
+    # This job is red on main until the fixes it checks are merged: #336 for every build (without
+    # it every factor with k != 0 mod 60 is missed), and #341 and #342 for the 4-word build
+    # (without #341 it finds no factors at all; without #342 it aborts for every p < 256).
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+      fail-fast: false
+    env:
+      CC: gcc
+    steps:
+    - uses: actions/checkout@v7
+    - name: Before Install
+      if: ${{ runner.os == 'Windows' }}
+      run: |
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LDFLAGS=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Install
+      if: ${{ runner.os == 'Windows' }}
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-gmp
+    - name: Build
+      shell: bash
+      run: |
+        set -x
+        # macOS has no gcc; its "cc" is clang, as in the macOS job.
+        if [[ $RUNNER_OS == macOS ]]; then export CC=clang; fi
+        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs; use NOSIMD
+        # there, exactly as the Mfactor self-tests in the jobs above do.
+        if [[ $HOSTTYPE == aarch64 || $HOSTTYPE == arm64 ]]; then MODE=NOSIMD; else MODE=; fi
+        echo "MSFX=${MODE:+_$MODE}" >> "$GITHUB_ENV"
+        # nword is left out: it is single-threaded only (it asserts NTHREADS == 1), and this job
+        # runs with 2 threads so that it does not depend on the 1-thread savefile fix.
+        for word in '' 2word 3word 4word; do
+            bash -e -o pipefail -- makemake.sh mfac $word $MODE
+        done
+    - name: 'Mfactor must find known factors (fails on main until #336, #341 and #342 are merged)'
+      shell: bash
+      run: |
+        # Each case is: exponent p | bounds | the k of every factor q = 2kp+1 of M(p) in range.
+        # Mfactor rounds the bounds out to one whole sieve interval, k < 16336320, and the list
+        # holds every k in that interval with q | M(p) (checked by brute force, pow(2,p,q) == 1),
+        # so it is complete, not a sample. The sieve works on the 16 residue classes of k mod 60,
+        # one per pass, so the cases cover both a class other than 0 and the class 0 itself:
+        #   M(205024189):  q = 8344894540679  (k = 20351,   k = 11 mod 60)
+        #   M(67):         q = 193707721      (k = 1445580, k =  0 mod 60)
+        #   M(1362286843): q = 13622868431    (k = 5,       k =  5 mod 60)
+        #                  q = 72073147715759 (k = 26453,   k = 53 mod 60)
+        # Each factor must be reported exactly once: missing it and reporting it once per pass
+        # are both failures.
+        cases=(
+            '205024189|-kmax 1000|20351'
+            '67|-bmax 30|1445580'
+            '1362286843|-kmax 100|5 26453'
+        )
+        # All of the above have q < 2^47, so in the 4-word build the upper words of p and q are
+        # zero. This case is for the 4-word build only (p has 220 bits, too many for the others):
+        # the 243-bit q = 2kp+1 with k = 8371800 (k = 0 mod 60) is the only factor with
+        # k < 16336320. It takes the multiword-p paths through the sieve setup, the q = 2kp+1
+        # construction and twopmodq256 with all four words of p and q in use. Such a q is too
+        # large for shell arithmetic, so it is given as k=q.
+        cases4=(
+            '842498333348457493583344221469363458551160763204392890034487825871|-kmax 1000|8371800=14106455094253232889562082306594434004597215354789072793581450361253675601'
+        )
+        fail=0
+        for word in '' 2word 3word 4word; do
+            bin="$PWD/obj_mfac${word:+_$word}${MSFX}/Mfactor${word:+_$word}"
+            todo=("${cases[@]}")
+            if [[ $word == 4word ]]; then todo+=("${cases4[@]}"); fi
+            for c in "${todo[@]}"; do
+                IFS='|' read -r p bounds ks <<< "$c"
+                dir=$(mktemp -d)
+                rc=0
+                # $bounds is unquoted on purpose: it is an option and its value.
+                ( cd "$dir" && "$bin" -m "$p" $bounds -nthread 2 ) > "$dir/out.txt" 2>&1 || rc=$?
+                if [[ $rc -ne 0 ]]; then
+                    echo "::error::Mfactor${word:+_$word} -m $p $bounds exited with status $rc"
+                    # stderr is unbuffered and stdout is not, so an assertion message can land well
+                    # before the end of the file: show it along with the tail.
+                    grep -E 'ERROR|Assertion' "$dir/out.txt" || true
+                    tail -n 20 "$dir/out.txt"
+                    fail=1
+                    continue
+                fi
+                for k in $ks; do
+                    if [[ $k == *=* ]]; then q=${k#*=}; k=${k%%=*}; else q=$(( 2 * k * p + 1 )); fi
+                    n=$(grep -c "Factor found: q = $q = 2\*p\*k + 1 with k = $k\." "$dir/out.txt" || true)
+                    if [[ $n -eq 1 ]]; then
+                        echo "OK   Mfactor${word:+_$word} -m $p $bounds: q = $q (k = $k) reported once"
+                    else
+                        echo "::error::Mfactor${word:+_$word} -m $p $bounds: q = $q (k = $k) reported $n times, expected exactly once"
+                        grep 'Factor found' "$dir/out.txt" || true
+                        fail=1
+                    fi
+                done
+            done
+        done
+        exit $fail

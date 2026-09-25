@@ -245,7 +245,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #endif
 
 	radix0 = RADIX_VEC[0];
-	nchunks = radix0>>1;
+	nchunks = (radix0+1)>>1;	// v21 bugfix: for ODD radix0 the number of independent work units is
+			// ceil(radix0/2), not floor: the last unit processes the final pair of data blocks (e.g. blocks
+			// {5,6} of the radix0 = 9 pairing {0,-},{1,2},{3,8},{4,7},{5,6}). The old radix0>>1 value meant
+			// that in threaded builds (task tid -> ii = 2*tid) the ii = radix0-1 chunk-pass simply never ran,
+			// leaving those blocks un-transformed and un-squared every iteration - i.e. all Mersenne runs with
+			// an odd leading radix silently computed garbage. (The serial fallback loop was correct.)
 	ASSERT(TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
 
 /*...initialize things upon first entry */
@@ -341,6 +346,42 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				ASSERT(0,cbuf);
 			}
 		}
+
+	#ifdef USE_AVX
+		/* The AVX/AVX-512 radix16|32_wrapper_square routines read RE_IM_STRIDE (=4|8)
+		sincos-index sets per SIMD pass from the length-(N2/radix_final) index[] array. For FFT
+		lengths so small that the final-block schedule leaves a partial chunk with fewer than
+		RE_IM_STRIDE sets, those wide-SIMD code paths read past the end of index[] (garbage
+		twiddles, or SIGSEGV under ASan / when the slack falls on an unmapped page). This is
+		independent of the DAT_BITS/array-padding logic above (which is disabled - DAT_BITS=31 -
+		for the runlengths <= 32K where this bites). Such lengths are sub-1-Mdigit toy sizes with
+		no production use; they compute correctly in scalar/SSE2 builds but not the wide-SIMD ones,
+		so soft-skip here (self-test moves on to the next radix set instead of crashing).
+
+		The bound is measured, on a Zen 4 with full AVX-512, by disabling this test and running
+		every radix set at 1K-16K against a scalar-build oracle. Let q = N2/radix_final. The
+		overrun ASSERTs below fire at q <= 32 and at no larger q, in AVX *and* AVX-512 builds
+		alike - the wider stride does not push the boundary out:
+
+			AVX2      1K {32,16} q=32, 1K {16,32} q=16, 2K {32,32} q=32   overrun
+			          2K {8,8,16} q=64, 3K {12,8,16} q=96, 4K q=128       correct residues
+			AVX-512   1K {32,16} q=32, 1K {16,32} q=16, 2K {32,32} q=32   overrun
+
+		So 16*RE_IM_STRIDE is the tight next step up for AVX (64, against a measured boundary of
+		32) and has room to spare for AVX-512 (128). Keeping the one expression costs nothing
+		there: of the AVX-512 sets it excludes beyond q=32, the only one that exists and is
+		reachable is 2K {8,8,16}, which halts on roundoff in an AVX-512 build regardless. 3K
+		{12,8,16} is not a counter-example either - radix12_ditN_cy_dif1 returns
+		ERR_RADIX0_UNAVAILABLE ("No AVX-512 support") before this test is reached - and the same
+		goes for the leading radices at 5K, 6K, 7K and 12K. A tighter, stride-independent bound
+		would only trade these clean skips for "ERROR ERROR...Halting" lines in the self-test. */
+		if((N2 / (uint32)RADIX_VEC[NRADICES-1]) < (uint32)(16*RE_IM_STRIDE))
+		{
+			snprintf(cbuf,sizeof(cbuf),"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
+				(uint32)(n>>10), N2/(uint32)RADIX_VEC[NRADICES-1], (uint32)(16*RE_IM_STRIDE));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
 
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
@@ -1364,7 +1405,7 @@ for(i=0; i < NRT; i++) {
 		// MAX_THREADS is the max. no. of threads we expect to be able to make use of, at 1 thread per core.
 		ASSERT(MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
-		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
+		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: chunk count ceil(radix0/2) not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
 		pool_work_units = nchunks;
 		// Free any threadpool left over from a prior runlength/radix-set before creating the new one,
@@ -1374,6 +1415,14 @@ for(i=0; i < NRT; i++) {
 		if(tpool) { threadpool_free(tpool); tpool = 0x0; }
 		ASSERT(0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
+	  #ifdef SUBBLOCK_ORDER
+		{
+			int incr2 = (n/radix0)/RADIX_VEC[1];
+			printf("%s: SUBBLOCK_ORDER %s for this radix set: sub-block = %d doubles = %d KB, block = %d KB\n", func,
+				((NRADICES >= 4) && ((incr2 & ((1 << DAT_BITS) - 1)) == 0)) ? "active" : "inactive (whole-block order)",
+				incr2, incr2>>7, (n/radix0)>>7);
+		}
+	  #endif
 
 	#endif	// MULTITHREAD?
 	}
@@ -1782,8 +1831,18 @@ for(i=0; i < NRT; i++) {
 	fprintf(stderr,"%s: NTHREADS = %3d\n",func,NTHREADS);
   #endif
 
+#ifdef PHASE_TIMING
+	// Wall time of the two phases of an iteration, accumulated over this ilo..ihi block: the FFT phase
+	// (passes 2..S, dyadic square, inverse passes, i.e. the threadpool dispatch + drain) and the carry
+	// phase (radix0 DIT + carry + radix0 DIF, the radixN_ditN_cy_dif1 call). Whatever is left of the
+	// per-iteration time is bookkeeping. Developer instrumentation: build with -DPHASE_TIMING.
+	double pt_fft = 0.0, pt_cy = 0.0, pt0 = 0.0;
+#endif
 for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 {
+#ifdef PHASE_TIMING
+	pt0 = getRealTime();
+#endif
 /*...perform the FFT-based squaring:
 	 Do last S-1 of S forward decimation-in-frequency transform passes.	*/
 
@@ -1833,6 +1892,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
 
+#ifdef PHASE_TIMING
+	pt_fft += getRealTime() - pt0;	pt0 = getRealTime();
+#endif
 	fracmax = 0.0;
 
 	switch(radix0)
@@ -1943,6 +2005,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 	}
 
+#ifdef PHASE_TIMING
+	pt_cy += getRealTime() - pt0;
+#endif
 	// v19: Nonzero exit carries used to be fatal, added retry-from-last-savefile handling for these
 	if(ierr)
 		return(ierr);
@@ -2039,6 +2104,11 @@ if(iter < ihi) {
 //	*tdiff += difftime(clock2 , clock1);
 	clock2 = getRealTime();
 	*tdiff += clock2 - clock1;
+#ifdef PHASE_TIMING
+	if(ihi > ilo)
+		fprintf(stderr,"%s: PHASE_TIMING iters %u-%u: fft-phase %.4f ms/iter, carry-phase %.4f ms/iter, total %.4f ms/iter\n",
+			func, ilo+1, ihi, 1000*pt_fft/(ihi-ilo), 1000*pt_cy/(ihi-ilo), 1000*(clock2-clock1)/(ihi-ilo));
+#endif
 #endif
 
 #if DBG_THREADS
@@ -2187,6 +2257,19 @@ void mers_process_chunk(
 	int radix0 = RADIX_VEC[0];
 	int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
+#ifdef SUBBLOCK_ORDER
+	/* Sub-block ordering of the FFT phase. After pass 1 (radix R1 = RADIX_VEC[1]) a block of n/radix0 doubles
+	is R1 independent sub-FFTs of incr2 = (n/radix0)/R1 doubles each. Instead of sweeping the whole block once
+	per pass, run passes 2..S-1 to completion on one sub-block before touching the next, so the working set of
+	those passes is block/R1 rather than block; the wrapper_square still sees the whole block pair. Results are
+	bit-identical to the whole-block order: every butterfly sees the same inputs in the same order, only the
+	sequence of independent groups changes. The pass routines compute array padding from the block-relative
+	index, so the sub-block start must be a multiple of 2^DAT_BITS; when it is not (sub-blocks under 8 KB,
+	which fit L2 anyway) keep the whole-block order. */
+	const int nsub = RADIX_VEC[1], incr2 = (n/radix0)/nsub;
+	const int subblock = (NRADICES >= 4) && ((incr2 & ((1 << DAT_BITS) - 1)) == 0);
+	int sb, kk, mmk, inck, ii2, sbstart, sbpad;
+#endif
 	/*** Unlike fermat_mod_square, no need for separate cptr = c + [offset] here, since c-array offsets computed inside radix*_wrapper_square routines ***/
 
 	/* If radix0 odd and i = 0, process just one block of data, otherwise do two: */
@@ -2219,6 +2302,28 @@ void mers_process_chunk(
 
 		for(i=1; i <= NRADICES-2; i++)
 		{
+		  #ifdef SUBBLOCK_ORDER
+			if(i == 2 && subblock) {	/* (k,mm,incr) is the pass-2 state: mm = R1 groups of incr = incr2 doubles */
+				for(sb = 0; sb < nsub; sb++) {
+					kk = k;	mmk = mm;	inck = incr;
+					sbstart = istart + sb*incr2;
+					sbpad = sbstart + ((sbstart >> DAT_BITS) << PAD_BITS);
+					for(ii2 = 2; ii2 <= NRADICES-2; ii2++) {
+						koffset = l*mmk + sb*(mmk/nsub);	/* this sub-block's slice of block l's mmk twiddle groups */
+						switch(RADIX_VEC[ii2]) {
+						case  8 :  radix8_dif_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+						case 16 : radix16_dif_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+						case 32 : radix32_dif_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+						default : sprintf(cbuf,"ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[ii2]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+						}
+						kk += mmk*radix0;	mmk *= RADIX_VEC[ii2];	inck /= RADIX_VEC[ii2];
+					}
+				}
+				/* Leave (k,mm,incr) at their post-loop values, as the whole-block loop would have: */
+				for(ii2 = 2; ii2 <= NRADICES-2; ii2++) { k += mm*radix0;	mm *= RADIX_VEC[ii2];	incr /= RADIX_VEC[ii2]; }
+				break;	/* passes 2..S-1 are done for this block */
+			}
+		  #endif
 			/* Offset from base address of index array = L*NLOOPS = L*MM : */
 			koffset = l*mm;
 
@@ -2256,6 +2361,13 @@ void mers_process_chunk(
 	for(j = 0; j < jhi; j++)
 	{
 		l = ii + j;
+		// v21 bugfix: for ODD radix0 the last chunk-pass (ii = radix0-1) has jhi = 2 because its DIF/DIT
+		// loops must process both blocks of the final block_index pair, but the wrapper/square step covers
+		// that entire pair via the single call for slot l = radix0-1 (one block via the j1-indices, its
+		// partner via the mirrored j2-indices). There is no state-slot l = radix0 - reading ws_*[radix0]
+		// would run off the end of those arrays - so skip the second wrapper call:
+		if(l >= radix0)
+			continue;
 
 		switch(RADIX_VEC[NRADICES-1])
 		{
@@ -2322,6 +2434,28 @@ void mers_process_chunk(
 			mm   /= RADIX_VEC[i];
 			k    -= mm*radix0;
 
+		  #ifdef SUBBLOCK_ORDER
+			if(i == NRADICES-2 && subblock) {	/* (k,mm,incr) is the pass-(S-1) state */
+				for(sb = 0; sb < nsub; sb++) {
+					kk = k;	mmk = mm;	inck = incr;
+					sbstart = istart + sb*incr2;
+					sbpad = sbstart + ((sbstart >> DAT_BITS) << PAD_BITS);
+					for(ii2 = NRADICES-2; ii2 >= 2; ii2--) {
+						koffset = l*mmk + sb*(mmk/nsub);
+						switch(RADIX_VEC[ii2]) {
+						case  8 :  radix8_dit_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+						case 16 : radix16_dit_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+						case 32 : radix32_dit_pass(&a[sbpad],n,rt0,rt1,&index[kk+koffset],mmk/nsub,inck,init_sse2,thr_id); break;
+						default : sprintf(cbuf,"ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[ii2]); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+						}
+						if(ii2 > 2) { inck *= RADIX_VEC[ii2-1];	mmk /= RADIX_VEC[ii2-1];	kk -= mmk*radix0; }
+					}
+				}
+				/* Move the block-level state from pass S-1 to pass 1 and let the code below run pass 1 on the whole block: */
+				for(ii2 = NRADICES-2; ii2 >= 2; ii2--) { incr *= RADIX_VEC[ii2-1];	mm /= RADIX_VEC[ii2-1];	k -= mm*radix0; }
+				i = 1;
+			}
+		  #endif
 			koffset = l*mm;
 
 			switch(RADIX_VEC[i])

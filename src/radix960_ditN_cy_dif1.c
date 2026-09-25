@@ -342,7 +342,11 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#endif
 	double *addr;
   #endif
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
   #ifndef MULTITHREAD
 	#ifndef USE_SSE2
 	struct complex *tptr;
@@ -472,6 +476,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef MULTITHREAD
 
 	static struct cy_thread_data_t *tdat = 0x0;
+	static uint32 tdat_alloc = 0;	// #threads tdat was sized for; CY_THREADS can grow between calls
 	// Threadpool-based dispatch stuff:
   #if 0//def OS_TYPE_MACOSX
 	static int main_work_units = 0;
@@ -522,7 +527,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
-	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT && FERMAT_RANDBIT_MULT)
 	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
 		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
@@ -615,7 +620,14 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 
 	  #ifdef USE_PTHREAD
+		// Reallocate when CY_THREADS exceeds what tdat was sized for. Before #284 the count was
+		// rounded down to a power of two and so never varied across a run, which made a one-shot
+		// allocation safe; now it tracks n_div_nwt, which changes with the FFT length, and a later
+		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
+		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
+		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
 		if(tdat == 0x0) {
+			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
@@ -626,7 +638,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(0x0 != (tpool = carry_threadpool_get(pool_work_units, MAX_THREADS)), "carry_threadpool_get failed!");
+					ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -636,7 +648,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(0x0 != (tpool = carry_threadpool_get(CY_THREADS, MAX_THREADS)), "carry_threadpool_get failed!");
+				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
 
@@ -756,12 +768,20 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		two       = tmp + 0x09;
 		tmp += 0x0a;	// += 0xa => sc_ptr + 0xf46
 	  #ifdef USE_AVX512
-		cy_r = tmp;	/* cy_i = tmp+0x78; */	tmp += 2*0x78;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;
+	   #ifndef MULTITHREAD
+		cy_i = tmp+0x78;
+	   #endif
+		tmp += 2*0x78;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 	  #elif defined(USE_AVX)
-		cy_r = tmp;	/* cy_i = tmp+0x0f0; */	tmp += 2*0x0f0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+		cy_r = tmp;
+	   #ifndef MULTITHREAD
+		cy_i = tmp+0x0f0;
+	   #endif
+		tmp += 2*0x0f0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// += 0x1e0 + 2 => sc_ptr += 0x1128
 		// This is where the value of half_arr_offset comes from
@@ -1778,7 +1798,7 @@ for(outer=0; outer <= 1; outer++)
 		khi = n_div_nwt/CY_THREADS;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			if(!full_pass)
 				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
@@ -1795,7 +1815,7 @@ for(outer=0; outer <= 1; outer++)
 		khi = 1;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			/*
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
@@ -2368,7 +2388,11 @@ void radix960_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in-place DFT macros:
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
 	{
@@ -2379,7 +2403,9 @@ void radix960_dif_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n/RADIX;
 
@@ -2832,7 +2858,11 @@ void radix960_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in-place DFT macros:
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
 	{
@@ -2843,7 +2873,9 @@ void radix960_dit_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n/RADIX;
 
@@ -3523,7 +3555,11 @@ void radix960_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	#endif

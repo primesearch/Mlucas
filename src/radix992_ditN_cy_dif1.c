@@ -30,6 +30,43 @@
 	#undef USE_AVX512
 #endif
 
+/* v21: The #undefs above switch off this file's (nonexistent) SIMD code paths, but they do NOT change the
+layout of the main residue array, which is fixed by the rest of the program: in a SIMD build a[] is a
+sequence of 2*RE_IM_STRIDE-double blocks laid out as [RE_IM_STRIDE reals | RE_IM_STRIDE imaginaries].
+Everything below which has to know the build's true vector width must therefore key off RE_IM_STRIDE /
+SZ_VD / L2_SZ_VD - object-like macros platform.h has already expanded to the real values and which the
+#undefs do not touch - rather than off '#ifdef USE_AVX512' and friends, which are now always false here.
+(Ditching the #undefs instead is not an option short of writing an actual SIMD carry for ODD_RADIX 31:
+radix992_main_carry_loop.h's USE_SSE2 arm is a bare '#error'.)
+
+RADIX992_J1(j) maps a *logical* (scalar-layout) index j into the physical array index of the same double,
+using the same br4/br8/br16 scramble arrays radix992_dif_pass1/radix992_dit_pass1 and every SIMD-aware
+sibling radix use. Called with an even j, it yields the physical index of the real part of complex datum
+j/2; that datum's imaginary part then lives at +RE_IM_STRIDE, which is what the DFT and carry macros here
+already expect. In a scalar-double build it is the identity, so nothing changes there. The mask0x/br*
+symbols are declared in Mdata.h, which Mlucas.h pulled in above the #undefs. */
+#if RE_IM_STRIDE == 8		// AVX-512
+	#define RADIX992_J1(j)	( (int)(((uint32)(j) & mask03) + br16[(j)&15]) )
+#elif RE_IM_STRIDE == 4		// AVX/AVX2
+	#define RADIX992_J1(j)	( (int)(((uint32)(j) & mask02) + br8 [(j)& 7]) )
+#elif RE_IM_STRIDE == 2		// SSE2
+	#define RADIX992_J1(j)	( (int)(((uint32)(j) & mask01) + br4 [(j)& 3]) )
+#else						// scalar-double: identity
+	#define RADIX992_J1(j)	(j)
+#endif
+
+/* Span of the wraparound-carry cleanup mini-pass and of the radix_inv rescale which follows it, in
+*physical* array indices. Must cover both the 4 (Mersenne) / 8 (Fermat, right-angle transform needs
+complex elements) leading complex data the cleanup assumes, and a whole number of SIMD blocks - so for
+AVX-512, where a block is 16 doubles, the Mersenne value has to grow from 7 to 15. Same constants as
+every SIMD-aware sibling, cf. radix64_ditN_cy_dif1.c:185-191. */
+#if RE_IM_STRIDE == 8
+	#define JHI_WRAP_MERS	15
+#else
+	#define JHI_WRAP_MERS	 7
+#endif
+#define JHI_WRAP_FERM	15
+
 #define RADIX 992	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 31	// ODD_RADIX = [radix >> trailz(radix)]
 
@@ -138,7 +175,16 @@ N (K)	Radices used		ROE (avg, max)			T(sec for 100 iter)
 	// we are forced to resort to fugly hackage - add pad slots to a garbage-named struct-internal array along with
 	// a pointer-to-be-inited-at-runtime, when we set ptr to the lowest-index array element having the desired alginment:
 		double *cy_r,*cy_i;
+	// The init-time alignment search below scans up to RE_IM_STRIDE elements of cy_dat[] for an SZ_VD-aligned
+	// one, then uses cy_dat[l ... l+2*RADIX-1], so the array needs RE_IM_STRIDE-1 elements of slack. NB: the
+	// test cannot be spelled '#ifdef USE_AVX512' the way radix1008/4032/... spell it, because this file #undefs
+	// the SIMD symbols above; RE_IM_STRIDE is an object-like macro already expanded from platform.h and so
+	// still carries the build's true vector width (which is also what SZ_VD/SZ_VDM1 below do):
+	#if RE_IM_STRIDE == 8	// AVX-512
+		double cy_dat[2*RADIX+8] __attribute__ ((__aligned__(8)));
+	#else
 		double cy_dat[2*RADIX+4] __attribute__ ((__aligned__(8)));	// Enforce min-alignment of 8 bytes in 32-bit builds.
+	#endif
 	};
 
 #endif
@@ -159,7 +205,6 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix992_ditN_cy_dif1";
-	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int NDIVR,i,j,j1,jt,jstart,jhi,full_pass,khi,l,outer;
 #ifndef MULTITHREAD
 	int j2,jp,ntmp;
@@ -179,9 +224,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
-#ifdef MULTITHREAD
 	double target_cy = 0;
-#endif
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
@@ -218,7 +261,11 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *addr, *addi;
 	int *itmp;	// Pointer into the bjmodn array
   #endif
-	struct complex t[RADIX]
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c
   #ifndef MULTITHREAD
 	  , *tptr
   #endif
@@ -289,6 +336,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef MULTITHREAD
 
 	static struct cy_thread_data_t *tdat = 0x0;
+	static uint32 tdat_alloc = 0;	// #threads tdat was sized for; CY_THREADS can grow between calls
 	// Threadpool-based dispatch stuff:
 	//static int main_work_units = 0;
 	static int pool_work_units = 0;
@@ -302,6 +350,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Vars needed in scalar mode only:
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int bjmodn[RADIX];
+	int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop
 	double temp,frac,
 		cy_r[RADIX],cy_i[RADIX];
 
@@ -334,7 +383,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
-	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT && FERMAT_RANDBIT_MULT)
 	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
 		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
@@ -398,7 +447,14 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 
 	  #ifdef USE_PTHREAD
+		// Reallocate when CY_THREADS exceeds what tdat was sized for. Before #284 the count was
+		// rounded down to a power of two and so never varied across a run, which made a one-shot
+		// allocation safe; now it tracks n_div_nwt, which changes with the FFT length, and a later
+		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
+		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
+		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
 		if(tdat == 0x0) {
+			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
@@ -409,7 +465,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(0x0 != (tpool = carry_threadpool_get(pool_work_units, MAX_THREADS)), "carry_threadpool_get failed!");
+					ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -419,7 +475,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(0x0 != (tpool = carry_threadpool_get(CY_THREADS, MAX_THREADS)), "carry_threadpool_get failed!");
+				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
 
@@ -451,8 +507,12 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tdat[ithread].rn0 = rn0;
 			tdat[ithread].rn1 = rn1;
 
-		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
-			for(l = 0; l < 4; l++) {
+		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread.
+		// The search window must be SZ_VD/sizeof(double) = RE_IM_STRIDE doubles wide: the hardcoded 4 that
+		// used to be here only covers 32 bytes, so under AVX-512 (SZ_VD = 64) it finds an aligned element
+		// only if it gets lucky with offsetof(cy_dat)%64, and otherwise aborts the run. Every other radix
+		// file bounds this loop by RE_IM_STRIDE (cf. radix1008_ditN_cy_dif1.c:513):
+			for(l = 0; l < RE_IM_STRIDE; l++) {
 				if( ((uintptr_t)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy_r = &tdat[ithread].cy_dat[l];
 					tdat[ithread].cy_i = tdat[ithread].cy_r + RADIX;
@@ -460,7 +520,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 					break;
 				}
 			}
-			ASSERT(l < 4, "Failed to align cy_dat array!");
+			ASSERT(l < RE_IM_STRIDE, "Failed to align cy_dat array!");
 		}
 	#endif
 
@@ -1077,6 +1137,9 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		p1 = 1*NDIVR;	 p1 += ( (p1 >> DAT_BITS) << PAD_BITS );
 		p2 = 2*NDIVR;	 p2 += ( (p2 >> DAT_BITS) << PAD_BITS );
 		p3 = 3*NDIVR;	 p3 += ( (p3 >> DAT_BITS) << PAD_BITS );
+	#ifndef MULTITHREAD
+		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
+	#endif
 
 		for(l = 0; l < (RADIX>>2); l++) {
 			poff[l] = (l<<2)*NDIVR;	// Corr. to every 4th plo[] term
@@ -1382,7 +1445,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				jstart = 0;
 				jhi = NDIVR/CY_THREADS;	// The earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, must double that here
 				// khi = 1 for Fermat-mod, thus no outer loop needed here
-				for(j = jstart; j < jhi; j += stride)
+				for(j = jstart; j < jhi; j += 2)	// v21: logical stride 2, matching the main carry loop
 				{
 					for(i = 0; i < ODD_RADIX; i++) {
 					#if 1//ndef USE_SSE2	// Scalar-double mode uses non-pointerized icycle values:
@@ -1434,33 +1497,30 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		if(RES_SHIFT) {
 			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
 			target_idx = (int)(itmp64 >>  8);	// This still needs to be (mod NDIVR)'ed, but first use unmodded form to compute needed DWT weights
-		#ifdef MULTITHREAD
 			// Compute wt = 2^(target_idx*sw % n)/n and its reciprocal:
 			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
 			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// 0.5*n2inv = 0.5/(n/2) = 1.0/n
-		#endif
 			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
 			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
-			// Now compute the doubles-pointer offset of the target double w.r.to the SIMD s1p00-... data layout:
-			tidx_mod_stride = target_idx & (stride-1);	// Stride a power of 2, so can use AND-minus-1 for mod
-			target_idx -= tidx_mod_stride;
+			/* v21: the SIMD-capable radices round target_idx down to a whole SIMD block here and encode the
+			target's within-block *physical* doubles-offset (via br4/br8/br16) in the low lg(2*RE_IM_STRIDE)
+			bits of target_set, because their carry macros consume one whole block per loop pass. This file's
+			carry loop is scalar - one complex datum per pass, see radix992_main_carry_loop.h - so it must
+			round down to the complex datum instead: rounding to the block would place the injection in a lane
+			belonging to a *later* pass, whose DIT would then overwrite it before it was ever carried. So keep
+			the scalar convention, target_set in [0,2*RADIX) with the low bit selecting [Re|Im]; the Re/Im
+			separation of RE_IM_STRIDE doubles is applied at the point of use. (The pre-v21 code here did the
+			block rounding and the target_set<<(L2_SZ_VD-2) packing but skipped the br scramble, since the
+			'#ifdef USE_AVX512 / #elif USE_AVX / #elif USE_SSE2' selecting it is dead in this file - the SIMD
+			symbols are #undef'd at the top - while L2_SZ_VD still carried the build's true vector width.) */
+			tidx_mod_stride = target_idx & 1;	// [0|1] = the target word is the [Re|Im] part of its complex datum
+			target_idx -= tidx_mod_stride;		// ...whose (even) logical index within the sub-chain is this
 		//	printf("Iter %d: cy_shift = %d, target_idx,tidx_mod_stride,target_set = %d,%d,%d\n",iter,(itmp64 & 255),target_idx,tidx_mod_stride,target_set);
-		#ifdef USE_AVX512
-			tidx_mod_stride = br16[tidx_mod_stride];
-		#elif defined(USE_AVX)
-			tidx_mod_stride = br8[tidx_mod_stride];
-		#elif defined(USE_SSE2)
-			tidx_mod_stride = br4[tidx_mod_stride];
-		#endif
-			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
-		#ifdef MULTITHREAD
+			target_set = (target_set<<1) + tidx_mod_stride;
 			target_cy  = target_wtfwd * (-(int)(2u << (itmp64 & 255)));
-		#endif
 		} else {
 			target_idx = target_set = 0;
-		#ifdef MULTITHREAD
 			target_cy = -2.0;
-		#endif
 		}
 	}
 
@@ -1493,9 +1553,9 @@ for(outer=0; outer <= 1; outer++)
 		khi = n_div_nwt/CY_THREADS;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + JHI_WRAP_MERS;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -1510,12 +1570,12 @@ for(outer=0; outer <= 1; outer++)
 		khi = 1;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			/*
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
 			if(!full_pass)
-				_jhi[ithread] = _jstart[ithread] + 15;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+				_jhi[ithread] = _jstart[ithread] + JHI_WRAP_FERM;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + n_div_nwt/CY_THREADS;
 		}
@@ -1906,11 +1966,11 @@ for(outer=0; outer <= 1; outer++)
 	*/
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
 	{
-		j_jhi =15;
+		j_jhi = JHI_WRAP_FERM;
 	}
 	else
 	{
-		j_jhi = 7;
+		j_jhi = JHI_WRAP_MERS;
 	}
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
@@ -1959,7 +2019,11 @@ void radix992_dif_pass1(double a[], int n)
 */
 	int l, j,j1/* ,j2 */, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 #if USE_COMPACT_OBJ_CODE
 	int jp;
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
@@ -2070,13 +2134,11 @@ void radix992_dif_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
+		// v21: these arms were dead code - the SIMD symbols are #undef'd at the top of this file, so a SIMD
+		// build fell through to the scalar 'j1 = j' and read/wrote the interleaved array as if it were
+		// scalar-laid-out (and there was no USE_AVX512 arm at all). RADIX992_J1 keys off RE_IM_STRIDE, which
+		// the #undefs do not touch, and adds the missing AVX-512 (br16) case:
+		j1 = RADIX992_J1(j);
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		//j2 = j1+RE_IM_STRIDE;
 
@@ -2335,12 +2397,12 @@ void radix992_dif_pass1(double a[], int n)
 			ke = plo[(i64 >>  4)&0xf];		o[0x1e] = jp + ke;
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,o,RE_IM_STRIDE
 			);
 		#else
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,iptr,RE_IM_STRIDE	// *** Apr 2014: Added data strdes needed by latest version of the radix-32 DFT macros
 			);
 			iptr += 32;
@@ -2387,7 +2449,11 @@ void radix992_dit_pass1(double a[], int n)
 */
 	int l, j,j1/* ,j2 */,jp, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 #if USE_COMPACT_OBJ_CODE
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 	static int plo[32],phi[62];	// No need for separate dit_p20_cperms[] array; just need a doubled-sequence version of phi
@@ -2514,13 +2580,11 @@ void radix992_dit_pass1(double a[], int n)
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
+		// v21: these arms were dead code - the SIMD symbols are #undef'd at the top of this file, so a SIMD
+		// build fell through to the scalar 'j1 = j' and read/wrote the interleaved array as if it were
+		// scalar-laid-out (and there was no USE_AVX512 arm at all). RADIX992_J1 keys off RE_IM_STRIDE, which
+		// the #undefs do not touch, and adds the missing AVX-512 (br16) case:
+		j1 = RADIX992_J1(j);
 		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		//j2 = j1+RE_IM_STRIDE;
 	/*
@@ -2724,12 +2788,12 @@ void radix992_dit_pass1(double a[], int n)
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 		#else
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,	// *** Apr 2014: Added data strdes needed by latest version of the radix-32 DFT macros
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 			iptr += 32;
 		#endif
@@ -2854,9 +2918,9 @@ void radix992_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
-		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3;
 		int poff[RADIX>>2];
+		int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop
 		// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 		int dif_p20_cperms[62], plo[32],phi[62],jj[32], *iptr;
 		int idx,pidx,mask,lshift, is_even,is_odd, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, o[32];	// o[] stores o-address offsets for current radix-32 DFT in the 31x-loop
@@ -2892,13 +2956,23 @@ void radix992_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	// int data:
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
 		int khi    = thread_arg->khi;
+		// v21: these 3 are consumed by the rotated-residue carry injection in radix992_main_carry_loop.h;
+		// radix992's per-thread copies were missing, so a MULTITHREAD build failed to compile (cf. the
+		// identical lines in radix1008_ditN_cy_dif1.c):
+		int target_idx = thread_arg->target_idx;
+		int target_set = thread_arg->target_set;
+		double target_cy = thread_arg->target_cy;
 		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
 		int jstart = thread_arg->jstart;
 		int jhi    = thread_arg->jhi;
@@ -2926,6 +3000,7 @@ void radix992_dit_pass1(double a[], int n)
 		p1 = 1*NDIVR;	 p1 += ( (p1 >> DAT_BITS) << PAD_BITS );
 		p2 = 2*NDIVR;	 p2 += ( (p2 >> DAT_BITS) << PAD_BITS );
 		p3 = 3*NDIVR;	 p3 += ( (p3 >> DAT_BITS) << PAD_BITS );
+		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
 
 		for(l = 0; l < (RADIX>>2); l++) {
 			poff[l] = (l<<2)*NDIVR;	// Corr. to every 4th plo[] term
