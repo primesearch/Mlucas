@@ -3355,7 +3355,9 @@ MFACTOR_HELP:
 				curr_p += (pdiff[m] << 1);
 				if(curr_p > bit_len && !((nprime - m)&63)) {	// 2nd clause is to make Loop #2 count a multiple of 64
 					curr_p -= (pdiff[m] << 1);
-					ASSERT(curr_p < p[0],"On Loop 1 exit: curr_p >= p!");
+					// Only a 1-word p can be one of the sieving primes; for a multiword p, p[0] is just its low
+					// word, which may be arbitrarily small (e.g. 5583 for a 220-bit p), so do not compare to it:
+					ASSERT(lenP > 1 || curr_p < p[0],"On Loop 1 exit: curr_p >= p!");
 					break;
 				}
 				l = startval[m];
