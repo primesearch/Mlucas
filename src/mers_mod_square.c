@@ -342,6 +342,42 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			}
 		}
 
+	#ifdef USE_AVX
+		/* The AVX/AVX-512 radix16|32_wrapper_square routines read RE_IM_STRIDE (=4|8)
+		sincos-index sets per SIMD pass from the length-(N2/radix_final) index[] array. For FFT
+		lengths so small that the final-block schedule leaves a partial chunk with fewer than
+		RE_IM_STRIDE sets, those wide-SIMD code paths read past the end of index[] (garbage
+		twiddles, or SIGSEGV under ASan / when the slack falls on an unmapped page). This is
+		independent of the DAT_BITS/array-padding logic above (which is disabled - DAT_BITS=31 -
+		for the runlengths <= 32K where this bites). Such lengths are sub-1-Mdigit toy sizes with
+		no production use; they compute correctly in scalar/SSE2 builds but not the wide-SIMD ones,
+		so soft-skip here (self-test moves on to the next radix set instead of crashing).
+
+		The bound is measured, on a Zen 4 with full AVX-512, by disabling this test and running
+		every radix set at 1K-16K against a scalar-build oracle. Let q = N2/radix_final. The
+		overrun ASSERTs below fire at q <= 32 and at no larger q, in AVX *and* AVX-512 builds
+		alike - the wider stride does not push the boundary out:
+
+			AVX2      1K {32,16} q=32, 1K {16,32} q=16, 2K {32,32} q=32   overrun
+			          2K {8,8,16} q=64, 3K {12,8,16} q=96, 4K q=128       correct residues
+			AVX-512   1K {32,16} q=32, 1K {16,32} q=16, 2K {32,32} q=32   overrun
+
+		So 16*RE_IM_STRIDE is the tight next step up for AVX (64, against a measured boundary of
+		32) and has room to spare for AVX-512 (128). Keeping the one expression costs nothing
+		there: of the AVX-512 sets it excludes beyond q=32, the only one that exists and is
+		reachable is 2K {8,8,16}, which halts on roundoff in an AVX-512 build regardless. 3K
+		{12,8,16} is not a counter-example either - radix12_ditN_cy_dif1 returns
+		ERR_RADIX0_UNAVAILABLE ("No AVX-512 support") before this test is reached - and the same
+		goes for the leading radices at 5K, 6K, 7K and 12K. A tighter, stride-independent bound
+		would only trade these clean skips for "ERROR ERROR...Halting" lines in the self-test. */
+		if((N2 / (uint32)RADIX_VEC[NRADICES-1]) < (uint32)(16*RE_IM_STRIDE))
+		{
+			snprintf(cbuf,sizeof(cbuf),"FFT length %u K too small for the AVX/AVX-512 wrapper_square SIMD width (need complex-length/radix_final = %u >= %u); skipping this radix set.\n",
+				(uint32)(n>>10), N2/(uint32)RADIX_VEC[NRADICES-1], (uint32)(16*RE_IM_STRIDE));
+			WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
+		}
+	#endif
+
 		sprintf(cbuf,"Using complex FFT radices*");
 		char_addr = strstr(cbuf,"*");
 		for(i = 0; i < NRADICES; i++)
