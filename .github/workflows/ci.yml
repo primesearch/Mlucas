@@ -311,6 +311,74 @@ jobs:
           ${{ github.workspace }}
           !mpss-*
 
+  Linux-KNL:
+    name: Mlucas KNL
+
+    # Pinned, not 'latest': GCC 13 is the last GCC that can target Knights Landing at all. GCC 14
+    # accepts -march=knl but generates AVX512VL anyway, and GCC 15 removed the flag; makemake.sh
+    # refuses both rather than emit a binary that dies on the first illegal instruction (see the
+    # measured table there). 24.04 ships GCC 13 and Clang 18, both of which pass, so pin to it -
+    # on a newer image this job would correctly but unhelpfully refuse to build.
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      # Intel SDE 9.38 and later removed the -knl/-knm knobs, and Intel no longer serves any
+      # pre-9.38 build -- downloadmirror.intel.com returns 403 for 9.24, 9.27 and 9.33 alike.
+      # 9.24.0 is therefore hosted as a release asset on this repository, byte-identical to
+      # Intel's original and redistributed under the Intel Simplified Software License, which
+      # permits redistribution without modification. See the ci-intel-sde-9.24.0 release.
+      SDE_URL: https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz
+      SDE_SHA256: 87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac
+      SDE_DIR: sde-external-9.24.0-2023-07-13-lin
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install Intel SDE
+      run: |
+        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        # Verify before unpacking: the pin is what makes a hosted binary trustworthy.
+        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        mkdir -p "$SDE_DIR"
+        tar -xf sde.tar.xz -C "$SDE_DIR" --strip-components=1
+        rm -f sde.tar.xz
+    - name: Before script
+      run: |
+        $CC --version
+        "./$SDE_DIR/sde64" --version
+    - name: Build
+      run: |
+        bash -e -o pipefail -- makemake.sh avx512_knl
+        # Build Mfactor for KNL too - it has its own AVX-512 sieve, a distinct body of code from
+        # Mlucas, so it is worth compile-covering here. Not run yet: under SDE it segfaults on a
+        # tiny exponent because of the AVX-512 small-p sieve bug that #114 fixes. With #114 merged
+        # in locally the same binary completes '-m 521 -bmax 20' cleanly, so the run step can be
+        # added once that lands.
+        bash -e -o pipefail -- makemake.sh mfac avx512_knl
+    - name: Self-test under emulated Knights Landing
+      run: |
+        # -knl sets both CPUID and SDE's chip check, so any instruction outside the KNL ISA aborts
+        # the run rather than silently working on the AVX-512 host. That is the point of this job:
+        # an 'avx512' (Skylake-SP) build dies here on kmovd, which is exactly the regression to catch.
+        #
+        # Threads are worth using despite the emulator: measured under 'sde64 -knl', '-s t' takes
+        # 810s on one core against 351s on four, a 2.3x speedup. ('-s tt' on its own shows almost
+        # none, but it is short enough to be dominated by startup.) That is what makes 'tiny'
+        # affordable here, and it roughly triples the FFT lengths covered: 16K-240K atop 2K-15K.
+        cd obj_avx512_knl
+        CPUS="0:$(( $(nproc --all) - 1 ))"
+        # No pipe, so no pipefail needed and no knl.log: this job uploads no artifacts, and the
+        # run's output goes to the workflow log either way.
+        for s in tt t; do
+          st=0
+          "../$SDE_DIR/sde64" -knl -- ./Mlucas -s $s -cpu "$CPUS" || st=$?
+          echo "Self-test -s $s exit status: $st"
+          # 0 = ok, 2 = too few usable radix sets at some length (informational). Else fail.
+          if (( st != 0 && st != 2 )); then exit "$st"; fi
+        done
+
   ASan-Linux:
     name: AddressSanitizer Linux
 
