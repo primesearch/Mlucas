@@ -1,199 +1,301 @@
-SP-float, LOACC:
+// TF restart files are in HRF, not binary - checkpointing only supported for single-threaded runs:
+if(NTHREADS == 1) {
+	int found_pass = FALSE;
+	fp = mlucas_fopen(RESTARTFILE, "r");
+	if(fp) {
+		// If file exists, it should have the proper first 2 lines:
+		itmp = fscanf(fp,"%s\n",cstr);
+		if(itmp <= 0 || !STREQ(cstr,pstring)) {
+			sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",cstr,pstring);
+			ASSERT(HERE,0,char_buf0);
+		}
+		itmp = fscanf(fp,"%u\n",&i  );
+		if(itmp <= 0 || i != TF_PASSES      ) {
+			sprintf(char_buf0,"Line 1 entry found in factoring savefile [%d] does not match exponent of run [%d].",i,TF_PASSES);
+			ASSERT(HERE,0,char_buf0);
+		}
+		// See if restart file has a pass/max-k-reached entry matching the current pass:
+		while(fgets(cstr,STR_MAX_LEN,fp)) {
+			if((char_addr = strstr(cstr,"Pass ")) != 0) {
+				itmp = sscanf(char_addr,"%u",i);
+				if(itmp <= 0) {
+					fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+				}
+				if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
+					ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+					found_pass = TRUE;
+					// Read the max-k-reached value
+					ASSERT(HERE,((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
+					itmp = sscanf(char_addr,"%llu",k);
+					ASSERT(HERE,itmp >= 0,"Unable to read max-k-reached value!");
+					// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
+				}
+			}
+		}
+		/* pstring*/
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
+		}
+		/* Strip the expected newline char from in_line: */
+		char_addr = strstr(in_line, "\n");
+		if(char_addr)
+			*char_addr = '\0';
+		/* Make sure restart-file and current-run pstring match: */
+		if(STRNEQ(in_line, pstring)) {
+			fprintf(stderr,"ERROR: current exponent %s != Line %d of factoring restart file %s!\n",pstring, curr_line, RESTARTFILE);		ASSERT(HERE, 0,"0");
+		}
 
-    Mlucas 18.0
+		/* bmin */
+		++curr_line;
+		fgets(cbuf, STR_MAX_LEN, fp);
+		itmp = sscanf(cbuf, "%lf", &bmin_file);
+		if(itmp != 1) {
+			fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
+		}
 
-    http://www.mersenneforum.org/mayer/README.html
+		/* bmax */
+		++curr_line;
+		fgets(cbuf, STR_MAX_LEN, fp);
+		itmp = sscanf(cbuf, "%lf", &bmax_file);
+		if(itmp != 1) {
+			fprintf(stderr,"ERROR: unable to parse Line %d (bmin) of factoring restart file %s. Offending input = %s\n", curr_line, RESTARTFILE, cbuf);		ASSERT(HERE, 0,"0");
+		}
 
-INFO: testing qfloat routines...
-CPU Family = x86_64, OS = Linux, 64-bit Version, compiled with Gnu C [or other compatible], Version 9.2.1 20191008.
-INFO: CPU supports SSE2 instruction set, but using scalar floating-point build.
-INFO: Using inline-macro form of MUL_LOHI64.
-INFO: MLUCAS_PATH is set to ""
-INFO: using 64-bit-significand form of floating-float rounding constant for scalar-mode DNINT emulation.
-Setting DAT_BITS = 10, PAD_BITS = 2
-INFO: testing IMUL routines...
-INFO: testing FFT radix tables...
-*** INFO: Only support residue-shift for SIMD builds ... ignoring user-set value.
-in check_nbits_in_types: RND_A = 13835058055282163712.000, ln2 =                0.693,  DNINT(ln2) =                1.000
+	/************************************
+	LINE PAIRS 5/6 AND 7/8 ARE USED TO DETERMINE WHETHER A PREVIOUS
+	FACTORING RUN OF THE SAME EXPONENT COMPLETED OR NOT: If know >= kmax
+	and passnow = passmax then the previous run completed, in which case
+	we allow a new run to a deeper bound, i.e. reset passnow = passmin
+	and run passes passmin through passmax from bounds kmin to kmax.
+	*************************************/
+		/* KMin */
+		++curr_line;
+GET_LINE4:
+	/**** redo this ****/
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: 'KMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "KMin");
+		/* Since the preceding fscanf call may leave us at the end of curr_line-1
+		(rather than the beginning of curr_line), allow for a possible 2nd needed
+		fgets call here: */
+		if(!char_addr) {
+			goto GET_LINE4;
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			kmin_file = convert_base10_char_uint64(char_addr);
+		}
 
-           Mlucas selftest running.....
+		/* KNow */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (KNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "KNow");
+		if(!char_addr) {
+			fprintf(stderr,"ERROR: 'KNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			know_file = convert_base10_char_uint64(char_addr);
+		}
 
+		/* KMax */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (KMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "KMax");
+		if(!char_addr) {
+			fprintf(stderr,"ERROR: 'KMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			kmax_file = convert_base10_char_uint64(char_addr);
+		}
 
-********** Non-default exponent or #iters not one of [100,1000,10000] - You will have to manually  **********
-********** verify that the Res64s output for this self-test match for all FFT radix combinations!! **********
+		/* PassMin */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (PassMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "PassMin");
+		if(!char_addr) {
+			fprintf(stderr,"ERROR: 'PassMin' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			passmin_file = (uint32)convert_base10_char_uint64(char_addr);
+			ASSERT(HERE, passmin_file < TF_PASSES,"factor.c: passmin < TF_PASSES");
+		}
 
+		/* PassNow */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (PassNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "PassNow");
+		if(!char_addr) {
+			fprintf(stderr,"ERROR: 'PassNow' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			passnow_file = (uint32)convert_base10_char_uint64(char_addr);
+			ASSERT(HERE, passnow_file < TF_PASSES,"factor.c: passnow < TF_PASSES");
+			ASSERT(HERE, passnow_file >= passmin_file  ,"factor.c: passnow_file >= passmin_file");
+		}
 
-/****************************************************************************/
+		/* PassMax */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (PassMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "PassMax");
+		if(!char_addr) {
+			fprintf(stderr,"ERROR: 'PassMax' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			passmax_file = (uint32)convert_base10_char_uint64(char_addr);
+			ASSERT(HERE, passmax_file < TF_PASSES,"factor.c: passmax_file < TF_PASSES");
+			ASSERT(HERE, passmax_file >= passnow_file  ,"factor.c: passmax_file >= passnow_file");
+		}
 
-INFO: Unable to find/open mlucas.cfg file in r+ mode ... creating from scratch.
-INFO: Maximum recommended exponent for this runlength = 8988498; p[ = 9198199]/pmax_rec = 1.0233299732.
-specified FFT length 2048 K is less than recommended 2304 K for this p.
-M9198199: using FFT length 2048K = 2097152 8-byte floats, initial residue shift count = 0
- this gives an average    4.386043071746826 bits per digit
-Using complex FFT radices        32        32        32        32
- In: a[0,1] =             16.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =             14.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 1, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =   14.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =            196.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             9.18271, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 2, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   9.18271,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              3.99984,            36.73083, cy =   -2.00000
-Out: a[0,1] =              2.00000,           -12.24361, cy =    2.00000
- In: a[0,1] =              0.13606,            -0.02392, cy =    2.00000
-Out: a[0,1] =              2.34228,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00001,            -0.00003, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,            -0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00001,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 3, prp_mult =  1.0, maxerr =    0.17671
-a[0-9] =    2.00000, -12.24361,   2.34228,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              3.99972,           -48.97443, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =   -2.00000
- In: a[0,1] =              0.28260,            -0.13516, cy =   -2.00000
-Out: a[0,1] =             -2.34228,             0.00000, cy =    0.00000
- In: a[0,1] =             -0.00843,             0.00405, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00006,            -0.00001, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00002,             0.00001, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 4, prp_mult =  1.0, maxerr =    0.31413
-a[0-9] =    2.00000,   0.00000,  -2.34228,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =             -0.05698,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00031,             0.00249, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00006,            -0.00001, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 5, prp_mult =  1.0, maxerr =    0.04866
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 6, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 7, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 8, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 9, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 10, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 11, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 12, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Iter = 13, prp_mult =  1.0, maxerr =    0.00000
-a[0-9] =    2.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000,   0.00000
- In: a[0,1] =              4.00000,             0.00000, cy =   -2.00000
-Out: a[0,1] =              2.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
- In: a[0,1] =              0.00000,             0.00000, cy =    0.00000
-Out: a[0,1] =              0.00000,             0.00000, cy =    0.00000
+		/* Number of q's tried: */
+		++curr_line;
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			fprintf(stderr,"ERROR: unable to read Line %d (#Q tried) of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		}
+		char_addr = strstr(in_line, "#Q tried");
+		if(!char_addr) {
+			fprintf(stderr,"ERROR: '#Q tried' not found in Line %d of factoring restart file %s!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+		} else {
+			char_addr = strstr(in_line, "=");
+			if(!char_addr) {
+				fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n", curr_line, RESTARTFILE);	ASSERT(HERE, 0,"0");
+			}
+			char_addr++;
+			count = convert_base10_char_uint64(char_addr);	// Need to reset == 0 prior to sieving so kvector-fill code works properly
+		}
+		fclose(fp); fp = 0x0;
+	}	// endif(NTHREADS == 1)
+
+	/**** process restart-file and any command-line params: ****/
+
+	/* If previous run is not yet complete, ignore any increased factor-bound-related
+	command-line parameters and instead proceed to complete the previous run first:
+	*/
+	if((know_file < kmax_file) || (passnow_file < passmax_file))
+	{
+		incomplete_run = TRUE;
+
+		fprintf(stderr,"INFO: Previous run to kmax = %s not yet complete.\n"  , &char_buf0[convert_uint64_base10_char(char_buf0, kmax_file)]);
+		fprintf(stderr,"Ignoring any increased factor-bound-related command-line parameters and proceeding to complete previous run.\n");
+
+		bmin = bmin_file;
+		bmax = bmax_file;
+
+		passmin = passmin_file;
+		passnow = passnow_file;
+		passmax = passmax_file;
+
+		kmin = kmin_file;
+		know = know_file;
+		kmax = kmax_file;
+		kplus = 0;
+	}
+	else
+	{
+		/**** Previous run was completed - check that current params satisfy one (and only one)
+		of the following sets of conditions:
+
+			1) -bmin/bmax used to set bounds for factoring:
+				In this case we expect any command-line bmin will be >= that in the restart file
+				(in fact we expect bmin >= bmax_file, i.e. that the runs are nonoverlapping -
+				if not we warn and set bmin = bmax_file), and that bmax > bmax_file.
+		****/
+		if(bmin || bmax)
+		{
+		#if(!defined(P1WORD))
+		//	ASSERT(HERE, 0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
+		#endif
+			ASSERT(HERE, (kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
+
+			if(bmin) {
+				ASSERT(HERE, bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
+				if(bmin < bmax_file)
+					fprintf(stderr,"WARNING: Specified bmin (%lf) smaller than previous-run bmax = %lf. Setting equal to avoid overlapping runs.\n", bmin, bmax_file);
+			}
+			bmin = bmax_file;
+
+			/* We expect any command-line bmax will be > that in the restart file: */
+			if(bmax)
+				ASSERT(HERE, bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
+		}
+
+		/****
+			2) -kmin/kmax used to set bounds for factoring:
+				In this case we expect any command-line kmin will be >= that in the restart file
+				(in fact we expect kmin >= kmax_file, i.e. that the runs are nonoverlapping -
+				if not we warn and set kmin = kmax_file), and that kmax > kmax_file.
+		****/
+		if(kmin || kmax)
+		{
+			ASSERT(HERE, (bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
+
+			if(kmin) {
+				ASSERT(HERE, kmin >= kmin_file,"kmin >= kmin_file");
+				if(kmin < kmax_file)
+					fprintf(stderr,"WARNING: Specified kmin (%s) smaller than previous-run kmax = %s. Setting equal to avoid overlapping runs.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax_file)]);
+			}
+			kmin = kmax_file;
+
+			/* We expect any command-line kmax will be > that in the restart file: */
+			if(kmax)
+				ASSERT(HERE, kmax > kmax_file,"kmax >= kmax_file");
+		}
+
+		/****
+			3) -kplus used to increment an upper bound from a previous factoring run:
+		****/
+		if(kplus)
+		{
+			ASSERT(HERE, (bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
+
+			kmin = kmax_file;
+			/* Ensure incremented value kmax fits into a 64-bit unsigned int: */
+			ASSERT(HERE, (kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
+			kmax = kmin + kplus;
+			kplus = 0;	/* If kplus != 0 detected further on, that indicates that no valid restart
+						file was found for factoring-bounds incrementing. */
+		}
+	}
+	/* Successfully processed restart file: */
+	restart = TRUE;
+}
+
+// No restart file found, or no enty for this pass found in same, or max-k-reached-for-this-pass found therein <= kstart;
+// Take starting k value from kstart:
+if(!k)
+	k = kstart;
+/************************ END(RESTART STUFF) *******************/

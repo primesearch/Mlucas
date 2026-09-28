@@ -86,8 +86,8 @@ int USE_SHORT_CY_CHAIN = 0;
 int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 int DO_GCHECK = FALSE;	// If Mersenne/PRP or Fermat/Peoin test, Toggle to TRUE at runtime
 uint32 NERR_GCHECK = 0;	// v20: Add counter for Gerbicz-check errors encountered during test
-int ITERS_BETWEEN_GCHECK_UPDATES = 1000;	// iterations between Gerbicz-checkproduct updates
-int ITERS_BETWEEN_GCHECKS     = 1000000;	// #iterations between Gerbicz-checksum residue-integrity checks
+int ITERS_BETWEEN_GCHECK_UPDATES = 1024;	// #iterations between Gerbicz-checkproduct updates; its square is the
+int ITERS_BETWEEN_GCHECKS     = 1048576;	// ... #iterations between Gerbicz-checksum residue-integrity checks .
 
 char ESTRING[STR_MAX_LEN];		// Mersenne exponent or Fermat-number index in string form - for M(p) this == p, for F(m) this == m
 char BIN_EXP[STR_MAX_LEN];		// Binary exponent in string form - for M(p) this == p, for F(m) this == 2^m
@@ -542,9 +542,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 // albeit for PRP-tests subject to constraints related to Gerbicz checking:
 	if(!check_interval) {
 		if(NTHREADS > 4)
-			ITERS_BETWEEN_CHECKPOINTS = 100000;
+			ITERS_BETWEEN_CHECKPOINTS = 65536;
 		else
-			ITERS_BETWEEN_CHECKPOINTS =  10000;
+			ITERS_BETWEEN_CHECKPOINTS =  8192;
 	} else if(check_interval < 1000) {
 		ASSERT(0,"User-set value of check_interval must >= 1000.");
 	} else
