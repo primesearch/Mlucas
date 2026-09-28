@@ -814,7 +814,6 @@ jobs:
     name: AddressSanitizer Windows
 
     runs-on: windows-latest
-    continue-on-error: true
     env:
       CC: clang
       PACKAGE_PREFIX: mingw-w64-clang-x86_64-
