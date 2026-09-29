@@ -3949,3 +3949,30 @@ efficiently? For simply (q0 + c[i])*(q0 - c[i]) we precompute the needed square-
 Now, (A+B+C)*(A-B-C) = [A+(B+C)]*[A-(B+C)] = A^2 - (B+C)^2, so there's the rub: we need(B+C)^2 = B^2 + 2.B.C + C^2, i.e. (in terms of s1 powers)
 	(q0 + D + c[i])*(q0 - D - c[i]) = [q0 + (D + c[i])]*[q0 - (D + c[i])] = q0^2 - (D + c[i])^2, now also need D^2 and 2.D.c[i] for each increment in window multiplicity M, which costs even more storage than the current precomputed powers of the coprimes < M*D.
 
+
+
+============================================================
+Error checking (added 2026):
+
+Stage 1 gets a Gerbicz check. The stage is x <- x^2 * 3^b per exponent bit, so the PRP check-product identity
+holds with one correction: b == u0 * d^(2^L) * 3^C, C the sum of the L-bit exponent chunks consumed since the
+check epoch began (see docs/gerbicz.txt for the derivation). Detection of an arithmetic error is essentially
+certain, the cost about 0.3%. The check-product is appended to the stage 1 savefiles so a resumed run keeps its
+epoch; a file without it starts a new one from the loaded residue. LowMem = 2 has no room for the arrays and
+runs stage 1 unchecked.
+
+A Jacobi check on the stage 1 residue cannot see arithmetic errors: squaring maps every value into the
+quadratic residues, so J(x_{k+1}) = J(3)^b whatever x_k was. It is kept only as an integrity check of the
+savefile and of the FP->integer conversion path, which the Gerbicz check in turn cannot see - on every
+restart-file read (expected symbol J(3|N) if the last consumed exponent bit is 1, else +1) and on the final
+stage 1 residue before the GCD (expected +1, E being even).
+
+Stage 2: there is no cheap invariant for the accumulator. It is a product of arbitrary differences
+(A^((kD)^2) - A^(b^2)); each term's Jacobi symbol is unpredictable, a product of arbitrary terms can only be
+verified by recomputing it, and the "check the product modulo a small random prime" trick fails because the
+reduction mod N in between destroys the homomorphism (the quotient is unknown). What can be checked exactly are
+the inputs every later term is built from: the A^((kD)^2) ladder has a closed form and is recomputed from the
+stage 1 residue at checkpoints and compared bit-for-bit (same integer, same carry normalisation, same FFT);
+the A^(b^2) table is static and checksummed. The accumulator gets sanity tests (nonzero, changing). An error
+in one accumulator multiply is self-contained - it corrupts the product but nothing downstream is built on
+it - and its consequence is a missed factor, never a false claim, which caps what is worth spending on it.
