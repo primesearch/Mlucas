@@ -248,6 +248,12 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
    #ifdef USE_AVX2
 	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
    #endif
   #endif
 
@@ -1850,6 +1856,12 @@ void radix36_dit_pass1(double a[], int n)
 	#ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
 	#endif
 	#ifndef USE_SSE2
 		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
