@@ -2707,7 +2707,7 @@ MFACTOR_HELP:
 	#endif
 		//int itmp;
 		uint32 bit,bit_hi,curr_p,i,ihi,j,l,m;
-		uint64 count = 0ull, k = 0ull, sweep, res;
+		uint64 count = 0ull, count_last = 0ull, k = 0ull, sweep, res;
 		int32 q_index = -1;
 	#if ((TRYQ == 1 && !defined(NWORD) && !defined(P4WORD) && !defined(P3WORD) && !defined(P2WORD) && !defined(USE_FMADD) && !defined(USE_FLOAT)) \
 		 || (TRYQ == 4 && !defined(P3WORD) && ((defined(P2WORD) && USE_128x96 >= 1) \
@@ -3324,6 +3324,21 @@ MFACTOR_HELP:
 			printf("%u [%6.2f%%] survived; count = %" PRIu64 "\n",m,100.*(float)m/bit_len,count);
 		#endif
 
+			/* Candidates reach the modpow code only in full batches of TRYQ, so without a flush the
+			last (count % TRYQ) survivors of each pass would be queued and never tested, although count
+			(and hence the "Performed N trial divides" total) includes them. On the pass's final sweep,
+			precompute the count value of its last surviving candidate, so that candidate can close out
+			a padded batch below. Only the first bit_len bits of the sievelet are candidates: */
+			if(sweep + 1 == interval_hi) {
+				count_last = count;
+				for(i = 0; i < ihi; i++) {
+					res = bit_map2[i];
+					if((bit_len - (i<<6)) < 64)
+						res &= (1ull << (bit_len - (i<<6))) - 1;
+					count_last += popcount64(res);
+				}
+			}
+
 			bit_hi = 64;
 			for(i = 0; i < ihi; i++)	/* K loops over 64-bit registers. Don't assume bit_len a multiple of 64.	*/
 			{
@@ -3465,6 +3480,14 @@ MFACTOR_HELP:
 					#else
 
 						k_to_try[q_index] = k;
+						// Last candidate of the pass with the batch not yet full: pad it with copies of this k
+						// and test it now. The factor-reporting loop below skips the copies.
+						if(count == count_last && q_index < (int32)TRYQM1) {
+							for(j = q_index+1; j <= TRYQM1; j++) {
+								k_to_try[j] = k;
+							}
+							q_index = TRYQM1;
+						}
 
 						if(q_index == TRYQM1)
 						{
@@ -3821,7 +3844,8 @@ MFACTOR_HELP:
 							/* Print any factors that were found in the current batch: */
 							for(l = 0; l < TRYQ; l++)
 							{
-								if((res >> l) & 1)	/* If Lth bit = 1, Lth candidate of the inputs is a factor */
+								// If Lth bit = 1, Lth candidate of the inputs is a factor - unless it is a padding copy of its predecessor:
+								if(((res >> l) & 1) && !(l && k_to_try[l] == k_to_try[l-1]))
 								{
 								#ifdef MULTITHREAD
 									pthread_mutex_lock(&mutex_mi64);
