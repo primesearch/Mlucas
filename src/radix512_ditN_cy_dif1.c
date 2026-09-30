@@ -58,7 +58,11 @@ void radix512_dif_pass1(double a[], int n)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
 	const double *addr,*addi;
 	#include "radix1024_twiddles.h"	// Can share radix-1024 table, just use first 31 of 63 rows here
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 
 	if(!first_entry && (n >> 9) != NDIVR)	/* New runlength?	*/
 	{
@@ -69,7 +73,9 @@ void radix512_dif_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n >> 9;
 
@@ -356,7 +362,11 @@ void radix512_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 
 	if(!first_entry && (n >> 9) != NDIVR)	/* New runlength?	*/
 	{
