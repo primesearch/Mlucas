@@ -335,8 +335,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"/* y.im *= x.re[copy] */\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"/* xy.re = x.re*y.re - x.im*y.im */\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"/* xy.im = y.re*x.im + y.im*x.re */\
-	"vsubpd		 (%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x400(%%rcx),%%ymm7,%%ymm7	\n\t"/* re = xy.re - z.re */\
-	"vsubpd	0x020(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x420(%%rcx),%%ymm8,%%ymm8	\n\t"/* im = xy.im - z.im */\
+	"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x400(%%rcx),%%ymm5,%%ymm5	\n\t"/* re = xy.re - z.re */\
+	"vsubpd	0x020(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x420(%%rcx),%%ymm7,%%ymm7	\n\t"/* im = xy.im - z.im */\
 		"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm5,0x400(%%rax)	\n\t"/* write z.re */\
 		"vmovaps	%%ymm2,0x020(%%rax)	\n\t	vmovaps	%%ymm7,0x420(%%rax)	\n\t"/* write z.im */\
 		/* x1.y1: */							/* x11.y11: */\
@@ -351,8 +351,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x440(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x460(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x040(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x440(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x060(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x460(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x040(%%rax)	\n\t	vmovaps	%%ymm5,0x440(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x060(%%rax)	\n\t	vmovaps	%%ymm7,0x460(%%rax)	\n\t"\
 		/* x2.y2: */							/* x12.y12: */\
@@ -367,8 +367,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x080(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x480(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x0a0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x4a0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x080(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x480(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x0a0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x4a0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x080(%%rax)	\n\t	vmovaps	%%ymm5,0x480(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x0a0(%%rax)	\n\t	vmovaps	%%ymm7,0x4a0(%%rax)	\n\t"\
 		/* x3.y3: */							/* x13.y13: */\
@@ -383,8 +383,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x0c0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x4c0(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x0e0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x4e0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x0c0(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x4c0(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x0e0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x4e0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x0c0(%%rax)	\n\t	vmovaps	%%ymm5,0x4c0(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x0e0(%%rax)	\n\t	vmovaps	%%ymm7,0x4e0(%%rax)	\n\t"\
 		/* x4.y4: */							/* x14.y14: */\
@@ -399,8 +399,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x100(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x500(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x120(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x520(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x100(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x500(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x120(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x520(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x100(%%rax)	\n\t	vmovaps	%%ymm5,0x500(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x120(%%rax)	\n\t	vmovaps	%%ymm7,0x520(%%rax)	\n\t"\
 		/* x5.y5: */							/* x15.y15: */\
@@ -415,8 +415,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x140(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x540(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x160(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x560(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x140(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x540(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x160(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x560(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x140(%%rax)	\n\t	vmovaps	%%ymm5,0x540(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x160(%%rax)	\n\t	vmovaps	%%ymm7,0x560(%%rax)	\n\t"\
 		/* x6.y6: */							/* x16.y16: */\
@@ -431,8 +431,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x180(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x580(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x1a0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x5a0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x180(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x580(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x1a0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x5a0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x180(%%rax)	\n\t	vmovaps	%%ymm5,0x580(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x1a0(%%rax)	\n\t	vmovaps	%%ymm7,0x5a0(%%rax)	\n\t"\
 		/* x7.y7: */							/* x17.y17: */\
@@ -447,8 +447,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x1c0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x5c0(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x1e0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x5e0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x1c0(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x5c0(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x1e0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x5e0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x1c0(%%rax)	\n\t	vmovaps	%%ymm5,0x5c0(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x1e0(%%rax)	\n\t	vmovaps	%%ymm7,0x5e0(%%rax)	\n\t"\
 		/* x8.y8: */							/* x18.y18: */\
@@ -463,8 +463,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x200(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x600(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x220(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x620(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x200(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x600(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x220(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x620(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x200(%%rax)	\n\t	vmovaps	%%ymm5,0x600(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x220(%%rax)	\n\t	vmovaps	%%ymm7,0x620(%%rax)	\n\t"\
 		/* x9.y9: */							/* x19.y19: */\
@@ -479,8 +479,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x240(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x640(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x260(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x660(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x240(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x640(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x260(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x660(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x240(%%rax)	\n\t	vmovaps	%%ymm5,0x640(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x260(%%rax)	\n\t	vmovaps	%%ymm7,0x660(%%rax)	\n\t"\
 		/* xA.yA: */							/* x1A.y1A: */\
@@ -495,8 +495,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x280(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x680(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x2a0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x6a0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x280(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x680(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x2a0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x6a0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x280(%%rax)	\n\t	vmovaps	%%ymm5,0x680(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x2a0(%%rax)	\n\t	vmovaps	%%ymm7,0x6a0(%%rax)	\n\t"\
 		/* xB.yB: */							/* x1B.y1B: */\
@@ -511,8 +511,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x2c0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x6c0(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x2e0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x6e0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x2c0(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x6c0(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x2e0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x6e0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x2c0(%%rax)	\n\t	vmovaps	%%ymm5,0x6c0(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x2e0(%%rax)	\n\t	vmovaps	%%ymm7,0x6e0(%%rax)	\n\t"\
 		/* xC.yC: */							/* x1C.y1C: */\
@@ -527,8 +527,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x300(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x700(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x320(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x720(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x300(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x700(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x320(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x720(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x300(%%rax)	\n\t	vmovaps	%%ymm5,0x700(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x320(%%rax)	\n\t	vmovaps	%%ymm7,0x720(%%rax)	\n\t"\
 		/* xD.yD: */							/* x1D.y1D: */\
@@ -543,8 +543,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x340(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x740(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x360(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x760(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x340(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x740(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x360(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x760(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x340(%%rax)	\n\t	vmovaps	%%ymm5,0x740(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x360(%%rax)	\n\t	vmovaps	%%ymm7,0x760(%%rax)	\n\t"\
 		/* xE.yE: */							/* x1E.y1E: */\
@@ -559,8 +559,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x380(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x780(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x3a0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x7a0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x380(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x780(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x3a0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x7a0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x380(%%rax)	\n\t	vmovaps	%%ymm5,0x780(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x3a0(%%rax)	\n\t	vmovaps	%%ymm7,0x7a0(%%rax)	\n\t"\
 		/* xF.yF: */							/* x1F.y1F: */\
@@ -575,8 +575,8 @@
 		"vmulpd	%%ymm4,%%ymm3,%%ymm3	\n\t	vmulpd	%%ymm9,%%ymm8,%%ymm8	\n\t"\
 		"vsubpd	%%ymm1,%%ymm0,%%ymm0	\n\t	vsubpd	%%ymm6,%%ymm5,%%ymm5	\n\t"\
 		"vaddpd	%%ymm3,%%ymm2,%%ymm2	\n\t	vaddpd	%%ymm8,%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x3c0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x7c0(%%rcx),%%ymm7,%%ymm7	\n\t"\
-	"vsubpd	0x3e0(%%rcx),%%ymm3,%%ymm3	\n\t	vsubpd	0x7e0(%%rcx),%%ymm8,%%ymm8	\n\t"\
+	"vsubpd	0x3c0(%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x7c0(%%rcx),%%ymm5,%%ymm5	\n\t"\
+	"vsubpd	0x3e0(%%rcx),%%ymm2,%%ymm2	\n\t	vsubpd	0x7e0(%%rcx),%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm0,0x3c0(%%rax)	\n\t	vmovaps	%%ymm5,0x7c0(%%rax)	\n\t"\
 		"vmovaps	%%ymm2,0x3e0(%%rax)	\n\t	vmovaps	%%ymm7,0x7e0(%%rax)	\n\t"\
 		:					/* outputs: none */\
@@ -609,8 +609,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"/* y.im *= x.re[copy] */\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"/* xy.re = x.re*y.re - x.im*y.im */\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"/* xy.im = y.re*x.im + y.im*x.re */\
-		"subpd	     (%%rcx),%%xmm2	\n\t	subpd	0x200(%%rcx),%%xmm7	\n\t"/* re = xy.re - z.re */\
-		"subpd	0x010(%%rcx),%%xmm3	\n\t	subpd	0x210(%%rcx),%%xmm8	\n\t"/* im = xy.im - z.im */\
+		"subpd	     (%%rcx),%%xmm0	\n\t	subpd	0x200(%%rcx),%%xmm5	\n\t"/* re = xy.re - z.re */\
+		"subpd	0x010(%%rcx),%%xmm2	\n\t	subpd	0x210(%%rcx),%%xmm7	\n\t"/* im = xy.im - z.im */\
 		"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm5,0x200(%%rax)	\n\t"/* write z.re */\
 		"movaps	%%xmm2,0x010(%%rax)	\n\t	movaps	%%xmm7,0x210(%%rax)	\n\t"/* write z.im */\
 		/* x1.y1: */						/* x11.y11: */\
@@ -625,8 +625,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x020(%%rcx),%%xmm2	\n\t	subpd	0x220(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x030(%%rcx),%%xmm3	\n\t	subpd	0x230(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x020(%%rcx),%%xmm0	\n\t	subpd	0x220(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x030(%%rcx),%%xmm2	\n\t	subpd	0x230(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x020(%%rax)	\n\t	movaps	%%xmm5,0x220(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x030(%%rax)	\n\t	movaps	%%xmm7,0x230(%%rax)	\n\t"\
 		/* x2.y2: */						/* x12.y12: */\
@@ -641,8 +641,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x040(%%rcx),%%xmm2	\n\t	subpd	0x240(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x050(%%rcx),%%xmm3	\n\t	subpd	0x250(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x040(%%rcx),%%xmm0	\n\t	subpd	0x240(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x050(%%rcx),%%xmm2	\n\t	subpd	0x250(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x040(%%rax)	\n\t	movaps	%%xmm5,0x240(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x050(%%rax)	\n\t	movaps	%%xmm7,0x250(%%rax)	\n\t"\
 		/* x3.y3: */						/* x13.y13: */\
@@ -657,8 +657,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x060(%%rcx),%%xmm2	\n\t	subpd	0x260(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x070(%%rcx),%%xmm3	\n\t	subpd	0x270(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x060(%%rcx),%%xmm0	\n\t	subpd	0x260(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x070(%%rcx),%%xmm2	\n\t	subpd	0x270(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x060(%%rax)	\n\t	movaps	%%xmm5,0x260(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x070(%%rax)	\n\t	movaps	%%xmm7,0x270(%%rax)	\n\t"\
 		/* x4.y4: */						/* x14.y14: */\
@@ -673,8 +673,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x080(%%rcx),%%xmm2	\n\t	subpd	0x280(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x090(%%rcx),%%xmm3	\n\t	subpd	0x290(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x080(%%rcx),%%xmm0	\n\t	subpd	0x280(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x090(%%rcx),%%xmm2	\n\t	subpd	0x290(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x080(%%rax)	\n\t	movaps	%%xmm5,0x280(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x090(%%rax)	\n\t	movaps	%%xmm7,0x290(%%rax)	\n\t"\
 		/* x5.y5: */						/* x15.y15: */\
@@ -689,8 +689,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x0a0(%%rcx),%%xmm2	\n\t	subpd	0x2a0(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x0b0(%%rcx),%%xmm3	\n\t	subpd	0x2b0(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x0a0(%%rcx),%%xmm0	\n\t	subpd	0x2a0(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x0b0(%%rcx),%%xmm2	\n\t	subpd	0x2b0(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x0a0(%%rax)	\n\t	movaps	%%xmm5,0x2a0(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x0b0(%%rax)	\n\t	movaps	%%xmm7,0x2b0(%%rax)	\n\t"\
 		/* x6.y6: */						/* x16.y16: */\
@@ -705,8 +705,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x0c0(%%rcx),%%xmm2	\n\t	subpd	0x2c0(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x0d0(%%rcx),%%xmm3	\n\t	subpd	0x2d0(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x0c0(%%rcx),%%xmm0	\n\t	subpd	0x2c0(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x0d0(%%rcx),%%xmm2	\n\t	subpd	0x2d0(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x0c0(%%rax)	\n\t	movaps	%%xmm5,0x2c0(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x0d0(%%rax)	\n\t	movaps	%%xmm7,0x2d0(%%rax)	\n\t"\
 		/* x7.y7: */						/* x17.y17: */\
@@ -721,8 +721,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x0e0(%%rcx),%%xmm2	\n\t	subpd	0x2e0(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x0f0(%%rcx),%%xmm3	\n\t	subpd	0x2f0(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x0e0(%%rcx),%%xmm0	\n\t	subpd	0x2e0(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x0f0(%%rcx),%%xmm2	\n\t	subpd	0x2f0(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x0e0(%%rax)	\n\t	movaps	%%xmm5,0x2e0(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x0f0(%%rax)	\n\t	movaps	%%xmm7,0x2f0(%%rax)	\n\t"\
 		/* x8.y8: */						/* x18.y18: */\
@@ -737,8 +737,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x100(%%rcx),%%xmm2	\n\t	subpd	0x300(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x110(%%rcx),%%xmm3	\n\t	subpd	0x310(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x100(%%rcx),%%xmm0	\n\t	subpd	0x300(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x110(%%rcx),%%xmm2	\n\t	subpd	0x310(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x100(%%rax)	\n\t	movaps	%%xmm5,0x300(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x110(%%rax)	\n\t	movaps	%%xmm7,0x310(%%rax)	\n\t"\
 		/* x9.y9: */						/* x19.y19: */\
@@ -753,8 +753,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x120(%%rcx),%%xmm2	\n\t	subpd	0x320(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x130(%%rcx),%%xmm3	\n\t	subpd	0x330(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x120(%%rcx),%%xmm0	\n\t	subpd	0x320(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x130(%%rcx),%%xmm2	\n\t	subpd	0x330(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x120(%%rax)	\n\t	movaps	%%xmm5,0x320(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x130(%%rax)	\n\t	movaps	%%xmm7,0x330(%%rax)	\n\t"\
 		/* xA.yA: */						/* x1A.y1A: */\
@@ -769,8 +769,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x140(%%rcx),%%xmm2	\n\t	subpd	0x340(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x150(%%rcx),%%xmm3	\n\t	subpd	0x350(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x140(%%rcx),%%xmm0	\n\t	subpd	0x340(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x150(%%rcx),%%xmm2	\n\t	subpd	0x350(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x140(%%rax)	\n\t	movaps	%%xmm5,0x340(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x150(%%rax)	\n\t	movaps	%%xmm7,0x350(%%rax)	\n\t"\
 		/* xB.yB: */						/* x1B.y1B: */\
@@ -785,8 +785,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x160(%%rcx),%%xmm2	\n\t	subpd	0x360(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x170(%%rcx),%%xmm3	\n\t	subpd	0x370(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x160(%%rcx),%%xmm0	\n\t	subpd	0x360(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x170(%%rcx),%%xmm2	\n\t	subpd	0x370(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x160(%%rax)	\n\t	movaps	%%xmm5,0x360(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x170(%%rax)	\n\t	movaps	%%xmm7,0x370(%%rax)	\n\t"\
 		/* xC.yC: */						/* x1C.y1C: */\
@@ -801,8 +801,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x180(%%rcx),%%xmm2	\n\t	subpd	0x380(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x190(%%rcx),%%xmm3	\n\t	subpd	0x390(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x180(%%rcx),%%xmm0	\n\t	subpd	0x380(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x190(%%rcx),%%xmm2	\n\t	subpd	0x390(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x180(%%rax)	\n\t	movaps	%%xmm5,0x380(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x190(%%rax)	\n\t	movaps	%%xmm7,0x390(%%rax)	\n\t"\
 		/* xD.yD: */						/* x1D.y1D: */\
@@ -817,8 +817,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x1a0(%%rcx),%%xmm2	\n\t	subpd	0x3a0(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x1b0(%%rcx),%%xmm3	\n\t	subpd	0x3b0(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x1a0(%%rcx),%%xmm0	\n\t	subpd	0x3a0(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x1b0(%%rcx),%%xmm2	\n\t	subpd	0x3b0(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x1a0(%%rax)	\n\t	movaps	%%xmm5,0x3a0(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x1b0(%%rax)	\n\t	movaps	%%xmm7,0x3b0(%%rax)	\n\t"\
 		/* xE.yE: */						/* x1E.y1E: */\
@@ -833,8 +833,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x1c0(%%rcx),%%xmm2	\n\t	subpd	0x3c0(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x1d0(%%rcx),%%xmm3	\n\t	subpd	0x3d0(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x1c0(%%rcx),%%xmm0	\n\t	subpd	0x3c0(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x1d0(%%rcx),%%xmm2	\n\t	subpd	0x3d0(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x1c0(%%rax)	\n\t	movaps	%%xmm5,0x3c0(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x1d0(%%rax)	\n\t	movaps	%%xmm7,0x3d0(%%rax)	\n\t"\
 		/* xF.yF: */						/* x1F.y1F: */\
@@ -849,8 +849,8 @@
 		"mulpd		  %%xmm4,%%xmm3	\n\t	mulpd		  %%xmm9,%%xmm8	\n\t"\
 		"subpd		  %%xmm1,%%xmm0	\n\t	subpd		  %%xmm6,%%xmm5	\n\t"\
 		"addpd		  %%xmm3,%%xmm2	\n\t	addpd		  %%xmm8,%%xmm7	\n\t"\
-		"subpd	0x1e0(%%rcx),%%xmm2	\n\t	subpd	0x3e0(%%rcx),%%xmm7	\n\t"\
-		"subpd	0x1f0(%%rcx),%%xmm3	\n\t	subpd	0x3f0(%%rcx),%%xmm8	\n\t"\
+		"subpd	0x1e0(%%rcx),%%xmm0	\n\t	subpd	0x3e0(%%rcx),%%xmm5	\n\t"\
+		"subpd	0x1f0(%%rcx),%%xmm2	\n\t	subpd	0x3f0(%%rcx),%%xmm7	\n\t"\
 		"movaps	%%xmm0,0x1e0(%%rax)	\n\t	movaps	%%xmm5,0x3e0(%%rax)	\n\t"\
 		"movaps	%%xmm2,0x1f0(%%rax)	\n\t	movaps	%%xmm7,0x3f0(%%rax)	\n\t"\
 		:					/* outputs: none */\
