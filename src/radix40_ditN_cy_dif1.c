@@ -329,8 +329,9 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		_cy[0] = 0x0;	// First of these used as an "already inited consts?" sentinel, must init = 0x0 at same time do so for non-array static ptrs
 	}
 
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-		ASSERT(0, "Fermat-mod only available for radices 7,8,9,15 and their multiples!");
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+		WARN(HERE, "radix40_ditN_cy_dif1: No Fermat-mod support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+	}
 
   #ifdef USE_IMCI512
 //	WARN(HERE, "radix40_ditN_cy_dif1: No k1om / IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
