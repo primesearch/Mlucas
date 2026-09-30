@@ -160,6 +160,9 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 #endif
 
 #define SPOT_CHECK	0	// Enable periodic Spot-check (PRP or composite) of factor candidates
+// Capacity of factor_k[], the list of the k's of the prime factors found so far in a run. The list is used to divide
+// known factors out of any composite factor found later; factors found once it is full are still reported and counted.
+#define FACTOR_K_MAX	1024
 
 // printf character buffers - when using to print args in a single printf, need a separate buffer for each arg:
 char char_buf0[STR_MAX_LEN], char_buf1[STR_MAX_LEN], char_buf2[STR_MAX_LEN];
@@ -746,7 +749,7 @@ int main(int argc, char *argv[])
   #endif
 
 /* Allocate factor_k array and align on 16-byte boundary: */
-	factor_ptmp = ALLOC_UINT64(factor_ptmp, 24);
+	factor_ptmp = ALLOC_UINT64(factor_ptmp, FACTOR_K_MAX);
 	// Retain the base pointer: factor_k is an *interior* (64-byte-aligned) pointer into the
 	// factor_ptmp allocation, so only factor_ptmp can be passed to free() - and it is, near the
 	// end of main(). Nulling it here made that free() a no-op on NULL, leaking the allocation.
@@ -2317,7 +2320,7 @@ candidate factors that survive sieving.	*/
 			targ->pdiff = pdiff + NUM_SIEVING_PRIME * thr_id;
 			targ->startval = startval + NUM_SIEVING_PRIME * thr_id;
 			targ->k_to_try = k_to_try + TRYQ              * thr_id;
-			targ->factor_k = factor_k + TRYQ              * thr_id;
+			targ->factor_k = factor_k;	// One list for all threads, so that each can check a new factor against all known ones
 			targ->nfactor = &nfactor;
 			targ->findex = findex;
 			targ->pstring = pstring;
@@ -3838,56 +3841,88 @@ MFACTOR_HELP:
 									//	printf("q = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 									//	printf("res = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q2, lenQ, 0)]);
 									} else {
-										/* Do a quick base-3 compositeness check (base-2 would be much faster due to
-										our fast Montgomery arithmetic-based powering for that, but it's useless for
-										weeding out composite Mersenne factors since those are all base-2 Fermat pseudoprimes).
-										If it's composite we skip it, since we expect to recover the individual prime subfactors
-										on subsequent passes (although this should only ever happen for small p and q > (2p+1)^2 :
-										*/
-										uint32 known_factor_div_check_done = 0;
-									TEST_FAC_PRIM:
-										if(mi64_pprimeF(q, 3ull, lenQ)) {
-											factor_k[(*nfactor)++] = k_to_try[l];
-											if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-												snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],findex,k_to_try[l]/2);
-											else
-												snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],k_to_try[l]);
-										#ifdef FAC_DEBUG
-											if(TRYQM1 > 1)
-												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
-										#endif
-										} else {	// Composite factor; this should only occur in "single-word" (q < 2^96) mode:
-											if(known_factor_div_check_done) {	// Already divided out all pvsly-found factors
-												snprintf(cbuf, sizeof(cbuf), "\n\tComposite Factor found: q = %s; you will have to factor this one separately.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)]);
-											} else {
-												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)]);
-												for(j = 0; j < *nfactor; j++) {
-													q2[lenP] = mi64_mul_scalar( p, 2*factor_k[j], q2, lenP);
-													ASSERT(lenP == 1 && q2[lenP] == 0ull, "Unexpected carryout in known-factor computation!");
-													q2[0] += 1;	// q2 = 2.k.p + 1; No need to check for carry since 2.k.p even
-													mi64_clear(u64_arr, lenQ);	// Use u64_arr for quotient; only care if remainder == 0 or not
-													if(mi64_div(q,q2,lenQ,lenQ,u64_arr,0x0)) {
-														/* in this case, need to update factor_k entry to reflect k of cofactor>
-														Given factor q which is product of 2 factors f1 = 2.k1.p+1 and f2 = 2.k2.p+1,
-														the first of which has been previously found, we have
-														q = f1*f2 = (2.k1.p+1).(2.k2.p+1) = 4.k1.k2.p^2 + 2.(k1+k2).p + 1 = 2.k.p+1,
-														so k = 2.k1.k2.p + (k1+k2) = k1 + k2.(2.k1.p + 1) = k1 + f1.k2 .
-														Thus if have pvsly found f1 and now find the composite factor q = f1.f2,
-														to get k2 from k and k1, use k2 = (k - k1)/f1: */
-														factor_k[*nfactor-1] = (factor_k[*nfactor-1] - factor_k[j])/q2[0];
+										/* q divides the modulus, but the sieve only clears multiples of the small sieving primes,
+										so q may be composite: for small p it often is, e.g. q = M(29) itself. Its prime factors
+										may also have been reported already, either directly or as the cofactor of an earlier
+										composite q: the threads work through the k-classes in parallel, so factors do not turn up
+										in order of size. factor_k[0 .. *nfactor-1] holds the k of each prime factor reported so
+										far (composites are not added); it is shared by all threads and is only accessed with
+										mutex_mi64 held. Report each prime factor exactly once:
+										- q already in factor_k[] (as an earlier cofactor): nothing new to report.
+										- q a probable prime: report it and add its k to factor_k[].
+										- q composite: divide out each previously-found factor that divides it exactly, then
+										  report what is left, unless it is 1: as a new prime factor, with its own k, or else as
+										  a composite factor to be factored separately.
+										The primality check is a base-3 Fermat test; base 2 would be much faster due to our fast
+										Montgomery arithmetic-based powering for that, but it's useless for weeding out composite
+										Mersenne factors since those are all base-2 Fermat pseudoprimes. */
+										uint64 kfac = k_to_try[l], cy;	// kfac = k of the current q, updated if known factors are divided out
+										const char *qstr0 = 0x0;	// The original q, if it is composite
+										uint32 is_prime = 1, ndiv = 0;	// ndiv = #previously-found factors divided out of q
+										uint32 nknown = MIN(*nfactor, FACTOR_K_MAX);	// factor_k[] has room for FACTOR_K_MAX k's
+										cbuf[0] = '\0';	// Empty (i.e. nothing is reported below) unless there is a new factor
+										for(j = 0; j < nknown; j++) {
+											if(factor_k[j] == kfac) break;
+										}
+										if(j < nknown) {
+											printf("\n\tq = %s was already reported, as the cofactor of a composite factor.\n",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)]);
+										} else {
+											if(!mi64_pprimeF(q, 3ull, lenQ)) {
+												is_prime = 0;
+												qstr0 = &cbuf2[convert_mi64_base10_char(cbuf2, q, lenQ, 0)];
+												printf("\n\tComposite Factor found: q = %s; checking if any previously-found ones divide it...\n",qstr0);
+												for(j = 0; j < nknown; j++) {
+													// q2 = 2.k.p + 1 for the j-th known factor. That was a q of this run or divides one, so it fits in lenQ words:
+													mi64_clear(q2, lenQ);
+													cy = mi64_mul_scalar(p, 2*factor_k[j], q2, lenP);
+													if(lenQ > lenP)
+														q2[lenP] = cy;
+													else
+														ASSERT(cy == 0ull, "Unexpected carryout in known-factor computation!");
+													q2[0] += 1;	// No need to check for carry since 2.k.p even
+													// mi64_div returns 1 iff the remainder is 0; only then replace q by the quotient:
+													while(mi64_div(q, q2, lenQ, lenQ, u64_arr, 0x0)) {
+														mi64_set_eq(q, u64_arr, lenQ);	++ndiv;
 														if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2^(%u+2)*%" PRIu64 ".\n",findex,factor_k[j]);
+															printf("\tq is divisible by previously-found factor 2^(%u+2)*%" PRIu64 ".\n",findex,factor_k[j]/2);
 														else
-															sprintf(cbuf,"\n\tFactor divisible by previously-found factor 2*p*k + 1 with k = %" PRIu64 ".\n",factor_k[j]);
+															printf("\tq is divisible by previously-found factor 2*p*k + 1 with k = %" PRIu64 ".\n",factor_k[j]);
 													}
-													mi64_set_eq(q, u64_arr, lenQ);
 												}
-												known_factor_div_check_done = 1;
-												// If dividing out any previously-found factors leaves a nontrivial cofactor, send it back to above is-PRP check:
-												if(!mi64_cmp_eq_scalar(q, 1ull, lenQ))
-													goto TEST_FAC_PRIM;
+												if(mi64_cmp_eq_scalar(q, 1ull, lenQ)) {
+													printf("\tq is a product of previously-found factors, so there is nothing new to report.\n");
+												} else if(ndiv) {
+													// The cofactor is 1 mod 2p like every factor of the modulus; get its k = (q-1)/(2p):
+													mi64_set_eq(u64_arr, q, lenQ);
+													u64_arr[0] -= 1;	// q odd, so no borrow
+													is_prime = mi64_div(u64_arr, two_p, lenQ, lenQ, q2, 0x0);	// Use q2 for the quotient k
+													ASSERT(is_prime && mi64_getlen(q2, lenQ) <= 1, "Cofactor is not of the form 2.k.p+1!");
+													kfac = q2[0];
+													is_prime = mi64_pprimeF(q, 3ull, lenQ);
+												}
 											}
-										}	/* endif(factor a probable prime?) */
+											if(!mi64_cmp_eq_scalar(q, 1ull, lenQ)) {
+												// If q is what is left of a composite after dividing out known factors, say which composite:
+												const char *cofstr = (ndiv ? " It is the cofactor of composite factor " : ""), *qstr0_ = (ndiv ? qstr0 : ""), *eos = (ndiv ? " after dividing out previously-found factors.\n" : "\n");
+												if(is_prime) {
+													if(*nfactor < FACTOR_K_MAX)
+														factor_k[*nfactor] = kfac;
+													else
+														printf("\tWARNING: list of found factors is full; this one will not be checked against later composite factors.\n");
+													++*nfactor;
+													if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+														snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2^(%u+2)*%" PRIu64 ". This factor is a probable prime.%s%s%s",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],findex,kfac/2,cofstr,qstr0_,eos);
+													else
+														snprintf(cbuf, sizeof(cbuf), "\n\tFactor found: q = %s = 2*p*k + 1 with k = %" PRIu64 ". This factor is a probable prime.%s%s%s",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],kfac,cofstr,qstr0_,eos);
+												#ifdef FAC_DEBUG
+													if(TRYQM1 > 1)
+														printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
+												#endif
+												} else {
+													snprintf(cbuf, sizeof(cbuf), "\n\tComposite Factor found: q = %s; you will have to factor this one separately.%s%s%s",&g_cstr[convert_mi64_base10_char(g_cstr, q, lenQ, 0)],cofstr,qstr0_,eos);
+												}
+											}
+										}
 									#ifdef FACTOR_STANDALONE
 										fprintf(stderr,"%s", cbuf);
 									#else
