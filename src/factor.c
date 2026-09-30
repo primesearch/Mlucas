@@ -65,6 +65,27 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 
 #endif
 
+/* Number of factor candidates this run had tried before the current PerPass_tfSieve() call: in the passes
+completed so far and, for a resumed run, in its earlier sessions. main() sets it before each pass (or wave of
+passes), and PerPass_tfSieve() adds its own count to it for the '#Q tried' field of the checkpoints it writes,
+so that field is the total for the run, not just for the pass being checkpointed: */
+static uint64 tf_count_base = 0ull;
+
+/* The k of every factor the current run has reported, in the order reported; the first tf_nfac_prev of them
+were reported by earlier sessions of a resumed run. The list is kept in the savefile too (lines 12 and up, see
+read_savefile), because a resumed run redoes whatever it had done since its last checkpoint - in a multithreaded
+run the whole wave of passes it was killed in, in a single-threaded one the rest of the current pass - and
+without the list it would report the factors in that stretch a second time. PerPass_tfSieve() skips the
+factors reported by earlier sessions, and appends each new one to the list and the savefile as it reports it.
+Only main() and PerPass_tfSieve()'s mutex-protected factor-reporting code touch the list: */
+static uint64 *tf_fac_k = 0x0;
+static uint32 tf_nfac = 0, tf_nfac_prev = 0, tf_fac_cap = 0;
+static void tf_add_reported_factor(const char*fname, uint64 k);
+#ifdef FACTOR_STANDALONE	// Only main() reads the list, and Mfactor has no main() in a non-standalone build
+static uint32 tf_read_reported_factors(const char*fname);
+#endif
+static int tf_reported_before(uint64 k);
+
 
 #undef RTIME
 #undef CTIME
@@ -674,6 +695,7 @@ int main(int argc, char *argv[])
 	uint64 *bit_map, *bit_map2, *bit_atlas = 0x0;
 	uint32 pass = 0xffffffff, passmin = 0, passnow = 0, passmax = TF_PASSES-1;
 	uint64 count = 0,countmask,j,k,kmin = 0,kmax = 0,know = 0,kplus = 0;
+	uint64 count_prev = 0;	// #Q tried by the earlier sessions of a resumed run, from its savefile
 	uint32 CMASKBITS;	// This is set at runtime based on the operand sizes, but treat as read-only subsequently.
 
 	/* If restart file found, use these to store bmin/max, kmin/max, passmin/max
@@ -780,6 +802,11 @@ REQUIRED:
 			k-bounds [kmax_previous, kmax_previous + kplus] is begun. If -kplus is specified
 			but the restart-file data indicate an as-yet-uncompleted run, a warning is issued,
 			the -kplus argument ignored, and the incomplete run is resumed.
+		* After a completed run, -bmin/bmax or -kmin/kmax bounds likewise continue it: the new run
+			starts at the previous run's kmax (as rounded out to whole sieve intervals, and saved in
+			the checkpoint file), so no k is tried twice. If the new upper bound is no higher than
+			that kmax, the range asked for has already been covered, and the program says so and
+			exits without searching. The same happens if no bounds are given at all.
 
 Others are optional and in some cases mutually exclusive:
 
@@ -1111,8 +1138,6 @@ exit(0);
 		}
 	}
 
-	ASSERT(bmax > 0.0 || kmax != 0 ,"factor.c: One of bmax or kmax must be set!");
-
 	ASSERT((MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 			  || (MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
 			  || (MODULUS_TYPE ==   MODULUS_TYPE_FERMAT)
@@ -1159,18 +1184,6 @@ exit(0);
 	q       = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
 	q2      = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
 	u64_arr = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
-
-	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
-	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
-	// may be up to (len*64)-1 larger than the user-specified kmax:
-	if(kmax) {
-		interval_hi = (uint64)ceil( (double)kmax / ((uint64)len << TF_CLSHIFT) );	// Copied from restart-file code below
-		// Actual kmax used at runtime = interval_hi*(len << TF_CLSHIFT);
-		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
-		lenQ = lenP + (u64_arr[lenP] != 0);
-	} else {
-		lenQ = ( (uint32)(ceil(bmax)) + 63 ) >> 6;
-	}
 
 	// Mersenne numbers must have odd (check primality further on) exponents:
 	if((MODULUS_TYPE != MODULUS_TYPE_FERMAT) && (p[0] & 1) == 0)
@@ -1292,6 +1305,140 @@ exit(0);
 		pmodNC = mi64_div_y32(p, TF_CLASSES, 0x0, lenP);
 	}
 
+/*****************************************************/
+/****************** RESTART STUFF: *******************/
+/*****************************************************/
+
+	/* Restart file for a given exponent is named 't{exponent}'.
+	Since Fermat-number exponents are so much smaller than Mersenne-number ones,
+	we assume there is no overlap, i.e. if pstring <= MAX_BITS_P, it's a
+	Fermat-number factoring run, pstring > MAX_BITS_P is a Mersenne-number run.
+	*/
+	RESTARTFILE[0] = 't'; RESTARTFILE[1] = '\0'; strcat(RESTARTFILE, pstring);
+	/* A single-threaded run checkpoints within each pass; a multithreaded one runs NTHREADS passes at a time, and
+	the savefile can only say how far a single current pass has got, so it checkpoints after each such wave: */
+	if(NTHREADS > 1)
+		fprintf(stderr,"INFO: Will write checkpoint data to savefile %s after each wave of %u passes.\n",RESTARTFILE,NTHREADS);
+	else
+		fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
+
+	/**** process restart-file and any command-line params: ****/
+	// Note: return value of read_savefile is signed:
+	itmp = read_savefile(RESTARTFILE, pstring, &bmin_file,&bmax_file, &kmin_file,&know_file,&kmax_file, &passmin_file,&passnow_file,&passmax_file, &count);
+	if(itmp == -1) {
+		snprintf(cbuf, sizeof(cbuf), "INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
+		fprintf(stderr,"%s",cbuf);
+	#ifndef FACTOR_STANDALONE
+		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
+	#endif
+		// Init savefile with above read_savefile fields so ensuing checkpoint-writes only need to update the pass# and k:
+//		ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
+	} else {
+		ASSERT(!itmp,"There were errors reading the savefile ... aborting");
+		count_prev = count;	// If the run is resumed, it has already tried this many candidates
+		count = 0ull;	// Need to reset == 0 prior to sieving so kvector-fill code works properly
+
+		/* If previous run is not yet complete, ignore any increased factor-bound-related
+		command-line parameters and instead proceed to complete the previous run first:
+		*/
+		if((know_file < kmax_file) || (passnow_file < passmax_file)) {
+			incomplete_run = TRUE;
+			fprintf(stderr,"INFO: Previous run to kmax = %s not yet complete.\n"  , &char_buf0[convert_uint64_base10_char(char_buf0, kmax_file)]);
+			fprintf(stderr,"Ignoring any increased factor-bound-related command-line parameters and proceeding to complete previous run.\n");
+			bmin = bmin_file; bmax = bmax_file;
+			passmin = passmin_file; passnow = passnow_file; passmax = passmax_file;
+			kmin = kmin_file; know = know_file; kmax = kmax_file;
+			kplus = 0;
+			/* The factors already reported by this run, which we must not report again: */
+			if(tf_read_reported_factors(RESTARTFILE))
+				fprintf(stderr,"INFO: The earlier session(s) of this run reported %u factor(s); these will not be reported again.\n", tf_nfac_prev);
+		} else {
+			count_prev = 0ull;	// A new run, whose count starts from zero
+			/* With no new bounds on the command line there is nothing to extend the completed run to: */
+			if(!(bmin || bmax || kmin || kmax || kplus)) {
+				fprintf(stderr,"INFO: The previous run, to k = %s, is complete. Nothing to do: use -kplus, or a higher -bmax or -kmax, to extend it.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax_file)]);
+				return 0;
+			}
+			/**** Previous run was completed - check that current params satisfy one (and only one)
+			of the following sets of conditions:
+				1) -bmin/bmax used to set bounds for factoring:
+					In this case we expect any command-line bmin will be >= that in the restart file
+					(in fact we expect bmin >= bmax_file, i.e. that the runs are nonoverlapping -
+					if not we warn and set bmin = bmax_file), and that bmax > bmax_file.
+			****/
+			if(bmin || bmax) {
+			#if(!defined(P1WORD))
+			//	ASSERT(0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
+			#endif
+				ASSERT((kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
+
+				if(bmin) {
+					ASSERT(bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
+					if(bmin < bmax_file)
+						fprintf(stderr,"WARNING: Specified bmin (%lf) smaller than previous-run bmax = %lf. Setting equal to avoid overlapping runs.\n", bmin, bmax_file);
+				}
+				bmin = bmax_file;
+				/* Start at the previous run's kmax, the exact k it covered up to. Converting bmin back to a k and
+				rounding that down to a whole sieve interval would restart inside the previous run's last interval
+				and report its factors a second time. A bmax the previous run already covered is handled once it
+				has been converted to a kmax, below: */
+				kmin = kmax_file;
+			}
+
+			/****
+				2) -kmin/kmax used to set bounds for factoring:
+					In this case we expect any command-line kmin will be >= that in the restart file
+					(in fact we expect kmin >= kmax_file, i.e. that the runs are nonoverlapping -
+					if not we warn and set kmin = kmax_file), and that kmax > kmax_file.
+			****/
+			else if(kmin || kmax) {
+				ASSERT((bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
+				if(kmin) {
+					ASSERT(kmin >= kmin_file,"kmin >= kmin_file");
+					if(kmin < kmax_file)
+						fprintf(stderr,"WARNING: Specified kmin (%s) smaller than previous-run kmax = %s. Setting equal to avoid overlapping runs.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmin)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax_file)]);
+				}
+				kmin = kmax_file;
+				/* A kmax the previous run already covered is handled below, with the bmax case. */
+			}
+
+			/****
+				3) -kplus used to increment an upper bound from a previous factoring run:
+			****/
+			else if(kplus) {
+				ASSERT((bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
+				kmin = kmax_file;
+				/* Ensure incremented value kmax fits into a 64-bit unsigned int: */
+				ASSERT((kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
+				kmax = kmin + kplus;
+				kplus = 0;	/* If kplus != 0 detected further on, that indicates that no valid restart
+							file was found for factoring-bounds incrementing. */
+			}
+		}
+		/* Successfully processed restart file: */
+		restart = TRUE;
+	}
+
+/************************ END(RESTART STUFF) *******************/
+
+	/* Only now are the factor bounds known: with -kplus, or when resuming from the savefile with no bounds on
+	the command line, neither bmax nor kmax is set until the savefile has been read above. So everything that
+	depends on them - the check that one is set, lenQ, the qmax limit and the checkpoint interval - goes here: */
+	ASSERT(kplus == 0 || restart, "-kplus requires the savefile of a previous run of this exponent, and none was found!");
+	ASSERT(bmax > 0.0 || kmax != 0 ,"factor.c: One of bmax or kmax must be set, unless resuming an incomplete run from its savefile!");
+
+	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
+	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
+	// may be up to (len*64)-1 larger than the user-specified kmax:
+	if(kmax) {
+		interval_hi = (uint64)ceil( (double)kmax / ((uint64)len << TF_CLSHIFT) );	// Copied from restart-file code below
+		// Actual kmax used at runtime = interval_hi*(len << TF_CLSHIFT);
+		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
+		lenQ = lenP + (u64_arr[lenP] != 0);
+	} else {
+		lenQ = ( (uint32)(ceil(bmax)) + 63 ) >> 6;
+	}
+
 	// If user-set kmax, test factoring range vs internal limits
 	if(kmax) {
 		interval_hi = (uint64)ceil((double)kmax/((uint64)len << TF_CLSHIFT));	// Copied from restart-file code below
@@ -1313,112 +1460,13 @@ exit(0);
 	CMASKBITS = (30 - (bits_in_pq2>>1));
 	countmask = (1ull << CMASKBITS) - 1;
 
-/*****************************************************/
-/****************** RESTART STUFF: *******************/
-/*****************************************************/
-
-	/* Restart file for a given exponent is named 't{exponent}'.
-	Since Fermat-number exponents are so much smaller than Mersenne-number ones,
-	we assume there is no overlap, i.e. if pstring <= MAX_BITS_P, it's a
-	Fermat-number factoring run, pstring > MAX_BITS_P is a Mersenne-number run.
-	*/
-	RESTARTFILE[0] = 't'; RESTARTFILE[1] = '\0'; strcat(RESTARTFILE, pstring);
-	// Checkpointing only supported for single-threaded runs:
-	if(NTHREADS > 1)
-		fprintf(stderr,"WARN: Checkpointing only supported for single-threaded runs!\n");
-	else
-		fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
-
 	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %" PRIu64 " factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
 
-	/**** process restart-file and any command-line params: ****/
-	// Note: return value of read_savefile is signed:
-	itmp = read_savefile(RESTARTFILE, pstring, &bmin_file,&bmax_file, &kmin_file,&know_file,&kmax_file, &passmin_file,&passnow_file,&passmax_file, &count);
-	if(itmp == -1) {
-		snprintf(cbuf, sizeof(cbuf), "INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
-		fprintf(stderr,"%s",cbuf);
-	#ifndef FACTOR_STANDALONE
-		fq = mlucas_fopen(STATFILE,"a"); fprintf(fq,"%s",cbuf); fclose(fq); fq = 0x0;
-	#endif
-		// Init savefile with above read_savefile fields so ensuing checkpoint-writes only need to update the pass# and k:
-//		ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
-	} else {
-		ASSERT(!itmp,"There were errors reading the savefile ... aborting");
-		count = 0ull;	// Need to reset == 0 prior to sieving so kvector-fill code works properly
-
-		/* If previous run is not yet complete, ignore any increased factor-bound-related
-		command-line parameters and instead proceed to complete the previous run first:
-		*/
-		if((know_file < kmax_file) || (passnow_file < passmax_file)) {
-			incomplete_run = TRUE;
-			fprintf(stderr,"INFO: Previous run to kmax = %s not yet complete.\n"  , &char_buf0[convert_uint64_base10_char(char_buf0, kmax_file)]);
-			fprintf(stderr,"Ignoring any increased factor-bound-related command-line parameters and proceeding to complete previous run.\n");
-			bmin = bmin_file; bmax = bmax_file;
-			passmin = passmin_file; passnow = passnow_file; passmax = passmax_file;
-			kmin = kmin_file; know = know_file; kmax = kmax_file;
-			kplus = 0;
-		} else {
-			/**** Previous run was completed - check that current params satisfy one (and only one)
-			of the following sets of conditions:
-				1) -bmin/bmax used to set bounds for factoring:
-					In this case we expect any command-line bmin will be >= that in the restart file
-					(in fact we expect bmin >= bmax_file, i.e. that the runs are nonoverlapping -
-					if not we warn and set bmin = bmax_file), and that bmax > bmax_file.
-			****/
-			if(bmin || bmax) {
-			#if(!defined(P1WORD))
-			//	ASSERT(0,"bmin/bmax form of bounds-setting only allowed for single-word-p case!");
-			#endif
-				ASSERT((kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0) - please delete any restart files for this p and retry debug run.");
-
-				if(bmin) {
-					ASSERT(bmin >= bmin_file - 0.0000000001,"bmin >= bmin_file");
-					if(bmin < bmax_file)
-						fprintf(stderr,"WARNING: Specified bmin (%lf) smaller than previous-run bmax = %lf. Setting equal to avoid overlapping runs.\n", bmin, bmax_file);
-				}
-				bmin = bmax_file;
-				/* We expect any command-line bmax will be > that in the restart file: */
-				if(bmax)
-					ASSERT(bmax > bmax_file - 0.0000000001,"bmax >= bmax_file");
-			}
-
-			/****
-				2) -kmin/kmax used to set bounds for factoring:
-					In this case we expect any command-line kmin will be >= that in the restart file
-					(in fact we expect kmin >= kmax_file, i.e. that the runs are nonoverlapping -
-					if not we warn and set kmin = kmax_file), and that kmax > kmax_file.
-			****/
-			if(kmin || kmax) {
-				ASSERT((bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
-				if(kmin) {
-					ASSERT(kmin >= kmin_file,"kmin >= kmin_file");
-					if(kmin < kmax_file)
-						fprintf(stderr,"WARNING: Specified kmin (%s) smaller than previous-run kmax = %s. Setting equal to avoid overlapping runs.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax_file)]);
-				}
-				kmin = kmax_file;
-				/* We expect any command-line kmax will be > that in the restart file: */
-				if(kmax)
-					ASSERT(kmax > kmax_file,"kmax >= kmax_file");
-			}
-
-			/****
-				3) -kplus used to increment an upper bound from a previous factoring run:
-			****/
-			if(kplus) {
-				ASSERT((bmin==0 && bmax==0 && kmin==0 && kmax==0),"(bmin==0 && bmax==0 && kmin==0 && kmax==0)");
-				kmin = kmax_file;
-				/* Ensure incremented value kmax fits into a 64-bit unsigned int: */
-				ASSERT((kmin + kplus) > kplus, "kmax_file + kplus exceeds 2^64!");
-				kmax = kmin + kplus;
-				kplus = 0;	/* If kplus != 0 detected further on, that indicates that no valid restart
-							file was found for factoring-bounds incrementing. */
-			}
-		}
-		/* Successfully processed restart file: */
-		restart = TRUE;
-	}
-
-/************************ END(RESTART STUFF) *******************/
+  #ifdef P1WORD
+	/* Find FP approximation to 2*p - can't use this for multiword case, because double approximation tp 2*p may overflow.
+	Needed by a resumed run too, for the q-range it prints: */
+	twop_float = (double)two_p[0];
+  #endif
 
   #warning bmax/kmax-synchro needs re-do!
 	/* If it's not a restart of an as-yet-uncompleted run, synchronize the factoring-bound params: */
@@ -1445,15 +1493,18 @@ exit(0);
 		/**** Process factor candidate bounds: ****/
 
 		/* If any of bmin|kmin, bmax|kmax nonzero, calculate its counterpart: */
-	#ifdef P1WORD
-		/* Find FP approximation to 2*p - can't use this for multiword case, because double approximation tp 2*p may overflow: */
-		twop_float = (double)two_p[0];
-	#endif
 		/* Compute kmax if not already set: */
 		if(!kmax) {
 			ASSERT(bmax <= (nbits_in_p+65), "Specified bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
 			kmax = given_b_get_k(bmax, two_p, lenQ);
 			ASSERT(kmax > 0, "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
+		}
+		/* A run that continues a completed one starts at that run's kmax (see the restart code above). If the new
+		upper bound is no higher, the previous run already covered everything asked for: say so and stop, leaving
+		the savefile as it is, rather than abort or search past the bound the user gave: */
+		if(restart && kmax <= kmin) {
+			fprintf(stderr,"INFO: The previous run already covered k up to %s, which includes the requested upper bound k = %s. Nothing to do: use -kplus, or a higher -bmax or -kmax, to extend it.\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmin)], &char_buf1[convert_uint64_base10_char(char_buf1, kmax)]);
+			return 0;
 		}
 		if(kmin || bmin) {
 			if(kmin == 0ull) {	/* Lower Bound given in log2rithmic form */
@@ -1471,8 +1522,6 @@ exit(0);
 			fqlo = 1.0;
 		#endif
 		}
-ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
-//**** Do savefile-init here? ******
 		if(kmax || bmax) {
 			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
 				kmax = given_b_get_k(bmax, two_p, lenQ);
@@ -1903,14 +1952,17 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	fqhi = kmax*twop_float + 1.0;
   #endif
 
-	/* 11/14/05: Since we don't actually use bmin/bmax for anything other
-	than setting sieving bounds (which then get modified via the above
-	k-is-exact-multiple-of-sieve-length anyway), preserve any user-set
-	values, since these are typically whole numbers, and look nicer
-	in diagnostic and savefile printing:
-	*/
-	/*	bmin = log(fqlo)/log(2.0);*/
-	/*	bmax = log(fqhi)/log(2.0);*/
+	/* Init the savefile only now, with these rounded-out bounds, since they are the range the run covers. A later
+	run starts from the savefile's kmax; the unrounded one would have it redo the last sieve interval of this run
+	and report any factor there a second time. For the same reason bmin/bmax are saved as the log2 of the q-range
+	actually covered (the one printed below), not as the bounds the user gave: */
+	if(!incomplete_run) {
+	  #ifdef P1WORD
+		bmin = log(fqlo)*ILG2;
+		bmax = log(fqhi)*ILG2;
+	  #endif
+		ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passmin,passnow,passmax, count),"init_savefile failed!");
+	}
 
   #ifdef FAC_DEBUG
 	/* Make sure the range of k's for the run contains any target factor: */
@@ -1939,7 +1991,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 	{
 		sprintf(char_buf0, "Resuming execution with pass %u and k = %s\n", passnow, &char_buf1[convert_uint64_base10_char(char_buf1, know )]);
 		fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
-		sprintf(char_buf0, "#Q tried = %s\n", &char_buf1[convert_uint64_base10_char (char_buf1, count)] );
+		sprintf(char_buf0, "#Q tried = %s\n", &char_buf1[convert_uint64_base10_char (char_buf1, count_prev)] );
 		fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
 	count = 0;	// Reset == 0 prior to sieving so kvector-fill code works properly
 	}
@@ -2353,6 +2405,7 @@ candidate factors that survive sieving.	*/
 			fprintf(stderr, "Passes %u - %u: ",pass-NTHREADS+1, pass-NTHREADS+pool_work_units);
 		else
 			fprintf(stderr, "Pass %u: ",pass);
+		tf_count_base = count_prev + count;	// Used by the in-pass checkpoints, which only a 1-thread run writes
 
 		// For partial-waves, easiest is to proceed as usual, 'init' the full NTHREADS pool tasks,
 		// but make the extra ones no-ops. Here that means adding the full complement of NTHREADS tasks to the pool:
@@ -2370,6 +2423,23 @@ candidate factors that survive sieving.	*/
 
 		ASSERT(0 == threadpool_drain(tpool, TRUE), "threadpool_drain failed!");
 		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
+
+	#if !FAC_DEBUG
+		/* With more than one thread, PerPass_tfSieve() writes no checkpoints: its passes run concurrently, and
+		the savefile holds the progress of a single current pass. But every pass of this wave, and so every
+		pass up to its last one, is now complete, which the savefile can say: record the next wave's first
+		pass as not yet started, or after the final wave, the whole range as done. A run killed partway
+		through a wave therefore resumes at the start of that wave. With one thread, PerPass_tfSieve()
+		has already checkpointed each pass, through to its end: */
+		if(NTHREADS > 1) {
+			j = (pass < passmax) ? pass : passmax;	// Last pass of this wave
+			if(j < passmax)
+				i = write_savefile(RESTARTFILE, pstring, (uint32)j + 1, kmin, count_prev + count);
+			else
+				i = write_savefile(RESTARTFILE, pstring, passmax, kmax, count_prev + count);
+			ASSERT(!i,"There were errors writing the savefile ... aborting");
+		}
+	#endif
 	};	// wave-loop
 
   #else	// Single-threaded execution:
@@ -2422,6 +2492,7 @@ candidate factors that survive sieving.	*/
 
 		i = nprime;	// Remember, MAX_SIEVING_PRIME is a *variable* and set at runtime, as opposed to the predef NUM_SIEVING_PRIME;
 					// And for small exponents, the actual #sieving prime is in nprime, and may be < NUM_SIEVING_PRIME.
+		tf_count_base = count_prev + count;
 		count += PerPass_tfSieve(
 			pstring,
 			pass,
@@ -2481,6 +2552,7 @@ candidate factors that survive sieving.	*/
   #endif	// MULTITHREAD ?
 
 /*...all done.	*/
+	nfactor += tf_nfac_prev;	// The summary covers the whole run, including the factors its earlier sessions reported
   #ifdef FACTOR_STANDALONE
 	if(!restart)
 	{
@@ -3830,7 +3902,11 @@ MFACTOR_HELP:
 									/* Recover the factor: */
 									q[lenP] = mi64_mul_scalar( p, 2*k_to_try[l], q, lenP);
 									q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-									if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1)
+									/* A resumed run redoes the stretch after its last checkpoint; don't report again a factor
+									that an earlier session of the run already reported (see tf_fac_k): */
+									if(tf_reported_before(k_to_try[l])) {
+										fprintf(stderr, "INFO: k = %" PRIu64 " was reported before this run was resumed; not reporting it again.\n", k_to_try[l]);
+									} else if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1)
 									{
 										fprintf(stderr, "ERROR: k = %" PRIu64 ", post-check indicates this does not yield a factor.\n", k_to_try[l]);
 									//	printf("Args sent to mi64_twopmodq:\n");
@@ -3898,6 +3974,7 @@ MFACTOR_HELP:
 										fp = mlucas_fopen(   OFILE,"a");	ASSERT(fp != 0x0,"0");
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
+										tf_add_reported_factor(RESTARTFILE, k_to_try[l]);	// Only now, so a kill in between repeats the report rather than lose it
 									#ifdef QUIT_WHEN_FACTOR_FOUND
 									  #ifdef MULTITHREAD
 										return;
@@ -4017,7 +4094,7 @@ MFACTOR_HELP:
 	#if !FAC_DEBUG
 		// Every 1024th pass, write the checkpoint file, with format as described previously:
 		if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi)) {
-			i = write_savefile(RESTARTFILE, pstring, pass, k, count);	// Only overwrite passnow, know and count fields of savefile
+			i = write_savefile(RESTARTFILE, pstring, pass, k, tf_count_base + count);	// Only overwrite passnow, know and count fields of savefile
 			ASSERT(!i,"There were errors writing the savefile ... aborting");
 		}	/* Successfully wrote restart file. */
 	#endif /* #if !FAC_DEBUG */
@@ -4491,9 +4568,65 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 
 	Line 11:	Number of q's tried so far during the run
 
-	Line 12+:	Any diagnostic info not needed for restarting from interrupt
-				(mainly, in standalone mode can use this in place of STATFILE.)
+	Line 12+:	One line "factor k = {k}" per factor the run has reported so far (none if it has found none).
+				Optional, so a savefile without these lines, e.g. one written by an older build, still
+				reads; read_savefile() itself stops at line 11, and tf_read_reported_factors() reads these.
 */
+
+/* Add k to the run's list of reported factors (tf_fac_k), and if fname is given, append it to that savefile.
+The savefile always exists by the time factors are reported; opening it "r+" (not "a") ensures this can't
+create a stub savefile if it has gone missing, which would make the next run abort on reading it: */
+static void tf_add_reported_factor(const char*fname, uint64 k)
+{
+	FILE *fsave;
+	if(tf_nfac == tf_fac_cap) {
+		tf_fac_cap = tf_fac_cap ? 2*tf_fac_cap : 16;
+		tf_fac_k = (uint64 *)realloc(tf_fac_k, tf_fac_cap * sizeof(uint64));
+		ASSERT(tf_fac_k != 0x0, "Unable to grow the list of reported factors!");
+	}
+	tf_fac_k[tf_nfac++] = k;
+	if(!fname) return;
+	fsave = mlucas_fopen(fname,"r+");
+	if(!fsave || fseek(fsave, 0L, SEEK_END) || fprintf(fsave,"factor k = %" PRIu64 "\n", k) <= 0) {
+		fprintf(stderr,"WARN: Unable to add factor k = %" PRIu64 " to savefile %s; a resumed run may report it again.\n", k, fname);
+	}
+	if(fsave) fclose(fsave);
+}
+
+#ifdef FACTOR_STANDALONE
+/* Read the factors the run has reported so far from lines 12 and up of savefile fname (see the format above)
+into tf_fac_k, and mark them as reported by an earlier session. A line without its newline is the tail of an
+append that was cut short, whose factor was nonetheless reported, so the worst case is a repeat report: */
+static uint32 tf_read_reported_factors(const char*fname)
+{
+	char line[STR_MAX_LEN];
+	uint32 curr_line = 0;
+	uint64 k;
+	FILE *fsave = mlucas_fopen(fname,"r");
+	if(fsave) {
+		while(fgets(line, STR_MAX_LEN, fsave)) {
+			if(++curr_line <= 11 || !strchr(line, '\n')) continue;
+			if(sscanf(line, "factor k = %" SCNu64, &k) == 1)
+				tf_add_reported_factor(0x0, k);
+		}
+		fclose(fsave);
+	}
+	tf_nfac_prev = tf_nfac;
+	return tf_nfac_prev;
+}
+#endif
+
+/* Was k reported by an earlier session of the run? Checks only those, so a factor reported twice within
+one session - which would be a sieve bug - still shows: */
+static int tf_reported_before(uint64 k)
+{
+	uint32 i;
+	for(i = 0; i < tf_nfac_prev; i++) {
+		if(tf_fac_k[i] == k) return 1;
+	}
+	return 0;
+}
+
 int read_savefile(const char*fname, const char*pstring, double*bmin, double*bmax,
 uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*passmax, uint64*count)
 {
@@ -4787,8 +4920,15 @@ uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 pa
 		}
 		/* Line 11: Number of q's tried: */
 		++curr_line; itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
+		/* Lines 12+: the factors the run has reported so far: */
+		{
+			uint32 i;
+			for(i = 0; itmp > 0 && i < tf_nfac; i++) {
+				++curr_line; itmp = fprintf(fp,"factor k = %" PRIu64 "\n", tf_fac_k[i]);
+			}
+		}
 		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried or reported factor) of factoring restart file %s!\n",curr_line,fname);
 		}
 		fclose(fp); fp = 0x0;
 		return (int)nerr;
