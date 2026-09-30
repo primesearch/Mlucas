@@ -1368,6 +1368,11 @@ or the with functions using them (if we declare no _-prepended variables local t
 
 	Even though the high output for 64x32-bit is always < 2^32,
 	assume _y and _hi here are 64-bit ints to allow flexibility for caller.
+
+	Argument order matters here: _x is the full 64-bit factor and _y the one that is < 2^32, and
+	only the low 32 bits of _y are used. The x86_64/PPC/Alpha/IA64 MUL64x32 is a full 64x64-bit
+	MUL_LOHI64, so a call with the operands the other way round gives the right answer there
+	and a silently truncated one here - put the 64-bit operand first.
 	*/
 	#define  MUL64x32(_x, _y,_lo,_hi)\
 	{\
