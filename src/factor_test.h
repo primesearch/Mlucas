@@ -2139,7 +2139,7 @@ if((q128.d1 >> 14) == 0) {
 			ASSERT(0,"0");
 		}
 */
-		res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
+		res64 = twopmodq192_q8((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 		if(res64 != 255)
 		{
 			fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
@@ -2239,7 +2239,7 @@ if((q128.d1 >> 14) == 0) {
 				ASSERT(0,"0");
 			}
 		*/
-			res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
+			res64 = twopmodq192_q8((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 255)
 			{
 				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
@@ -2355,7 +2355,7 @@ if((q128.d1 >> 14) == 0) {
 	#elif(TRYQ == 8)
 		if(x192.d2 == 0 && x192.d1 == 0)	// k must be 64-bit for these
 		{
-			res64 = twopmodq192_q8(p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
+			res64 = twopmodq192_q8((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 255)
 			{
 				fprintf(stderr,"ERROR: twopmodq192_q8( %s, %s x 8 ) failed to find factor, res = %#2X.\n",
