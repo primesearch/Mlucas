@@ -1334,8 +1334,23 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		dum = get_preferred_fft_radix(kblocks);
 		if(!dum) {	// Need to run a timing self-test at this FFT length before proceeding:
 			sprintf(cbuf, "INFO: FFT length %d = %d K not found in the '%s' file.\n", n, kblocks, CONFIGFILE);
-			fprintf(stderr, "%s", cbuf); // Extra information on the default FFT selected. The following line allows the FFT to be overridden for Fermat exponents; see https://github.com/primesearch/Mlucas/pull/11
-			if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
+			fprintf(stderr, "%s", cbuf);
+			/* v21: this return is unconditional. get_preferred_fft_radix() zeroes NRADICES and
+			RADIX_VEC[] when it finds no usable cfg entry for the requested length, and nothing
+			between here and the FFT-init call repopulates them, so falling through leaves the run
+			with leading radix 0 and it dies in dif1_dit1_func_name():
+				"ERROR: radix 0 not available for [dif,dit] pass1. Halting..."
+			The "|| MODULUS_TYPE == MODULUS_TYPE_MERSENNE" carve-out that used to be here exempted
+			exactly one case from the return - a non-Mersenne modulus with a user-forced -fft length -
+			and that is the case that crashes. What issue #3 needed is the MODULUS_TYPE_MERSENNE
+			clause in the 9/8-rule test further above, which is what keeps kblocks equal to the
+			user's forced length for a Fermat run; the remedial self-test this return asks for is
+			then run at that same length rather than at the unusable default, and appends a
+			fermat.cfg entry for it. NOTE this relies on the remedial-self-test handler in main()
+			running with the production run's modulus type (modType = MODULUS_TYPE); with the older
+			unconditional modType = MODULUS_TYPE_MERSENNE there, a Fermat run's self-test writes
+			mlucas.cfg while the run needs fermat.cfg, and the retry loops. */
+			return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 		}
 		else if(dum != kblocks)
 		{
@@ -1352,7 +1367,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				*/
 				snprintf(cbuf,sizeof(cbuf),"WARN: get_preferred_fft_radix returned out-of-range FFT length: asked for %u, returned %u, packed value= %#8X -- ignoring and treating as 'not found' in '%s'; please rerun the self-test for this length.\n", kblocks, i, dum, CONFIGFILE);
 				fprintf(stderr, "%s", cbuf);
-				if (!fft_length || MODULUS_TYPE == MODULUS_TYPE_MERSENNE) return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
+				/* Unconditional for the same reason as the not-found case above: NRADICES and
+				RADIX_VEC[] are not populated on this path either, so falling through runs radix 0. */
+				return ERR_RUN_SELFTEST_FORLENGTH + (kblocks << 8);
 			}
 			else	/* If length acceptable, extract the FFT-radix data encoded and populate the NRADICES and RADIX_VEC[] globals */
 			{
@@ -4028,6 +4045,8 @@ int 	main(int argc, char *argv[])
 #endif
 	char *cptr = 0x0;
 	int		quick_self_test = 0, fftlen = 0, radset = -1;
+	// v21: State used to guarantee the remedial-timing-self-test retry loop below makes progress:
+	uint32	selftest_fftlen_prev = 0, selftest_count = 0;
 	uint32 numrad = 0, rad_prod = 0, rvec[10], rvec2[10];	/* Temporary storage for FFT radices */
 	double	runtime,/* wruntime, */ runtime_best,wruntime_best, tdiff;	// v20: w-prefixed are weighted by associated ROEs
 	double	roerr_avg = 0, roerr_max = 0;
@@ -4461,6 +4480,12 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	if(!modType)
 		modType = MODULUS_TYPE_MERSENNE;
 
+	// v21: Keep the MODULUS_TYPE global in sync with our local modType - main() itself calls
+	// get_default_fft_length(), which needs to know whether to use the Mersenne-mod or the
+	// Fermat-mod schedule of supported FFT lengths. (ernstMain() re-sets the global from its
+	// own mod_type argument on each call, and for workfile-driven runs from the workfile entry.)
+	MODULUS_TYPE = modType;
+
 	// Now that have determined the modType, copy any user-set FFT length into the appropriate field:
 	if(fftlen) {
 		/* Don't set userSetExponent here, since -fftlen can be invoked without an explicit exponent */
@@ -4553,23 +4578,64 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 					sprintf(cbuf, "ERROR: FFT length %d K not available.\n",k);
 					fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 				}
+				/* v21: The cfg-file entry a remedial self-test writes is permanent, so a repeat request
+				for a length we have already self-tested means this retry cycle is making no progress -
+				bail with a diagnostic rather than spinning forever. A legitimate second request always
+				names a different (larger) length, e.g. one reached via roundoff-triggered FFT upsizing.
+				The self-test counter is a belt-and-braces bound in case some path we have not foreseen
+				manages to cycle over two or more alternating lengths:
+				*/
+				if(k == selftest_fftlen_prev) {
+					sprintf(cbuf, "ERROR: A timing self-test at FFT length %u K has already been run in this session, yet the\n"
+						"production run still finds no entry for that length in %s. Refusing to loop.\n"
+						"Please check that %s is writeable and contains exactly one valid entry for %u K,\n"
+						"or generate one manually via a '-fft %u -iters 100' self-test.\n", k,CONFIGFILE,CONFIGFILE,k,k);
+					fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+				}
+				if(++selftest_count > 16) {
+					sprintf(cbuf, "ERROR: %u remedial timing self-tests have been run in this session, the latest for FFT\n"
+						"length %u K, and the production run still cannot start. Refusing to loop - please check %s.\n", selftest_count,k,CONFIGFILE);
+					fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+				}
+				selftest_fftlen_prev = k;
 
+				/* v21: Run the remedial self-test using the modulus type the failed production run
+				actually used - previously this was unconditionally forced to MODULUS_TYPE_MERSENNE,
+				so for a workfile-driven Fermat assignment the self-test wrote mlucas.cfg while the
+				missing entry was in fermat.cfg, and the retry re-requested the same length forever:
+				*/
+				modType = MODULUS_TYPE;
 			/**** IF POSSIBLE, USE ONE OF THE STANDARD TEST EXPONENTS HERE, SO CAN CHECK RES64s!!! ****/
-				for(i = 0; i < numTest; i++) {
-					if(MvecPtr[i].fftLength == k) {
-						userSetExponent = 0;
-						start = i; finish = start+1;
-						break;
+				if(modType == MODULUS_TYPE_FERMAT) {
+					for(i = 0; i < numFerm; i++) {
+						if(FermVec[i].fftLength == k) {
+							userSetExponent = 0;
+							start = i; finish = start+1;
+							break;
+						}
+					}
+					if(i == numFerm) {
+						userSetExponent = 1;
+						/* For a Fermat-mod run ESTRING holds the Fermat-number index, not the binary exponent: */
+						FermVec[numFerm].Fidx = (uint32)convert_base10_char_uint64(ESTRING);
+						FermVec[numFerm].fftLength = k;
+						start = numFerm; finish = start+1;
+					}
+				} else {
+					for(i = 0; i < numTest; i++) {
+						if(MvecPtr[i].fftLength == k) {
+							userSetExponent = 0;
+							start = i; finish = start+1;
+							break;
+						}
+					}
+					if(i == numTest) {
+						userSetExponent = 1;
+						MvecPtr[numTest].exponent = convert_base10_char_uint64(ESTRING);
+						MvecPtr[numTest].fftLength = k;
+						start = numTest; finish = start+1;
 					}
 				}
-				if(i == numTest) {
-					userSetExponent = 1;
-					MvecPtr[numTest].exponent = convert_base10_char_uint64(ESTRING);
-					MvecPtr[numTest].fftLength = k;
-					start = numTest; finish = start+1;
-				}
-
-				modType = MODULUS_TYPE_MERSENNE;
 				goto TIMING_TEST_LOOP;
 			}
 			/* ...Otherwise barf. */
@@ -4968,11 +5034,26 @@ TIMING_TEST_LOOP:
 			/* if just adding entry for a single FFT length needed for current exponent, return to here: */
 			if (quick_self_test) {
 				quick_self_test = selfTest = 0; start = numTest; finish = start+1;
+				/* v21: The remedial self-test may have been run with modType switched to the production
+				run's modulus type - restore the value the (necessarily Mersenne-mod) ERNST_MAIN block
+				above was entered with before retrying the production run: */
+				modType = MODULUS_TYPE_MERSENNE;
 				goto ERNST_MAIN;
 			}
 		}
 
 		fprintf(stderr, "/ **************************************************************************** /\n\n");
+	}
+
+	/* v21: Getting here with quick_self_test still set means the remedial timing self-test above failed
+	to produce a usable cfg-file entry for the length the production run needs (e.g. every radix set at
+	that length was rejected for excessive roundoff error). Previously we fell straight through to the
+	"Done" print and a 0 exit status, silently having done no work on the assignment at all:
+	*/
+	if(quick_self_test) {
+		sprintf(cbuf, "ERROR: The timing self-test at FFT length %u K yielded no usable radix set, so no %s\n"
+			"entry could be written and the current assignment cannot be run. PLEASE CHECK YOUR BUILD OPTIONS.\n", k,CONFIGFILE);
+		fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 	}
 
 DONE:
