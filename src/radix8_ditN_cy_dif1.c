@@ -80,6 +80,10 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
 
+  #ifdef USE_AVX512
+	WARN(HERE, "radix8_ditN_cy_dif1: No AVX-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+  #endif
+
 	if(RES_SHIFT) {
 		WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
 		return(ERR_ASSERT);
