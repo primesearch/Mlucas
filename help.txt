@@ -474,13 +474,13 @@ as an IEEE-754 64-bit double-precision float. The numeric value may be followed 
 so long as it does not affect parsing of the preceding numeric entry. For instance, mlucas.ini
 on a low_RAM might contain
 
-	CheckInterval = 10000	/* I'm using the space right of the value for a C-style comment. */
+	CheckInterval = 8192	/* I'm using the space right of the value for a C-style comment. */
 	LowMem = 1	// But one could also use C++ comment format...
 	InterimGCD = 0	# Or bash-shell and Python-style comment format...
 	LowMem = 2	Or no comment delimiter at all. Note that the program uses the first entry
 			matching a given option name, so the second LowMem entry here will be ignored.
 
-This specifies savefile-writes for LL/PRP/p-1 every 10000 iterations, and allows PRP-testing
+This specifies savefile-writes for LL/PRP/p-1 every 8192 iterations, and allows PRP-testing
 but excludes p-1 stage 2. The InterimGCD option setting is moot in this case since it only
 applies to p-1 stage 2.
 
@@ -495,18 +495,18 @@ and comments must conform to Python rules (https://docs.python.org/3/library/con
 	whitespace character to be recognized as a comment. (For backwards compatibility,
 	only ; starts an inline comment, while # does not.)"
 
-o FREQUENCY OF SAVEFILE WRITES: The default frequency is threadcount-dependent: every 10000
-iterations for <= 4 threads; every 100,000 iterations for more than 4 threads. (Note that
+o FREQUENCY OF SAVEFILE WRITES: The default frequency is threadcount-dependent: every 8192
+iterations for <= 4 threads; every 65536 iterations for more than 4 threads. (Note that
 as of v20, if exponent ratio in the "p[ = ***]/pmax_rec" informational printed at run-start
 is > 0.97, the program will set ITERS_BETWEEN_CHECKPOINTS to the smaller of any user-set
-value or 10000, irrespective of the threadcount.
+value or 8192, irrespective of the threadcount.)
 
 At run-start, you will see this captured in the informational terminal output (which gets
 piped to nohup.out if you prefix your instance invocation with "nohup", as is recommended):
 
 	Set affinity for the following 4 cores: 0.1.2.3.
 	NTHREADS = 4
-	Setting ITERS_BETWEEN_CHECKPOINTS = 10000.
+	Setting ITERS_BETWEEN_CHECKPOINTS = 8192.
 
 For p-1 factoring, slightly different terminology is used for .stat-file entries documenting
 savefile-writes: "S1 bit = ..." reflects which bit of the p-1 stage 1 small-prime-powers
@@ -523,10 +523,15 @@ and the cache+memory subsystem.
 The ITERS_BETWEEN_CHECKPOINTS value can be customized by adding a "CheckInterval = [value]"
 line to one's mlucas.ini file, but note that there are constraints on the value related to
 the Gerbicz-checking done for PRP tests. Specifically, the CheckInterval value must be a
-multiple of 1000 and must divide 1 million. Violation of these constraints will trigger an
-assertion-exit if a PRP-test is attempted. The only good reason to use a value < 10000 is
-on slow devices where 10000 iterations need substantially more than, say 10 minutes, as
-checkpoints more frequent than a minute or so will cost 1-2% overall throughput.
+multiple of the 1024-iteration Gerbicz-checkproduct update interval and must divide the
+1048576-iteration Gerbicz-check interval, i.e. it must be a power of two in [1024, 1048576].
+A value outside [1024, 1048576] is reported at run-start and ignored in favor of the default;
+one inside that range which breaks the divisibility chain is named at run-start and exits,
+whatever the test type. (Prior to v21 the two Gerbicz intervals were 1000 and 1 million, so a
+pre-v21 mlucas.ini carrying a decimal CheckInterval such as 10000 needs updating to the
+nearest power of two, e.g. 8192.) The only good reason to use a value < 8192 is on slow
+devices where 8192 iterations need substantially more than, say 10 minutes, as checkpoints
+more frequent than a minute or so will cost 1-2% overall throughput.
 
 o RUNNING ON LOW-MEMORY SYSTEMS: The LowMem option provides two supported low-memory run
 modes for low-RAM systems:
