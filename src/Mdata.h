@@ -104,6 +104,11 @@ i.e. max. 16 bits per digit of the transform vector: */
 
 #define MAX_SELFTEST_ITERS			1000000
 extern int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
+/* v21: #iterations between the extra unique-named archival savefiles, 10 Mi = 10*2^20. Power-of-two-
+   friendly by construction: 10 Mi = 2^21 * 5, so every power-of-two checkpoint interval up to 2^21
+   divides it, and the archives land exactly on the boundary rather than at the next checkpoint past
+   it. The pre-v21 value of 10^7 = 2^7 * 78125 is divided by no power-of-two interval above 128: */
+#define ITERS_BETWEEN_ARCHIVES		(10u<<20)
 extern int DO_GCHECK;	// Mersenne/PRP or Fermat/Pepin case
 extern int ITERS_BETWEEN_GCHECK_UPDATES;	// #iterations between Gerbicz-checksum updates
 extern int ITERS_BETWEEN_GCHECKS;			// #iterations between Gerbicz-checksum residue-integrity checks

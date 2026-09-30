@@ -485,8 +485,11 @@ RANGE_BEG:
 	if(dtmp != 0) {
 		if(dtmp != dtmp) {
 			sprintf(cbuf,"User did not set CheckInterval in %s ... using default.\n",MLUCAS_INI_FILE);
-		} else if(dtmp < 1000 || dtmp > 1000000) {
-			sprintf(cbuf,"User set CheckInterval = %f in %s ... values < 10^3 or > 10^6 are not supported, ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		/* v21: bound this by the G-check chain rather than by the decimal 10^3/10^6 it was written with -
+		otherwise the largest chain-valid interval, ITERS_BETWEEN_GCHECKS = 2^20 = 1048576, exceeds 10^6 and
+		is silently unreachable from the .ini. The chain itself is enforced below: */
+		} else if(dtmp < ITERS_BETWEEN_GCHECK_UPDATES || dtmp > ITERS_BETWEEN_GCHECKS) {
+			sprintf(cbuf,"User set CheckInterval = %f in %s ... values < %u or > %u are not supported, ignoring.\n",dtmp,MLUCAS_INI_FILE,(uint32)ITERS_BETWEEN_GCHECK_UPDATES,(uint32)ITERS_BETWEEN_GCHECKS);
 		} else if(DNINT(dtmp) != dtmp) {
 			sprintf(cbuf,"User set non-whole-number CheckInterval = %f in %s ... ignoring.\n",dtmp,MLUCAS_INI_FILE);
 		} else {
@@ -545,8 +548,16 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ITERS_BETWEEN_CHECKPOINTS = 65536;
 		else
 			ITERS_BETWEEN_CHECKPOINTS =  8192;
-	} else if(check_interval < 1000) {
-		ASSERT(0,"User-set value of check_interval must >= 1000.");
+	} else if(check_interval % (uint32)ITERS_BETWEEN_GCHECK_UPDATES || (uint32)ITERS_BETWEEN_GCHECKS % check_interval) {
+		/* v21: the intervals are powers of two, and the G-check chain requires
+		ITERS_BETWEEN_GCHECK_UPDATES | ITERS_BETWEEN_CHECKPOINTS | ITERS_BETWEEN_GCHECKS. Reject anything
+		that breaks that chain here, where we can name the offending value and the valid range, rather
+		than several thousand lines later at the bare (i%k != 0) assertion in the PRP path. A pre-v21
+		mlucas.ini may well carry a decimal CheckInterval such as 10000, which satisfies neither divisor: */
+		snprintf(cbuf,sizeof(cbuf),"User-set value of CheckInterval = %u is not usable: it must be a multiple of %u which divides %u (i.e. a power of two in [%u, %u]).",
+			check_interval, (uint32)ITERS_BETWEEN_GCHECK_UPDATES, (uint32)ITERS_BETWEEN_GCHECKS,
+			(uint32)ITERS_BETWEEN_GCHECK_UPDATES, (uint32)ITERS_BETWEEN_GCHECKS);
+		ASSERT(0,cbuf);
 	} else
 		ITERS_BETWEEN_CHECKPOINTS = check_interval;
 
@@ -1391,9 +1402,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		USE_SHORT_CY_CHAIN = 1;
 	const char *arr_sml[] = {"long","medium","short","hiacc"};
 	fprintf(stderr,"Initial DWT-multipliers chain length = [%s] in carry step.\n",arr_sml[USE_SHORT_CY_CHAIN]);
-	// v20: If exp_ratio > 0.98, set ITERS_BETWEEN_CHECKPOINTS = 10000 irrespective of #threads or user-forced greater value;
+	// v20: If exp_ratio > 0.98, cap ITERS_BETWEEN_CHECKPOINTS irrespective of #threads or user-forced greater value.
+	// v21: the cap must itself be a valid savefile-update interval, i.e. a power of two that ITERS_BETWEEN_GCHECKS
+	// divides and that divides by ITERS_BETWEEN_GCHECK_UPDATES - 8192 is the small-thread default and satisfies both.
+	// The old value 10000 predates the power-of-two intervals: MIN(65536,10000) = 10000 is not a multiple of 1024,
+	// which trips the G-check divisibility ASSERT below and aborts every PRP/Pepin run with > 4 threads:
 	if(USE_SHORT_CY_CHAIN)
-		ITERS_BETWEEN_CHECKPOINTS = MIN(ITERS_BETWEEN_CHECKPOINTS,10000);
+		ITERS_BETWEEN_CHECKPOINTS = MIN(ITERS_BETWEEN_CHECKPOINTS,8192);
 
 	if(kblocks < (i = get_default_fft_length(p))) {
 		/* If it's at least close, allow it but print a warning; otherwise error out: */
@@ -2294,22 +2309,29 @@ READ_RESTART_FILE:
 		/* Make sure we start with primary restart file: */
 		RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
-		/* Oct 2014: Add every-10-million-iter file-checkpointing: deposit a unique-named restart file
-		             p[exponent].xM every 10 million iterations, on top of the usual checkpointing.
+		/* Oct 2014: Add periodic archival file-checkpointing: deposit a unique-named restart file
+		             p[exponent].xMi every ITERS_BETWEEN_ARCHIVES iterations, on top of the usual checkpointing.
 		To avoid having to write an extra copy of the p-savefile, wait for the *next* checkpoint -
-		i.e. ihi = (x million + ITERS_BETWEEN_CHECKPOINTS), or more simply, ilo = (x million) -
-		then simply rename the (not yet updated) p-savefile to add the -M extension, and open a
+		i.e. ihi = (x Mi + ITERS_BETWEEN_CHECKPOINTS), or more simply, ilo = (x Mi) -
+		then simply rename the (not yet updated) p-savefile to add the -Mi extension, and open a
 		new version of the p-savefile on the ensuing checkpointing:
 		*/
-		if((ilo > 0) && (ilo%10000000 == 0)) {
-			sprintf(cbuf, ".%dM", ilo/1000000);
+		/* v21: ilo only ever takes multiples of ITERS_BETWEEN_CHECKPOINTS, and 10^7 = 2^7 * 78125, so no
+		power-of-two interval above 128 divides it - an (ilo%10000000 == 0) test can never fire under the v21
+		intervals and the archives would silently stop being written. Archive every 10 Mi = 10*2^20 instead,
+		which every power-of-two interval divides, so the every-N-iterations test is again an exact one and
+		the archive still lands on the interval boundary rather than at the next checkpoint past it: */
+		if(ilo && (ilo % ITERS_BETWEEN_ARCHIVES) == 0) {
+			/* Mi rather than M in the suffix because that is what the count now is - p[exponent].10Mi is
+			at iteration 10485760, not 10000000: */
+			sprintf(cbuf, ".%uMi", ilo/(1u<<20));
 			strcpy(g_cstr, RESTARTFILE);
 			strcat(g_cstr, cbuf);
 			if(rename(RESTARTFILE, g_cstr)) {
-				snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping every-10M-iteration restart file archiving\n",WORKFILE,g_cstr);
+				snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename %s restart file ==> %s ... skipping periodic restart file archiving\n",WORKFILE,g_cstr);
 				fprintf(stderr,"%s",cbuf);
 			}
-		}	// ilo a multiple of 10 million?
+		}	// ilo a multiple of 10 Mi?
 
 	WRITE_RESTART_FILE:
 
