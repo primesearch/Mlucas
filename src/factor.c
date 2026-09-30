@@ -1600,13 +1600,15 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 				break;
 			}
 
-			/* Max sieving prime must be < smallest candidate factor of M(p) */
-		#ifdef P1WORD
-			if((curr_p+29) > two_p[0]) {
+			/* Max sieving prime must be < smallest candidate factor q = 2p+1 of M(p), else a factor q that is
+			itself one of the sieving primes gets cleared from the sieve along with its multiples and is never
+			tried. This applies to every build, not just P1WORD: the multiword builds also accept small p, and
+			use far more sieving primes. two_p has lenQ words; if 2p needs more than one of them it exceeds
+			every 32-bit sieving prime and there is nothing to cap: */
+			if(mi64_getlen(two_p, lenQ) <= 1 && (curr_p+29) > two_p[0]) {
 				nprime = i;
 				break;
 			}
-		#endif
 
 			/* Do a quick Fermat base-2 compositeness test before invoking the more expensive mod operations: */
 			itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
