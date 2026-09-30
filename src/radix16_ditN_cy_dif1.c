@@ -1415,7 +1415,7 @@ for(outer=0; outer <= 1; outer++)
 			MOD_ADD32(_bjmodnD[ithread], j, n, _bjmodnE[ithread]);
 			MOD_ADD32(_bjmodnE[ithread], j, n, _bjmodnF[ithread]);
 
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			if(!full_pass)
 				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
@@ -1432,7 +1432,7 @@ for(outer=0; outer <= 1; outer++)
 
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			/*
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
