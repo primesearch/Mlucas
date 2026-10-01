@@ -67,6 +67,7 @@ me at: heber.tomer@gmail.com
 
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>	// Windows CPU-affinity API; see the affinity branch below for details.
+	#include "win_procgroup.h"
 #endif
 
 #ifdef __FreeBSD__
@@ -405,9 +406,11 @@ me at: heber.tomer@gmail.com
 		// Windows hard affinity (non-hwloc fallback): pin the current worker thread to logical core i. This
 		// covers BOTH the native-Windows toolchain (OS_TYPE_WINDOWS) and MinGW (which platform.h maps to
 		// OS_TYPE_LINUX but which has no sched_setaffinity() and so is deliberately excluded from the Linux
-		// branch above) - MinGW-w64 provides the Win32 affinity API. We use SetThreadGroupAffinity() rather
-		// than the simpler SetThreadAffinityMask() so systems with >64 logical CPUs - which Windows partitions
-		// into 64-CPU processor groups - are handled: logical core i maps to group (i>>6), bit (i&63).
+		// branch above) - MinGW-w64 provides the Win32 affinity API. We prefer SetThreadGroupAffinity()
+		// over the simpler SetThreadAffinityMask() so systems with >64 logical CPUs - which Windows
+		// partitions into 64-CPU processor groups - are handled. That entry point is Windows 7 and later,
+		// and is resolved at run time (see win_procgroup.h), so this is a run-time choice rather than a
+		// compile-time one: the same binary uses groups where they exist and the 64-CPU mask on Vista.
 		int i;
 
 		i = my_id % pool->num_of_cores;	// get cpu index using sequential thread ID modulo #available cores
@@ -417,47 +420,46 @@ me at: heber.tomer@gmail.com
 			ASSERT(0, "Aborting.");
 		}
 
-	  #if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x0601
-		// Windows 7 / Server 2008 R2 and later
+		if(pSetThreadGroupAffinity && pGetActiveProcessorGroupCount && pGetActiveProcessorCount) {
+			// Windows 7 / Server 2008 R2 and later: walk the processor groups to turn the flat logical-core
+			// index i into a (group, in-group processor) pair, since groups need not all be the same size.
+			DWORD proc = (DWORD)i;
+			const WORD group_count = pGetActiveProcessorGroupCount();
+			WORD group;
 
-		DWORD proc = (DWORD)i;
-		const WORD group_count = GetActiveProcessorGroupCount();
-		WORD group;
+			for (group = 0; group < group_count; ++group) {
+				const DWORD count = pGetActiveProcessorCount(group);
 
-		for (group = 0; group < group_count; ++group) {
-			const DWORD count = GetActiveProcessorCount(group);
-
-			if (proc < count) {
-				break;
+				if (proc < count) {
+					break;
+				}
+				proc -= count;
 			}
-			proc -= count;
+
+		  #if THREAD_POOL_DEBUG
+			printf("Setting affinity of worker thread id %u to logical core %d (group %u, processor %u)\n", my_id, i, (unsigned)group, (unsigned)proc);
+		  #endif
+
+			GROUP_AFFINITY grp_aff = {0};
+			grp_aff.Group = group;
+			grp_aff.Mask = (KAFFINITY)1 << proc;
+			// SetThreadGroupAffinity returns 0 (FALSE) on failure:
+			if (!pSetThreadGroupAffinity(GetCurrentThread(), &grp_aff, NULL)) {
+				fprintf(stderr,"SetThreadGroupAffinity failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
+			}
+
+		} else {	// Pre-Windows 7: single 64-CPU affinity mask, no processor groups.
+
+		  #if THREAD_POOL_DEBUG
+			printf("Setting affinity of worker thread id %u to logical core %d\n", my_id, i);
+		  #endif
+
+			if (i >= (int)(8*sizeof(DWORD_PTR))) {
+				fprintf(stderr, "Logical core %d cannot be represented by the Windows thread-affinity mask.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", i);
+			} else if (!SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << i)) {
+				fprintf(stderr,"SetThreadAffinityMask failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
+			}
 		}
-
-	  #if THREAD_POOL_DEBUG
-		printf("Setting affinity of worker thread id %u to logical core %d (group %u, processor %u)\n", my_id, i, (unsigned)group, (unsigned)proc);
-	  #endif
-
-		GROUP_AFFINITY grp_aff = {0};
-		grp_aff.Group = group;
-		grp_aff.Mask = (KAFFINITY)1 << proc;
-		// SetThreadGroupAffinity returns 0 (FALSE) on failure:
-		if (!SetThreadGroupAffinity(GetCurrentThread(), &grp_aff, NULL)) {
-			fprintf(stderr,"SetThreadGroupAffinity failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
-		}
-
-	  #else
-
-	  #if THREAD_POOL_DEBUG
-		printf("Setting affinity of worker thread id %u to logical core %d\n", my_id, i);
-	  #endif
-
-		if (i >= (int)(8*sizeof(DWORD_PTR))) {
-			fprintf(stderr, "Logical core %d cannot be represented by the Windows thread-affinity mask.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", i);
-		} else if (!SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << i)) {
-			fprintf(stderr,"SetThreadAffinityMask failed with error %lu.\nINFO: Your run should be OK, but leaving up to OS to manage thread/core binding.\n", (unsigned long)GetLastError());
-		}
-
-	  #endif
 
 	#elif defined(OS_TYPE_MACOSX)
 
@@ -673,6 +675,12 @@ me at: heber.tomer@gmail.com
 		int i;
 		struct threadpool *pool = (struct threadpool *)CALLOC(1,
 						sizeof(struct threadpool));
+
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		// Resolve the Win7+ processor-group entry points here, on the main thread, before any worker
+		// exists - the workers only ever read these pointers:
+		win7_procgroup_init();
+	#endif
 
 		/* Init the mutex and cond vars. */
 		if (pthread_mutex_init(&(pool->free_tasks_mutex),NULL)) {
