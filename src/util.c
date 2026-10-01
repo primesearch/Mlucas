@@ -36,6 +36,20 @@
 #endif
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>
+	#include "win_procgroup.h"
+
+PFN_SetThreadGroupAffinity		pSetThreadGroupAffinity			= NULL;
+PFN_GetActiveProcessorCount		pGetActiveProcessorCount		= NULL;
+PFN_GetActiveProcessorGroupCount	pGetActiveProcessorGroupCount	= NULL;
+
+void win7_procgroup_init(void)
+{
+	HMODULE k32 = GetModuleHandleA("kernel32.dll");
+	if(!k32) return;
+	pSetThreadGroupAffinity			= (PFN_SetThreadGroupAffinity     )(void*)GetProcAddress(k32,"SetThreadGroupAffinity");
+	pGetActiveProcessorCount		= (PFN_GetActiveProcessorCount    )(void*)GetProcAddress(k32,"GetActiveProcessorCount");
+	pGetActiveProcessorGroupCount	= (PFN_GetActiveProcessorGroupCount)(void*)GetProcAddress(k32,"GetActiveProcessorGroupCount");
+}
 #endif
 
 #if 0
@@ -8981,17 +8995,16 @@ exit(0);
 
 	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
 
-	  #if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x0601
-
-		nprocs = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
-
-	  #else
-
-		SYSTEM_INFO info;
-		GetSystemInfo(&info);
-		nprocs = info.dwNumberOfProcessors;
-
-	  #endif
+		// Windows 7 and later count every processor group; GetSystemInfo sees only the calling
+		// thread's group, so it caps at 64. See win_procgroup.h for why this is resolved at run time:
+		win7_procgroup_init();
+		if(pGetActiveProcessorCount) {
+			nprocs = pGetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+		} else {
+			SYSTEM_INFO info;
+			GetSystemInfo(&info);
+			nprocs = info.dwNumberOfProcessors;
+		}
 
 	#elif defined(_SC_NPROCESSORS_ONLN)
 
