@@ -575,13 +575,19 @@ struct uint64_32{
 typedef	struct uint64_32		uint96;
 
 #undef uint64x2
-struct uint64x2{
-	uint64 d0;
-	uint64 d1;
+/* A union, not a struct, so that the array view the mi64 routines want is a member of the object
+rather than a cast of it. mi64_* walk a uintNN as uint64[NN/64]; doing that through (uint64*)&x is
+type punning, and -flto=auto inlines away the call that used to separate the accesses. Reading a
+union member other than the last one written is explicitly permitted (C99 6.5.2.3, footnote 82),
+so `x.w` is well defined where `(uint64*)&x` was not. The anonymous struct keeps every existing
+.d0/.d1 access working unchanged. */
+union uint64x2{
+	struct { uint64 d0, d1; };
+	uint64 w[2];
 };
 
 #undef uint128
-typedef	struct uint64x2		uint128;
+typedef	union  uint64x2		uint128;
 
 /* For 192-bit ints, want to be able to access the low 2 words either as uint192.d0,d1
 or as a uint128, so define uint64x3 and uint128+64 basic types, declare union192 as a
@@ -589,16 +595,15 @@ union of these, and also declare a typedef of uint64x3 to uint192 so we can decl
 a uint64 (and with the same kind of subfield accessor names as a uint128) in our code:
 */
 #undef uint64x3
-struct uint64x3{
-	uint64 d0;
-	uint64 d1;
-	uint64 d2;
+union uint64x3{
+	struct { uint64 d0, d1, d2; };
+	uint64 w[3];
 };
 
 #undef uint160
 #undef uint192
-typedef	struct uint64x3		uint160;
-typedef	struct uint64x3		uint192;
+typedef	union  uint64x3		uint160;
+typedef	union  uint64x3		uint192;
 
 #undef uint128p64
 struct uint128p64{
@@ -683,11 +688,9 @@ typedef	union union192		unio192;
 /* 256-bit int consisting of 4 uint64s: */
 #undef uint64x4
 
-	struct uint64x4{
-		uint64 d0;
-		uint64 d1;
-		uint64 d2;
-		uint64 d3;
+	union uint64x4{
+		struct { uint64 d0, d1, d2, d3; };
+		uint64 w[4];
 	}
   #ifdef COMPILER_TYPE_GCC
 	__attribute__ ((aligned (16)));
@@ -696,7 +699,7 @@ typedef	union union192		unio192;
   #endif
 
 #undef uint256
-typedef	struct uint64x4		uint256;
+typedef	union  uint64x4		uint256;
 
 /* 512-bit int consisting of 8 uint64s: */
 #undef uint64x8
@@ -728,12 +731,12 @@ typedef	struct uint64x8		uint512;
 
 #elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 
-	typedef struct uint64x4	vec_u64;
+	typedef union  uint64x4	vec_u64;
 	#define VEC_U64_INIT(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = (vu64_ptr)->d2 = (vu64_ptr)->d3 = val )
 
 #elif defined(USE_SSE2)
 
-	typedef struct uint64x2	vec_u64;
+	typedef union  uint64x2	vec_u64;
 	#define VEC_U64_INIT(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = val )
 
 #elif defined(__CUDACC__)

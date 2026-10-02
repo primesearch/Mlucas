@@ -116,7 +116,12 @@
 	// a pointer-to-be-inited-at-runtime, when we set ptr to the lowest-index array element having the desired alginment:
 		double *cy;
 	  #ifdef USE_AVX512
-		double cy_dat[RADIX+8] __attribute__ ((__aligned__(8)));
+		// RADIX == 4 (mod 8) here: the AVX-512 8-lane carry-copy loops round RADIX up to the next
+		// multiple of 8 (+4 to +7 slots) and cy can start up to 6 doubles into cy_dat (alignment search,
+		// step 2), so the true high-water mark is RADIX + roundup-slop(<=7) + alignment-offset(<=6);
+		// RADIX+16 covers that with margin. RADIX+8 (2 too few) let the copy loops read/write past
+		// the array into the next thread's cy_thread_data_t.
+		double cy_dat[RADIX+16] __attribute__ ((__aligned__(8)));
 	  #else
 		double cy_dat[RADIX+4] __attribute__ ((__aligned__(8)));	// Enforce min-alignment of 8 bytes in 32-bit builds.
 	  #endif
@@ -248,6 +253,12 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
    #ifdef USE_AVX2
 	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
    #endif
   #endif
 
@@ -302,6 +313,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #ifdef MULTITHREAD
 
 	static struct cy_thread_data_t *tdat = 0x0;
+	static uint32 tdat_alloc = 0;	// #threads tdat was sized for; CY_THREADS can grow between calls
 	// Threadpool-based dispatch stuff:
   #if 0//def OS_TYPE_MACOSX
 	static int main_work_units = 0;
@@ -344,9 +356,8 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	WARN(HERE, "radix36_ditN_cy_dif1: No k1om/IMCI-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
   #endif
 
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-	{
-		ASSERT(0, "Fermat-mod only available for radices 7,8,9,15 and their multiples!");
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+		WARN(HERE, "radix36_ditN_cy_dif1: No Fermat-mod support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
 	}
 
   #ifndef MULTITHREAD
@@ -442,7 +453,14 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		}
 
 	  #ifdef USE_PTHREAD
+		// Reallocate when CY_THREADS exceeds what tdat was sized for. Before #284 the count was
+		// rounded down to a power of two and so never varied across a run, which made a one-shot
+		// allocation safe; now it tracks n_div_nwt, which changes with the FFT length, and a later
+		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
+		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
+		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
 		if(tdat == 0x0) {
+			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
@@ -453,7 +471,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(0x0 != (tpool = carry_threadpool_get(pool_work_units, MAX_THREADS)), "carry_threadpool_get failed!");
+					ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -463,7 +481,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(0x0 != (tpool = carry_threadpool_get(CY_THREADS, MAX_THREADS)), "carry_threadpool_get failed!");
+				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
 
@@ -1068,7 +1086,7 @@ for(outer=0; outer <= 1; outer++)
 		for(i = 1; i < RADIX; i++) {
 			MOD_ADD32(_bjmodn[i-1][ithread], j, n, _bjmodn[i][ithread]);
 		}
-		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+		_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 		if(!full_pass)
 			_jhi[ithread] = _jstart[ithread] + jhi_wrap;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
@@ -1850,6 +1868,12 @@ void radix36_dit_pass1(double a[], int n)
 	#ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
 	#endif
 	#ifndef USE_SSE2
 		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode

@@ -237,7 +237,11 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef USE_SSE2
 	const double *addr, *addi;
 #endif
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 	int err;
 	static int first_entry=TRUE;
 
@@ -316,6 +320,7 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef MULTITHREAD
 
 	static struct cy_thread_data_t *tdat = 0x0;
+	static uint32 tdat_alloc = 0;	// #threads tdat was sized for; CY_THREADS can grow between calls
 	// Threadpool-based dispatch stuff:
   #if 0//def OS_TYPE_MACOSX
 	static int main_work_units = 0;
@@ -449,7 +454,14 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 
 	  #ifdef USE_PTHREAD
+		// Reallocate when CY_THREADS exceeds what tdat was sized for. Before #284 the count was
+		// rounded down to a power of two and so never varied across a run, which made a one-shot
+		// allocation safe; now it tracks n_div_nwt, which changes with the FFT length, and a later
+		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
+		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
+		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
 		if(tdat == 0x0) {
+			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
@@ -460,7 +472,7 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(0x0 != (tpool = carry_threadpool_get(pool_work_units, MAX_THREADS)), "carry_threadpool_get failed!");
+					ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -470,7 +482,7 @@ int radix384_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(0x0 != (tpool = carry_threadpool_get(CY_THREADS, MAX_THREADS)), "carry_threadpool_get failed!");
+				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
 
@@ -1283,7 +1295,7 @@ for(outer=0; outer <= 1; outer++)
 		for(i = 1; i < RADIX; i++) {
 			MOD_ADD32(_bjmodn[i-1][ithread], j, n, _bjmodn[i][ithread]);
 		}
-		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+		_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 		if(!full_pass)
 			_jhi[ithread] = _jstart[ithread] + jhi_wrap;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
@@ -1778,7 +1790,11 @@ void radix384_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -2038,7 +2054,7 @@ void radix384_dif_pass1(double a[], int n)
 		//
 		// Since i_data are in a local-complex scratch array, need to override any non-unity SIMD-re/im data stride with 1 for inputs:
 		//                                         vvv
-		RADIX_128_DIF((double *)(t+0x000),i_offsets,1, (a+j1     ),o_offsets      ,RE_IM_STRIDE);	// Inputs in t[ 00- 7f]
+		RADIX_128_DIF(t_u.d,i_offsets,1, (a+j1     ),o_offsets      ,RE_IM_STRIDE);	// Inputs in t[ 00- 7f]
 		RADIX_128_DIF((double *)(t+0x080),i_offsets,1, (a+j1+p100),o_offsets+0x080,RE_IM_STRIDE);	// Inputs in t[ 80- ff]
 		RADIX_128_DIF((double *)(t+0x100),i_offsets,1, (a+j1+p080),o_offsets+0x100,RE_IM_STRIDE);	// Inputs in t[100-17f]
 	}
@@ -2067,7 +2083,11 @@ void radix384_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -2236,7 +2256,7 @@ void radix384_dit_pass1(double a[], int n)
 	/*...gather the needed data (384 64-bit complex) and do 3 radix-128 transforms,	*/
 		// Since o_data are in a local-complex scratch array, need to override any non-unity SIMD-re/im data stride with 1 for outputs:
 		//                                                                                   vvv
-		RADIX_128_DIT((a+j1     ),i_offsets      ,RE_IM_STRIDE, (double *)(t+0x000),o_offsets,1);	// Outputs in t[ 00- 7f]
+		RADIX_128_DIT((a+j1     ),i_offsets      ,RE_IM_STRIDE, t_u.d,o_offsets,1);	// Outputs in t[ 00- 7f]
 		RADIX_128_DIT((a+j1+p080),i_offsets+0x080,RE_IM_STRIDE, (double *)(t+0x080),o_offsets,1);	// Outputs in t[ 80- ff]
 		RADIX_128_DIT((a+j1+p100),i_offsets+0x100,RE_IM_STRIDE, (double *)(t+0x100),o_offsets,1);	// Outputs in t[100-17f]
 	/*
@@ -2450,7 +2470,11 @@ void radix384_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	#endif

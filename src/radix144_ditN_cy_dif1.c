@@ -296,6 +296,12 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #ifdef USE_AVX2
 	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
   #endif
 #endif // MULTITHREAD
 
@@ -330,9 +336,6 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
 	#endif
 		*tmp,*tm2	// Non-static utility ptrs
-	#if !defined(MULTITHREAD) && defined(USE_AVX2)
-		,*tm0
-	#endif
 	#ifndef MULTITHREAD
 		,*tm1
 	#endif
@@ -352,6 +355,7 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef MULTITHREAD
 
 	static struct cy_thread_data_t *tdat = 0x0;
+	static uint32 tdat_alloc = 0;	// #threads tdat was sized for; CY_THREADS can grow between calls
 	// Threadpool-based dispatch stuff:
   #if 0//def OS_TYPE_MACOSX
 	static int main_work_units = 0;
@@ -487,7 +491,14 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 
 	  #ifdef USE_PTHREAD
+		// Reallocate when CY_THREADS exceeds what tdat was sized for. Before #284 the count was
+		// rounded down to a power of two and so never varied across a run, which made a one-shot
+		// allocation safe; now it tracks n_div_nwt, which changes with the FFT length, and a later
+		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
+		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
+		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
 		if(tdat == 0x0) {
+			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
@@ -498,7 +509,7 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(0x0 != (tpool = carry_threadpool_get(pool_work_units, MAX_THREADS)), "carry_threadpool_get failed!");
+					ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -508,7 +519,7 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(0x0 != (tpool = carry_threadpool_get(CY_THREADS, MAX_THREADS)), "carry_threadpool_get failed!");
+				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
 
@@ -1141,7 +1152,7 @@ for(outer=0; outer <= 1; outer++)
 		for(i = 1; i < RADIX; i++) {
 			MOD_ADD32(_bjmodn[i-1][ithread], j, n, _bjmodn[i][ithread]);
 		}
-		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+		_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 		if(!full_pass)
 			_jhi[ithread] = _jstart[ithread] + jhi_wrap;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
@@ -1617,6 +1628,10 @@ void radix144_dif_pass1(double a[], int n)
 	*/
 	//...gather the needed data (144 64-bit complex) and do 16 radix-9 transforms:
 		tptr = t;
+		// Each iteration of this loop is a full radix-9 DFT, so there is nothing for the loop
+		// vectorizer to gain here - and clang <= 18 miscompiles it, yielding a wrong residue for
+		// every radix set with this leading radix on an AVX-512 build. See platform.h.
+		NO_LOOP_VECTORIZE
 		for(l = 0; l < 16; l++) {
 			iptr = dif_pcshft + dif_ncshft[l];
 			// Hi-part of p-offset indices:
@@ -2019,6 +2034,12 @@ void radix144_dit_pass1(double a[], int n)
 	#ifdef USE_AVX2
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	// Carriers for the two array addresses the radix-9 X2 macros take as their last two args.
+	// They exist because an array is not a valid "m" operand (gcc: "not directly addressable"),
+	// so the address has to be handed over in a variable - these are that variable, at the array's
+	// own type, which is what the asm reads: it loads the value and then dereferences it as a
+	// pointer array. Previously this reused a vec_dbl* temp via a cast, which is a type pun.
+	vec_dbl **rad9_i = rad9_iptr, **rad9_o = rad9_optr;
 	#endif
 
 	#ifdef USE_SSE2
@@ -2035,9 +2056,9 @@ void radix144_dit_pass1(double a[], int n)
 	  #endif
 		double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
-	  #ifdef USE_AVX2
-			*tm0,
+		vec_dbl *tmp,*tm1,	// Non-static utility ptrs
+	  #ifndef USE_AVX512	// tm2 is referenced only from the non-AVX-512 carry paths
+			*tm2,
 	  #endif
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,

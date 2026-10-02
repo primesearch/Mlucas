@@ -356,6 +356,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 #ifdef MULTITHREAD
 
 	static struct cy_thread_data_t *tdat = 0x0;
+	static uint32 tdat_alloc = 0;	// #threads tdat was sized for; CY_THREADS can grow between calls
 	// Threadpool-based dispatch stuff:
   #if 0//def OS_TYPE_MACOSX
 	static int main_work_units = 0;
@@ -491,7 +492,14 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		}
 
 	  #ifdef USE_PTHREAD
+		// Reallocate when CY_THREADS exceeds what tdat was sized for. Before #284 the count was
+		// rounded down to a power of two and so never varied across a run, which made a one-shot
+		// allocation safe; now it tracks n_div_nwt, which changes with the FFT length, and a later
+		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
+		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
+		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
 		if(tdat == 0x0) {
+			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)CALLOC(CY_THREADS, sizeof(struct cy_thread_data_t));
 
@@ -502,7 +510,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
-					ASSERT(0x0 != (tpool = carry_threadpool_get(pool_work_units, MAX_THREADS)), "carry_threadpool_get failed!");
+					ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
 				} else {
 					main_work_units = 1;
@@ -512,7 +520,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 			#else
 
 				pool_work_units = CY_THREADS;
-				ASSERT(0x0 != (tpool = carry_threadpool_get(CY_THREADS, MAX_THREADS)), "carry_threadpool_get failed!");
+				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
 
@@ -1172,7 +1180,7 @@ for(outer=0; outer <= 1; outer++)
 		for(i = 1; i < RADIX; i++) {
 			MOD_ADD32(_bjmodn[i-1][ithread], j, n, _bjmodn[i][ithread]);
 		}
-		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+		_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 		if(!full_pass)
 			_jhi[ithread] = _jstart[ithread] + jhi_wrap;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
@@ -1615,6 +1623,10 @@ void radix208_dif_pass1(double a[], int n)
 	*/
 	/*...gather the needed data (208 64-bit complex) and do 16 radix-13 transforms...*/
 		tptr = t;
+		// Each iteration of this loop is a full radix-13 DFT, so there is nothing for the loop
+		// vectorizer to gain here - and clang <= 18 miscompiles it, yielding a wrong residue for
+		// every radix set with this leading radix on an AVX-512 build. See platform.h.
+		NO_LOOP_VECTORIZE
 		for(l = 0; l < 16; l++) {
 			iptr = dif_pcshft + dif_ncshft[l];
 			// Hi-part of p-offset indices:

@@ -3077,7 +3077,10 @@ void RADIX_128_DIF(
 {
 	int i,j;
 	struct complex t[128], *tptr;
-	const struct complex *cd_ptr;
+	// DFT128_TWIDDLES is const double[16][14]; walk it as the doubles it is rather than
+	// casting rows to struct complex*, which is the pun -Wstrict-aliasing=2 flags here.
+	// Same idiom radix128_main_carry_loop.h already uses for this very table.
+	const double *cd_ptr;
 	double *Are = __A,*Aim = __A + __re_im_stride_in, *Bre = __B,*Bim = __B + __re_im_stride_out;
 	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
@@ -3103,15 +3106,15 @@ void RADIX_128_DIF(
 		*(Bre+__odx[0x00]),*(Bim+__odx[0x00]),*(Bre+__odx[0x04]),*(Bim+__odx[0x04]),*(Bre+__odx[0x02]),*(Bim+__odx[0x02]),*(Bre+__odx[0x06]),*(Bim+__odx[0x06]),*(Bre+__odx[0x01]),*(Bim+__odx[0x01]),*(Bre+__odx[0x05]),*(Bim+__odx[0x05]),*(Bre+__odx[0x03]),*(Bim+__odx[0x03]),*(Bre+__odx[0x07]),*(Bim+__odx[0x07])
 	); tptr++;
 	/* Blocks 84c2a6e195d3b7f processed via loop: */
-	cd_ptr = (struct complex *)DFT128_TWIDDLES[1];
+	cd_ptr = DFT128_TWIDDLES[1];
 	for(i = 1; i < 16; i++) {
 		j += 8;	// jt = j1 + p08;	jp = j2 + p08;
 		p0 = __odx[j]; p1 = __odx[j+1]; p2 = __odx[j+2]; p3 = __odx[j+3]; p4 = __odx[j+4]; p5 = __odx[j+5]; p6 = __odx[j+6]; p7 = __odx[j+7];
 		RADIX_08_DIF_TWIDDLE_OOP(
 			tptr->re,tptr->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0x70)->re,(tptr+0x70)->im,
 			*(Bre+p0),*(Bim+p0),*(Bre+p1),*(Bim+p1),*(Bre+p2),*(Bim+p2),*(Bre+p3),*(Bim+p3),*(Bre+p4),*(Bim+p4),*(Bre+p5),*(Bim+p5),*(Bre+p6),*(Bim+p6),*(Bre+p7),*(Bim+p7),
-			cd_ptr->re,cd_ptr->im,(cd_ptr+1)->re,(cd_ptr+1)->im,(cd_ptr+2)->re,(cd_ptr+2)->im,(cd_ptr+3)->re,(cd_ptr+3)->im,(cd_ptr+4)->re,(cd_ptr+4)->im,(cd_ptr+5)->re,(cd_ptr+5)->im,(cd_ptr+6)->re,(cd_ptr+6)->im
-		); tptr++; cd_ptr += 7;
+			cd_ptr[0],cd_ptr[1],cd_ptr[2],cd_ptr[3],cd_ptr[4],cd_ptr[5],cd_ptr[6],cd_ptr[7],cd_ptr[8],cd_ptr[9],cd_ptr[10],cd_ptr[11],cd_ptr[12],cd_ptr[13]
+		); tptr++; cd_ptr += 14;	// 7 complex = 14 doubles
 	}
 }
 
@@ -3122,7 +3125,10 @@ void RADIX_128_DIT(
 {
 	int i,j;
 	struct complex t[128], *tptr;
-	const struct complex *cd_ptr;
+	// DFT128_TWIDDLES is const double[16][14]; walk it as the doubles it is rather than
+	// casting rows to struct complex*, which is the pun -Wstrict-aliasing=2 flags here.
+	// Same idiom radix128_main_carry_loop.h already uses for this very table.
+	const double *cd_ptr;
 	double *Are = __A,*Aim = __A + __re_im_stride_in, *Bre = __B,*Bim = __B + __re_im_stride_out;
 	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
@@ -3148,7 +3154,7 @@ void RADIX_128_DIT(
 		*(Bre+__odx[0x00]),*(Bim+__odx[0x00]),*(Bre+__odx[0x10]),*(Bim+__odx[0x10]),*(Bre+__odx[0x20]),*(Bim+__odx[0x20]),*(Bre+__odx[0x30]),*(Bim+__odx[0x30]),*(Bre+__odx[0x40]),*(Bim+__odx[0x40]),*(Bre+__odx[0x50]),*(Bim+__odx[0x50]),*(Bre+__odx[0x60]),*(Bim+__odx[0x60]),*(Bre+__odx[0x70]),*(Bim+__odx[0x70])
 	);
 	/* Blocks 84c2a6e195d3b7f processed via loop: */
-	cd_ptr = (struct complex *)DFT128_TWIDDLES[1];
+	cd_ptr = DFT128_TWIDDLES[1];
 	for(i = 1; i < 16; i++) {
 		j = reverse16[i];
 		tptr = t+j;
@@ -3156,8 +3162,8 @@ void RADIX_128_DIT(
 		RADIX_08_DIT_TWIDDLE_OOP(
 			tptr->re,tptr->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0x70)->re,(tptr+0x70)->im,
 			*(Bre+p0),*(Bim+p0),*(Bre+p1),*(Bim+p1),*(Bre+p2),*(Bim+p2),*(Bre+p3),*(Bim+p3),*(Bre+p4),*(Bim+p4),*(Bre+p5),*(Bim+p5),*(Bre+p6),*(Bim+p6),*(Bre+p7),*(Bim+p7),
-			cd_ptr->re,cd_ptr->im,(cd_ptr+1)->re,(cd_ptr+1)->im,(cd_ptr+2)->re,(cd_ptr+2)->im,(cd_ptr+3)->re,(cd_ptr+3)->im,(cd_ptr+4)->re,(cd_ptr+4)->im,(cd_ptr+5)->re,(cd_ptr+5)->im,(cd_ptr+6)->re,(cd_ptr+6)->im
-		); cd_ptr += 7;
+			cd_ptr[0],cd_ptr[1],cd_ptr[2],cd_ptr[3],cd_ptr[4],cd_ptr[5],cd_ptr[6],cd_ptr[7],cd_ptr[8],cd_ptr[9],cd_ptr[10],cd_ptr[11],cd_ptr[12],cd_ptr[13]
+		); cd_ptr += 14;	// 7 complex = 14 doubles
 	}
 }
 
@@ -3403,7 +3409,10 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-			if(sc_arr) { free((void *)sc_arr); }
+			// Must NULL the pointer as well as freeing it: ALLOC_VEC_DBL is a realloc, so leaving the
+			// freed value in place made the next line realloc an already-freed block (a double free).
+			// Only reachable when a later init-mode call asks for more threads than an earlier one.
+			if(sc_arr) { free((void *)sc_arr); sc_arr = 0x0; }
 			// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
@@ -3445,6 +3454,14 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 				VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 			/* Move on to next thread's local store */
+				// *** two,one must be advanced here along with everything else: without this, all
+				// max_threads passes of this loop wrote 2.0/1.0 into thread 0's pair of slots and
+				// left threads 1..N-1 with whatever ALLOC_VEC_DBL returned (0.0 in practice).
+				// 'two' is a live operand of the FMA form of SSE2_RADIX_07_DFT below, so every
+				// carry thread but thread 0 computed a garbage radix-63 DFT in any build that
+				// defines USE_AVX2 (i.e. AVX2, AVX-512, ARMv8) - the radix1008/radix4032
+				// multithreaded wrong-residue/roundoff-halt bug. ***
+				two   += 152;			one += 152;
 				cc1   += 152;			dc0 += 152;
 				ss1   += 152;			ds0 += 152;
 				cc2   += 152;			dc1 += 152;
@@ -3654,7 +3671,10 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-			if(sc_arr) { free((void *)sc_arr); }
+			// Must NULL the pointer as well as freeing it: ALLOC_VEC_DBL is a realloc, so leaving the
+			// freed value in place made the next line realloc an already-freed block (a double free).
+			// Only reachable when a later init-mode call asks for more threads than an earlier one.
+			if(sc_arr) { free((void *)sc_arr); sc_arr = 0x0; }
 			// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
@@ -3696,6 +3716,14 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 				VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 			/* Move on to next thread's local store */
+				// *** two,one must be advanced here along with everything else: without this, all
+				// max_threads passes of this loop wrote 2.0/1.0 into thread 0's pair of slots and
+				// left threads 1..N-1 with whatever ALLOC_VEC_DBL returned (0.0 in practice).
+				// 'two' is a live operand of the FMA form of SSE2_RADIX_07_DFT below, so every
+				// carry thread but thread 0 computed a garbage radix-63 DFT in any build that
+				// defines USE_AVX2 (i.e. AVX2, AVX-512, ARMv8) - the radix1008/radix4032
+				// multithreaded wrong-residue/roundoff-halt bug. ***
+				two   += 152;			one += 152;
 				cc1   += 152;			dc0 += 152;
 				ss1   += 152;			ds0 += 152;
 				cc2   += 152;			dc1 += 152;
@@ -3886,7 +3914,10 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-			if(sc_arr) { free((void *)sc_arr); }
+			// Must NULL the pointer as well as freeing it: ALLOC_VEC_DBL is a realloc, so leaving the
+			// freed value in place made the next line realloc an already-freed block (a double free).
+			// Only reachable when a later init-mode call asks for more threads than an earlier one.
+			if(sc_arr) { free((void *)sc_arr); sc_arr = 0x0; }
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
 			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -4291,7 +4322,10 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-			if(sc_arr) { free((void *)sc_arr); }
+			// Must NULL the pointer as well as freeing it: ALLOC_VEC_DBL is a realloc, so leaving the
+			// freed value in place made the next line realloc an already-freed block (a double free).
+			// Only reachable when a later init-mode call asks for more threads than an earlier one.
+			if(sc_arr) { free((void *)sc_arr); sc_arr = 0x0; }
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf); }
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
 			ASSERT(((intptr_t)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");

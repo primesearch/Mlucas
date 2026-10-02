@@ -67,7 +67,7 @@ if(dbg)printf("twopmodq160:\n");
 #endif
 	ASSERT((p.d2 == 0) && (p.d1 >> 63) == 0, "p must be < 2^127!");
 	ADD128(p,p, q);
-	q.d2 = mi64_mul_scalar((uint64 *)&q, k, (uint64 *)&q, 2);
+	q.d2 = mi64_mul_scalar(q.w, k, q.w, 2);
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST160(q, 1, qhalf);	/* = (q-1)/2, since q odd. */

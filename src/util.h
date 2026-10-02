@@ -168,6 +168,7 @@ int		mlucas_nanosleep(const struct timespec *req);
 void	host_init(void);	/* This one is a wrapper for calls to the next few: */
 double	get_time    (double tdiff);
 char*	get_time_str(double tdiff);
+double	cpuset_mean_mhz(void);	// Linux: mean current clock (MHz) of the CPUs in CORE_SET (or CPU 0 if unthreaded); 0 if unavailable
 void	set_stacklimit_restart(char *argv[]);
 uint32	get_system_ram(void);
 void	print_host_info(void);
@@ -188,6 +189,17 @@ char	*quote_spaces(char *dest, char *src); /* Double-quote spaces in string  */
 int		mkdir_p(char *path); /* Emulate `mkdir -p path'  */
 char	*shell_quote(char *dest, char *src); /* Escape shell meta characters  */
 FILE	*mlucas_fopen(const char *path, const char *mode); /* fopen() wrapper  */
+/* v21: Crash-safe savefile replacement. mlucas_fopen_atomic() stages the new contents in a sibling
+scratch file; mlucas_fclose_atomic() syncs it and renames it over the target, which is thus replaced
+atomically rather than truncated in place. Both take the same MLUCAS_PATH-relative [path]; the close
+returns 0 on success and nonzero (target left holding the previous good checkpoint) on failure: */
+FILE	*mlucas_fopen_atomic(const char *path, const char *mode);
+int		mlucas_fclose_atomic(const char *path, FILE *fp);
+/* Abandon a staged write: close and delete the scratch file, leaving the target untouched: */
+void	mlucas_discard_atomic(const char *path, FILE *fp);
+/* MLUCAS_PATH-aware, replace-existing-destination rename; 0 = success: */
+int		mlucas_rename(const char *oldpath, const char *newpath);
+int		mlucas_remove(const char *path);
 // v20: Add simple utility to print the input string to the current-assignment logfile and/or to stderr:
 void	mlucas_fprint(char*const p_cstr, uint32 echo_to_stderr);
 double	mlucas_getOptVal(const char*fname, char*optname);
@@ -205,6 +217,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
 #ifdef MULTITHREAD
 
 	int		get_num_cores(void);
+	int		get_avail_cores(uint64 avail[], int nword);
 	int		test_pthreads(int ncpu, int verbose);
 	void* 	ex_loop(void* data);
 	void*	PrintHello(void *threadid);
@@ -215,6 +228,8 @@ double	mlucas_getOptVal(const char*fname, char*optname);
   #endif
 	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
+	void	setDefaultAffinity(uint32 ncore);
+	void	report_cpu_topology(int user_chose_smt);
 
 #endif	// MULTITHREAD ?
 

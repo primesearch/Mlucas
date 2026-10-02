@@ -36,19 +36,19 @@
 	#define YES_ASM
 #endif
 
-/* Work around a GCC 11 register-allocator bug: when AVX-512 is enabled (-mavx512f adds the
-zmm16-31 and k0-7 registers to the allocatable file, changing IRA's decisions), GCC 11.x
-miscompiles the register-pressure-heavy, multi-q GPR-inline-asm routines in this file -
-twopmodq96_q4()/twopmodq96_q8() - returning a wrong result for one or more of the parallel
-q-lanes (lane 0 stays correct; e.g. test_fac's twopmodq96_q4(16446217, k=639280514687, x4)
-returns 0xD instead of 0xF). These routines contain no SIMD, so the AVX-512 register file is
-irrelevant to them: the bug is a GCC 11 regression - it does not occur with -mavx2, nor on
-GCC 10, GCC 12+, or Clang (all verified under Intel SDE). Forcing IRA's older 'priority'
-allocator for this translation unit restores correct codegen; scope to GCC 11 + AVX-512 so no
-other compiler or configuration is affected. */
-#if defined(USE_AVX512) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 11)
-	#pragma GCC optimize ("-fira-algorithm=priority")
-#endif
+/* NB: uint96 is {uint64 d0; uint32 d1;} - its high word is a *uint32* occupying 12 bytes of
+data in a padded 16-byte slot. The q/qinv/x/ONE96 local stores below must therefore be written
+through the struct members, never through a (uint64*) walk: a 64-bit store to a d1 slot and the
+32-bit ->d1 loads that read it back are in different TBAA alias sets, so under -fstrict-aliasing
+(default at -O2 and up) the compiler is entitled to hoist such a load above the store, and does
+- silently corrupting one of the parallel q-lanes. That was the cause of the long-standing
+intermittent "twopmodq96_q4(...) failed to find factor, res = 0xD" self-test failure, which was
+previously mis-attributed to a GCC 11 register-allocator regression and papered over with
+'#pragma GCC optimize ("-fira-algorithm=priority")'. The pragma only perturbed scheduling enough
+to hide the UB; the defect reproduces on GCC 13 as well, so do not reintroduce it.
+Paired requirement: the local store is zeroed at alloc (see ALLOC_UINT64 below), because the
+type-correct ->d1 stores are 4 bytes wide and the inline asm reads some d1 slots 8 bytes wide,
+touching the struct padding. */
 
 #ifdef __CUDACC__
 
@@ -66,12 +66,7 @@ other compiler or configuration is affected. */
 		uint64 hi64;
 		uint96 q, qhalf, qinv, x, lo, hi;
 		q.d0 = (uint64)p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-	#else
 		MUL_LOHI64(q.d0, k, q.d0, q.d1);
-	#endif
 		q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		RSHIFT_FAST96(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -90,12 +85,8 @@ other compiler or configuration is affected. */
 		qinv.d0 = qinv.d0*((uint64)2 - hi64);
 		// Now that have bottom 64 bits of qinv, do one more Newton iteration using full 96-bit operands:
 		// qinv has 96 bits, but only the upper 32 get modified here:
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-	#else
 		MULH64(q.d0, qinv.d0, hi64);
 		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-	#endif
 
 		/* Since zstart is a power of two < 2^96, use a streamlined code sequence for the first iteration: */
 		j = start_index-1;
@@ -245,12 +236,7 @@ if(dbg)printf("twopmodq96:\n");
 #endif
 	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;
-#ifdef MUL_LOHI64_SUBROUTINE
-	// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-	MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-#else
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
-#endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST96(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
@@ -304,12 +290,8 @@ if(dbg)printf("twopmodq96:\n");
 	ASSERT(x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0, "x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0");
 #endif
 	/* qinv has 96 bits, but only the upper 32 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, hi64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-#endif
 	qinv.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 
 #ifdef FAC_DEBUG
@@ -474,7 +456,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		 int32 j;
 		uint64 tmp0, tmp1, tmp2, tmp3, r;
 		uint96 q0,q1,q2,q3;
-		uint64 pshift, *ptr64;
+		uint64 pshift;
+	#ifdef MULTITHREAD	// ptr64 now only walks the per-thread local stores; the q/ONE96 writes are type-correct:
+		uint64 *ptr64;
+	#endif
 		uint32 jshift, leadb, start_index, zshift;
 		uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
@@ -504,12 +489,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			// Alloc the local-memory block:
 			sm_arr = ALLOC_UINT64(sm_arr, 0x32*max_threads);	ASSERT(sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
 			sm_ptr = (uint64*)ALIGN_UINT64(sm_arr);	ASSERT(((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
+			/* Zero the whole store: the ->d1 writes below are 4 bytes wide, but the inline asm reads
+			several d1 slots 8 bytes wide (and reads qinv_i->d1's padding, which the C never writes),
+			so the uint96 padding must start - and stay - zero. ALLOC_UINT64 over-allocates by 256
+			bytes and ALIGN_UINT64 consumes at most 63 of them, so this span is always in bounds: */
+			memset(sm_ptr, 0, 0x32*max_threads*sizeof(uint64));
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
 			ptr64 = sm_ptr + 0x30;	// *** PTR-OFFSET IN TERMS OF UINT64 HERE ***
 			for(j = 0; j < max_threads; ++j) {
 				// These data fixed within each thread's local store:
-				*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
+				((uint96*)ptr64)->d0 = ONE96.d0;	((uint96*)ptr64)->d1 = ONE96.d1;
 			//	printf("INIT: Thr %d ONE96_PTR address = %" PRIX64 "; data.d0,d1 = %" PRIu64 ",%u\n",thr_id,(uint64)ptr64,((uint96 *)ptr64)->d0,((uint96 *)ptr64)->d1);
 				ptr64 += 0x32;	// Move on to next thread's local store
 			}
@@ -522,7 +512,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			qhalf0 = (uint96*)(sm_ptr + 0x20);	qhalf1 = (uint96*)(sm_ptr + 0x22);	qhalf2 = (uint96*)(sm_ptr + 0x24);	qhalf3 = (uint96*)(sm_ptr + 0x26);
 			//hi0    = (uint96*)(sm_ptr + 0x28);	hi1    = (uint96*)(sm_ptr + 0x2a);	hi2    = (uint96*)(sm_ptr + 0x2c);	hi3    = (uint96*)(sm_ptr + 0x2e);
 			ONE96_PTR = (uint96*)(sm_ptr + 0x30);
-			ptr64 = (uint64*)ONE96_PTR;	*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
+			ONE96_PTR->d0 = ONE96.d0;	ONE96_PTR->d1 = ONE96.d1;
 		#endif
 			if(init_sse2) return 0;
 		}	/* end of inits */
@@ -569,11 +559,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		q2.d0 += 1;
 		q3.d0 += 1;
 
-		ptr64 = (uint64*)qptr0;
-		*ptr64++ = q0.d0;	*ptr64++ = q0.d1;
-		*ptr64++ = q1.d0;	*ptr64++ = q1.d1;
-		*ptr64++ = q2.d0;	*ptr64++ = q2.d1;
-		*ptr64++ = q3.d0;	*ptr64++ = q3.d1;
+		qptr0->d0 = q0.d0;	qptr0->d1 = q0.d1;
+		qptr1->d0 = q1.d0;	qptr1->d1 = q1.d1;
+		qptr2->d0 = q2.d0;	qptr2->d1 = q2.d1;
+		qptr3->d0 = q3.d0;	qptr3->d1 = q3.d1;
 
 		RSHIFT_FAST96_PTR(qptr0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 		RSHIFT_FAST96_PTR(qptr1, 1, qhalf1);
@@ -1126,18 +1115,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 		MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		q2.d0 += 1;
@@ -1200,12 +1181,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		using full 96-bit operands. See twopmodq96 for details on streamlining here.
 		*/
 		/* qinv has 96 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -1220,7 +1195,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		qinv1.d1 &= 0x00000000ffffffff;
 		qinv2.d1 &= 0x00000000ffffffff;
 		qinv3.d1 &= 0x00000000ffffffff;
-	#endif
 	  #ifdef FAC_DEBUG
 		if(dbg)
 		{
@@ -2123,17 +2097,6 @@ exit(0);
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-		MUL_LOHI64(q4.d0, k4,&q4.d0,&tmp0);	q4.d1 = tmp0;
-		MUL_LOHI64(q5.d0, k5,&q5.d0,&tmp0);	q5.d1 = tmp0;
-		MUL_LOHI64(q6.d0, k6,&q6.d0,&tmp0);	q6.d1 = tmp0;
-		MUL_LOHI64(q7.d0, k7,&q7.d0,&tmp0);	q7.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
@@ -2142,7 +2105,6 @@ exit(0);
 		MUL_LOHI64(q5.d0, k5, q5.d0, q5.d1);
 		MUL_LOHI64(q6.d0, k6, q6.d0, q6.d1);
 		MUL_LOHI64(q7.d0, k7, q7.d0, q7.d1);
-	#endif
 
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
@@ -2217,16 +2179,6 @@ exit(0);
 		using full 96-bit operands. See twopmodq96 for details on streamlining here.
 		*/
 		/* qinv has 96 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-		qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-		qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-		qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-		qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -2244,7 +2196,6 @@ exit(0);
 		qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + tmp5);
 		qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + tmp6);
 		qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + tmp7);
-	#endif
 		qinv0.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 		qinv1.d1 &= 0x00000000ffffffff;
 		qinv2.d1 &= 0x00000000ffffffff;
@@ -2489,7 +2440,7 @@ half		0x240
 
 	/* If current bit of pshift == 1, double each output modulo q: */	\n\t@\
 			/* if((pshift >> j) & (uint64)1) { */	\n\t@\
-			movl	%[__pshift],%%eax		\n\t@\
+			movq	%[__pshift],%%rax		\n\t@\
 			movl	%[__j],%%ecx			\n\t@\
 			shrq	%%cl,%%rax				\n\t@\
 			andq	$0x1,%%rax				\n\t@\

@@ -1,6 +1,6 @@
 [***** This file best-viewed with a 4-column tab setting, with line-wrapping *****]
 
-================= Mlucas v20.1.1 command line options listing =================
+================= Mlucas v21.0.2 command line options listing =================
 
 Note: besides the basic post-build self-test flags covered by the online README page
 ( http://www.mersenneforum.org/mayer/README.html ),
@@ -18,16 +18,21 @@ Sections:
 [5]: Fermat-number primality testing
 [6]: Residue shift
 [7]: Probable-primality testing mode
+	[7a]: Cofactor-PRP (PRP-CF) testing
 [8]: Iteration-number setting
 [9]: P-1 Factoring:
 	[9a]: Setting maximum-percentage of system free-RAM to use per stage 2 instance
 	[9b]: How to run stage 2 continuation for a given stage 1 bound
+	[9c]: Error checking in P-1
+	[9d]: Setting the p-1 stage bounds from the command line
 [10]: Setting threadcount and CPU core affinity
 [11]: User control options in mlucas.ini
 [12]: Savefile format and creation
 [13]: *** DON'Ts ***
 [14]: General troubleshooting
 	[14a]: How to safely interrupt a running instance
+[15]: The workfile (worktodo.txt) and its assignment formats
+[16]: Files read and written by the program, and where they live
 
 ===============================================================================
 
@@ -66,8 +71,14 @@ don't forget to generously tip the waitstaff."
 Supported command-line arguments:
 
 [0]:
-	<CR>	Default mode: looks for a worktodo.ini file in the local directory;
+	<CR>	Default mode: looks for a worktodo.txt file in the local directory;
 			if none found, prompts for manual keyboard entry
+
+	-h		Refers the user to this help.txt file for the full command-line options
+			listing, and exits. (The program version and the URL of the online README
+			page are printed at startup irrespective of which flags are given.) Any
+			unrecognized or malformed command-line flag produces the same referral,
+			after first naming the offending flag.
 
 ======================
 
@@ -107,39 +118,108 @@ Supported command-line arguments:
 	only be written to the resulting mlucas.cfg file if the timing-test results match each other.
 	This is important for tuning code parameters to your particular platform.
 
+	Each mlucas.cfg entry records the thread count it was timed with ('nthreads = N'). The radix
+	set that is fastest at one thread is frequently not the fastest at 4 or 16, so at run time
+	only entries whose thread count matches the current -cpu/-nthread setting are used; an entry
+	for the same FFT length timed with a different count is ignored, and a quick timing test at the
+	current count is run and appended instead. One cfg file may therefore hold an entry per FFT
+	length and thread count. Entries written by older versions have no thread-count field and are
+	accepted for any count. Run the self-test with the same -cpu setting you will use for real work.
+
 Options - again note the user can override the default iteration count based on #threads via
 '-iters {+int}', though only 100|1000|10000-iteration cases have precomputed reference residues.
-The (very rough) time estimates are for 1000 iterations done using 4 or more cores.
 
  -s {anything other than the mnemonics below}: Self-test, user must also supply exponent (via -m or -f),
 	iteration number and (optionally) FFT length to use.
 
- -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
- -s t		covering FFT lengths 8K-120K. This will take around 1 minute on a fast CPU.
+	How long each tier takes. Treat these as orders of magnitude: the same test spans well over
+	10x across machines. They are for one core at the default 100 iterations, which is the only
+	configuration that compares cleanly between systems, and were measured on two x86-64 laptop
+	CPUs several generations apart. The last two rows are from the older of the two only.
 
- -s small	Runs 100 or 1000-iteration self-tests on a set of 32 Mersenne exponents, covering
- -s s		FFT lengths 120K-1920K. This will take around 10 minutes on a fast CPU..
+	  -s         FFT lengths      one core, 100 iters
+	  teensy     1K - 15K         a second or less
+	  tiny       16K - 240K       5 - 10 seconds
+	  small      256K - 1.875M    1 - 2 minutes
+	  medium     2M - 15M         13 - 21 minutes
+	  large      16M - 60M        35 - 60 minutes
+	  huge       64M - 240M       about 5 hours
+	  egregious  256M - 512M      about 14 hours
+
+	A small ARM core is much slower: a Raspberry Pi 4B measured roughly 10x the x86 figures at
+	the tiers where both were run.
+
+	Two things make wall-clock time counter-intuitive:
+
+	 - Crossing 4 threads multiplies the work by ten, because the default iteration count is
+	   100 for <= 4 threads and 1000 for more, and run time is linear in the iteration count
+	   to within a couple of percent. '-s small' takes 25 seconds on 4 cores and 165 seconds
+	   on 16 - the 16-core run is slower in wall-clock terms because it is doing ten times as
+	   much work.
+
+	 - Extra cores do not pay off proportionally, and past 4 they can cost. Normalising the
+	   iteration counts so that equal work is compared, on an 8-core/16-thread x86-64 machine:
+
+	                  1 thread   4 threads   16 threads   (cost per 100 iterations)
+	       small        64.8s       24.5s        16.5s
+	       medium      756.1s      345.0s       417.6s
+	       large      2225.8s     1068.1s      1233.8s
+
+	   Read those as self-test costs, not as how well Mlucas itself threads. A self-test runs
+	   every radix set for the length, good and bad, and adds the bookkeeping to pick a winner,
+	   so its wall clock averages over candidates rather than reporting the one you end up
+	   using. Pinned to a single radix set and FFT length, 1 -> 4 cores measures about 3x here,
+	   against a ceiling nearer 3.5x once the all-core clock drop is allowed for.
+
+	   For choosing how to run a self-test, though, the table is the relevant thing: 4 threads
+	   is the sweet spot, and past it the extra iterations cost more than the extra threads
+	   return, so at medium and large 16 threads finishes later than 4. Unless you have
+	   measured otherwise on your own hardware, 4 threads is a good default for these tiers.
+
+ -s teensy	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 15 Mersenne exponents,
+ -s tt		covering FFT lengths 1K-15K. Useful as a quick post-build smoke test; see the table above
+		for run times.
+
+ -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
+ -s t		covering FFT lengths 16K-240K.
+
+ -s small	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
+ -s s		FFT lengths 256K-1.875M.
 
 **************** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: *************
 *                                                                                             *
-* -s medium Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering *
-* -s m      FFT lengths from 2M to 7.5M. This will take around an hour on a fast CPU.         *
+* -s medium Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering *
+* -s m      FFT lengths from 2M to 15M.                                                       *
 *                                                                                             *
 ***********************************************************************************************
 
- -s large	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, covering
- -s l		FFT lengths 8M to 60M. This will take around 10 hours on a fast CPU.
+ -s large	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering
+ -s l		FFT lengths 16M to 60M.
 
  -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
- -s a		This will take around 12 hours on a fast CPU.
+ -s a		Note this covers teensy through large only, not huge or egregious.
+
+ -s cover	Coverage sweep: runs 100 or 1000-iteration self-tests at the supported FFT lengths
+ -s c		which have NO row in the built-in reference-exponent table and which the tiers above
+			therefore never reach - the odd-31 and odd-63 families, 992K through 32M. These are
+			the only lengths at which leading FFT radices 63, 992, 1008 and 4032 are ever used.
+			No new reference data is needed: the residue after a fixed number of iterations
+			depends only on the exponent and the iteration count, not on the FFT length, so each
+			swept length borrows the exponent and stored residues of the nearest tabulated length
+			at or below it. Roughly the cost of '-s l'.
+
+	Exit status of any of the above: 0 if every radix set tried either matched its reference or
+	was skipped for a reason that does not impugn the answer; 1 if any case returned a wrong
+	answer (residue mismatch, disagreement between radix sets at one FFT length, or an
+	identically-zero residue); 2 if there were no wrong answers but some FFT length had too few
+	usable radix sets to be tested at all. A one-line summary is printed at the end either way.
 
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
- -s h		of 16 M(p), covering FFT lengths 64M-240M. This will take several days on a fast CPU.
+ -s h		of 16 M(p), covering FFT lengths 64M-240M.
 
  -s xxl		[The 'e' form is short for 'egregious'.] Runs 100 or 1000-iteration self-tests on a set
- -s e		of 9 M(p), covering FFT lengths 256M-512M. This will take several days on a fast CPU, and
-			requires '-shift 0' also be added to the command line, which restriction will be removed
-			at a later date.
+ -s e		of 9 M(p), covering FFT lengths 256M-512M. Requires '-shift 0' also be
+			added to the command line, which restriction will be removed at a later date.
 
 ======================
 
@@ -150,7 +230,7 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
  	available at that length, unless the -radset flag is invoked (see below for details).
  	If -fft is invoked without the -iters flag, it is assumed the user wishes to do a
  	production run with a non-default FFT length, in this case the program requires a
- 	valid worktodo.ini-file entry with exponent not more than 5% larger than the
+ 	valid worktodo.txt-file entry with exponent not more than 5% larger than the
  	default maximum for that FFT length.
 
 	Without the optional [K|M] alphabetic suffixes (i.e. with a pure-integer argument),
@@ -212,14 +292,14 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	optionally, -radset) to be supplied.
 		If the -fft option (and optionally -radset) is also invoked but -iters is not, the
 	program first checks the first eligible (any line whose first non-whitespace caharcter
-	is alphabetic is treated as such) line of the worktodo.ini file to see if the assignment
+	is alphabetic is treated as such) line of the worktodo.txt file to see if the assignment
 	specified there is a Lucas-Lehmer test with the same exponent as specified via the -m
 	argument. If so, the -fft argument is treated as a user override of the default FFT
 	length for the exponent. If -radset is also invoked, this is similarly treated as a user-
 	specified radix set for the user-set FFT length; otherwise the program will use the
 	mlucas.cfg file to select the radix set to be used for the user-forced FFT length.
 
-	If the first eligible worktodo.ini file entry does not specify an LL-test (i.e. does not
+	If the first eligible worktodo.txt file entry does not specify an LL-test (i.e. does not
 	begin with "Test=" or "DoubleCheck=") of an exponent matching the -m value, a set of
 	timing self-tests is run on the user-specified Mersenne number using all sets of FFT
 	radices available at the specified FFT length.
@@ -228,6 +308,25 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	that exponent's default FFT length. Users can use this to find the optimal radix set for a
 	given Mersenne number exponent on their hardware, similarly to the -fft option. Performs
 	as many iterations as specified via the -iters flag (which is required if -m is invoked).
+
+o JACOBI RESIDUE CHECK: For production (i.e. non-self-test) Lucas-Lehmer tests of Mersenne
+numbers - not PRP, not p-1, and not Fermat/Pe'pin tests - Mlucas computes the Jacobi symbol
+J(s - 2 | M(p)) of the current residue s, which must equal -1 for every LL iterate if the
+exponent p is prime. The check runs whenever a restart file is read (checking the residue
+before anything is built on it), on the final residue before a result is reported, and
+periodically at checkpoints, no more often than every JacobiCheckHours hours of wall-clock
+time (cf. section [11]). A corrupted residue passes the check with probability 1/2, and the
+symbol is invariant under the LL recurrence from one iteration after a corruption on, so every
+later check examines the same value: a corruption that passes the first check after it is never
+caught by a later one. This is therefore a cheap, weak check that catches about half of all
+corruption events; how often it runs sets how much work is lost when one is caught, not the
+odds of catching it. It does not certify a result - a reported LL result still needs an
+independent double-check. A symbol of
+0 should not occur for a prime exponent; it means the residue shares a factor with the
+modulus, i.e. a corruption that no rollback would clear, so Mlucas stops rather than retry.
+The check requires GMP 5.1 or later; a build without a suitable GMP prints a one-time warning
+and runs without it. See sections [11], [12] and [14] for the mlucas.ini controls, savefiles
+and log messages it produces.
 
 ======================
 
@@ -287,6 +386,30 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 	we check whether b^(N+1) == b^2 (mod N). For N = M(p) we have N+1 = 2^p, thus this variant
 	requires (p-1) pure mod-squarings. Any self-tests done in PRP mode will do the first (iters)
 	of these.
+
+ -base {+int}
+	Sets the PRP base independently of the -prp flag. Whichever of the two comes later on the
+	command line determines the base, since -prp only falls back on the default base of 3 if no
+	base has been set by the time it is parsed. Note that -base on its own does not select PRP
+	mode; it only sets the base which a PRP test would use.
+
+[7a]: Cofactor-PRP (PRP-CF) testing:
+
+	A PRP test of M(p) or F(m) may be followed by a Suyama cofactor-PRP test of the cofactor
+	which remains after dividing out one or more already-known prime factors. There is no
+	command-line flag for this - it is requested via the workfile, by a PRP= assignment which
+	specifies residue type 5 and appends a list of the known factors; see section [15] for the
+	assignment syntax. Only residue types 1 (plain PRP) and 5 (PRP followed by a cofactor-PRP
+	check) are accepted, a known-factors list requires type 5, and for Fermat-number cofactor
+	tests the PRP base must be 3.
+
+	Each supplied factor is checked at run-start to confirm that it really does divide the
+	modulus; if one does not, the program names that entry and asks you to correct or remove it.
+	The cofactor result is written to results.txt as a JSON line carrying "residue-type":5 and a
+	"known-factors" array - see section [16].
+
+PRP-testing keeps the Gerbicz error check described above; the Jacobi residue check of
+section [4] applies only to Lucas-Lehmer tests and does not run in PRP mode.
 
 ======================
 
@@ -356,7 +479,7 @@ On completion of an initial p-1 run with stage bounds B1 and B2 and a contiguous
 in a pair of savefiles named p[exp].s1 and p[exp].s2, respectively. The former of these may
 be re-used for one or more deeper stage 2 interval runs, in distributed fashion (multiple
 program instances, each of which processes a given stage 2 interal so as to cover a desired
-expanded prime interval), if desired. Say the original run used a worktodo.ini assignment
+expanded prime interval), if desired. Say the original run used a worktodo.txt assignment
 
 	Pminus1={aid,}k,b,n,c,B1,B2
 
@@ -379,6 +502,85 @@ where any known factors should be in form of a comma-separated list of known boo
 with "", e.g. known factors f1 and f2 appear as "f1,f2". These will not be reported if
 found in any of the GCD steps which test for a factor having been found, and the run
 will only exit if a new factor (one not appearing in the known_factors list) is found.
+When stage 2 starts from a stored stage 1 residue, that residue is first Jacobi-checked as
+described in [9c].
+
+[9c]: Error checking in P-1:
+
+o STAGE 1 - GERBICZ CHECK: Stage 1 computes x <- x^2 * 3^b per iteration, b the next bit of the
+prime-powers product, and Mlucas runs the same Gerbicz error check on it that it runs on PRP
+tests, with one correction term for the multiply-by-3 steps. Every 10^6 iterations by default -
+see GerbiczCheckInterval in section [11] for the interval and its automatic shortening on slow
+or very large runs - and at the last block boundary before stage 1 ends, the check-product
+accumulated over the interval is
+compared against an independently recomputed value; an arithmetic error anywhere in the
+interval is caught with certainty - this is not a 50% check like the LL Jacobi one - at a cost
+of about 0.3% of the stage 1 time. A passing check writes the p[exponent].G savefile; a
+failing one rolls the run back to it, logging
+	"Gerbicz check iteration N failed! Restarting from last-good-Gerbicz-check data."
+The check needs the extra residue arrays, so LowMem = 2 (section [11]) disables it, and a
+stage 1 run in that mode has NO arithmetic error check at all - it says so once at the start.
+The check-product is stored in the p/q savefiles (section [12]) so that a resumed run continues
+the check across the restart; a savefile without it starts a new check epoch from the residue
+it holds ("Savefile ... carries no Gerbicz check-product; starting a new check epoch ...").
+
+o WHY NOT A JACOBI CHECK FOR STAGE 1: squaring maps every value into the quadratic residues, so
+after an arithmetic error at iteration k the residue carries exactly the expected Jacobi symbol
+from iteration k+1 on. A Jacobi check cannot see stage 1 arithmetic errors. Mlucas uses it in
+P-1 only where it can see something - the savefile and the floating-point-to-integer conversion
+path, which the Gerbicz check in turn cannot see (both of its operands go through it):
+	- on every stage 1 restart-file read ("Restart file p12345 (stage 1 iteration N) passed the
+	  Jacobi check"); a mismatch means the file's residue is corrupt, the secondary is tried,
+	  and if that fails too the run stops and asks you to delete the exponent's p-1 savefiles;
+	- on the final stage 1 residue, the exact integer handed to the GCD and written to
+	  p[exponent].s1 ("Stage 1 final residue passed the Jacobi check"). It runs on its own
+	  thread alongside the GCD, so it costs no wall time on multi-core builds; a mismatch stops
+	  the run with the savefiles intact (the GCD result, if any, is still valid - a wrong residue
+	  cannot produce a false factor), and a restart re-reads and re-checks them.
+There is no periodic Jacobi check in P-1. JacobiCheck = 0 in mlucas.ini disables these too.
+
+o STAGE 2: The stage 2 accumulator is a product of terms (A^((kD)^2) - A^(b^2)) and has no
+algebraic invariant that could be checked cheaply; Mlucas does not pretend otherwise. What it
+checks, at every stage 2 checkpoint, are the two inputs every later term is built from:
+	- the A^((kD)^2) ladder value is recomputed from the stage 1 residue and must match the
+	  running value exactly ("Stage 2 ladder check passed at q = Q (k = K, T sec)"). This costs
+	  about 130 modular multiplications, so it runs on the JacobiCheckHours clock (section [11];
+	  default every 12 hours, 0 = at every checkpoint) with the same overhead guard;
+	- the precomputed A^(b^2) table entries, which never change during stage 2, are checksummed
+	  after they are built, and a rotating 1/16 of them is re-verified at every checkpoint (all
+	  of them when JacobiCheckHours = 0);
+	- the accumulator itself gets sanity tests only: never zero, never unchanged between
+	  checkpoints.
+Every stage 2 failure stops the run with an "ERROR: ... stage 2 ..." line naming the check; the
+p[exponent].s2 checkpoint on disk is intact, and a restart rebuilds the ladder and tables from
+the stage 1 residue and resumes the accumulator from the file. A corruption of the accumulator
+itself is not caught; its consequence is a missed factor (a wasted later test), never a false
+claim, and any factor found is verified by division before it is reported.
+
+o RESULTS LINE: the P-1 JSON results line carries "error-code" (same layout as for LL and PRP,
+cf. section [14b]) and "errors":{"Roundoff":R, "gerbicz":G, "jacobi":J}.
+
+[9d]: Setting the p-1 stage bounds from the command line:
+
+The three flags below are the command-line counterpart of the B1, B2 and B2_start fields of a
+Pminus1= workfile assignment. Each of them selects p-1 factoring as the test type, and so each
+requires a modulus to have been specified via -m or -f; each is also rejected if -prp has
+already been given, since an assignment cannot be both a p-1 run and a PRP test.
+
+ -b1 {+int}
+	Stage 1 bound; must be < 2^32. This is the minimum a command-line p-1 run needs: without it
+	the program exits with "P-1 requires at least a nonzero Stage 1 bound to be specified via
+	the -b1 flag." A value below 10000 is raised to 10000, with a note to that effect, to avoid
+	an underflow in the stage 2 buffer arithmetic.
+
+ -b2 {+int}
+	Stage 2 bound; unlike B1 this may exceed 2^32. If omitted or given as 0, only stage 1 is
+	run. If set to a nonzero value below B1, no stage 2 is run and the program says so.
+
+ -b2_start {+int}
+	Lower end of the stage 2 prime interval, for stage 2 continuation runs; defaults to B1.
+	Must satisfy B2_start <= B2, and B1 must not exceed B2. A value greater than B1 is what
+	marks the run as a stage 2 continuation; see section [9b].
 
 ======================
 
@@ -416,12 +618,17 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	of (hi - lo + 1) threads."
 	o All three argument are supplied: "run 'threads_per_core' threads on each of physical
 	processors 'lo' through 'hi', for a total of (hi - lo + 1)*threads_per_core threads."
+
+	NOTE: -core is only compiled in if the build was configured to use hwloc - that is the
+	'use_hwloc' argument to makemake.sh, which adds -DINCLUDE_HWLOC=1 and links against
+	-lhwloc. Hwloc is not enabled by default, and a build without it supports only -nthread
+	and -cpu, rejecting -core as an unrecognized flag.
 ==========================
  (Obsolescent - not recommended, please use the -cpu flag instead:)
  -nthread {int}
 	For multithread-enabled builds, run with this many threads.
 	If the user does not specify a thread count, the default is to run single-threaded
-	with that thread's affinity set to logical core 0.
+	with that thread's affinity set to the first logical core available to the process.
 
 	AFFINITY: The code will attempt to set the affinity of the resulting threads
 	0:n-1 to the same-indexed processor cores - whether this means distinct physical
@@ -429,6 +636,16 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	but AMD does not. For this reason as of v17 this option is deprecated in favor of
 	the -cpu flag, whose usage is detailed below, with the online README page providing
 	guidance for the core-numbering schemes of popular CPU vendors.
+
+	EXTERNALLY-IMPOSED AFFINITY: On Linux, "available" above means "within the CPU-affinity
+	mask this process inherited". If the process was launched under a restricted mask - via
+	taskset, numactl, systemd 'CPUAffinity=', a batch scheduler such as SLURM, or a container
+	cpuset - then -nthread n uses the first n logical cores of *that* mask rather than cores
+	0:n-1, so that several instances pinned to disjoint core groups do not all pile onto the
+	same low-numbered cores. With an unrestricted mask this is exactly cores 0:n-1, as before.
+	An explicit -cpu/-core core set always wins, but naming a core outside the inherited mask
+	now draws a warning, since pinning a thread there overrides the operator's placement (and
+	fails outright under a cgroup cpuset).
 
 	If n exceeds the available number of logical processor cores (call it #cpu), the
 	program will halt with an error message.
@@ -455,10 +672,22 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	setting syntax in which each of the comma-separated 'triplet' subfields is in the above
 	form and, analogously to the one-triplet-only version, no whitespace is permitted within
 	the colon-and-comma-separated numeric field. Thus '-cpu 0:3,8:11' and '-cpu 0:3:1,8:11:1'
+	(see also the note on logical-CPU numbering after this list)
 	both specify an 8-threaded run with affinity set to logical core quartets 0-3 and 8-11,
 	whereas '-cpu 0:3:2,8:11:2' means run 4-threaded on cores 0,2,8,10. As described for the
 	-nthread option, it is an error for any core index to exceed the available number of logical
 	processor cores.
+
+	NOTE on logical-CPU numbering: the -cpu indices are the operating system's logical-processor
+	numbers, and which of those are hyperthread (SMT) siblings of one physical core is decided by
+	firmware, so it varies from system to system and is not a property of the CPU vendor. Two
+	layouts are common: siblings numbered adjacently, so that CPUs 0 and 1 share a core, and
+	siblings numbered i and i+(number of cores), so that CPUs 0 and 8 share a core on an 8-core
+	part. Under the first, '-cpu 0:3' is two physical cores with both hyperthreads each; under the
+	second it is four separate cores. At startup Mlucas prints how many physical cores the selected
+	set spans and warns when siblings share a core; use '-core lo:hi:1' (hwloc builds) or list one
+	logical CPU per core (e.g. '-cpu 0:6:2') for one thread per core. The detected L2 (per core) and
+	L3 cache sizes are printed on the same occasion.
 
 ======================
 
@@ -477,12 +706,15 @@ on a low_RAM might contain
 	CheckInterval = 10000	/* I'm using the space right of the value for a C-style comment. */
 	LowMem = 1	// But one could also use C++ comment format...
 	InterimGCD = 0	# Or bash-shell and Python-style comment format...
+	JacobiCheck = 1	Redundant, since 1 is the default, but shown here for illustration...
+	JacobiCheckHours = 6	...as is halving the default Jacobi-check interval to 6 hours.
 	LowMem = 2	Or no comment delimiter at all. Note that the program uses the first entry
 			matching a given option name, so the second LowMem entry here will be ignored.
 
-This specifies savefile-writes for LL/PRP/p-1 every 10000 iterations, and allows PRP-testing
-but excludes p-1 stage 2. The InterimGCD option setting is moot in this case since it only
-applies to p-1 stage 2.
+This specifies savefile-writes for LL/PRP/p-1 every 10000 iterations, allows PRP-testing but
+excludes p-1 stage 2, and (redundantly) leaves the Jacobi residue check on while halving its
+default checkpoint interval to 6 hours. The InterimGCD option setting is moot in this case
+since it only applies to p-1 stage 2.
 
 Note that the option-name and comment formats in mlucas.ini differ from those in local.ini -
 the latter is read and updated by the several primenet.py work-management scripts described
@@ -535,12 +767,43 @@ modes for low-RAM systems:
 	mode will use 2-4x as much working memory for PRP-tests as it does for LL-tests.
 
 	LowMem = 2 excludes both PRP-testing and p-1 stage 2. This is the minimum-memory option.
+	It also removes the p-1 stage 1 Gerbicz check (section [9c]), which needs the same extra
+	residue arrays, so stage 1 then runs with no arithmetic error check.
 	For QA-testing purposes, this allows self-tests to some modest number of iterations to
 	be done up to the maximum supported FFT length of 512M on systems with 8GB of memory.
+	Note that it also disables the Gerbicz error check on Fermat-number Pe'pin tests, which
+	are otherwise G-checked in the same way as Mersenne-number PRP tests are.
 
 o DISABLING INTERIM GCDs IN P-1 STAGE 2: Set InterimGCD = 0 in mlucas.ini. This will cause
 the program to wait until any p-1 stage 2 is finished to take a GCD (check for a factor),
 irrespective of the depth of the stage.
+
+o JACOBI RESIDUE CHECK: Set JacobiCheck = 0 in mlucas.ini to disable the LL residue check
+described in section [4] (default 1; the check is unavailable, and this setting has no
+effect, on a build without GMP >= 5.1). JacobiCheckHours = N sets how often, in wall-clock
+hours, the check additionally runs at checkpoints (default 12; fractional values are
+allowed; 0 checks at every checkpoint, mainly useful for testing).
+JacobiCheck also controls the P-1 integrity checks of section [9c], and JacobiCheckHours also
+paces the stage 2 ladder check there.
+
+o GERBICZ CHECK INTERVAL FOR P-1: GerbiczCheckInterval = N sets how many stage 1 iterations lie
+between Gerbicz checks in P-1 (section [9c]); PRP tests keep their fixed 10^6. N must be L^2 for
+a block length L that divides CheckInterval and whose square CheckInterval divides (e.g. with
+CheckInterval = 10000: 10000, 40000, 160000, 250000, 1000000, ...); an unusable value is
+reported together with the admissible ones and the automatic choice is used instead. The
+automatic choice is the smallest admissible L >= 100 whose L^2 iterations take at least about
+two hours at the per-iteration time recorded in mlucas.cfg, capped at L = 1000 (the PRP value) -
+it only ever shortens the interval, on slow or very large runs. Overhead is about 2/L whatever
+the interval, so the setting trades rollback exposure against that. Because the >4-thread
+CheckInterval default of 100000 admits only L = 1000, P-1 uses CheckInterval = 10000 unless you
+set CheckInterval yourself.
+
+The interval is given in hours rather than iterations because the check's cost is scalar GMP
+work that does not scale with the per-iteration FFT the way iteration counts do, so a fixed
+iteration interval would impose wildly different overhead on different hardware. Hours bound
+how long a corrupted residue can survive undetected, while the built-in rule of never
+re-checking sooner than 100x the previous check's duration bounds the overhead to near 1%
+regardless of machine speed.
 
 ======================
 
@@ -572,6 +835,31 @@ renamed p[exponent].s1. The reason for this is twofold:
 	more RAM, which allows for more efficient stage 2 work. At that point, it may make sense
 	to rerun some exponents to deeper stage 2 bounds. See section [9b] for how to do this.
 
+o With the Jacobi residue check enabled (cf. sections [4] and [11]), an LL run additionally
+keeps the two most recent Jacobi-passed checkpoints, saved as p[exponent].J (the latest) and
+p[exponent].J1 (the one before it), in the same format as the p/q savefiles. A failed check means
+the corruption happened after the last passing one (an earlier corruption that passed would go on
+passing, see section [4]), so .J is the natural place to roll back to; .J1 covers .J being
+unreadable or failing its own on-read check, and the rare corruption that struck exactly at a
+checked checkpoint, passed that check and fails every later one - the retry from .J then fails
+at the same iteration and the rollback moves on to .J1; on a failed check Mlucas rolls back through
+the chain p -> q -> .J -> .J1 -> from scratch, Jacobi-checking each file as it is read. At a
+332-million-bit exponent each savefile is 41.5 MB, so an LL run's p, q, .J and .J1 files
+together total roughly 166 MB.
+
+o Savefiles append a 4-byte Jacobi-check-failure count after the existing roundoff- and
+Gerbicz-error counts. Older Mlucas versions and third-party savefile readers ignore trailing
+fields they don't recognize, so old and new binaries can read each other's savefiles; an old
+binary that rewrites the file drops the count back to 0, exactly as the existing error counts
+already do across a v19 downgrade.
+
+o P-1 stage 1 savefiles (p/q and the .G written at each passing Gerbicz check, cf. [9c]) carry
+the Gerbicz check-product appended after the error counts, behind an 8-byte epoch field, so
+that older Mlucas versions and third-party readers - which stop after the error counts - read
+them exactly as before; an older binary that rewrites the file drops the product, and the next
+restart starts a new check epoch from the residue. The mid-block p/q files are therefore about
+twice the size of a plain residue savefile.
+
 o P-1 runs also store a file p[exponent].s1_prod encoding the precomputed small-prime-powers
 product used for the stage 1 left-to-right modular binary powering. This can save time on
 restart for large stage 1 bounds, say B1 = 5 million or larger, since as of this writing I have
@@ -601,6 +889,11 @@ Please start by looking for posts about your issue in the
 mersenneforum.org thread specific to the release you are using in the mersenneforum.org
 Mlucas subforum at https://www.mersenneforum.org/forumdisplay.php?f=118.
 If you don't find anything, make a post describing your problem.
+
+o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation (e.g. -maxalloc set too high for the
+actual available RAM, or too little free RAM for the requested FFT length or p-1 stage 2 buffer count),
+Mlucas exits with a clear out-of-memory message. If you see this, lower -maxalloc, use fewer p-1 stage 2
+buffers (via -pm1_s2_nbuf), or free up system RAM.
 
 [14a]: How to safely interrupt a running instance:
 
@@ -635,8 +928,204 @@ Once you have identified the desired process IDs:
 	interval completes, i.e. until the latest savefile update occurs.
 
 For the current list of signal types which the program listens for, see the sig_handler() function near
-the top of Mlucas.c . As of this writing (v20.1.1), the program listens for INT,TERM,HUP,ALRM,USR1 and USR2.
+the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2 on
+Unix-like systems (Linux, *BSD including FreeBSD, and macOS); native Windows/MinGW builds only catch
+INT and TERM.
+
+[14b]: Jacobi residue check log messages:
+
+The Jacobi residue check (cf. sections [4], [11] and [12]) writes lines to the p[exponent].stat
+file. What each means and what, if anything, to do about it:
+
+	"At iteration N, shift = S: Jacobi check passed (T sec)."
+	Normal. No action needed.
+
+	"Jacobi check at iteration N FAILED (symbol = +1, T sec)! Restarting from the current
+	savefile." (or "...the last Jacobi-passed savefile" / "...the previous Jacobi-passed
+	savefile" / "...scratch", depending on how many consecutive failures have occurred)
+	"Restart file p12345 (iteration N) passed the Jacobi check (T sec)."
+	"Restart file p12345 (iteration N) FAILED the Jacobi check (symbol = 1, T sec) - its
+	residue is corrupt; trying the next savefile in the chain."
+	"INFO: no restart file passes the Jacobi check...starting run from scratch."
+	"Jacobi-check-error restart: Mod-doubling residue shift ..."
+	Normal recovery: the check caught a corrupted residue and the program is rolling back
+	through the p -> q -> .J -> .J1 -> scratch chain to find a good one. No action needed
+	unless this recurs often, in which case see the 5-consecutive-failures entry below.
+
+	"Jacobi check at iteration N failed with symbol 0: the residue shares a factor with the
+	modulus, which cannot happen for a correct LL residue of a prime exponent. Aborting
+	rather than retrying; ... please check this machine for hardware errors."
+	Exponents are checked for primality when the worktodo entry is read, so a symbol of 0
+	means the residue itself has been corrupted in a way rollback cannot clear. Treat it
+	like the 5-consecutive-failures case below.
+
+	"Jacobi check at iteration N failed %u times in a row, the last after restarting from
+	scratch - ... Please check this machine for hardware errors."
+	Five consecutive Jacobi-check failures, the last one from a fresh restart, means the
+	corruption is not being cleared by rolling back savefiles, so it is not transient. Stop
+	the run and test the machine's RAM and CPU before restarting.
+
+P-1 runs (section [9c]) add these lines:
+
+	"At iteration N, shift = 0: Gerbicz check passed."
+	"Stage 2 ladder check passed at q = Q (k = K, T sec)."
+	"Restart file p12345 (stage 1 iteration N) passed the Jacobi check (T sec)."
+	"Stage 1 final residue passed the Jacobi check (T sec)."
+	Normal. No action needed.
+
+	"Gerbicz check iteration N failed! Restarting from last-good-Gerbicz-check data."
+	Normal recovery from a caught arithmetic error: the run rolls back to p[exponent].G. No
+	action needed unless it recurs, in which case test the machine's RAM and CPU.
+
+	"Restart file p12345 (stage 1 iteration N) FAILED the Jacobi check (symbol = S, expected E,
+	T sec) - its residue is corrupt."
+	The savefile is damaged; the secondary is tried next. If both fail the run stops with
+	"No usable p-1 savefile ..." - delete the exponent's p-1 savefiles to start the run over.
+
+	"Stage 1 final residue FAILED the Jacobi check ... Aborting before the GCD"
+	The final residue is corrupt in the conversion or savefile path. Restart: the savefiles are
+	intact and are re-read and re-checked. If it recurs, test the hardware.
+
+	"ERROR: ... stage 2 ladder check FAILED ..." / "... stage 2 table entry I of N fails its
+	checksum ..." / "... stage 2 accumulator is identically zero ..." / "... stage 2 accumulator
+	did not change ..."
+	Memory corruption or a broken build was caught in stage 2. Restart: the p[exponent].s2
+	checkpoint is intact, the ladder and tables are rebuilt and stage 2 resumes from it. If it
+	recurs, test the hardware.
+
+A SIGINT/SIGTERM-driven checkpoint (cf. section [14a]) never runs the Jacobi check, so shutdown
+is not slowed down; the residue is instead checked when the run is next restarted.
+
+The Jacobi-check failure count is also folded into the "error-code" hex field of the JSON
+results line (cf. section [12] for the savefile-resident version of this count): bits 4-7 hold
+the (capped) Jacobi-failure count, bits 8-13 the roundoff-error count, and bits 20-23 the
+Gerbicz-check-failure count, matching the layout the GIMPS primenet server expects (which
+ignores the low byte when deciding whether a result is "clean"). The same count also appears
+as "jacobi" in the results line's "errors" object, e.g.:
+
+	{"status":"C", "exponent":44501, "worktype":"LL", "res64":"40755C45A05FA7C0",
+	"fft-length":2048, "shift-count":0, "error-code":"00000000",
+	"errors":{"Roundoff":0, "jacobi":0}, "program":{"name":"Mlucas", "version":"21.0.2"},
+	"timestamp":"2026-09-07 02:49:29"}
 
 ======================
 
-Last updated: 28 Nov 2021
+[15]: The workfile (worktodo.txt) and its assignment formats:
+
+The workfile holds the list of assignments to be worked through. It is read at program start
+and again after each completed assignment, so new entries may be appended to it while a run is
+in progress. NOTE: through v20.1.1 this file was named worktodo.ini; v21 renamed it to
+worktodo.txt, so a run directory carried over from an older version needs the file renamed.
+
+Only lines whose first non-whitespace character is alphabetic are treated as assignments. Any
+other line - including the bare-Mersenne-exponent format accepted by versions prior to v20.1.1 -
+is skipped, with a note to that effect in the terminal output. A line which does begin with a
+letter but matches none of the formats below draws a "WARN: Unrecognized/Unsupported option or
+empty assignment line" and is likewise skipped.
+
+In the formats below, {aid} is an optional 32-hexit PrimeNet assignment ID, which may be omitted
+altogether or given as 'n/a'. The quartet k,b,n,c specifies the modulus k*b^n + c: for the
+Mersenne number M(p) that is 1,2,p,-1, and for the Fermat number F(m) it is 1,2,2^m,+1.
+
+	Test={aid,}{exponent}
+	DoubleCheck={aid,}{exponent}
+		Lucas-Lehmer test of M(exponent).
+
+	Fermat,Test={aid,}{index}
+		Pe'pin test of the Fermat number F(index). It is the leading "Fermat," keyword which
+		selects the Fermat modulus; "Mersenne," is accepted as its (default) counterpart.
+
+	PRP={aid,}k,b,n,c[,TF_BITS,tests_saved[,base,residue_type[,"f1,f2,..."]]]
+	PRPDC={aid,}k,b,n,c,...
+		Probable-primality test; PRPDC is the double-check form, and parses identically. With
+		only the k,b,n,c fields present, the base defaults to 3 and the residue type to 1.
+		Only residue types 1 and 5 are accepted. The optional trailing list of already-known
+		factors - comma-separated and bookended with "", exactly as for Pminus1= - requests a
+		Suyama cofactor-PRP test (section [7a]) and requires residue type 5.
+			The tests_saved field is the number of primality tests which would be saved were
+		p-1 factoring to turn up a factor; it must lie in [0,2] and may be fractional. If it is
+		nonzero, the program reads the assignment as "p-1 factoring is still wanted here": it
+		works out suitable stage bounds, inserts a corresponding Pminus1= line ahead of this one
+		in the workfile, and rewrites this line's tests_saved field to 0, so that the p-1 run is
+		done first and the PRP test follows it.
+
+	Pminus1={aid,}k,b,n,c,B1,B2[,TF_BITS[,B2_start]][,"f1,f2,..."]
+		P-1 factoring to the stated stage bounds. The trailing fields are optional but ordered,
+		i.e. a B2_start field is only looked for if a TF_BITS field precedes it; a known-factors
+		list may however follow B2 directly, since it is recognized by its leading double-quote.
+		A B2_start greater than B1 is what marks the run as a stage 2 continuation - see section
+		[9b] for how to set one of those up, and for what the known-factors list does.
+
+	Pfactor={aid,}k,b,n,c,TF_BITS,tests_saved
+		P-1 factoring with the stage bounds chosen by the program, from the how-far-factored
+		depth TF_BITS and the tests_saved value (again constrained to [0,2]). The bounds actually
+		used are recorded in the run logfile. This is the p-1 assignment type the PrimeNet server
+		normally issues.
+
+Trial-factoring (Factor=) and ECM assignment types are not supported by current builds, and lines
+specifying them are skipped as unrecognized.
+
+======================
+
+[16]: Files read and written by the program, and where they live:
+
+o FILE LOCATION: By default, Mlucas reads and writes all of the files below in the directory it
+was started in. Every one of those accesses goes through a single wrapper function which prepends
+the string MLUCAS_PATH to the filename, so setting that prefix relocates the whole set at once.
+It can be set in either of two ways:
+
+	o At run time, via an environment variable of the same name, MLUCAS_PATH.
+	o At build time, by compiling with -DMLUCAS_DEFAULT_PATH='"..."'.
+
+The environment variable takes precedence over any compiled-in default. The value is expanded by
+the shell before use, so entries such as "$HOME/.mlucas.d/" work as written. It must end with a
+slash; if it does not, the program prints an error and exits. If it is non-empty, the program
+creates the corresponding directory - including any missing parent directories - at startup, and
+the startup informational output includes a line reading
+
+	INFO: MLUCAS_PATH is set to "..."
+
+Note that MLUCAS_PATH is a plain string prefix rather than a directory setting as such, which is
+why the trailing slash is required rather than merely conventional. Distribution packages of
+Mlucas are commonly built with a default of "$HOME/.mlucas.d/"; a build straight from these
+sources defaults to the empty string, i.e. to the current working directory.
+
+o FILES: In the names below, {exponent} is the Mersenne exponent p. For Fermat-number work the
+leading 'p' becomes an 'f' and {exponent} is replaced by the Fermat index m, e.g. the logfile for
+a Pe'pin test of F(30) is f30.stat .
+
+	worktodo.txt		The workfile - the list of assignments to work through, in the formats
+						detailed in section [15].
+
+	results.txt			One JSON-formatted result line per completed assignment. Common to all
+						of them are the status, exponent, worktype, fft-length, program name
+						and version, timestamp, and the assignment ID if the workfile entry
+						carried one. LL results add res64, shift-count, an error-code and a
+						Roundoff error count; PRP results add a 2048-bit residue and a Gerbicz
+						error count alongside those, and state the residue type (1, or 5 for a
+						cofactor-PRP result, which also lists the known-factors used); p-1
+						results instead report the bounds B1 and B2, and any factor found.
+
+	mlucas.cfg			The best-timing FFT radix set at each FFT length, as determined by the
+						self-tests of section [1], and used to pick the radix set for a
+						production run.
+	fermat.cfg			The same thing for Fermat-number work; the two have identical format,
+						and which of them is used follows from the modulus type being tested.
+
+	mlucas.ini			Optional user settings, re-read at every program (re)start. See
+						section [11] for the supported options.
+
+	p{exponent}			The primary savefile and its redundant backup copy. See section [12].
+	q{exponent}
+
+	p{exponent}.stat	The run logfile for this assignment: progress lines, interim residues,
+						roundoff-error and Gerbicz-check reporting, and the p-1 stage bounds
+						actually used for a Pfactor= assignment.
+
+	p{exponent}.s1		P-1 savefiles: the stage 1 residue, the stage 2 residue, and the
+	p{exponent}.s2		precomputed stage 1 prime-powers product. See sections [9b] and [12].
+	p{exponent}.s1_prod
+
+======================
+
+Last updated: 6 Sep 2026

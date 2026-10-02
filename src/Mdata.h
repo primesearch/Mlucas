@@ -108,6 +108,13 @@ extern int DO_GCHECK;	// Mersenne/PRP or Fermat/Pepin case
 extern int ITERS_BETWEEN_GCHECK_UPDATES;	// #iterations between Gerbicz-checksum updates
 extern int ITERS_BETWEEN_GCHECKS;			// #iterations between Gerbicz-checksum residue-integrity checks
 extern uint32 NERR_GCHECK;	// v20: Add counter for Gerbicz-check errors encountered during test
+extern uint32 NERR_JACOBI;	// v21: Counter for Jacobi-check failures encountered during test
+extern int PM1_GCHECK_INTERVAL;	// v21: mlucas.ini GerbiczCheckInterval for p-1 stage 1 (0 = automatic)
+extern double CFG_MSEC_PER_ITER;	// v21: msec/iter of the chosen radix set, from mlucas.cfg (0 if unknown)
+extern uint32 PM1_GCHECK_EPOCH_START;	// v21: p-1 stage 1 Gerbicz check: iteration the current check-product epoch started at (0 = from the seed)
+extern uint32 PM1_GCHECK_FILE_HAS_PRODUCT;	// v21: set by read_ppm1_savefiles() when a p-1 savefile carried an appended check-product
+extern int JACOBI_CHECK;	// v21: mlucas.ini JacobiCheck - 0 disables the LL Jacobi residue check (default on)
+extern double JACOBI_CHECK_HOURS;	// v21: mlucas.ini JacobiCheckHours - wall-clock hours between periodic checks (0 = every checkpoint)
 
 #undef	FACTOR_PASS_MAX
 #define	FACTOR_PASS_MAX	16
@@ -194,7 +201,13 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 #define ERR_SKIP_RADIX_SET			14	// In context of self-testing, not fatal for run overall but skip the current set of FFT radices
 #define ERR_INTERRUPT				15	// On one of several interrupt SIGs, exit iteration loop prematurely, write savefiles and exit
 #define ERR_GERBICZ_CHECK			16
-#define ERR_MAX		ERR_GERBICZ_CHECK
+#define ERR_JACOBI_CHECK			17	// v21: LL Jacobi-symbol residue check failed - roll back to a Jacobi-passed savefile
+/* v21: sanity checks for failure modes neither the roundoff check nor the reference-residue
+comparison can see. See ernstMain() and the selfTest driver in main(). */
+#define ERR_ZERO_RESIDUE			18
+#define ERR_ZERO_ROUNDOFF			19
+#define ERR_DUPLICATE_RES64			20
+#define ERR_MAX		ERR_DUPLICATE_RES64
 
 /***********************************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
@@ -267,6 +280,12 @@ extern uint64 PMAX;	/* maximum exponent allowed */
 extern uint64 RES_SHIFT, GCHECK_SHIFT;
 // Feb 2020: added a uint32 to keep track of the shifted-residue sign, needed for rotated residue Fermat-mod arithmetic:
 extern uint32 RES_SIGN;
+/* Fermat-mod Pépin test only: the random-bit residue-doubling that accompanies the 'shift = 2*shift + randbit'
+update is a property of the *shift-carrying main residue chain*, not of the modulus. Set FALSE by
+fermat_mod_square() while it is squaring/multiplying one of the Gerbicz-check auxiliary arrays (which do not
+carry a shift), so that the carry routines skip the doubling for those. Cf. the prp_mult gate in the
+radix*_ditN_cy_dif1() routines and the update_shift arg of fermat_mod_square(). */
+extern int FERMAT_RANDBIT_MULT;
 extern uint64 *BIGWORD_BITMAP;	/* Needed for fast how-many-residue-bits-up-to-this-array-word lookup, which the carry routines
 								use to figure out where to inject the -2 in a rotated-residue LL test using Crandall/Fagin IBDWT.
 								A 1-bit means a bigword (p/n+1 bits); 0 means a smallword (p/n bits), where p/n is integer-div. */
@@ -362,6 +381,7 @@ extern uint32 TRANSFORM_TYPE;
 extern const char OFILE[], WORKFILE[];
 extern const char MLUCAS_INI_FILE[];
 extern char CONFIGFILE[];
+extern uint64 L2_CACHE_BYTES, L3_CACHE_BYTES;	// Detected per-core L2 and (shared) L3 sizes, 0 = unknown; set by report_cpu_topology()
 extern char STATFILE[];
 extern char RESTARTFILE[];
 extern uint64 KNOWN_FACTORS[40];	// Known prime-factors input to p-1 runs ... for now limit to 10 factors, each < 2^256
