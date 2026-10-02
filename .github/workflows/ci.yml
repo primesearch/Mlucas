@@ -314,12 +314,12 @@ jobs:
             # KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an ER-capable assembler -
             # which is why clang 5.0 on alpine:3.8 can now build AVX-512.) Probe and skip AVX-512 rather than
             # fail the build on a mode that provably can't work here.
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -mavx512f -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma -x c -o /dev/null -; then
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovq %%rax,%%xmm16\n\tvpmovzxbq %%xmm16,%%zmm16\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","zmm16","k1","rax");return 0;}' | $CC -mavx512f -mavx512cd -mfma -x c -o /dev/null -; then
                 MODES+=( AVX512 )
             else
                 echo "::warning::Skipping the AVX512 build mode as the '$($CC --version | head -n1)' assembler cannot handle the required AVX512 extended registers (zmm16-31/xmm16-31/k0-7)."
             fi
-            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovdqa64 %%xmm16,%%xmm17\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","xmm17","k1","eax");return 0;}' | $CC -march=knl -mavx512f -mavx512er -x c -o /dev/null -; then
+            if echo 'int main(void){__asm__ __volatile__("vpxord %%zmm31,%%zmm31,%%zmm31\n\tvmovq %%rax,%%xmm16\n\tvpmovzxbq %%xmm16,%%zmm16\n\tkmovw %%k1,%%eax":::"zmm31","xmm16","zmm16","k1","rax");return 0;}' | $CC -march=knl -mavx512f -mavx512cd -mavx512er -mfma -x c -o /dev/null -; then
                 MODES+=( AVX512_KNL )
             else
                 echo "::warning::Skipping the AVX512_KNL build mode as '$($CC --version | head -n1)' does not support -march=knl."
