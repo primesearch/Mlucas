@@ -397,5 +397,33 @@ int	test_simd_transpose_16x16();
 }
 #endif
 
+
+/* Run-time access to the Windows 7 / Server 2008 R2 processor-group API. makemake.sh targets Vista
+(-D_WIN32_WINNT=0x0600) for msys/cygwin builds, and below 0x0601 the mingw-w64 headers do not declare
+SetThreadGroupAffinity, GetActiveProcessorCount or GetActiveProcessorGroupCount. Raising the target
+instead is not an option: calling them directly makes them static imports, and a binary carrying those
+cannot be loaded at all on Vista. Resolving them through GetProcAddress gives one binary that uses
+processor groups wherever they exist and still starts on Vista. GROUP_AFFINITY is declared even at
+0x0600, so only the entry points need typedefs. */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <windows.h>
+
+  #ifndef ALL_PROCESSOR_GROUPS
+	#define ALL_PROCESSOR_GROUPS 0xffff
+  #endif
+
+typedef BOOL  (WINAPI *PFN_SetThreadGroupAffinity      )(HANDLE, const GROUP_AFFINITY*, PGROUP_AFFINITY);
+typedef DWORD (WINAPI *PFN_GetActiveProcessorCount     )(WORD);
+typedef WORD  (WINAPI *PFN_GetActiveProcessorGroupCount)(void);
+
+extern PFN_SetThreadGroupAffinity		pSetThreadGroupAffinity;
+extern PFN_GetActiveProcessorCount		pGetActiveProcessorCount;
+extern PFN_GetActiveProcessorGroupCount	pGetActiveProcessorGroupCount;
+
+/* Resolve the above. host_init() runs this via get_num_cores() before any worker thread exists;
+the workers only ever read the pointers, so there is no race. */
+void win7_procgroup_init(void);
+#endif
+
 #endif	/* util_h_included */
 

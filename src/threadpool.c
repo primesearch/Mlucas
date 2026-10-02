@@ -67,7 +67,6 @@ me at: heber.tomer@gmail.com
 
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>	// Windows CPU-affinity API; see the affinity branch below for details.
-	#include "win_procgroup.h"
 #endif
 
 #ifdef __FreeBSD__
@@ -675,12 +674,6 @@ me at: heber.tomer@gmail.com
 		int i;
 		struct threadpool *pool = (struct threadpool *)CALLOC(1,
 						sizeof(struct threadpool));
-
-	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
-		// Resolve the Win7+ processor-group entry points here, on the main thread, before any worker
-		// exists - the workers only ever read these pointers:
-		win7_procgroup_init();
-	#endif
 
 		/* Init the mutex and cond vars. */
 		if (pthread_mutex_init(&(pool->free_tasks_mutex),NULL)) {

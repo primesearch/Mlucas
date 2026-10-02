@@ -36,7 +36,6 @@
 #endif
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>
-	#include "win_procgroup.h"
 
 PFN_SetThreadGroupAffinity		pSetThreadGroupAffinity			= NULL;
 PFN_GetActiveProcessorCount		pGetActiveProcessorCount		= NULL;
