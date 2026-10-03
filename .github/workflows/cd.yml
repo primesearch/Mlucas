@@ -76,7 +76,7 @@ jobs:
         
         (
             cd gmp-6.3.0
-            ./configure --prefix=/usr/local --disable-shared --enable-static --with-pic --enable-fat
+            ./configure --prefix=/usr/local --disable-shared --enable-static ${{ matrix.platform == 'linux/arm/v7' && '--build=armv7-unknown-linux-gnueabihf' || '' }} --enable-fat
             make -j "$(nproc --all)"
             make check -j "$(nproc --all)"
             make install
@@ -219,13 +219,17 @@ jobs:
       run: |
           # FreeBSD 12 aarch64 packages recovered from: https://web.archive.org/web/20231120175454/https://pkg.freebsd.org/FreeBSD:12:aarch64/
           wget -nv 'https://github.com/user-attachments/files/32473773/freebsd12-aarch64-packages.zip'
-          unzip -o freebsd12-aarch64-packages.zip
+          unzip -o freebsd12-aarch64-packages.zip freebsd12-aarch64-packages/{pkg,indexinfo,gettext-runtime,readline,bash,gmp,pkgconf}'-*.pkg'
     - name: Download
       if: matrix.arch == 'armv7'
       run: |
           # FreeBSD 12 armv7 packages recovered from: https://web.archive.org/web/20231120175407/https://pkg.freebsd.org/FreeBSD:12:armv7/
           wget -nv 'https://github.com/user-attachments/files/32482403/freebsd12-armv7-packages.zip'
-          unzip -o freebsd12-armv7-packages.zip
+          unzip -o freebsd12-armv7-packages.zip freebsd12-armv7-packages/{pkg,indexinfo,gettext-runtime,readline,bash,gmp,pkgconf}'-*.txz'
+    - name: Download hwloc
+      run: |
+          wget -nv 'https://download.open-mpi.org/release/hwloc/v2.14/hwloc-2.14.0.tar.bz2'
+          tar -xf hwloc-2.14.0.tar.bz2
     - name: Script
       uses: vmactions/freebsd-vm@v1
       with:
@@ -283,7 +287,7 @@ jobs:
             tar -C "$JAIL/tmp" --strip-components=4 -xf freebsd12-armv7-packages/pkg-*.txz /usr/local/sbin/pkg-static
             jexec mlucas sh -c '/tmp/pkg-static add /workspace/freebsd12-armv7-packages/*.txz'
           else
-            ${{ (matrix.arch == 'i386' || matrix.arch == 'armv7') && 'jexec mlucas' || '' }} pkg install -y bash gmp ${{ matrix.release == '10' && 'hwloc' || 'hwloc2' }} pkgconf
+            ${{ (matrix.arch == 'i386' || matrix.arch == 'armv7') && 'jexec mlucas' || '' }} pkg install -y bash gmp pkgconf
           fi
     - name: Before script
       shell: freebsd {0}
@@ -298,6 +302,15 @@ jobs:
       run: |
         set -ex ${{ matrix.release != '10' && '-o pipefail' || '' }}
         ${{ (matrix.arch == 'i386' || matrix.arch == 'armv7') && 'jexec mlucas sh -c "cd /workspace && exec sh -ex"' || 'sh -ex' }} <<'EOF'
+        (
+            cd hwloc-2.14.0
+            ./configure --prefix=/usr/local --disable-shared --enable-static LIBS='-lpthread' # --disable-io
+            make -j "$(sysctl -n hw.ncpu)"
+            make check -j "$(sysctl -n hw.ncpu)"
+            make install
+        )
+        export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+
         MODES=NOSIMD
         case "${{ matrix.arch }}" in
             aarch64) MODES="$MODES ASIMD" ;;
