@@ -166,10 +166,9 @@ try_lto() {
 }
 
 static_libs() {
-	local library=$1 archive libdir
+	local library=$1 archive libdir flags flag dirs=()
 
 	if command -v pkg-config >/dev/null && pkg-config --exists "$library"; then
-		local arg flags=()
 		libdir=$(pkg-config --variable=libdir "$library")
 		archive="$libdir/lib${library}.a"
 
@@ -179,13 +178,12 @@ static_libs() {
 				return 1
 			fi
 
-			read -r -a flags <<<"$output"
-
-			for arg in "${flags[@]}"; do
-				if [[ $arg == "-l$library" ]]; then
+			read -ra flags <<<"$output"
+			for flag in "${flags[@]}"; do
+				if [[ $flag == "-l$library" ]]; then
 					LD_ARGS+=("$archive")
 				else
-					LD_ARGS+=("$arg")
+					LD_ARGS+=("$flag")
 				fi
 			done
 
@@ -193,18 +191,25 @@ static_libs() {
 		fi
 	fi
 
-	if archive=$("${CC:-gcc}" $LDFLAGS -L/usr/local/lib -L/opt/homebrew/lib -print-file-name="lib${library}.a" 2>/dev/null) && [[ -n $archive && $archive != "lib${library}.a" && -f $archive ]]; then
-		LD_ARGS+=("$archive")
-		return
-	fi
+	read -ra flags <<<"$LDFLAGS"
+	for flag in "${flags[@]}"; do
+		if [[ $flag == -L?* ]]; then
+			dirs+=("${flag#-L}")
+		fi
+	done
 
-	for libdir in /usr/local/lib /usr/lib64 /usr/lib /opt/homebrew/lib; do
+	for libdir in "${dirs[@]}" /usr/local/lib /opt/homebrew/lib /usr/lib64 /usr/lib; do
 		archive="$libdir/lib${library}.a"
 		if [[ -f $archive ]]; then
 			LD_ARGS+=("$archive")
 			return
 		fi
 	done
+
+	if archive=$("${CC:-gcc}" -print-file-name="lib${library}.a" 2>/dev/null) && [[ -n $archive && $archive != "lib${library}.a" && -f $archive ]]; then
+		LD_ARGS+=("$archive")
+		return
+	fi
 
 	echo "Error: Static library 'lib${library}.a' was not found." >&2
 	return 1
