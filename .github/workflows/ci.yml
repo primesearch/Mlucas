@@ -373,7 +373,8 @@ jobs:
         source /opt/mpss/3.8.6/environment-setup-k1om-mpss-linux
 
         export CC=k1om-mpss-linux-gcc
-        # unset CFLAGS CPPFLAGS
+        # The SDK environment exports its own CFLAGS, which makemake.sh would otherwise use instead of its defaults:
+        unset CFLAGS
         $CC --version
         k1om-mpss-linux-ld --version
         $CC -dM -E - </dev/null
@@ -416,7 +417,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >> "$GITHUB_ENV"
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
@@ -460,7 +461,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=thread/' makemake.sh
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=thread' >> "$GITHUB_ENV"
         $CC --version
     - name: Script
       run: |
@@ -680,7 +681,7 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >> "$GITHUB_ENV"
         sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
     - name: Script
@@ -715,7 +716,7 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        sed -i '' 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=thread/' makemake.sh
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=thread' >> "$GITHUB_ENV"
         clang --version
     - name: Script
       run: |
@@ -930,7 +931,7 @@ jobs:
     - name: Before script
       shell: bash
       run: |
-        sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >> "$GITHUB_ENV"
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
