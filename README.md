@@ -267,7 +267,7 @@ Mlucas writes savefiles ("checkpoints") at regular intervals — every 10,000 it
 
 ## Further documentation
 
-* [help.txt](help.txt) — the full command-line option reference (self-test tiers, P-1 flags, `mlucas.ini` options, savefile internals, and more).
+* [help.txt](help.txt) — the full command-line option reference (self-test tiers, P-1 flags, `mlucas.ini` options, savefile internals, and more). Lucas-Lehmer tests are protected by a Jacobi residue check, controlled by the `JacobiCheck` and `JacobiCheckHours` mlucas.ini options - see section [11].
 * [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — worked `-cpu`/`-core` examples for hyperthreaded Intel/AMD, ARM, hybrid, and Apple Silicon systems, plus multi-instance launch-script templates.
 * [docs/Fermat-testing.md](docs/Fermat-testing.md) — testing Fermat numbers with Mlucas.
 * [docs/ANDROID.md](docs/ANDROID.md) — running Mlucas on a cluster of Android phones.
