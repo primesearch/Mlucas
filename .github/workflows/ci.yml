@@ -151,7 +151,11 @@ jobs:
     - uses: actions/upload-artifact@v7
       with:
         name: linux_${{ endsWith(matrix.os, '-arm') && 'arm' || 'x86' }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Linux-Singlethread:
     name: Mlucas Linux Singlethreaded
@@ -321,7 +325,11 @@ jobs:
       if: always()
       with:
         name: container-${{ strategy.job-index }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   Linux-K1OM:
     name: Mlucas K1OM
