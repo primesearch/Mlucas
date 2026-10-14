@@ -168,6 +168,7 @@ int		mlucas_nanosleep(const struct timespec *req);
 void	host_init(void);	/* This one is a wrapper for calls to the next few: */
 double	get_time    (double tdiff);
 char*	get_time_str(double tdiff);
+double	cpuset_mean_mhz(void);	// Linux: mean current clock (MHz) of the CPUs in CORE_SET (or CPU 0 if unthreaded); 0 if unavailable
 void	set_stacklimit_restart(char *argv[]);
 uint32	get_system_ram(void);
 void	print_host_info(void);
