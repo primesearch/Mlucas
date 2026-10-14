@@ -608,34 +608,41 @@ if [[ -x $TARGET ]]; then
 	exit 1
 fi
 
-# -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on some older
-# or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe for both
-# instead of assuming. NB the generated Makefile emits "CFLAGS =", not "CFLAGS ?=", so exporting CFLAGS
-# before invoking this script has NO effect - a build that needs different flags entirely (the sanitizer
-# CI jobs) has to rewrite the generated "CFLAGS =" line, which is what those jobs now do. Prefer
-# -flto=auto (parallel LTO codegen, see #56) over plain -flto when supported:
-C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
-if try_flag -fdiagnostics-color; then
-	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
-fi
-# Disable type-based alias analysis. This tree type-puns heavily - ~1800 inter-type pointer casts
-# across src/, and an avx2 build emits 115 -Wstrict-aliasing=2 warnings, 14 of which gcc rates as
-# "will break" rather than "might", several in the carry loops. Many of those accesses are safe only
-# because a function call separates the store from the load, and -flto=auto (added below) inlines
-# that barrier away: the wrong-lane twopmodq96_q4 miscompile needed LTO to appear at all. Measured
-# cost is nil - a 1M-class FFT benchmark, alternating builds over six reps to cancel the
-# second-run-is-slower ordering effect, puts the two within half a percent of each other, with the
-# no-strict-aliasing build marginally ahead. This is defence in depth, NOT a substitute for fixing
-# such accesses in place; they should still be found and fixed on their own merits.
-if try_flag -fno-strict-aliasing; then
-	C_ARGS+=(-fno-strict-aliasing)
-fi
-if try_lto -flto=auto; then
-	C_ARGS+=(-flto=auto)
-elif try_lto -flto; then
-	C_ARGS+=(-flto)
+# A non-empty CFLAGS in the environment replaces the default optimization, debug, warning and LTO flags below,
+# e.g. CFLAGS='-Wall -g -Og -fsanitize=address,undefined' for a sanitizer build. -std=gnu99 is always
+# kept, as the code needs it, and the SIMD-mode flags (-DUSE_AVX2 -mavx2 etc.) are added separately, so
+# they still apply. CPPFLAGS and LDFLAGS from the environment are appended to, as before.
+# Otherwise: -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on
+# some older or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe
+# for both instead of assuming. Prefer -flto=auto (parallel LTO codegen, see #56) over plain -flto:
+if [[ -n $CFLAGS ]]; then
+	read -ra USER_CFLAGS <<<"$CFLAGS"
+	C_ARGS=(-std=gnu99 "${USER_CFLAGS[@]}")
+	echo "Using CFLAGS from the environment instead of the default flags: $CFLAGS"
 else
-	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+	C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
+	if try_flag -fdiagnostics-color; then
+		C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
+	fi
+	# Disable type-based alias analysis. This tree type-puns heavily - ~1800 inter-type pointer casts
+	# across src/, and an avx2 build emits 115 -Wstrict-aliasing=2 warnings, 14 of which gcc rates as
+	# "will break" rather than "might", several in the carry loops. Many of those accesses are safe only
+	# because a function call separates the store from the load, and -flto=auto (added below) inlines
+	# that barrier away: the wrong-lane twopmodq96_q4 miscompile needed LTO to appear at all. Measured
+	# cost is nil - a 1M-class FFT benchmark, alternating builds over six reps to cancel the
+	# second-run-is-slower ordering effect, puts the two within half a percent of each other, with the
+	# no-strict-aliasing build marginally ahead. This is defence in depth, NOT a substitute for fixing
+	# such accesses in place; they should still be found and fixed on their own merits.
+	if try_flag -fno-strict-aliasing; then
+		C_ARGS+=(-fno-strict-aliasing)
+	fi
+	if try_lto -flto=auto; then
+		C_ARGS+=(-flto=auto)
+	elif try_lto -flto; then
+		C_ARGS+=(-flto)
+	else
+		echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+	fi
 fi
 
 # Clang-under-MacOS linker barfs if one tries to explicitly invoke standard libs - h/t tdulcet for the

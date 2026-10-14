@@ -164,6 +164,8 @@ Each explicit SIMD mode gets its own object directory (the binary itself is stil
 
 To build with Clang or another GCC-compatible compiler instead of the default GCC, run `export CC=<compiler>` (e.g. `export CC=clang`) before invoking `makemake.sh`. To switch compilers on an already-built tree without a full rebuild, run `make clean` inside the `obj` directory, then `CC=<compiler> make -j "$(nproc)"`.
 
+To build with your own compiler flags instead of the default ones (`-Wall -Wextra -g -O3`, plus link-time optimization where it works), set `CFLAGS`, for example: `CFLAGS='-g -Og -fsanitize=address,undefined' bash makemake.sh`. The flags for the SIMD build mode are still added, so you only need to give the optimization and debug flags. `CPPFLAGS` and `LDFLAGS` are added to the defaults rather than replacing them.
+
 ### Common Build Issues and Workarounds
 
 * **Where to look first:** if `makemake.sh` reports errors, check the `build.log` file it writes inside the object directory (`obj`, `obj_avx2`, etc.) for the (case-insensitive) string "error", e.g. `grep -i -C 3 'error' build.log`.
