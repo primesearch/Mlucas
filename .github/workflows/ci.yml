@@ -15,6 +15,19 @@ on:
   schedule:
     - cron: '0 0 1 * *'
 
+# One run per ref. A pull_request run is superseded the moment its branch is pushed again, but
+# without a concurrency group the old run keeps its runners until it finishes on its own - and a run
+# is 78 jobs and over 1700 runner-minutes, against a limit of 20 concurrent jobs for the whole
+# organization, only 5 of which can be macOS. A queued job expires if it has not started within
+# 24 hours, so runners held by a run nobody is waiting for are not just waste: they push live jobs
+# past the point where they will ever start.
+#
+# Pushes to main and the monthly schedule are deliberately not cancelled - those runs are the record
+# of what the branch does, and a later push should not erase an earlier result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   Linux:
     name: Mlucas Linux
