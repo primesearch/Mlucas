@@ -84,6 +84,9 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
+        # Ladder stops at 'm'. The 'l' self-test (FFT lengths 16M-60M) ran here on every push and
+        # every pull request and was most of this job's self-test time; it now runs monthly against
+        # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
@@ -93,7 +96,7 @@ jobs:
         # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
         # the failing pipeline ends the step and the status is never examined at all.
         rc=0
-        for s in tt t s m l; do
+        for s in tt t s m; do
             st=0
             time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
             if (( st != 0 && st != 2 )); then rc=1; fi
@@ -873,6 +876,8 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
+        # Ladder stops at 'm'; 'l' runs monthly against main in selftest-large.yml. See the note in
+        # the Linux job above.
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
@@ -882,7 +887,7 @@ jobs:
         # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
         # the failing pipeline ends the step and the status is never examined at all.
         rc=0
-        for s in tt t s m l; do
+        for s in tt t s m; do
             st=0
             time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
             if (( st != 0 && st != 2 )); then rc=1; fi
@@ -1243,6 +1248,8 @@ jobs:
             done
         done
         cd obj
+        # Ladder stops at 'm'; 'l' runs monthly against main in selftest-large.yml. See the note in
+        # the Linux job above.
         # Self-test exit status: 1 = a wrong answer (residue mismatch, radix-set disagreement or a
         # zero residue); 2 = some FFT length had too few usable radix sets to test at all. Both used
         # to be 0, so no self-test regression could turn this job red. Everything except 0 and 2 is
@@ -1252,7 +1259,7 @@ jobs:
         # The '|| st=${PIPESTATUS[0]}' is not optional: these steps run under set -e, so without it
         # the failing pipeline ends the step and the status is never examined at all.
         rc=0
-        for s in tt t s m l; do
+        for s in tt t s m; do
             st=0
             time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
             if (( st != 0 && st != 2 )); then rc=1; fi
