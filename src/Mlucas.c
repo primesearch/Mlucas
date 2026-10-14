@@ -4040,7 +4040,7 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 			by initing a single DWT weight = 1.0 in the power-of-2 case and = 2^((j%nwt)/n) otherwise:
 			*/
 			nwt = (n >> trailz32(n));
-			sw_div_n = sw*nwt/n;
+			sw_div_n = (uint32)((uint64)sw*nwt/n);	// sw,nwt are uint32; sw*nwt can exceed 2^32 at the largest table lengths, so widen before dividing
 		}
 		else
 			ASSERT(TRANSFORM_TYPE == REAL_WRAPPER,"Require TRANSFORM_TYPE == REAL_WRAPPER");
