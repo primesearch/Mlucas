@@ -138,161 +138,13 @@ or the with functions using them (if we declare no _-prepended variables local t
 #undef MUL_LOHI64
 #undef SQR_LOHI64
 
-/* Workaround for a SunStudio-for-AMD64 compiler bug: */
-#if(defined(CPU_IS_X86_64) && (defined(COMPILER_TYPE_SUNC) || defined(COMPILER_TYPE_ICC)))
-	#define MUL_LOHI64_SUBROUTINE
-#endif
-
-#if(defined(CPU_IS_X86)  && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_ICC)))
-//	#define MUL_LOHI64_SUBROUTINE
-#endif
-
-/* Subroutine form, in case compiler has a problem with the macro form:. */
-#ifdef MUL_LOHI64_SUBROUTINE
-  #if defined(VERBOSE_HEADERS) && defined(COMPILER_TYPE_GCC)
-	#warning Defined MUL_LOHI64_SUBROUTINE
-	#warning Using C/32-bit version of MUL_LOHI32 macro
-  #endif
-
-	#define MUL_LOHI32(_x32,_y32,_lo,_hi)\
-	{\
-		uint64 _x = (uint64)(_x32), _y = (uint64)(_y32);\
-		uint64 _tt = _x * _y;\
-		_lo = (uint32) _tt;\
-		_hi = (uint32)(_tt >> 32);\
-	}
-	#define SQR_LOHI32(_x,   _lo,_hi)	MUL_LOHI32(_x,_x,_lo,_hi)
-	#define __MULL32(x32,y32     )	 ((uint32)(x32)*(uint32)(y32))
-	#define __MULH32(x32,y32     )	(((uint32)(x32)*(uint64)(y32)) >> 32)
-	#define MULL32(  x32,y32,lo32)	lo32 = (uint32)((uint32)(x32)*(uint32)(y32))
-	#define MULH32(  x32,y32,hi32)	hi32 = __MULH32((uint32)(x32),(uint64)(y32))
-	/*
-	Even though the high output for 64x32-bit is always < 2^32,
-	declare y and hi here as 64-bit ints to allow flexibility for caller:
-	*/
-	void	MUL64x32(  uint64 x, uint64 y, uint64 *lo, uint64 *hi);
-	void	MUL_LOHI64(uint64 x, uint64 y, uint64 *lo, uint64 *hi);
-	void	SQR_LOHI64(uint64 x,           uint64 *lo, uint64 *hi);
-	uint64	__MULL64(  uint64 x, uint64 y);
-	uint64	__MULH64(  uint64 x, uint64 y);
-
-	#define	MULL64(_x, _y, _lo)	_lo = __MULL64((_x), (_y))
-	#define	MULH64(_x, _y, _hi)	_hi = __MULH64((_x), (_y))
-
-	/* The Apple-style fused macros fail on x86/MSVC, so since their
-	use keys off whether MOD_INI_Q4 is #defined, just comment this out for now:
-	#define MOD_INI_Q4(\
-	 q0,qinv0\
-	,q1,qinv1\
-	,q2,qinv2\
-	,q3,qinv3\
-	)\
-	{\
-		ql0  = (uint32) q0   ;\
-		ql1  = (uint32) q1   ;\
-		ql2  = (uint32) q2   ;\
-		ql3  = (uint32) q3   ;\
-		qil0 = (uint32) qinv0;\
-		qil1 = (uint32) qinv1;\
-		qil2 = (uint32) qinv2;\
-		qil3 = (uint32) qinv3;\
-		\
-		qh0  = (uint32)(q0    >> 32);\
-		qh1  = (uint32)(q1    >> 32);\
-		qh2  = (uint32)(q2    >> 32);\
-		qh3  = (uint32)(q3    >> 32);\
-		qih0 = (uint32)(qinv0 >> 32);\
-		qih1 = (uint32)(qinv1 >> 32);\
-		qih2 = (uint32)(qinv2 >> 32);\
-		qih3 = (uint32)(qinv3 >> 32);\
-	}
-	*/
-
-	/* For each input xj, calculates the following sequence:
-
-		SQR_LOHI64(xj,loj,hij);
-		loj = MULL64(loj,qinvj);
-		yj  = MULH64(loj,qj);
-	*/
-	#define MOD_SQR_Q4(\
-	 x0,hi0,y0\
-	,x1,hi1,y1\
-	,x2,hi2,y2\
-	,x3,hi3,y3\
-	)\
-	{\
-		uint32 ah0,al0,bh0,bl0,ah1,al1,bh1,bl1,ah2,al2,bh2,bl2,ah3,al3,bh3,bl3;\
-		uint32 midh,midl,mjdh,mjdl,ss,tt;	/* Use s0-3, t0-3 here and below to avoid artificial execution serialization? */\
-		/*uint64 a,b,c,d;*/\
-	\
-		/* SQR_LOHI64(xj,loj,hij), loj in (alj,ahj), hij in (blj,bhj) : */\
-		al0 = (uint32) x0;\
-		al1 = (uint32) x1;\
-		al2 = (uint32) x2;\
-		al3 = (uint32) x3;\
-	\
-		ah0 = (uint32)(x0 >> 32);\
-		ah1 = (uint32)(x1 >> 32);\
-		ah2 = (uint32)(x2 >> 32);\
-		ah3 = (uint32)(x3 >> 32);\
-	\
-		MULH32(ah0,ah0,bh0); bl0 = ah0*ah0; MULH32(ah0,al0,midh); midl = ah0*al0; MULH32(al0,al0,ah0); al0 = al0*al0; ss = (midl << 1); ah0 += ss; tt = (midh << 1) | (midl >> 31); bl0 += (ah0 < ss) + tt; bh0 += (bl0 < tt) + (midh >> 31);\
-		MULH32(ah1,ah1,bh1); bl1 = ah1*ah1; MULH32(ah1,al1,midh); midl = ah1*al1; MULH32(al1,al1,ah1); al1 = al1*al1; ss = (midl << 1); ah1 += ss; tt = (midh << 1) | (midl >> 31); bl1 += (ah1 < ss) + tt; bh1 += (bl1 < tt) + (midh >> 31);\
-		MULH32(ah2,ah2,bh2); bl2 = ah2*ah2; MULH32(ah2,al2,midh); midl = ah2*al2; MULH32(al2,al2,ah2); al2 = al2*al2; ss = (midl << 1); ah2 += ss; tt = (midh << 1) | (midl >> 31); bl2 += (ah2 < ss) + tt; bh2 += (bl2 < tt) + (midh >> 31);\
-		MULH32(ah3,ah3,bh3); bl3 = ah3*ah3; MULH32(ah3,al3,midh); midl = ah3*al3; MULH32(al3,al3,ah3); al3 = al3*al3; ss = (midl << 1); ah3 += ss; tt = (midh << 1) | (midl >> 31); bl3 += (ah3 < ss) + tt; bh3 += (bl3 < tt) + (midh >> 31);\
-	\
-		/* Use | rather than + here (and below) to prevent compiler from using a 32-bit add-with-carry: */\
-		hi0 = (uint64)bl0 | ((uint64)bh0 << 32);\
-		hi1 = (uint64)bl1 | ((uint64)bh1 << 32);\
-		hi2 = (uint64)bl2 | ((uint64)bh2 << 32);\
-		hi3 = (uint64)bl3 | ((uint64)bh3 << 32);\
-	\
-		/*lo0 = (uint64)al0 + ((uint64)ah0 << 32);	SQR_LOHI64(x0,&a,&b);	if(a != lo0) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);	if(b != hi0) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,b,hi0);*/\
-		/*lo1 = (uint64)al1 + ((uint64)ah1 << 32);	SQR_LOHI64(x1,&a,&b);	if(a != lo1) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);	if(b != hi1) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,b,hi1);*/\
-		/*lo2 = (uint64)al2 + ((uint64)ah2 << 32);	SQR_LOHI64(x2,&a,&b);	if(a != lo2) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);	if(b != hi2) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,b,hi2);*/\
-		/*lo3 = (uint64)al3 + ((uint64)ah3 << 32);	SQR_LOHI64(x3,&a,&b);	if(a != lo3) printf("x,a,lo = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);	if(b != hi3) printf("x,b,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,b,hi3);*/\
-	\
-		/* loj = MULL64(loj,qinvj) : */\
-	\
-		/*a = ((uint64)al0 + ((uint64)ah0 << 32))*qinv0;*/\
-		/*b = ((uint64)al1 + ((uint64)ah1 << 32))*qinv1;*/\
-		/*c = ((uint64)al2 + ((uint64)ah2 << 32))*qinv2;*/\
-		/*d = ((uint64)al3 + ((uint64)ah3 << 32))*qinv3;*/\
-	\
-		ss = ah0*qil0; tt = al0*qih0; MULH32(al0,qil0,ah0); al0 = al0*qil0; ah0 += ss + tt;\
-		ss = ah1*qil1; tt = al1*qih1; MULH32(al1,qil1,ah1); al1 = al1*qil1; ah1 += ss + tt;\
-		ss = ah2*qil2; tt = al2*qih2; MULH32(al2,qil2,ah2); al2 = al2*qil2; ah2 += ss + tt;\
-		ss = ah3*qil3; tt = al3*qih3; MULH32(al3,qil3,ah3); al3 = al3*qil3; ah3 += ss + tt;\
-	\
-		/* We really only need to save loj for the 65-bit case: */\
-		lo0 = (uint64)al0 | ((uint64)ah0 << 32);	/*if(a != lo0) printf("o0\n");*/\
-		lo1 = (uint64)al1 | ((uint64)ah1 << 32);	/*if(b != lo1) printf("o1\n");*/\
-		lo2 = (uint64)al2 | ((uint64)ah2 << 32);	/*if(c != lo2) printf("o2\n");*/\
-		lo3 = (uint64)al3 | ((uint64)ah3 << 32);	/*if(d != lo3) printf("o3\n");*/\
-	\
-		/* yj = MULH64(loj,qj) is here, store outputs in 64-bit calling argument : */\
-		MULH32(ah0,qh0,bh0); bl0 = ah0*qh0; MULH32(ah0,ql0,midh); midl = ah0*ql0; MULH32(qh0,al0,mjdh); mjdl = qh0*al0; MULH32(ah0,al0,ql0); ss = midl + mjdl; ah0 += ss; tt = (ss < midl) + midh + mjdh; bl0 += (ah0 < ss) + tt; bh0 += (tt < midh) + (bl0 < tt);\
-		MULH32(ah1,qh1,bh1); bl1 = ah1*qh1; MULH32(ah1,ql1,midh); midl = ah1*ql1; MULH32(qh1,al1,mjdh); mjdl = qh1*al1; MULH32(ah1,al1,ql1); ss = midl + mjdl; ah1 += ss; tt = (ss < midl) + midh + mjdh; bl1 += (ah1 < ss) + tt; bh1 += (tt < midh) + (bl1 < tt);\
-		MULH32(ah2,qh2,bh2); bl2 = ah2*qh2; MULH32(ah2,ql2,midh); midl = ah2*ql2; MULH32(qh2,al2,mjdh); mjdl = qh2*al2; MULH32(ah2,al2,ql2); ss = midl + mjdl; ah2 += ss; tt = (ss < midl) + midh + mjdh; bl2 += (ah2 < ss) + tt; bh2 += (tt < midh) + (bl2 < tt);\
-		MULH32(ah3,qh3,bh3); bl3 = ah3*qh3; MULH32(ah3,ql3,midh); midl = ah3*ql3; MULH32(qh3,al3,mjdh); mjdl = qh3*al3; MULH32(ah3,al3,ql3); ss = midl + mjdl; ah3 += ss; tt = (ss < midl) + midh + mjdh; bl3 += (ah3 < ss) + tt; bh3 += (tt < midh) + (bl3 < tt);\
-	\
-		y0 = (uint64)bl0 | ((uint64)bh0 << 32);\
-		y1 = (uint64)bl1 | ((uint64)bh1 << 32);\
-		y2 = (uint64)bl2 | ((uint64)bh2 << 32);\
-		y3 = (uint64)bl3 | ((uint64)bh3 << 32);\
-	\
-	/*a = MULH64(lo0,q0);	if(a != y0) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x0,a,lo0);*/\
-	/*a = MULH64(lo1,q1);	if(a != y1) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x1,a,lo1);*/\
-	/*a = MULH64(lo2,q2);	if(a != y2) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x2,a,lo2);*/\
-	/*a = MULH64(lo3,q3);	if(a != y3) printf("lo,q,hi = %20" PRIu64 " %20" PRIu64 " %20" PRIu64 "\n",x3,a,lo3);*/\
-	}
 
 /********************************************************************************/
 /*** MACHINE-SPECIFIC ASM MACROS FOR 64X64=>128-BIT INTEGER UNSIGNED MULTIPLY ***/
 /********************************************************************************/
 
 /* Alpha: */
-#elif(defined(CPU_IS_ALFA))
+#if(defined(CPU_IS_ALFA))
 
 	/* Assume __UMULH has already been #defined in platform.h for this arch: */
 	#define MUL_LOHI64(_x,_y,_lo,_hi){uint64 _t = (_x)*(_y); _hi = __UMULH((_x), (_y));	_lo = _t;}
@@ -1339,7 +1191,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 
 /* Generic macro form: */
 
-#elif !defined(MUL_LOHI64_SUBROUTINE)	/* User compile-time override flag to force subroutine form rather than macro: */
+#else
 
   #ifdef COMPILER_TYPE_GCC
    #ifdef VERBOSE_HEADERS
@@ -2007,9 +1859,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 	#define SQR_LOHI32(_x,   _lo,_hi)	MUL_LOHI32(_x,_x,_lo,_hi)
 #endif
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	/* 64-bit stuff below defined as functions (not macros) in imul_macro.c */
-#else
 	#ifndef __MULL64
 		#error __MULL64 Undefined!
 	#endif
@@ -2031,7 +1880,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 	#ifndef SQR_LOHI64
 		#error SQR_LOHI64 Undefined!
   #endif
-#endif
 
 #ifdef __cplusplus
 }

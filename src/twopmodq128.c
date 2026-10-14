@@ -148,12 +148,8 @@ uint128 twopmmodq128(uint128 p, uint128 q)
 	This needs a total of just 3 MUL instructions and 2 ALUs, compared to 8 MULs and 8 ALUs for the original sequence.
 	*/
 	// qinv is 128 bits wide, but only the upper 64 get modified here:
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 	/* Initialize binary powering = R*x (mod q), where R = binary radix (2^128 here);
 	at present don't care about optimizing this rarely-used function. */
 	// First compute R^2 (mod q) in prep. for Mont-mul with initial seed:
@@ -325,12 +321,8 @@ if(dbg) printf("twopmodq128:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -538,12 +530,8 @@ if(dbg) printf("twopmodq128x2:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128x2 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -694,12 +682,8 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, lo64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -833,12 +817,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -848,7 +826,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + lo64_1);
 	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + lo64_2);
 	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + lo64_3);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -882,15 +859,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-	#if THREE_OP128
-		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
-		than the 3-function version. */
-		THREE_OP128_q4(
-		  x0, qinv0, q0, lo0, hi0
-		, x1, qinv1, q1, lo1, hi1
-		, x2, qinv2, q2, lo2, hi2
-		, x3, qinv3, q3, lo3, hi3);
-	#else
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_q4(
 		  x0, hi0
@@ -947,7 +915,6 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		MULH128(lo2, q2, lo2);
 		MULH128(lo3, q3, lo3);
 		*/
-	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 		if(CMPULT128(hi0, lo0)) { SUB128(q0, lo0, lo0);	ADD128(lo0, hi0, x0); } else { SUB128(hi0, lo0, x0); }
 		if(CMPULT128(hi1, lo1)) { SUB128(q1, lo1, lo1);	ADD128(lo1, hi1, x1); } else { SUB128(hi1, lo1, x1); }
@@ -1106,16 +1073,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, lo64_0);
 	MULH64(q1.d0, qinv1.d0, lo64_1);
 	MULH64(q2.d0, qinv2.d0, lo64_2);
@@ -1133,7 +1090,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + lo64_5);
 	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + lo64_6);
 	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + lo64_7);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
@@ -1187,19 +1143,6 @@ if(dbg) printf("twopmodq128_q8:\n");
 #if FAC_DEBUG
 if(dbg) printf("A: x = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",x0.d0,x0.d1);
 #endif
-	#if THREE_OP128
-		/* Fused version of all 3 of the above function calls. Surprisingly, on Alpha this was significantly slower
-		than the 3-function version. */
-		THREE_OP128_q8(
-		  x0, qinv0, q0, lo0, hi0
-		, x1, qinv1, q1, lo1, hi1
-		, x2, qinv2, q2, lo2, hi2
-		, x3, qinv3, q3, lo3, hi3
-		, x4, qinv4, q4, lo4, hi4
-		, x5, qinv5, q5, lo5, hi5
-		, x6, qinv6, q6, lo6, hi6
-		, x7, qinv7, q7, lo7, hi7);
-	#else
 		/* Haven't gotten IA64 version of this working properly yet:
 		SQR_LOHI_INPLACE128_q8(
 		  x0, hi0
@@ -1303,7 +1246,6 @@ if(dbg) printf("C: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #if FAC_DEBUG
 if(dbg) printf("D: l = %20" PRIu64 " + 2^64* %20" PRIu64 "\n",lo0.d0,lo0.d1);
 #endif
-	#endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
 		if(CMPULT128(hi0, lo0)) { SUB128(q0, lo0, lo0);	ADD128(lo0, hi0, x0); } else { SUB128(hi0, lo0, x0); }
 		if(CMPULT128(hi1, lo1)) { SUB128(q1, lo1, lo1);	ADD128(lo1, hi1, x1); } else { SUB128(hi1, lo1, x1); }
