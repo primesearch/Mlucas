@@ -4088,12 +4088,11 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		"movslq	%[__idx_incr],%%rdi		\n\t"\
 		"addq	%%rdi,%%rsi				\n\t"/* idx_offset += idx_incr */\
 		"mov	%%esi, %[__idx_offset]	\n\t"/* Store incremented idx_offset */\
-		:						/* outputs: none */\
+		: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		,	[__cy]			"m" (Xcy)\
 		,	[__nrt_bits]	"m" (Xnrt_bits)\
 		,	[__nrtm1]		"m" (Xnrtm1)\
-		,	[__idx_offset]	"m" (Xidx_offset)\
 		,	[__idx_incr]	"m" (Xidx_incr)\
 		,	[__half_arr]	"m" (Xhalf_arr)\
 		,	[__sign_mask]	"m" (Xsign_mask)\
@@ -4410,12 +4409,11 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		/* Prepare for next pair of complex data: */\
 		"addq	%[__idx_incr],%%rsi		\n\t"/* idx_offset += idx_incr */\
 		"mov	%%esi, %[__idx_offset]	\n\t"/* Store incremented idx_offset */\
-		:						/* outputs: none */\
+		: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		,	[__cy]			"m" (Xcy)\
 		,	[__nrt_bits]	"m" (Xnrt_bits)\
 		,	[__nrtm1]		"m" (Xnrtm1)\
-		,	[__idx_offset]	"m" (Xidx_offset)\
 		,	[__idx_incr]	"m" (Xidx_incr)\
 		,	[__odd_radix]   "m" (Xodd_radix)\
 		,	[__half_arr]	"m" (Xhalf_arr)\
@@ -4587,12 +4585,11 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		"mulpd		%%xmm0,%%xmm5		\n\t		mulpd		%%xmm8 ,%%xmm13		\n\t"\
 		"movaps		%%xmm4,    (%%rdx)	\n\t		movaps		%%xmm12,0x20(%%rdx)	\n\t"\
 		"movaps		%%xmm5,0x10(%%rdx)	\n\t		movaps		%%xmm13,0x30(%%rdx)	\n\t"\
-		:						/* outputs: none */\
+		: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		,	[__cy]			"m" (Xcy)\
 		,	[__nrt_bits]	"m" (Xnrt_bits)\
 		,	[__nrtm1]		"m" (Xnrtm1)\
-		,	[__idx_offset]	"m" (Xidx_offset)\
 		,	[__idx_incr]	"m" (Xidx_incr)\
 		,	[__odd_radix]	"m" (Xodd_radix)\
 		,	[__half_arr]	"m" (Xhalf_arr)\
@@ -16260,11 +16257,10 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
 		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
 		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
+		 ,[__wtC]		"+m" (XwtC)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
-		, [__wtC]		"m" (XwtC)		\
 		, [__cy]		"m" (Xcy)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
 		, [__half_arr]	"m" (Xhalf_arr)		\
@@ -23457,11 +23453,10 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
 		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
 		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
+		 ,[__wtC]		"+m" (XwtC)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
-		, [__wtC]		"m" (XwtC)		\
 		, [__cy]		"m" (Xcy)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
 		, [__half_arr]	"m" (Xhalf_arr)		\
@@ -23694,11 +23689,10 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		"pand	(%%rbx)	,%%xmm0			\n\t"/* bjmodn[0:3] &= nm1 */\
 		"movq	%[__bjmod_0],%%rcx		\n\t"\
 		"movaps	%%xmm0,(%%rcx)			\n\t"/* Write bjmodn[0:3] */\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
+		 ,[__wtC]		"+m" (XwtC)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
-		, [__wtC]		"m" (XwtC)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
@@ -23923,10 +23917,9 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		"movaps		%%xmm2,0x20(%%rax)	\n\t	movaps		%%xmm6,0x60(%%rax)	\n\t"/* Store hi real in aj2 */\
 		"movaps		%%xmm1,0x10(%%rax)	\n\t	movaps		%%xmm5,0x50(%%rax)	\n\t"/* a[jp+p0 ] */\
 		"movaps		%%xmm0,    (%%rax)	\n\t	movaps		%%xmm4,0x40(%%rax)	\n\t"/* a[jt+p0 ] */\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
@@ -24461,13 +24454,12 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		"movq	%[__poff],%%r15			\n\t"/* poff[] = p0,4,8,... */\
 		"leaq	(%%r15,%%rcx,4),%%r15	\n\t"/* Dereference the poff array-element ptr ... our loop index (rcx) doubles as idx into poff[] */\
 	"jnz 1b 	\n\t"/* loop[1] end; continue is via jump-back if rcx != 0 */\
-		:					/* outputs: none */\
-		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__cyA]		"m" (XcyA)		\
-		, [__cyB]		"m" (XcyB)		\
-		, [__bjmod_0]	"m" (Xbjmod_0)		\
-		, [__i]			"m" (Xi)			\
-		, [__half_arr]	"m" (Xhalf_arr)		\
+		: [__data]		"+m" (Xdata)	/* outputs: the template stores into these */\
+		 ,[__cyA]		"+m" (XcyA)\
+		 ,[__cyB]		"+m" (XcyB)\
+		 ,[__bjmod_0]	"+m" (Xbjmod_0)\
+		 ,[__i]			"=m" (Xi)\
+		: [__half_arr]	"m" (Xhalf_arr)		\
 		, [__sign_mask]	"m" (Xsign_mask)	\
 		, [__sse_bw]	"m" (Xsse_bw)		\
 		, [__sse_nm1]	"m" (Xsse_nm1)		\
@@ -24702,11 +24694,10 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		"psubd		%%xmm1	,%%xmm0		\n\t"\
 		"movq	%[__bjmod_0],%%rcx		\n\t"\
 		"movaps	%%xmm0,(%%rcx)			\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
+		 ,[__wtC]		"+m" (XwtC)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
-		, [__wtC]		"m" (XwtC)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
@@ -24941,10 +24932,9 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		"movaps		%%xmm2,0x20(%%rax)	\n\t	movaps		%%xmm6,0x60(%%rax)	\n\t"\
 		"movaps		%%xmm1,0x10(%%rax)	\n\t	movaps		%%xmm5,0x50(%%rax)	\n\t"\
 		"movaps		%%xmm0,    (%%rax)	\n\t	movaps		%%xmm4,0x40(%%rax)	\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\

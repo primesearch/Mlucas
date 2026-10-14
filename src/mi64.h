@@ -408,12 +408,11 @@ __device__ uint32 mi64_twopmodq_gpu(
 		"andq	%[__q],%%rdx	\n\t"/* ((-(int64)(hi < lo)) & __q) */\
 		"addq	%%rdx,%%rdi		\n\t"/* __z in rdi */\
 		"movq	%%rdi,%[__z]	\n\t"\
-		:	/* outputs: none */\
+		: [__z] "=m" (__Xz)	/* outputs: the template stores into these */\
 		: [__x] "m" (__Xx)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (__Xy)	\
 		 ,[__q] "m" (__Xq)	\
 		 ,[__qinv] "m" (__Xqinv)	\
-		 ,[__z] "m" (__Xz)	\
 		: "cc","memory","rax","rdx","rdi"	/* Clobbered registers */\
 		);\
 	}
@@ -453,12 +452,11 @@ __device__ uint32 mi64_twopmodq_gpu(
 		"andq	%[__q],%%rdx	\n\t"/* ((-(int64)(hi < lo)) & __q) */\
 		"addq	%%rdx,%%rdi		\n\t"/* __z in rdi */\
 		"movq	%%rdi,%[__z]	\n\t"\
-		:	/* outputs: none */\
+		: [__z] "=m" (__Xz)	/* outputs: the template stores into these */\
 		: [__x] "m" (__Xx)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (__Xy)	\
 		 ,[__q] "m" (__Xq)	\
 		 ,[__qinv] "m" (__Xqinv)	\
-		 ,[__z] "m" (__Xz)	\
 		: "cc","memory","rax","rdx","rdi"	/* Clobbered registers */\
 		);\
 	}
@@ -485,11 +483,10 @@ __device__ uint32 mi64_twopmodq_gpu(
 		"andq	%[__q],%%rdi	\n\t"/* ((-(int64)(hi < lo)) & __q) */\
 		"addq	%%rdx,%%rdi		\n\t"/* __z in rdi */\
 		"movq	%%rdi,%[__z]	\n\t"\
-		:	/* outputs: none */\
+		: [__z] "=m" (__Xz)	/* outputs: the template stores into these */\
 		: [__x] "m" (__Xx)	/* All inputs from memory addresses here */\
 		 ,[__q] "m" (__Xq)	\
 		 ,[__qinv] "m" (__Xqinv)	\
-		 ,[__z] "m" (__Xz)	\
 		: "cc","memory","rax","rdx","rdi"	/* Clobbered registers */\
 		);\
 	}
