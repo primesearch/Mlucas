@@ -37,6 +37,30 @@
 #define HIACC 1
 #define EPS	1e-10
 
+/* The AVX2/AVX-512 tangent-based radix-16 DFT (the RADIX16_COMPUTE_FMA_SINCOS_DI[FT] macros) needs the
+multiplicative inverse of each of the 16 twiddle cosines c0-15, which it computes via a SIMD Newton-iterative
+inversion. For those (FFT length, radix set) combos in which one of the block twiddles is an exact odd multiple
+of pi/2 - e.g. leading radix 16 at FFT length 8K, where the index[]-value-8 data block has iroot = (n/2)/32 and
+thus twiddle #8 = exp(I*pi/2) - the roots tables return a cosine of exactly +-0. The AVX-512 flavor of the
+inversion then does VRCP14PD(0) = Inf followed by the Newton update (2 - d*ainv) = (2 - 0*Inf) = NaN, and every
+datum in the affected block comes out NaN. [The AVX2 flavor's VCVTPD2PS/VRCPPS/VCVTPS2PD sequence is likewise
+Inf-then-NaN, but AVX2 builds default to the non-tangent REFACTOR_4DFT_3TWIDDLE DFT and so never hit this.]
+
+The tangent scheme computes each twiddle-multiply as c*(x + (s/c)*y), so perturbing an exactly-0 cosine to a
+tiny nonzero value of the same sign leaves the result unchanged except for an added c*x term, i.e. a relative
+perturbation of order the substituted value - 14 orders of magnitude below double-precision roundoff for the
+1e-30 used here - while keeping 1/c and (s/c) comfortably in-range. Note the singularity is strictly an
+exact-zero one: e.g. FFT length 16K/radix set 0 hits the same pi/2 twiddle but with a roots-table cosine of
+2.4e-35 rather than 0, and computes the correct residue.
+*/
+#define AVOID_EXACT_ZERO_TWIDDLE_COSINES(Xcc0)\
+{\
+	double *_cptr = (double *)(Xcc0);	int _i;\
+	for(_i = 0; _i < 16; _i++) {\
+		if(_cptr[_i] == 0.0) _cptr[_i] = copysign(1e-30, _cptr[_i]);\
+	}\
+}
+
 #ifdef USE_AVX512
 	#define DFT_V1
 #elif defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
@@ -1044,6 +1068,7 @@ notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword bou
 
 		// This places us at add0 == c8 and add1 = c12.
 		ASSERT(add0 == (double *)cc0+16 && add1 == (double *)cc0+32 && add2 == (double *)cc0+44, "add0,1,2 checksum failed in AVX2 sincos inits!");
+		AVOID_EXACT_ZERO_TWIDDLE_COSINES(cc0);
 		/*
 		At this point, the 11 ymm-sized [32-byte] chunks starting at &cc0 contain the following scalar-double data:
 
@@ -2483,6 +2508,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 
 		// This places us at add0 == c8 and add1 = c12.
 		ASSERT(add0 == (double *)cc0+16 && add1 == (double *)cc0+32, "add0,1 checksum failed in AVX2 DIT sincos inits!");
+		AVOID_EXACT_ZERO_TWIDDLE_COSINES(cc0);
 		/*
 		At this point, the 8 ymm-sized [32-byte] chunks starting at &cc0 contain the following scalar-double data:
 
