@@ -145,7 +145,13 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   Linux-32-bit:
     name: Mlucas Linux 32-bit
@@ -208,7 +214,13 @@ jobs:
     - uses: actions/upload-artifact@v7
       with:
         name: linux_${{ endsWith(matrix.os, '-arm') && 'arm' || 'x86' }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   Linux-Singlethread:
     name: Mlucas Linux Singlethreaded
@@ -292,7 +304,13 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   Linux-old:
     name: Mlucas Linux old
@@ -405,7 +423,13 @@ jobs:
       if: always()
       with:
         name: container-${{ strategy.job-index }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   Linux-K1OM:
     name: Mlucas K1OM
@@ -446,8 +470,12 @@ jobs:
       with:
         name: linux_k1om_mlucas
         path: |
-          ${{ github.workspace }}
-          !mpss-*
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   Linux-KNL:
     name: Mlucas KNL
@@ -917,7 +945,13 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   macOS-Singlethread:
     name: Mlucas macOS Singlethreaded
@@ -993,7 +1027,13 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_singlethreaded_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   ASan-macOS:
     name: AddressSanitizer macOS
@@ -1184,7 +1224,13 @@ jobs:
       if: always()
       with:
         name: freebsd-${{ matrix.release }}_${{ matrix.arch }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   Windows:
     name: Windows
@@ -1287,7 +1333,13 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   ASan-Windows:
     name: AddressSanitizer Windows
