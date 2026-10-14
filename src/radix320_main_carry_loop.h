@@ -121,7 +121,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#else	// USE_SSE2 = False:
 
 	//...gather the needed data (320 64-bit complex) and do 5 radix-64 transforms:
-		jt = j1    ;	RADIX_64_DIT(a+jt,(dit_i_offsets+0x000),RE_IM_STRIDE, (double *)(t+0x000),t_offsets,1);	// Outputs in t[00-63]
+		jt = j1    ;	RADIX_64_DIT(a+jt,(dit_i_offsets+0x000),RE_IM_STRIDE, t_u.d,t_offsets,1);	// Outputs in t[00-63]
 		jt = j1+p40;	RADIX_64_DIT(a+jt,(dit_i_offsets+0x040),RE_IM_STRIDE, (double *)(t+0x040),t_offsets,1);	// Outputs in t[64-127]
 		jt = j1+p80;	RADIX_64_DIT(a+jt,(dit_i_offsets+0x080),RE_IM_STRIDE, (double *)(t+0x080),t_offsets,1);	// Outputs in t[64-127]
 		jt = j1+pc0;	RADIX_64_DIT(a+jt,(dit_i_offsets+0x0c0),RE_IM_STRIDE, (double *)(t+0x0c0),t_offsets,1);	// Outputs in t[64-127]
@@ -615,7 +615,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		}
 	//...and now do 5 radix-64 transforms:
 		//	NOTE that RADIX_64_DIF outputs are IN-ORDER rather than BR:
-		jt = j1    ;	RADIX_64_DIF((double *)(t+0x000),t_offsets,1, (a+jt),(dif_o_offsets+0x000),RE_IM_STRIDE);	// Inputs in t[00-63]
+		jt = j1    ;	RADIX_64_DIF(t_u.d,t_offsets,1, (a+jt),(dif_o_offsets+0x000),RE_IM_STRIDE);	// Inputs in t[00-63]
 		jt = j1+pg0;	RADIX_64_DIF((double *)(t+0x040),t_offsets,1, (a+jt),(dif_o_offsets+0x040),RE_IM_STRIDE);	// Inputs in t[64-127]
 		jt = j1+pc0;	RADIX_64_DIF((double *)(t+0x080),t_offsets,1, (a+jt),(dif_o_offsets+0x080),RE_IM_STRIDE);	// Inputs in t[128-191]
 		jt = j1+p80;	RADIX_64_DIF((double *)(t+0x0c0),t_offsets,1, (a+jt),(dif_o_offsets+0x0c0),RE_IM_STRIDE);	// Inputs in t[192-255]
