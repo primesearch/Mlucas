@@ -238,7 +238,11 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #ifndef MULTITHREAD
 	double *addr;
   #endif
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
   #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	struct complex *tptr;
   #endif
@@ -1619,7 +1623,11 @@ void radix192_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -1912,7 +1920,7 @@ void radix192_dif_pass1(double a[], int n)
 		[D] + p30			[B] + p20				[C] + p00
 	*/
 		//	NOTE that RADIX_64_DIF outputs are IN-ORDER rather than BR:
-		jt = j1    ;	RADIX_64_DIF((double *)(t+0x00),i_offsets,1, (a+jt),(o_offsets+0x00),RE_IM_STRIDE);	// Inputs in t[00-63]
+		jt = j1    ;	RADIX_64_DIF(t_u.d,i_offsets,1, (a+jt),(o_offsets+0x00),RE_IM_STRIDE);	// Inputs in t[00-63]
 		jt = j1+p80;	RADIX_64_DIF((double *)(t+0x40),i_offsets,1, (a+jt),(o_offsets+0x40),RE_IM_STRIDE);	// Inputs in t[64-127]
 		jt = j1+p40;	RADIX_64_DIF((double *)(t+0x80),i_offsets,1, (a+jt),(o_offsets+0x80),RE_IM_STRIDE);	// Inputs in t[128-191]
 	}
@@ -1940,7 +1948,11 @@ void radix192_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -2129,7 +2141,7 @@ void radix192_dit_pass1(double a[], int n)
 		52,53,50,51,54,55,57,56,5c,5d,5f,5e,58,59,5b,5a  =  2,3,0,1,4,5,7,6,c,d,f,e,8,9,b,a + p50  =  [F] + p50
 	*/
 	//...gather the needed data (192 64-bit complex) and do 3 radix-64 transforms:
-		jt = j1    ;	RADIX_64_DIT(a+jt,(i_offsets+0x00),RE_IM_STRIDE, (double *)(t+0x00),o_offsets,1);	// Outputs in t[00-63]
+		jt = j1    ;	RADIX_64_DIT(a+jt,(i_offsets+0x00),RE_IM_STRIDE, t_u.d,o_offsets,1);	// Outputs in t[00-63]
 		jt = j1+p80;	RADIX_64_DIT(a+jt,(i_offsets+0x40),RE_IM_STRIDE, (double *)(t+0x40),o_offsets,1);	// Outputs in t[64-127]
 		jt = j1+p40;	RADIX_64_DIT(a+jt,(i_offsets+0x80),RE_IM_STRIDE, (double *)(t+0x80),o_offsets,1);	// Outputs in t[64-127]
 
@@ -2388,7 +2400,11 @@ void radix192_dit_pass1(double a[], int n)
 		int bjmodn[RADIX];	// Thread only carries a base datum here, must alloc a local array for remaining values
 		double *cy = thread_arg->cy, temp,frac,
 			t00,t01,t02,t03,t04,t05;
-		struct complex t[RADIX], *tptr;
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c, *tptr;
 		int *itmp;	// Pointer into the bjmodn array
 
 	#endif

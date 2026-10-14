@@ -111,7 +111,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 			for(int kk = 0; kk < 32; ++kk)
 			{
@@ -577,7 +577,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ke = plo[(i64 >>  4)&0xf];		o[0x1e] = jp + ke;
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,o,RE_IM_STRIDE
 			);
 			for(int kk = 0; kk < 32; ++kk) {

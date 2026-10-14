@@ -5353,7 +5353,7 @@ if(~pshift != p+78) {
 		#else
 			static double *sc_arr = 0x0, *sc_ptr;
 			double *dptr, dtmp;
-			vec_dbl *tmp,*tm1;
+			double *tmp,*tm1;
 		  #ifdef MULTITHREAD
 			static double *__r0;	// Base address for discrete per-thread local stores ...
 		  #else
@@ -5742,7 +5742,7 @@ if(~pshift != p+78) {
 	=========================
 	#endif
 			dtmp = p+p;	dptr = &dtmp;	// dtmp = double; dptr = double*
-			tmp = (vec_dbl*)fq0[0];	tm1 = (vec_dbl*)kdbl;	// Use vec_dbl* ptrs to hold address args ... asm-code cares not a whit about types
+			tmp = fq0[0];	tm1 = kdbl;	// Address args for the asm below, which cares not a whit about types
 			__asm__ volatile (\
 				"movq	%[__fq0] ,%%rax				\n\t"\
 				"movq	%[__p2]  ,%%rbx				\n\t"\
@@ -6098,7 +6098,7 @@ if(~pshift != p+78) {
 		#else
 			static double *sc_arr = 0x0, *sc_ptr;
 			double *dptr, dtmp;
-			vec_dbl *tmp,*tm1;
+			double *tmp,*tm1;
 		  #ifdef MULTITHREAD
 			static double *__r0;	// Base address for discrete per-thread local stores ...
 		  #else
@@ -6385,7 +6385,7 @@ if(~pshift != p+78) {
 
 		#else
 			dtmp = p+p;	dptr = &dtmp;	// dtmp = double; dptr = double*
-			tmp = (vec_dbl*)fq0[0];	tm1 = (vec_dbl*)kdbl;	// Use vec_dbl* ptrs to hold address args ... asm-code cares not a whit about types
+			tmp = fq0[0];	tm1 = kdbl;	// Address args for the asm below, which cares not a whit about types
 			__asm__ volatile (\
 				"movq	%[__fq0] ,%%rax				\n\t"\
 				"movq	%[__p2]  ,%%rbx				\n\t"\

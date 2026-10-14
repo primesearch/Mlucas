@@ -166,6 +166,7 @@ N (K)	Radices used		ROE (avg, max)			T(sec for 100 iter)
 	#else
 		double *r00;
 		double *half_arr;
+		int wts_idx_incr;	// scalar mode only: the worker's copy of wts_idx_incr
 	#endif
 		uint64*sm_ptr;
 		uint32 bjmodnini;
@@ -261,7 +262,11 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *addr, *addi;
 	int *itmp;	// Pointer into the bjmodn array
   #endif
-	struct complex t[RADIX]
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c
   #ifndef MULTITHREAD
 	  , *tptr
   #endif
@@ -1412,9 +1417,9 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tdat[ithread].r00      = __r0 + ithread*cslots_in_local_store;
 			tdat[ithread].half_arr = (vec_dbl *)((long)tdat[ithread].r00 + ((long)half_arr - (long)r00));
 		#else
-			// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
+			// In scalar mode pass wts_idx_incr by value, and use this ptr to pass the base/baseinv/etc array-ptrs:
 			tdat[ithread].r00      = (double *)foo_array;
-			tdat[ithread].half_arr = (double *)&wts_idx_incr;
+			tdat[ithread].wts_idx_incr = wts_idx_incr;
 		#endif	// USE_SSE2
 		}
 
@@ -2015,7 +2020,11 @@ void radix992_dif_pass1(double a[], int n)
 */
 	int l, j,j1/* ,j2 */, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 #if USE_COMPACT_OBJ_CODE
 	int jp;
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
@@ -2389,12 +2398,12 @@ void radix992_dif_pass1(double a[], int n)
 			ke = plo[(i64 >>  4)&0xf];		o[0x1e] = jp + ke;
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,o,RE_IM_STRIDE
 			);
 		#else
 			RADIX_32_DIF(
-				(double *)t,jj,   1,
+				t_u.d,jj,   1,
 				a+j1,iptr,RE_IM_STRIDE	// *** Apr 2014: Added data strdes needed by latest version of the radix-32 DFT macros
 			);
 			iptr += 32;
@@ -2441,7 +2450,11 @@ void radix992_dit_pass1(double a[], int n)
 */
 	int l, j,j1/* ,j2 */,jp, jj[32], *iptr;
 	static int NDIVR,first_entry=TRUE;
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 #if USE_COMPACT_OBJ_CODE
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
 	static int plo[32],phi[62];	// No need for separate dit_p20_cperms[] array; just need a doubled-sequence version of phi
@@ -2776,12 +2789,12 @@ void radix992_dit_pass1(double a[], int n)
 			kf = plo[(i64      )&0xf];		o[0x1f] = jp + kf;
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 		#else
 			RADIX_32_DIT(
 				a+j1,iptr,RE_IM_STRIDE,	// *** Apr 2014: Added data strdes needed by latest version of the radix-32 DFT macros
-				(double *)t,jj,1
+				t_u.d,jj,1
 			);
 			iptr += 32;
 		#endif
@@ -2944,7 +2957,11 @@ void radix992_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	// int data:
@@ -3002,8 +3019,8 @@ void radix992_dit_pass1(double a[], int n)
 		}	plo[l] = l*NDIVR;	plo[l] += ( (plo[l] >> DAT_BITS) << PAD_BITS );	// Need 1 more plo term than phi
 		dif_p20_cperms[0] = dif_p20_cperms[31] = 0;	// Handle the leading 0 and its copy separately
 
-		// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
-		wts_idx_incr = *(int *)thread_arg->half_arr;
+		// In scalar mode pass wts_idx_incr by value, and use this ptr to pass the base/baseinv/etc array-ptrs:
+		wts_idx_incr = thread_arg->wts_idx_incr;
 		base      = (double *)thread_arg->r00;
 		baseinv   = base + 2;
 		wt_arr    = base + 4;

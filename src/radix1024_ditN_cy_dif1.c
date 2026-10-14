@@ -266,7 +266,11 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	struct complex *tptr;
 #endif
@@ -2002,7 +2006,11 @@ void radix1024_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 
 // Use to auto-gen the twiddles:
 //	print_pow2_twiddles(1024, 64,16);
@@ -2018,7 +2026,9 @@ void radix1024_dif_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n >> 10;
 		p1 = NDIVR;
@@ -2742,7 +2752,11 @@ void radix1024_dit_pass1(double a[], int n)
 	struct complex *tptr;
 	#include "radix1024_twiddles.h"
   #endif
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 
 	// New runlength?
 	if(!first_entry && (n >> 10) != NDIVR)
@@ -2754,7 +2768,9 @@ void radix1024_dit_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n >> 10;
 		p1 = NDIVR;
@@ -3379,7 +3395,11 @@ void radix1024_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		#include "radix1024_twiddles.h"
 		int *itmp;	// Pointer into the bjmodn array
 

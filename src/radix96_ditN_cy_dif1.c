@@ -51,7 +51,11 @@ void radix96_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex r[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } r_u;
+	struct complex *const r = r_u.c;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -211,7 +215,7 @@ void radix96_dif_pass1(double a[], int n)
 		arr_offsets[0x0D] = p0e;		arr_offsets[0x1D] = p08+p10;
 		arr_offsets[0x0E] = p0c;		arr_offsets[0x1E] = p0b+p10;
 		arr_offsets[0x0F] = p0d;		arr_offsets[0x1F] = p0a+p10;
-		RADIX_32_DIF_OOP((double *)(r+00), a    ,arr_offsets);	/* Inputs in r[00-31] */		// Set arr_offsets for radix-32 DFT outputs:
+		RADIX_32_DIF_OOP(r_u.d, a    ,arr_offsets);	/* Inputs in r[00-31] */		// Set arr_offsets for radix-32 DFT outputs:
 
 		// Set arr_offsets for radix-32 DFT outputs:	[ab98fecd54762310 + p40],[fecd98ba23107645 + p50]
 		arr_offsets[0x00] = p0a;		arr_offsets[0x10] = p0f+p10;
@@ -272,7 +276,11 @@ void radix96_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex r[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } r_u;
+	struct complex *const r = r_u.c;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -380,7 +388,7 @@ void radix96_dit_pass1(double a[], int n)
 		arr_offsets[0x0D] = p0a;		arr_offsets[0x1D] = p02+p10;
 		arr_offsets[0x0E] = p09;		arr_offsets[0x1E] = p01+p10;
 		arr_offsets[0x0F] = p08;		arr_offsets[0x1F] =     p10;
-		RADIX_32_DIT_OOP(a    ,arr_offsets, (double *)(r+00));	/* Outputs in r[00-31] */
+		RADIX_32_DIT_OOP(a    ,arr_offsets, r_u.d);	/* Outputs in r[00-31] */
 
 		// Set arr_offsets for radix-32 DFT inputs:	[5467102398abefcd + p30],[5467102398abefcd + p20]
 		arr_offsets[0x00] = p05+p10;		arr_offsets[0x10] = p05;

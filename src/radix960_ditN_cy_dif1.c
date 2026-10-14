@@ -125,6 +125,7 @@
 	#else
 		double *r00;
 		double *half_arr;
+		int wts_idx_incr;	// scalar mode only: the worker's copy of wts_idx_incr
 	#endif
 		uint64*sm_ptr;
 		uint32 bjmodnini;
@@ -342,7 +343,11 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#endif
 	double *addr;
   #endif
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
   #ifndef MULTITHREAD
 	#ifndef USE_SSE2
 	struct complex *tptr;
@@ -1633,9 +1638,9 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tdat[ithread].r00      = __r0 + ithread*cslots_in_local_store;
 			tdat[ithread].half_arr = (vec_dbl *)((intptr_t)tdat[ithread].r00 + ((intptr_t)half_arr - (intptr_t)r00));
 		#else
-			// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
+			// In scalar mode pass wts_idx_incr by value, and use this ptr to pass the base/baseinv/etc array-ptrs:
 			tdat[ithread].r00      = (double *)foo_array;
-			tdat[ithread].half_arr = (double *)&wts_idx_incr;
+			tdat[ithread].wts_idx_incr = wts_idx_incr;
 		#endif	// USE_SSE2
 		}
 
@@ -2384,7 +2389,11 @@ void radix960_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in-place DFT macros:
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
 	{
@@ -2395,7 +2404,9 @@ void radix960_dif_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n/RADIX;
 
@@ -2848,7 +2859,11 @@ void radix960_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in-place DFT macros:
-	struct complex t[RADIX], *tptr;
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c, *tptr;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
 	{
@@ -2859,7 +2874,9 @@ void radix960_dit_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0x00].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n/RADIX;
 
@@ -3539,7 +3556,11 @@ void radix960_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	#endif
@@ -3851,8 +3872,8 @@ void radix960_dit_pass1(double a[], int n)
 
 	#else
 
-		// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
-		wts_idx_incr = *(int *)thread_arg->half_arr;
+		// In scalar mode pass wts_idx_incr by value, and use this ptr to pass the base/baseinv/etc array-ptrs:
+		wts_idx_incr = thread_arg->wts_idx_incr;
 		base      = (double *)thread_arg->r00;
 		baseinv   = base + 2;
 		wt_arr    = base + 4;

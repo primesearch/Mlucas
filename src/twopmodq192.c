@@ -153,7 +153,7 @@ uint192 twopmmodq192(uint192 p, uint192 q)
 	at present don't care about optimizing this rarely-used function. */
 	// First compute R^2 (mod q) in prep. for Mont-mul with initial seed:
 	uint64 vtmp[7] = {0ull,0ull,0ull,0ull,0ull,0ull,1ull};	// R^2 = 2^384
-	mi64_div_binary((const uint64*)vtmp, (const uint64*)&q, 7,3, 0x0, (uint32*)&j, (uint64*)&rsqr);
+	mi64_div_binary((const uint64*)vtmp, q.w, 7,3, 0x0, (uint32*)&j, rsqr.w);
 
 	// If leadb = 192, x = 2^192 = R, thus rsqr holds our desired starting value for x:
 	if(leadb == 192)
@@ -245,10 +245,10 @@ uint192 twopmodq192(uint192 p, uint192 q)
 
 	#if FAC_DEBUG
 		// Now compute k = (q-1)/2p:
-		mi64_div((uint64*)&qhalf,(uint64*)&p, 3,3, (uint64*)&x, (uint64*)&lo);	// x contains k; lo = (q-1)/2 % p
+		mi64_div(qhalf.w,p.w, 3,3, x.w, lo.w);	// x contains k; lo = (q-1)/2 % p
 	//	dbg = (x.d0 == 488) && (x.d1 == 0 && x.d2 == 0);
 	if(dbg) {
-		ASSERT(mi64_iszero((uint64*)&lo, 3), "k must divide (q-1)/2!");
+		ASSERT(mi64_iszero(lo.w, 3), "k must divide (q-1)/2!");
 		printf("twopmodq192:\n");
 	}
 	#endif
@@ -508,10 +508,10 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	// Use x0 as tmp to hold 2*p:
 	ADD192(p,p, x0);
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k0, q0.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k1, q1.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k2, q2.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k3, q3.w, 3), "q must be < 2^192!");
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
 	q2.d0 += 1;
@@ -776,8 +776,8 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 // MSVC does a horrible job with the uint192-specific macro, whereas GCC hates (in terms of producing horribly slow code) the cast-based version:
 #ifdef COMPILER_TYPE_MSVC
 	// Use mi64 version of hi-mul, with reinterpret-casts of uint192 <--> uint64[]:
-	#define MULH192_QMMP(vin,p,k,vout,len) mi64_mul_vector_hi_qmmp((uint64 *)&vin, p, k, (uint64 *)&vout, 192);
-//	#define MULH192_QMMP(vin,p,k,vout,len) mi64_mul_vector_hi_fast((uint64 *)&vin, p, k, (uint64 *)&vout, len);
+	#define MULH192_QMMP(vin,p,k,vout,len) mi64_mul_vector_hi_qmmp(vin.w, p, k, vout.w, 192);
+//	#define MULH192_QMMP(vin,p,k,vout,len) mi64_mul_vector_hi_fast(vin.w, p, k, vout.w, len);
 #else
 	// uint192-specific macro version ... assunmes vin != vout:
 	#define MULH192_QMMP(__vin,__p,__k,__vout,__len)\
@@ -845,7 +845,7 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 		/* Add (cw << (b-p)) to result: */\
 		__rembits = (__p&63);\
 		__nshift = (__p >> 6);	/* i = index of low word into which cw will get added */\
-		__zptr = (uint64 *)&__vout + __nshift;	/* z+i */\
+		__zptr = __vout.w + __nshift;	/* z+i */\
 		/* If (b-p) == 0 (mod 64) all of cz goes into z[nshift], with nshift = (b-p)/64: */\
 		if(__rembits == 0) {\
 			/* mi64_add_scalar(__zptr, __cz, __zptr, __rembits);	// mi64_add_scalar(&z[nshift],cz,&z[nshift],len-i): */\
@@ -874,7 +874,7 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 		}\
 \
 	/* 4. subtract scalar (bw + cw) from resulting vector to effect ... - (2k-1).Y step in [*]: */\
-		/* __zptr = (uint64 *)&__vout;	mi64_sub_scalar(__zptr, (__bw + __cw), __zptr, 3); */\
+		/* __zptr = __vout.w;	mi64_sub_scalar(__zptr, (__bw + __cw), __zptr, 3); */\
 		__bw += __cw;\
 		while(__bw)\
 		{\
@@ -920,10 +920,10 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
 	// Use x0 as tmp to hold 2*p:
 	ADD192(p,p, x0);
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k0, q0.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k1, q1.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k2, q2.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k3, q3.w, 3), "q must be < 2^192!");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
@@ -941,9 +941,9 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 		psave  = p;
 		mmpsave = 192 - mi64_leadz(p_in,3);
 		// Check that it's really a double-Mersenne: Adding one, right-shift by mmpsave = #bits give 1:
-		mi64_add_scalar(p_in, 1ull, (uint64*)&x, 3);
-		mi64_shrl((uint64*)&x, (uint64*)&x, mmpsave, 3,3);
-		--x.d0;	ASSERT(mi64_iszero((uint64*)&x, 3), "MMp check failed!");
+		mi64_add_scalar(p_in, 1ull, x.w, 3);
+		mi64_shrl(x.w, x.w, mmpsave, 3,3);
+		--x.d0;	ASSERT(mi64_iszero(x.w, 3), "MMp check failed!");
 		x.d0 = 192; x.d1 = x.d2 = 0;
 		ADD192(p, x, pshift);
 		if(pshift.d2)
@@ -1172,14 +1172,14 @@ uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 
 	// Use x0 as tmp to hold 2*p:
 	ADD192(p,p, x0);
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k4, (uint64 *)&q4, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k5, (uint64 *)&q5, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k6, (uint64 *)&q6, 3), "q must be < 2^192!");
-	ASSERT(!mi64_mul_scalar((uint64 *)&x0, k7, (uint64 *)&q7, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k0, q0.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k1, q1.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k2, q2.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k3, q3.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k4, q4.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k5, q5.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k6, q6.w, 3), "q must be < 2^192!");
+	ASSERT(!mi64_mul_scalar(x0.w, k7, q7.w, 3), "q must be < 2^192!");
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
