@@ -4513,10 +4513,10 @@ On 32-bit hardware, take advantage of the fact that x2 and y2 are only 32 bits w
 		MUL_LOHI64(__x.d1,__y.d0, __c , __d );	/*   x1*y0 */\
 		\
 		MUL64x32(__x.d0,__y.d2, __e , __f );	/*   x0*y2 */\
-		MUL64x32(__x.d2,__y.d0, __g , __h );	/*   x2*y0 */\
+		MUL64x32(__y.d0,__x.d2, __g , __h );	/*   x2*y0: the 64-bit limb goes first, MUL64x32 needs _y < 2^32 */\
 		\
 		MUL64x32(__x.d1,__y.d2, __i , __j );	/*   x1*y2 */\
-		MUL64x32(__x.d2,__y.d1, __k , __l );	/*   x2*y1 */\
+		MUL64x32(__y.d1,__x.d2, __k , __l );	/*   x2*y1: ditto */\
 		\
 		/* Now add cross terms: */\
 		/* Add x0*y1 to w1-3: */\
