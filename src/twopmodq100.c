@@ -66,7 +66,7 @@
 		static double *sc_arr = 0x0, *sc_ptr;
 		const double *dptr0,*dptr1,*dptr2,*dptr3,*dptr4,*dptr5,*dptr6,*dptr7;
 		double *dptr,dtmp;
-		vec_dbl *tmp,*tm1;
+		double *tmp,*tm1;
 	  #ifdef MULTITHREAD
 		static double *__r0;	// Base address for discrete per-thread local stores ...
 	  #else
@@ -269,7 +269,7 @@
 	/*** CF notes in twopmodq78_3WORD_DOUBLE_q32 routine on qinv-computation ... need to add high-32-bits accumulator to go beyond 96 bits here ***/
 		dtmp = p+p;	dptr = &dtmp;	// dtmp = double; dptr = double*
 		dptr0 = &base; dptr1 = &binv; dptr2 = &base0; dptr3 = &binv0; dptr4 = &base1; dptr5 = &binv1; dptr6 = &TWO32FLOAT; dptr7 = &TWO32FLINV;
-		tmp = (vec_dbl*)fq0[0];	tm1 = (vec_dbl*)kdbl;	// Use vec_dbl* ptrs to hold address args ... asm-code cares not a whit about types
+		tmp = fq0[0];	tm1 = kdbl;	// Address args for the asm below, which cares not a whit about types
 		__asm__ volatile (\
 			"movq	%[__fq0] ,%%rax				\n\t"\
 			"movq	%[__p2]  ,%%rbx				\n\t"\
