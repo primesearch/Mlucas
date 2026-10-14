@@ -1806,7 +1806,15 @@ READ_RESTART_FILE:
 												(uint8 *)arrtmp      , &Res64,&Res35m1,&Res36m1,	// Primality-test residue
 												(uint8 *)e_uint64_ptr, &i1   ,&i2     ,&i3     );// v19: G-check residue
 			fclose(fp); fp = 0x0;
-			ilo = itmp64;	// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so made nsquares field in savefiles r/w a uint64
+			// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so the nsquares field in savefiles is r/w
+			// as a uint64. ilo is a uint32, so a value that does not fit must be an explicit error: truncating
+			// it silently resumes from the wrong iteration, which then drives the stage-1-complete test and
+			// PM1_GCHECK_EPOCH_START. read_ppm1_savefiles() range-checks this only on its primality-test branch:
+			if(itmp64 > 0xFFFFFFFFull) {
+				snprintf(cbuf,sizeof(cbuf), "*** ERROR: Savefile %s has iteration count %" PRIu64 ", which exceeds the uint32 range this code path supports.\n", g_cstr, itmp64);
+				ASSERT(0,cbuf);
+			}
+			ilo = (uint32)itmp64;
 			if(!i) {
 				/* First print any error message that may have been issued during the above function call: */
 				if(strstr(cbuf, "read_ppm1_savefiles"))
@@ -5407,11 +5415,15 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			if(nargs < argc) {
 				snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 				if(isdigit((unsigned char)stFlag[0])) {
-					PRP_BASE = atoll(stFlag);
-					if(PRP_BASE+1 == 0) {
+					// Range-check the full-width parse *before* narrowing: testing PRP_BASE+1 == 0
+					// afterwards only catches a value whose low 32 bits happen to be 0xFFFFFFFF,
+					// so e.g. -prp 4294967297 silently became base 1:
+					const uint64 prp_base64 = strtoull(stFlag,0x0,10);
+					if(prp_base64 > 0xFFFFFFFFull) {
 						snprintf(cbuf,sizeof(cbuf), "*** ERROR: Numeric arg to -prp flag, '%s', overflows uint32 field.\n", stFlag);
 						ASSERT(0,cbuf);
 					}
+					PRP_BASE = (uint32)prp_base64;
 				}
 				else
 					--nargs;
