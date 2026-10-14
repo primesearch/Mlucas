@@ -229,10 +229,10 @@ that is advantageous on at least an appreciable set of CPUs.
 #define	CMPULT128(__x, __y)				((uint64)__x.d1 < (uint64)__y.d1 || ((uint64)__x.d1 == (uint64)__y.d1 && (uint64)__x.d0 < (uint64)__y.d0))
 #define	CMPULT96(__x, __y)				((uint32)__x.d1 < (uint32)__y.d1 || ((uint32)__x.d1 == (uint32)__y.d1 && (uint64)__x.d0 < (uint64)__y.d0))
 
-#define	CMPULT128B(__xhi, __xlo, __y)	((uint32)__xhi < (uint32)__y.d1 || ((uint32)__xhi == (uint32)__y.d1 && (uint64)__xlo < (uint64)__y.d0))
+#define	CMPULT128B(__xhi, __xlo, __y)	((uint64)__xhi < (uint64)__y.d1 || ((uint64)__xhi == (uint64)__y.d1 && (uint64)__xlo < (uint64)__y.d0))
 #define	CMPULT96B(__xhi, __xlo, __y)	((uint32)__xhi < (uint32)__y.d1 || ((uint32)__xhi == (uint32)__y.d1 && (uint64)__xlo < (uint64)__y.d0))
 
-#define	CMPULT128C(__x, __yhi, __ylo)	((uint32)__x.d1 < (uint32)__yhi || ((uint32)__x.d1 == (uint32)__yhi && (uint64)__x.d0 < (uint64)__ylo))
+#define	CMPULT128C(__x, __yhi, __ylo)	((uint64)__x.d1 < (uint64)__yhi || ((uint64)__x.d1 == (uint64)__yhi && (uint64)__x.d0 < (uint64)__ylo))
 #define	CMPULT96C(__x, __yhi, __ylo)	((uint32)__x.d1 < (uint32)__yhi || ((uint32)__x.d1 == (uint32)__yhi && (uint64)__x.d0 < (uint64)__ylo))
 
 #define	CMPULT192(__x, __y)				((uint64)__x.d2 < (uint64)__y.d2 || ((uint64)__x.d2 == (uint64)__y.d2 && (uint64)__x.d1 < (uint64)__y.d1) || ((uint64)__x.d2 == (uint64)__y.d2 && (uint64)__x.d1 == (uint64)__y.d1 && (uint64)__x.d0 < (uint64)__y.d0))
