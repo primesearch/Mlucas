@@ -2707,7 +2707,7 @@ MFACTOR_HELP:
 		uint64 countmask    = targ->countmask;
 		uint32 CMASKBITS    = targ->CMASKBITS;
 		uint32 incr         = targ->incr;
-		//uint64 kstart       = targ->kstart;
+		uint64 kstart       = targ->kstart;
 		uint64*bit_map      = targ->bit_map ;
 		uint64*bit_map2     = targ->bit_map2;
 		double *tdiff       = targ->tdiff;
@@ -3085,6 +3085,13 @@ MFACTOR_HELP:
 	if(!k)
 		k = kstart;
 	#endif	// #if 0
+	/* The per-pass starting k must be set outside the disabled restart block above: kstart =
+	incr[pass] + interval_lo*(sieve_len << TF_CLSHIFT) is the only place this pass's residue class
+	and interval offset enter k. Leaving k at 0 makes every pass walk k = 0, 60, 120, ... through
+	its own sievelet, so only k == 0 (mod TF_CLASSES) is ever trial-divided - any such factor is
+	reported once per pass whose sievelet happens to keep that bit - and every factor in the
+	other residue classes is silently skipped. */
+	k = kstart;
 /************************ END(RESTART STUFF) *******************/
 
 	#ifdef MULTITHREAD
