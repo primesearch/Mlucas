@@ -3597,11 +3597,17 @@ MFACTOR_HELP:
 
 						  #elif(defined(P2WORD))
 
+						   #if USE_128x96 >= 1
+							/* The q < 2^96 tests below need this candidate's q, which nothing else on this path computes: */
+							ASSERT(0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
+							q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
+						   #endif
 						   #if USE_128x96 == 1
-							/* Use strictly  96-bit routines: */
-							if(p[1] == 0 && (q[1] >> 32) == 0)
-								res = twopmodq96	(p[0],k);
-							else
+							/* Use strictly  96-bit routines. twopmodq96 returns the 96-bit residue, not a flag: */
+							if(p[1] == 0 && (q[1] >> 32) == 0) {
+								uint96 t96 = twopmodq96(p[0],k);
+								res = (t96.d1 == 0 && t96.d0 == 1);
+							} else
 						   #elif USE_128x96 == 2
 							/* Use hybrid 128_96-bit routines: */
 							if(p[1] == 0 && (q[1] >> 32) == 0)
@@ -3609,7 +3615,7 @@ MFACTOR_HELP:
 							else
 						   #endif
 							/* Use fully 128-bit routines: */
-							res = twopmodq128x2(p[0],k);
+							res = twopmodq128x2(p,k);
 
 						  #else
 
@@ -3638,8 +3644,9 @@ MFACTOR_HELP:
 								{
 									ASSERT(fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
 								  #if USE_128x96 == 1
-									/* Use strictly  96-bit routines: */
-									res = twopmodq96	(p[0],k);
+									/* Use strictly  96-bit routines. twopmodq96 returns the 96-bit residue, not a flag: */
+									uint96 t96 = twopmodq96(p[0],k);
+									res = (t96.d1 == 0 && t96.d0 == 1);
 								  #elif USE_128x96 == 2
 									/* Use hybrid 128_96-bit routines: */
 									res = twopmodq128_96(p[0],k);
