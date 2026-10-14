@@ -2368,18 +2368,19 @@ for the 127-bit version.
 
     #define SQR_LOHI128(__x, __lo, __hi)\
     {\
-		uint64 __w0,__w1,__w2,__w3,__a,__b;\
+		uint64 __w0,__w1,__w2,__w3,__a,__b,__cy2,__cy3;\
 		\
 		SQR_LOHI64(__x.d0,       &__w0,&__w1);\
 		MUL_LOHI64(__x.d0,__x.d1,&__a ,&__b );\
 		SQR_LOHI64(__x.d1,       &__w2,&__w3);\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		__w1 += __a;	__cy2 += (__w1 < __a);\
+		__w2 += __b;	__cy3 += (__w2 < __b);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		/* Now split the result between __lo and __hi: */\
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
@@ -2387,15 +2388,17 @@ for the 127-bit version.
 
     #define SQR_LOHI127(__x, __lo, __hi)\
     {\
-		uint64 __w0,__w1,__w2,__w3,__a,__b;\
+		uint64 __w0,__w1,__w2,__w3,__a,__b,__cy2,__cy3;\
 		\
 		SQR_LOHI64(__x.d0,            &__w0,&__w1);\
 		MUL_LOHI64(__x.d0,__x.d1 << 1,&__a ,&__b );\
 		SQR_LOHI64(__x.d1,            &__w2,&__w3);\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		/* Now split the result between __lo and __hi: */\
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
@@ -2471,18 +2474,19 @@ for the 127-bit version.
 
     #define SQR_LOHI128(__x, __lo, __hi)\
     {\
-		uint64 __w0,__w1,__w2,__w3,__a,__b;\
+		uint64 __w0,__w1,__w2,__w3,__a,__b,__cy2,__cy3;\
 		\
 		SQR_LOHI64(__x.d0,        __w0, __w1);\
 		MUL_LOHI64(__x.d0,__x.d1, __a , __b );\
 		SQR_LOHI64(__x.d1,        __w2, __w3);\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		__w1 += __a;	__cy2 += (__w1 < __a);\
+		__w2 += __b;	__cy3 += (__w2 < __b);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		/* Now split the result between __lo and __hi: */\
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
@@ -2504,15 +2508,17 @@ for the 127-bit version.
   #else
     #define SQR_LOHI127(__x, __lo, __hi)\
     {\
-		uint64 __w0,__w1,__w2,__w3,__a,__b;\
+		uint64 __w0,__w1,__w2,__w3,__a,__b,__cy2,__cy3;\
 		\
 		SQR_LOHI64(__x.d0,             __w0, __w1);\
 		MUL_LOHI64(__x.d0,__x.d1 << 1, __a , __b );\
 		SQR_LOHI64(__x.d1,             __w2, __w3);\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		/* Now split the result between __lo and __hi: */\
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
@@ -2583,7 +2589,9 @@ for the 127-bit version.
 				__wa0,__wa1,__wa2,__wa3,\
 				__wb0,__wb1,__wb2,__wb3,\
 				__wc0,__wc1,__wc2,__wc3,\
-				__wd0,__wd1,__wd2,__wd3;\
+				__wd0,__wd1,__wd2,__wd3,\
+				__cy0,__cy1,__cy2,__cy3,\
+				__cz0,__cz1,__cz2,__cz3;\
 		\
 		SQR_LOHI64(__x0.d0,        __wa0, __wb0);\
 		SQR_LOHI64(__x1.d0,        __wa1, __wb1);\
@@ -2601,10 +2609,10 @@ for the 127-bit version.
 		SQR_LOHI64(__x3.d1,        __wc3, __wd3);\
 		\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__wb0 += __a0; __wc0 += __b0 + (__wb0 < __a0); __wd0 += (__wc0 < __b0); __wb0 += __a0; __wc0 += __b0 + (__wb0 < __a0); __wd0 += (__wc0 < __b0);\
-		__wb1 += __a1; __wc1 += __b1 + (__wb1 < __a1); __wd1 += (__wc1 < __b1); __wb1 += __a1; __wc1 += __b1 + (__wb1 < __a1); __wd1 += (__wc1 < __b1);\
-		__wb2 += __a2; __wc2 += __b2 + (__wb2 < __a2); __wd2 += (__wc2 < __b2); __wb2 += __a2; __wc2 += __b2 + (__wb2 < __a2); __wd2 += (__wc2 < __b2);\
-		__wb3 += __a3; __wc3 += __b3 + (__wb3 < __a3); __wd3 += (__wc3 < __b3); __wb3 += __a3; __wc3 += __b3 + (__wb3 < __a3); __wd3 += (__wc3 < __b3);\
+		__wb0 += __a0; __cy0  = (__wb0 < __a0); __wc0 += __b0; __cz0  = (__wc0 < __b0); __wb0 += __a0; __cy0 += (__wb0 < __a0); __wc0 += __b0; __cz0 += (__wc0 < __b0); __wc0 += __cy0; __cz0 += (__wc0 < __cy0); __wd0 += __cz0;\
+		__wb1 += __a1; __cy1  = (__wb1 < __a1); __wc1 += __b1; __cz1  = (__wc1 < __b1); __wb1 += __a1; __cy1 += (__wb1 < __a1); __wc1 += __b1; __cz1 += (__wc1 < __b1); __wc1 += __cy1; __cz1 += (__wc1 < __cy1); __wd1 += __cz1;\
+		__wb2 += __a2; __cy2  = (__wb2 < __a2); __wc2 += __b2; __cz2  = (__wc2 < __b2); __wb2 += __a2; __cy2 += (__wb2 < __a2); __wc2 += __b2; __cz2 += (__wc2 < __b2); __wc2 += __cy2; __cz2 += (__wc2 < __cy2); __wd2 += __cz2;\
+		__wb3 += __a3; __cy3  = (__wb3 < __a3); __wc3 += __b3; __cz3  = (__wc3 < __b3); __wb3 += __a3; __cy3 += (__wb3 < __a3); __wc3 += __b3; __cz3 += (__wc3 < __b3); __wc3 += __cy3; __cz3 += (__wc3 < __cy3); __wd3 += __cz3;\
 		\
 		/* Now split the result between __lo and __hi: */\
 		__lo0.d0 = __wa0;	__lo0.d1 = __wb0;	__hi0.d0 =  __wc0;	__hi0.d1 = __wd0;\
@@ -2660,7 +2668,9 @@ for the 127-bit version.
 		uint64	__a0,__a1,__a2,__a3,\
 				__b0,__b1,__b2,__b3,\
 				__s0,__s1,__s2,__s3,\
-				__t0,__t1,__t2,__t3;\
+				__t0,__t1,__t2,__t3,\
+				__cy0,__cy1,__cy2,__cy3,\
+				__cz0,__cz1,__cz2,__cz3;\
 		\
 		SQR_LOHI64(__x0.d0,                   __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                   __a1 ,     __b1 );\
@@ -2683,10 +2693,10 @@ for the 127-bit version.
 		SQR_LOHI64(__x3.d1,               __hi3.d0 , __hi3.d1 );\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
-		__lo0.d1 = __b0 + __s0;	__hi0.d0 += __t0 + (__lo0.d1 < __b0);	__hi0.d1 += (__hi0.d0 < __t0);\
-		__lo1.d1 = __b1 + __s1;	__hi1.d0 += __t1 + (__lo1.d1 < __b1);	__hi1.d1 += (__hi1.d0 < __t1);\
-		__lo2.d1 = __b2 + __s2;	__hi2.d0 += __t2 + (__lo2.d1 < __b2);	__hi2.d1 += (__hi2.d0 < __t2);\
-		__lo3.d1 = __b3 + __s3;	__hi3.d0 += __t3 + (__lo3.d1 < __b3);	__hi3.d1 += (__hi3.d0 < __t3);\
+		__lo0.d1 = __b0 + __s0;	__cy0  = (__lo0.d1 < __b0);	__hi0.d0 += __t0;	__cz0  = (__hi0.d0 < __t0);	__hi0.d0 += __cy0;	__cz0 += (__hi0.d0 < __cy0);	__hi0.d1 += __cz0;\
+		__lo1.d1 = __b1 + __s1;	__cy1  = (__lo1.d1 < __b1);	__hi1.d0 += __t1;	__cz1  = (__hi1.d0 < __t1);	__hi1.d0 += __cy1;	__cz1 += (__hi1.d0 < __cy1);	__hi1.d1 += __cz1;\
+		__lo2.d1 = __b2 + __s2;	__cy2  = (__lo2.d1 < __b2);	__hi2.d0 += __t2;	__cz2  = (__hi2.d0 < __t2);	__hi2.d0 += __cy2;	__cz2 += (__hi2.d0 < __cy2);	__hi2.d1 += __cz2;\
+		__lo3.d1 = __b3 + __s3;	__cy3  = (__lo3.d1 < __b3);	__hi3.d0 += __t3;	__cz3  = (__hi3.d0 < __t3);	__hi3.d0 += __cy3;	__cz3 += (__hi3.d0 < __cy3);	__hi3.d1 += __cz3;\
     }
   #endif	/* #endif(ia64) */
 
@@ -2786,7 +2796,9 @@ for the 127-bit version.
 				__wa0,__wa1,__wa2,__wa3,__wa4,__wa5,__wa6,__wa7,\
 				__wb0,__wb1,__wb2,__wb3,__wb4,__wb5,__wb6,__wb7,\
 				__wc0,__wc1,__wc2,__wc3,__wc4,__wc5,__wc6,__wc7,\
-				__wd0,__wd1,__wd2,__wd3,__wd4,__wd5,__wd6,__wd7;\
+				__wd0,__wd1,__wd2,__wd3,__wd4,__wd5,__wd6,__wd7,\
+				__cy0,__cy1,__cy2,__cy3,__cy4,__cy5,__cy6,__cy7,\
+				__cz0,__cz1,__cz2,__cz3,__cz4,__cz5,__cz6,__cz7;\
 		\
 		SQR_LOHI64(__x0.d0,        __wa0, __wb0);\
 		SQR_LOHI64(__x1.d0,        __wa1, __wb1);\
@@ -2816,14 +2828,14 @@ for the 127-bit version.
 		SQR_LOHI64(__x7.d1,        __wc7, __wd7);\
 		\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__wb0 += __a0; __wc0 += __b0 + (__wb0 < __a0); __wd0 += (__wc0 < __b0); __wb0 += __a0; __wc0 += __b0 + (__wb0 < __a0); __wd0 += (__wc0 < __b0);\
-		__wb1 += __a1; __wc1 += __b1 + (__wb1 < __a1); __wd1 += (__wc1 < __b1); __wb1 += __a1; __wc1 += __b1 + (__wb1 < __a1); __wd1 += (__wc1 < __b1);\
-		__wb2 += __a2; __wc2 += __b2 + (__wb2 < __a2); __wd2 += (__wc2 < __b2); __wb2 += __a2; __wc2 += __b2 + (__wb2 < __a2); __wd2 += (__wc2 < __b2);\
-		__wb3 += __a3; __wc3 += __b3 + (__wb3 < __a3); __wd3 += (__wc3 < __b3); __wb3 += __a3; __wc3 += __b3 + (__wb3 < __a3); __wd3 += (__wc3 < __b3);\
-		__wb4 += __a4; __wc4 += __b4 + (__wb4 < __a4); __wd4 += (__wc4 < __b4); __wb4 += __a4; __wc4 += __b4 + (__wb4 < __a4); __wd4 += (__wc4 < __b4);\
-		__wb5 += __a5; __wc5 += __b5 + (__wb5 < __a5); __wd5 += (__wc5 < __b5); __wb5 += __a5; __wc5 += __b5 + (__wb5 < __a5); __wd5 += (__wc5 < __b5);\
-		__wb6 += __a6; __wc6 += __b6 + (__wb6 < __a6); __wd6 += (__wc6 < __b6); __wb6 += __a6; __wc6 += __b6 + (__wb6 < __a6); __wd6 += (__wc6 < __b6);\
-		__wb7 += __a7; __wc7 += __b7 + (__wb7 < __a7); __wd7 += (__wc7 < __b7); __wb7 += __a7; __wc7 += __b7 + (__wb7 < __a7); __wd7 += (__wc7 < __b7);\
+		__wb0 += __a0; __cy0  = (__wb0 < __a0); __wc0 += __b0; __cz0  = (__wc0 < __b0); __wb0 += __a0; __cy0 += (__wb0 < __a0); __wc0 += __b0; __cz0 += (__wc0 < __b0); __wc0 += __cy0; __cz0 += (__wc0 < __cy0); __wd0 += __cz0;\
+		__wb1 += __a1; __cy1  = (__wb1 < __a1); __wc1 += __b1; __cz1  = (__wc1 < __b1); __wb1 += __a1; __cy1 += (__wb1 < __a1); __wc1 += __b1; __cz1 += (__wc1 < __b1); __wc1 += __cy1; __cz1 += (__wc1 < __cy1); __wd1 += __cz1;\
+		__wb2 += __a2; __cy2  = (__wb2 < __a2); __wc2 += __b2; __cz2  = (__wc2 < __b2); __wb2 += __a2; __cy2 += (__wb2 < __a2); __wc2 += __b2; __cz2 += (__wc2 < __b2); __wc2 += __cy2; __cz2 += (__wc2 < __cy2); __wd2 += __cz2;\
+		__wb3 += __a3; __cy3  = (__wb3 < __a3); __wc3 += __b3; __cz3  = (__wc3 < __b3); __wb3 += __a3; __cy3 += (__wb3 < __a3); __wc3 += __b3; __cz3 += (__wc3 < __b3); __wc3 += __cy3; __cz3 += (__wc3 < __cy3); __wd3 += __cz3;\
+		__wb4 += __a4; __cy4  = (__wb4 < __a4); __wc4 += __b4; __cz4  = (__wc4 < __b4); __wb4 += __a4; __cy4 += (__wb4 < __a4); __wc4 += __b4; __cz4 += (__wc4 < __b4); __wc4 += __cy4; __cz4 += (__wc4 < __cy4); __wd4 += __cz4;\
+		__wb5 += __a5; __cy5  = (__wb5 < __a5); __wc5 += __b5; __cz5  = (__wc5 < __b5); __wb5 += __a5; __cy5 += (__wb5 < __a5); __wc5 += __b5; __cz5 += (__wc5 < __b5); __wc5 += __cy5; __cz5 += (__wc5 < __cy5); __wd5 += __cz5;\
+		__wb6 += __a6; __cy6  = (__wb6 < __a6); __wc6 += __b6; __cz6  = (__wc6 < __b6); __wb6 += __a6; __cy6 += (__wb6 < __a6); __wc6 += __b6; __cz6 += (__wc6 < __b6); __wc6 += __cy6; __cz6 += (__wc6 < __cy6); __wd6 += __cz6;\
+		__wb7 += __a7; __cy7  = (__wb7 < __a7); __wc7 += __b7; __cz7  = (__wc7 < __b7); __wb7 += __a7; __cy7 += (__wb7 < __a7); __wc7 += __b7; __cz7 += (__wc7 < __b7); __wc7 += __cy7; __cz7 += (__wc7 < __cy7); __wd7 += __cz7;\
 		\
 		/* Now split the result between __lo and __hi: */\
 		__lo0.d0 = __wa0;	__lo0.d1 = __wb0;	__hi0.d0 =  __wc0;	__hi0.d1 = __wd0;\
@@ -2911,7 +2923,9 @@ for the 127-bit version.
 		uint64	__a0,__a1,__a2,__a3,__a4,__a5,__a6,__a7,\
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__s0,__s1,__s2,__s3,__s4,__s5,__s6,__s7,\
-				__t0,__t1,__t2,__t3,__t4,__t5,__t6,__t7;\
+				__t0,__t1,__t2,__t3,__t4,__t5,__t6,__t7,\
+				__cy0,__cy1,__cy2,__cy3,__cy4,__cy5,__cy6,__cy7,\
+				__cz0,__cz1,__cz2,__cz3,__cz4,__cz5,__cz6,__cz7;\
 		\
 		SQR_LOHI64(__x0.d0,                   __a0 ,     __b0 );\
 		SQR_LOHI64(__x1.d0,                   __a1 ,     __b1 );\
@@ -2950,14 +2964,14 @@ for the 127-bit version.
 		SQR_LOHI64(__x7.d1,               __hi7.d0 , __hi7.d1 );\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
-		__lo0.d1 = __b0 + __s0;	__hi0.d0 += __t0 + (__lo0.d1 < __b0);	__hi0.d1 += (__hi0.d0 < __t0);\
-		__lo1.d1 = __b1 + __s1;	__hi1.d0 += __t1 + (__lo1.d1 < __b1);	__hi1.d1 += (__hi1.d0 < __t1);\
-		__lo2.d1 = __b2 + __s2;	__hi2.d0 += __t2 + (__lo2.d1 < __b2);	__hi2.d1 += (__hi2.d0 < __t2);\
-		__lo3.d1 = __b3 + __s3;	__hi3.d0 += __t3 + (__lo3.d1 < __b3);	__hi3.d1 += (__hi3.d0 < __t3);\
-		__lo4.d1 = __b4 + __s4;	__hi4.d0 += __t4 + (__lo4.d1 < __b4);	__hi4.d1 += (__hi4.d0 < __t4);\
-		__lo5.d1 = __b5 + __s5;	__hi5.d0 += __t5 + (__lo5.d1 < __b5);	__hi5.d1 += (__hi5.d0 < __t5);\
-		__lo6.d1 = __b6 + __s6;	__hi6.d0 += __t6 + (__lo6.d1 < __b6);	__hi6.d1 += (__hi6.d0 < __t6);\
-		__lo7.d1 = __b7 + __s7;	__hi7.d0 += __t7 + (__lo7.d1 < __b7);	__hi7.d1 += (__hi7.d0 < __t7);\
+		__lo0.d1 = __b0 + __s0;	__cy0  = (__lo0.d1 < __b0);	__hi0.d0 += __t0;	__cz0  = (__hi0.d0 < __t0);	__hi0.d0 += __cy0;	__cz0 += (__hi0.d0 < __cy0);	__hi0.d1 += __cz0;\
+		__lo1.d1 = __b1 + __s1;	__cy1  = (__lo1.d1 < __b1);	__hi1.d0 += __t1;	__cz1  = (__hi1.d0 < __t1);	__hi1.d0 += __cy1;	__cz1 += (__hi1.d0 < __cy1);	__hi1.d1 += __cz1;\
+		__lo2.d1 = __b2 + __s2;	__cy2  = (__lo2.d1 < __b2);	__hi2.d0 += __t2;	__cz2  = (__hi2.d0 < __t2);	__hi2.d0 += __cy2;	__cz2 += (__hi2.d0 < __cy2);	__hi2.d1 += __cz2;\
+		__lo3.d1 = __b3 + __s3;	__cy3  = (__lo3.d1 < __b3);	__hi3.d0 += __t3;	__cz3  = (__hi3.d0 < __t3);	__hi3.d0 += __cy3;	__cz3 += (__hi3.d0 < __cy3);	__hi3.d1 += __cz3;\
+		__lo4.d1 = __b4 + __s4;	__cy4  = (__lo4.d1 < __b4);	__hi4.d0 += __t4;	__cz4  = (__hi4.d0 < __t4);	__hi4.d0 += __cy4;	__cz4 += (__hi4.d0 < __cy4);	__hi4.d1 += __cz4;\
+		__lo5.d1 = __b5 + __s5;	__cy5  = (__lo5.d1 < __b5);	__hi5.d0 += __t5;	__cz5  = (__hi5.d0 < __t5);	__hi5.d0 += __cy5;	__cz5 += (__hi5.d0 < __cy5);	__hi5.d1 += __cz5;\
+		__lo6.d1 = __b6 + __s6;	__cy6  = (__lo6.d1 < __b6);	__hi6.d0 += __t6;	__cz6  = (__hi6.d0 < __t6);	__hi6.d0 += __cy6;	__cz6 += (__hi6.d0 < __cy6);	__hi6.d1 += __cz6;\
+		__lo7.d1 = __b7 + __s7;	__cy7  = (__lo7.d1 < __b7);	__hi7.d0 += __t7;	__cz7  = (__hi7.d0 < __t7);	__hi7.d0 += __cy7;	__cz7 += (__hi7.d0 < __cy7);	__hi7.d1 += __cz7;\
     }
   #endif	/* #endif(ia64) */
 
@@ -3980,18 +3994,19 @@ On Alpha, this needs a total of 8 MUL instructions.
 
     #define MUL_LOHI128(__x, __y, __lo, __hi)\
     {\
-		uint64 __w0,__w1,__w2,__w3,__a,__b,__c,__d;\
+		uint64 __w0,__w1,__w2,__w3,__a,__b,__c,__d,__cy2,__cy3;\
 		\
 		MUL_LOHI64(__x.d0,__y.d0,&__w0,&__w1);\
 		MUL_LOHI64(__x.d0,__y.d1,&__a ,&__b );\
 		MUL_LOHI64(__y.d0,__x.d1,&__c ,&__d );\
 		MUL_LOHI64(__x.d1,__y.d1,&__w2,&__w3);\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
-		__w1 += __c;\
-		__w2 += __d + (__w1 < __c); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __d); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		__w1 += __c;	__cy2 += (__w1 < __c);\
+		__w2 += __d;	__cy3 += (__w2 < __d);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		/* Now store the result: */\
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
@@ -4001,18 +4016,19 @@ On Alpha, this needs a total of 8 MUL instructions.
 
     #define MUL_LOHI128(__x, __y, __lo, __hi)\
     {\
-		uint64 __w0,__w1,__w2,__w3,__a,__b,__c,__d;\
+		uint64 __w0,__w1,__w2,__w3,__a,__b,__c,__d,__cy2,__cy3;\
 		\
 		MUL_LOHI64(__x.d0,__y.d0, __w0, __w1);\
 		MUL_LOHI64(__x.d0,__y.d1, __a , __b );\
 		MUL_LOHI64(__y.d0,__x.d1, __c , __d );\
 		MUL_LOHI64(__x.d1,__y.d1, __w2, __w3);\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
-		__w1 += __c;\
-		__w2 += __d + (__w1 < __c); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __d); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		__w1 += __c;	__cy2 += (__w1 < __c);\
+		__w2 += __d;	__cy3 += (__w2 < __d);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		/* Now store the result: */\
 		/* Now store the result: */\
 		__lo.d0 =  __w0;	__lo.d1 = __w1;\
@@ -4417,10 +4433,10 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
     , __x2, __qinv2, __q2, __lo2, __hi2\
     , __x3, __qinv3, __q3, __lo3, __hi3)\
     {\
-		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0;\
-		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1;\
-		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2;\
-		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3;\
+		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0,__cz0;\
+		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1,__cz1;\
+		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2,__cz2;\
+		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3,__cz3;\
 		\
 		/* SQR_LOHI128(x,lo,hi) IS HERE: */\
 		SQR_LOHI64(__x0.d0,        &__wa0,&__wb0);\
@@ -4439,10 +4455,10 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 		SQR_LOHI64(__x3.d1,        &__wc3,&__wd3);\
 		\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);	__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);\
-		__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);	__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);\
-		__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);	__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);\
-		__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);	__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);\
+		__wb0 += __a0;	__cy0  = (__wb0 < __a0);	__wc0 += __b0;	__cz0  = (__wc0 < __b0);	__wb0 += __a0;	__cy0 += (__wb0 < __a0);	__wc0 += __b0;	__cz0 += (__wc0 < __b0);	__wc0 += __cy0;	__cz0 += (__wc0 < __cy0);	__wd0 += __cz0;\
+		__wb1 += __a1;	__cy1  = (__wb1 < __a1);	__wc1 += __b1;	__cz1  = (__wc1 < __b1);	__wb1 += __a1;	__cy1 += (__wb1 < __a1);	__wc1 += __b1;	__cz1 += (__wc1 < __b1);	__wc1 += __cy1;	__cz1 += (__wc1 < __cy1);	__wd1 += __cz1;\
+		__wb2 += __a2;	__cy2  = (__wb2 < __a2);	__wc2 += __b2;	__cz2  = (__wc2 < __b2);	__wb2 += __a2;	__cy2 += (__wb2 < __a2);	__wc2 += __b2;	__cz2 += (__wc2 < __b2);	__wc2 += __cy2;	__cz2 += (__wc2 < __cy2);	__wd2 += __cz2;\
+		__wb3 += __a3;	__cy3  = (__wb3 < __a3);	__wc3 += __b3;	__cz3  = (__wc3 < __b3);	__wb3 += __a3;	__cy3 += (__wb3 < __a3);	__wc3 += __b3;	__cz3 += (__wc3 < __b3);	__wc3 += __cy3;	__cz3 += (__wc3 < __cy3);	__wd3 += __cz3;\
 		\
 		/* Now store the high 128 bits of the result in __hi: */\
 		__hi0.d0 =  __wc0;	__hi0.d1 = __wd0;\
@@ -4548,14 +4564,14 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
     , __x6, __qinv6, __q6, __lo6, __hi6\
     , __x7, __qinv7, __q7, __lo7, __hi7)\
     {\
-		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0;\
-		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1;\
-		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2;\
-		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3;\
-		uint64	__a4,__b4,__t4,__wa4,__wb4,__wc4,__wd4,__cy4;\
-		uint64	__a5,__b5,__t5,__wa5,__wb5,__wc5,__wd5,__cy5;\
-		uint64	__a6,__b6,__t6,__wa6,__wb6,__wc6,__wd6,__cy6;\
-		uint64	__a7,__b7,__t7,__wa7,__wb7,__wc7,__wd7,__cy7;\
+		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0,__cz0;\
+		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1,__cz1;\
+		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2,__cz2;\
+		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3,__cz3;\
+		uint64	__a4,__b4,__t4,__wa4,__wb4,__wc4,__wd4,__cy4,__cz4;\
+		uint64	__a5,__b5,__t5,__wa5,__wb5,__wc5,__wd5,__cy5,__cz5;\
+		uint64	__a6,__b6,__t6,__wa6,__wb6,__wc6,__wd6,__cy6,__cz6;\
+		uint64	__a7,__b7,__t7,__wa7,__wb7,__wc7,__wd7,__cy7,__cz7;\
 		\
 		/* SQR_LOHI128(x,lo,hi) IS HERE: */\
 		SQR_LOHI64(__x0.d0,        &__wa0,&__wb0);\
@@ -4586,14 +4602,14 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 		SQR_LOHI64(__x7.d1,        &__wc7,&__wd7);\
 		\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);	__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);\
-		__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);	__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);\
-		__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);	__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);\
-		__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);	__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);\
-		__wb4 += __a4;	__wc4 += __b4 + (__wb4 < __a4);	__wd4 += (__wc4 < __b4);	__wb4 += __a4;	__wc4 += __b4 + (__wb4 < __a4);	__wd4 += (__wc4 < __b4);\
-		__wb5 += __a5;	__wc5 += __b5 + (__wb5 < __a5);	__wd5 += (__wc5 < __b5);	__wb5 += __a5;	__wc5 += __b5 + (__wb5 < __a5);	__wd5 += (__wc5 < __b5);\
-		__wb6 += __a6;	__wc6 += __b6 + (__wb6 < __a6);	__wd6 += (__wc6 < __b6);	__wb6 += __a6;	__wc6 += __b6 + (__wb6 < __a6);	__wd6 += (__wc6 < __b6);\
-		__wb7 += __a7;	__wc7 += __b7 + (__wb7 < __a7);	__wd7 += (__wc7 < __b7);	__wb7 += __a7;	__wc7 += __b7 + (__wb7 < __a7);	__wd7 += (__wc7 < __b7);\
+		__wb0 += __a0;	__cy0  = (__wb0 < __a0);	__wc0 += __b0;	__cz0  = (__wc0 < __b0);	__wb0 += __a0;	__cy0 += (__wb0 < __a0);	__wc0 += __b0;	__cz0 += (__wc0 < __b0);	__wc0 += __cy0;	__cz0 += (__wc0 < __cy0);	__wd0 += __cz0;\
+		__wb1 += __a1;	__cy1  = (__wb1 < __a1);	__wc1 += __b1;	__cz1  = (__wc1 < __b1);	__wb1 += __a1;	__cy1 += (__wb1 < __a1);	__wc1 += __b1;	__cz1 += (__wc1 < __b1);	__wc1 += __cy1;	__cz1 += (__wc1 < __cy1);	__wd1 += __cz1;\
+		__wb2 += __a2;	__cy2  = (__wb2 < __a2);	__wc2 += __b2;	__cz2  = (__wc2 < __b2);	__wb2 += __a2;	__cy2 += (__wb2 < __a2);	__wc2 += __b2;	__cz2 += (__wc2 < __b2);	__wc2 += __cy2;	__cz2 += (__wc2 < __cy2);	__wd2 += __cz2;\
+		__wb3 += __a3;	__cy3  = (__wb3 < __a3);	__wc3 += __b3;	__cz3  = (__wc3 < __b3);	__wb3 += __a3;	__cy3 += (__wb3 < __a3);	__wc3 += __b3;	__cz3 += (__wc3 < __b3);	__wc3 += __cy3;	__cz3 += (__wc3 < __cy3);	__wd3 += __cz3;\
+		__wb4 += __a4;	__cy4  = (__wb4 < __a4);	__wc4 += __b4;	__cz4  = (__wc4 < __b4);	__wb4 += __a4;	__cy4 += (__wb4 < __a4);	__wc4 += __b4;	__cz4 += (__wc4 < __b4);	__wc4 += __cy4;	__cz4 += (__wc4 < __cy4);	__wd4 += __cz4;\
+		__wb5 += __a5;	__cy5  = (__wb5 < __a5);	__wc5 += __b5;	__cz5  = (__wc5 < __b5);	__wb5 += __a5;	__cy5 += (__wb5 < __a5);	__wc5 += __b5;	__cz5 += (__wc5 < __b5);	__wc5 += __cy5;	__cz5 += (__wc5 < __cy5);	__wd5 += __cz5;\
+		__wb6 += __a6;	__cy6  = (__wb6 < __a6);	__wc6 += __b6;	__cz6  = (__wc6 < __b6);	__wb6 += __a6;	__cy6 += (__wb6 < __a6);	__wc6 += __b6;	__cz6 += (__wc6 < __b6);	__wc6 += __cy6;	__cz6 += (__wc6 < __cy6);	__wd6 += __cz6;\
+		__wb7 += __a7;	__cy7  = (__wb7 < __a7);	__wc7 += __b7;	__cz7  = (__wc7 < __b7);	__wb7 += __a7;	__cy7 += (__wb7 < __a7);	__wc7 += __b7;	__cz7 += (__wc7 < __b7);	__wc7 += __cy7;	__cz7 += (__wc7 < __cy7);	__wd7 += __cz7;\
 		\
 		/* Now store the high 128 bits of the result in __hi: */\
 		__hi0.d0 =  __wc0;	__hi0.d1 = __wd0;\
@@ -4760,18 +4776,19 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 
     #define MULH128(__x, __y, __hi)\
     {\
-		uint64 __w1,__w2,__w3,__a,__b,__c,__d;\
+		uint64 __w1,__w2,__w3,__a,__b,__c,__d,__cy2,__cy3;\
 		\
 		MULH64(__x.d0,__y.d0,       __w1);\
 		MUL_LOHI64(__x.d0,__y.d1, __a , __b );\
 		MUL_LOHI64(__y.d0,__x.d1, __c , __d );\
 		MUL_LOHI64(__x.d1,__y.d1, __w2, __w3);\
-		__w1 += __a;\
-		__w2 += __b + (__w1 < __a); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __b); /* Overflow into word3 is checked here. */\
-		__w1 += __c;\
-		__w2 += __d + (__w1 < __c); /* Overflow into word2 is checked here. */\
-		__w3 +=       (__w2 < __d); /* Overflow into word3 is checked here. */\
+		__w1 += __a;	__cy2  = (__w1 < __a);\
+		__w2 += __b;	__cy3  = (__w2 < __b);\
+		__w1 += __c;	__cy2 += (__w1 < __c);\
+		__w2 += __d;	__cy3 += (__w2 < __d);\
+		/* Now process carries: */\
+		__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+		__w3 += __cy3;\
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
     }
 
@@ -4786,7 +4803,9 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 				__b0,__b1,__b2,__b3,\
 				__c0,__c1,__c2,__c3,\
 				__d0,__d1,__d2,__d3,\
-				__t0,__t1,__t2,__t3;\
+				__t0,__t1,__t2,__t3,\
+				__cy0,__cy1,__cy2,__cy3,\
+				__cz0,__cz1,__cz2,__cz3;\
 		\
 		MULH64(__x0.d0,__y0.d0, __t0);\
 		MULH64(__x1.d0,__y1.d0, __t1);\
@@ -4808,35 +4827,36 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 		MUL_LOHI64(__x2.d1,__y2.d1, __hi2.d0, __hi2.d1);\
 		MUL_LOHI64(__x3.d1,__y3.d1, __hi3.d0, __hi3.d1);\
 		\
-		__t0 += __a0;\
-		__t1 += __a1;\
-		__t2 += __a2;\
-		__t3 += __a3;\
+		__t0 += __a0;	__cy0  = (__t0 < __a0);\
+		__t1 += __a1;	__cy1  = (__t1 < __a1);\
+		__t2 += __a2;	__cy2  = (__t2 < __a2);\
+		__t3 += __a3;	__cy3  = (__t3 < __a3);\
 		\
-		__hi0.d0 += __b0 + (__t0 < __a0);\
-		__hi1.d0 += __b1 + (__t1 < __a1);\
-		__hi2.d0 += __b2 + (__t2 < __a2);\
-		__hi3.d0 += __b3 + (__t3 < __a3);\
+		__hi0.d0 += __b0;	__cz0  = (__hi0.d0 < __b0);\
+		__hi1.d0 += __b1;	__cz1  = (__hi1.d0 < __b1);\
+		__hi2.d0 += __b2;	__cz2  = (__hi2.d0 < __b2);\
+		__hi3.d0 += __b3;	__cz3  = (__hi3.d0 < __b3);\
 		\
-		__hi0.d1 +=        (__hi0.d0 < __b0);\
-		__hi1.d1 +=        (__hi1.d0 < __b1);\
-		__hi2.d1 +=        (__hi2.d0 < __b2);\
-		__hi3.d1 +=        (__hi3.d0 < __b3);\
+		__t0 += __c0;	__cy0 += (__t0 < __c0);\
+		__t1 += __c1;	__cy1 += (__t1 < __c1);\
+		__t2 += __c2;	__cy2 += (__t2 < __c2);\
+		__t3 += __c3;	__cy3 += (__t3 < __c3);\
 		\
-		__t0 += __c0;\
-		__t1 += __c1;\
-		__t2 += __c2;\
-		__t3 += __c3;\
+		__hi0.d0 += __d0;	__cz0 += (__hi0.d0 < __d0);\
+		__hi1.d0 += __d1;	__cz1 += (__hi1.d0 < __d1);\
+		__hi2.d0 += __d2;	__cz2 += (__hi2.d0 < __d2);\
+		__hi3.d0 += __d3;	__cz3 += (__hi3.d0 < __d3);\
 		\
-		__hi0.d0 += __d0 + (__t0 < __c0);\
-		__hi1.d0 += __d1 + (__t1 < __c1);\
-		__hi2.d0 += __d2 + (__t2 < __c2);\
-		__hi3.d0 += __d3 + (__t3 < __c3);\
+		/* Now process carries: */\
+		__hi0.d0 += __cy0;	__cz0 += (__hi0.d0 < __cy0);\
+		__hi1.d0 += __cy1;	__cz1 += (__hi1.d0 < __cy1);\
+		__hi2.d0 += __cy2;	__cz2 += (__hi2.d0 < __cy2);\
+		__hi3.d0 += __cy3;	__cz3 += (__hi3.d0 < __cy3);\
 		\
-		__hi0.d1 +=        (__hi0.d0 < __d0);\
-		__hi1.d1 +=        (__hi1.d0 < __d1);\
-		__hi2.d1 +=        (__hi2.d0 < __d2);\
-		__hi3.d1 +=        (__hi3.d0 < __d3);\
+		__hi0.d1 += __cz0;\
+		__hi1.d1 += __cz1;\
+		__hi2.d1 += __cz2;\
+		__hi3.d1 += __cz3;\
     }
 
 /************* TODO: OK with y == hi, but not with x == hi! *************/
@@ -4855,7 +4875,9 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 				__b0,__b1,__b2,__b3,__b4,__b5,__b6,__b7,\
 				__c0,__c1,__c2,__c3,__c4,__c5,__c6,__c7,\
 				__d0,__d1,__d2,__d3,__d4,__d5,__d6,__d7,\
-				__t0,__t1,__t2,__t3,__t4,__t5,__t6,__t7;\
+				__t0,__t1,__t2,__t3,__t4,__t5,__t6,__t7,\
+				__cy0,__cy1,__cy2,__cy3,__cy4,__cy5,__cy6,__cy7,\
+				__cz0,__cz1,__cz2,__cz3,__cz4,__cz5,__cz6,__cz7;\
 		\
 		MULH64(__x0.d0,__y0.d0, __t0);\
 		MULH64(__x1.d0,__y1.d0, __t1);\
@@ -4893,59 +4915,60 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 		MUL_LOHI64(__x6.d1,__y6.d1, __hi6.d0, __hi6.d1);\
 		MUL_LOHI64(__x7.d1,__y7.d1, __hi7.d0, __hi7.d1);\
 		\
-		__t0 += __a0;\
-		__t1 += __a1;\
-		__t2 += __a2;\
-		__t3 += __a3;\
-		__t4 += __a4;\
-		__t5 += __a5;\
-		__t6 += __a6;\
-		__t7 += __a7;\
+		__t0 += __a0;	__cy0  = (__t0 < __a0);\
+		__t1 += __a1;	__cy1  = (__t1 < __a1);\
+		__t2 += __a2;	__cy2  = (__t2 < __a2);\
+		__t3 += __a3;	__cy3  = (__t3 < __a3);\
+		__t4 += __a4;	__cy4  = (__t4 < __a4);\
+		__t5 += __a5;	__cy5  = (__t5 < __a5);\
+		__t6 += __a6;	__cy6  = (__t6 < __a6);\
+		__t7 += __a7;	__cy7  = (__t7 < __a7);\
 		\
-		__hi0.d0 += __b0 + (__t0 < __a0);\
-		__hi1.d0 += __b1 + (__t1 < __a1);\
-		__hi2.d0 += __b2 + (__t2 < __a2);\
-		__hi3.d0 += __b3 + (__t3 < __a3);\
-		__hi4.d0 += __b4 + (__t4 < __a4);\
-		__hi5.d0 += __b5 + (__t5 < __a5);\
-		__hi6.d0 += __b6 + (__t6 < __a6);\
-		__hi7.d0 += __b7 + (__t7 < __a7);\
+		__hi0.d0 += __b0;	__cz0  = (__hi0.d0 < __b0);\
+		__hi1.d0 += __b1;	__cz1  = (__hi1.d0 < __b1);\
+		__hi2.d0 += __b2;	__cz2  = (__hi2.d0 < __b2);\
+		__hi3.d0 += __b3;	__cz3  = (__hi3.d0 < __b3);\
+		__hi4.d0 += __b4;	__cz4  = (__hi4.d0 < __b4);\
+		__hi5.d0 += __b5;	__cz5  = (__hi5.d0 < __b5);\
+		__hi6.d0 += __b6;	__cz6  = (__hi6.d0 < __b6);\
+		__hi7.d0 += __b7;	__cz7  = (__hi7.d0 < __b7);\
 		\
-		__hi0.d1 +=        (__hi0.d0 < __b0);\
-		__hi1.d1 +=        (__hi1.d0 < __b1);\
-		__hi2.d1 +=        (__hi2.d0 < __b2);\
-		__hi3.d1 +=        (__hi3.d0 < __b3);\
-		__hi4.d1 +=        (__hi4.d0 < __b4);\
-		__hi5.d1 +=        (__hi5.d0 < __b5);\
-		__hi6.d1 +=        (__hi6.d0 < __b6);\
-		__hi7.d1 +=        (__hi7.d0 < __b7);\
+		__t0 += __c0;	__cy0 += (__t0 < __c0);\
+		__t1 += __c1;	__cy1 += (__t1 < __c1);\
+		__t2 += __c2;	__cy2 += (__t2 < __c2);\
+		__t3 += __c3;	__cy3 += (__t3 < __c3);\
+		__t4 += __c4;	__cy4 += (__t4 < __c4);\
+		__t5 += __c5;	__cy5 += (__t5 < __c5);\
+		__t6 += __c6;	__cy6 += (__t6 < __c6);\
+		__t7 += __c7;	__cy7 += (__t7 < __c7);\
 		\
-		__t0 += __c0;\
-		__t1 += __c1;\
-		__t2 += __c2;\
-		__t3 += __c3;\
-		__t4 += __c4;\
-		__t5 += __c5;\
-		__t6 += __c6;\
-		__t7 += __c7;\
+		__hi0.d0 += __d0;	__cz0 += (__hi0.d0 < __d0);\
+		__hi1.d0 += __d1;	__cz1 += (__hi1.d0 < __d1);\
+		__hi2.d0 += __d2;	__cz2 += (__hi2.d0 < __d2);\
+		__hi3.d0 += __d3;	__cz3 += (__hi3.d0 < __d3);\
+		__hi4.d0 += __d4;	__cz4 += (__hi4.d0 < __d4);\
+		__hi5.d0 += __d5;	__cz5 += (__hi5.d0 < __d5);\
+		__hi6.d0 += __d6;	__cz6 += (__hi6.d0 < __d6);\
+		__hi7.d0 += __d7;	__cz7 += (__hi7.d0 < __d7);\
 		\
-		__hi0.d0 += __d0 + (__t0 < __c0);\
-		__hi1.d0 += __d1 + (__t1 < __c1);\
-		__hi2.d0 += __d2 + (__t2 < __c2);\
-		__hi3.d0 += __d3 + (__t3 < __c3);\
-		__hi4.d0 += __d4 + (__t4 < __c4);\
-		__hi5.d0 += __d5 + (__t5 < __c5);\
-		__hi6.d0 += __d6 + (__t6 < __c6);\
-		__hi7.d0 += __d7 + (__t7 < __c7);\
+		/* Now process carries: */\
+		__hi0.d0 += __cy0;	__cz0 += (__hi0.d0 < __cy0);\
+		__hi1.d0 += __cy1;	__cz1 += (__hi1.d0 < __cy1);\
+		__hi2.d0 += __cy2;	__cz2 += (__hi2.d0 < __cy2);\
+		__hi3.d0 += __cy3;	__cz3 += (__hi3.d0 < __cy3);\
+		__hi4.d0 += __cy4;	__cz4 += (__hi4.d0 < __cy4);\
+		__hi5.d0 += __cy5;	__cz5 += (__hi5.d0 < __cy5);\
+		__hi6.d0 += __cy6;	__cz6 += (__hi6.d0 < __cy6);\
+		__hi7.d0 += __cy7;	__cz7 += (__hi7.d0 < __cy7);\
 		\
-		__hi0.d1 +=        (__hi0.d0 < __d0);\
-		__hi1.d1 +=        (__hi1.d0 < __d1);\
-		__hi2.d1 +=        (__hi2.d0 < __d2);\
-		__hi3.d1 +=        (__hi3.d0 < __d3);\
-		__hi4.d1 +=        (__hi4.d0 < __d4);\
-		__hi5.d1 +=        (__hi5.d0 < __d5);\
-		__hi6.d1 +=        (__hi6.d0 < __d6);\
-		__hi7.d1 +=        (__hi7.d0 < __d7);\
+		__hi0.d1 += __cz0;\
+		__hi1.d1 += __cz1;\
+		__hi2.d1 += __cz2;\
+		__hi3.d1 += __cz3;\
+		__hi4.d1 += __cz4;\
+		__hi5.d1 += __cz5;\
+		__hi6.d1 += __cz6;\
+		__hi7.d1 += __cz7;\
     }
 
 /* Routine to perform fused version of key 3-operation sequence in 128-bit modmul:
@@ -4961,10 +4984,10 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
     , __x2, __qinv2, __q2, __lo2, __hi2\
     , __x3, __qinv3, __q3, __lo3, __hi3)\
     {\
-		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0;\
-		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1;\
-		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2;\
-		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3;\
+		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0,__cz0;\
+		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1,__cz1;\
+		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2,__cz2;\
+		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3,__cz3;\
 		\
 		/* SQR_LOHI128(x,lo,hi) IS HERE: */\
 		SQR_LOHI64(__x0.d0,         __wa0, __wb0);\
@@ -4983,10 +5006,10 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 		SQR_LOHI64(__x3.d1,         __wc3, __wd3);\
 		\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);	__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);\
-		__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);	__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);\
-		__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);	__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);\
-		__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);	__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);\
+		__wb0 += __a0;	__cy0  = (__wb0 < __a0);	__wc0 += __b0;	__cz0  = (__wc0 < __b0);	__wb0 += __a0;	__cy0 += (__wb0 < __a0);	__wc0 += __b0;	__cz0 += (__wc0 < __b0);	__wc0 += __cy0;	__cz0 += (__wc0 < __cy0);	__wd0 += __cz0;\
+		__wb1 += __a1;	__cy1  = (__wb1 < __a1);	__wc1 += __b1;	__cz1  = (__wc1 < __b1);	__wb1 += __a1;	__cy1 += (__wb1 < __a1);	__wc1 += __b1;	__cz1 += (__wc1 < __b1);	__wc1 += __cy1;	__cz1 += (__wc1 < __cy1);	__wd1 += __cz1;\
+		__wb2 += __a2;	__cy2  = (__wb2 < __a2);	__wc2 += __b2;	__cz2  = (__wc2 < __b2);	__wb2 += __a2;	__cy2 += (__wb2 < __a2);	__wc2 += __b2;	__cz2 += (__wc2 < __b2);	__wc2 += __cy2;	__cz2 += (__wc2 < __cy2);	__wd2 += __cz2;\
+		__wb3 += __a3;	__cy3  = (__wb3 < __a3);	__wc3 += __b3;	__cz3  = (__wc3 < __b3);	__wb3 += __a3;	__cy3 += (__wb3 < __a3);	__wc3 += __b3;	__cz3 += (__wc3 < __b3);	__wc3 += __cy3;	__cz3 += (__wc3 < __cy3);	__wd3 += __cz3;\
 		\
 		/* Now store the high 128 bits of the result in __hi: */\
 		__hi0.d0 =  __wc0;	__hi0.d1 = __wd0;\
@@ -5092,14 +5115,14 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
     , __x6, __qinv6, __q6, __lo6, __hi6\
     , __x7, __qinv7, __q7, __lo7, __hi7)\
     {\
-		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0;\
-		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1;\
-		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2;\
-		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3;\
-		uint64	__a4,__b4,__t4,__wa4,__wb4,__wc4,__wd4,__cy4;\
-		uint64	__a5,__b5,__t5,__wa5,__wb5,__wc5,__wd5,__cy5;\
-		uint64	__a6,__b6,__t6,__wa6,__wb6,__wc6,__wd6,__cy6;\
-		uint64	__a7,__b7,__t7,__wa7,__wb7,__wc7,__wd7,__cy7;\
+		uint64	__a0,__b0,__t0,__wa0,__wb0,__wc0,__wd0,__cy0,__cz0;\
+		uint64	__a1,__b1,__t1,__wa1,__wb1,__wc1,__wd1,__cy1,__cz1;\
+		uint64	__a2,__b2,__t2,__wa2,__wb2,__wc2,__wd2,__cy2,__cz2;\
+		uint64	__a3,__b3,__t3,__wa3,__wb3,__wc3,__wd3,__cy3,__cz3;\
+		uint64	__a4,__b4,__t4,__wa4,__wb4,__wc4,__wd4,__cy4,__cz4;\
+		uint64	__a5,__b5,__t5,__wa5,__wb5,__wc5,__wd5,__cy5,__cz5;\
+		uint64	__a6,__b6,__t6,__wa6,__wb6,__wc6,__wd6,__cy6,__cz6;\
+		uint64	__a7,__b7,__t7,__wa7,__wb7,__wc7,__wd7,__cy7,__cz7;\
 		\
 		/* SQR_LOHI128(x,lo,hi) IS HERE: */\
 		SQR_LOHI64(__x0.d0,        __wa0, __wb0);\
@@ -5130,14 +5153,14 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 		SQR_LOHI64(__x7.d1,        __wc7, __wd7);\
 		\
 		/* Need to add 2*a*b, so add a*b twice: */\
-		__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);	__wb0 += __a0;	__wc0 += __b0 + (__wb0 < __a0);	__wd0 += (__wc0 < __b0);\
-		__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);	__wb1 += __a1;	__wc1 += __b1 + (__wb1 < __a1);	__wd1 += (__wc1 < __b1);\
-		__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);	__wb2 += __a2;	__wc2 += __b2 + (__wb2 < __a2);	__wd2 += (__wc2 < __b2);\
-		__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);	__wb3 += __a3;	__wc3 += __b3 + (__wb3 < __a3);	__wd3 += (__wc3 < __b3);\
-		__wb4 += __a4;	__wc4 += __b4 + (__wb4 < __a4);	__wd4 += (__wc4 < __b4);	__wb4 += __a4;	__wc4 += __b4 + (__wb4 < __a4);	__wd4 += (__wc4 < __b4);\
-		__wb5 += __a5;	__wc5 += __b5 + (__wb5 < __a5);	__wd5 += (__wc5 < __b5);	__wb5 += __a5;	__wc5 += __b5 + (__wb5 < __a5);	__wd5 += (__wc5 < __b5);\
-		__wb6 += __a6;	__wc6 += __b6 + (__wb6 < __a6);	__wd6 += (__wc6 < __b6);	__wb6 += __a6;	__wc6 += __b6 + (__wb6 < __a6);	__wd6 += (__wc6 < __b6);\
-		__wb7 += __a7;	__wc7 += __b7 + (__wb7 < __a7);	__wd7 += (__wc7 < __b7);	__wb7 += __a7;	__wc7 += __b7 + (__wb7 < __a7);	__wd7 += (__wc7 < __b7);\
+		__wb0 += __a0;	__cy0  = (__wb0 < __a0);	__wc0 += __b0;	__cz0  = (__wc0 < __b0);	__wb0 += __a0;	__cy0 += (__wb0 < __a0);	__wc0 += __b0;	__cz0 += (__wc0 < __b0);	__wc0 += __cy0;	__cz0 += (__wc0 < __cy0);	__wd0 += __cz0;\
+		__wb1 += __a1;	__cy1  = (__wb1 < __a1);	__wc1 += __b1;	__cz1  = (__wc1 < __b1);	__wb1 += __a1;	__cy1 += (__wb1 < __a1);	__wc1 += __b1;	__cz1 += (__wc1 < __b1);	__wc1 += __cy1;	__cz1 += (__wc1 < __cy1);	__wd1 += __cz1;\
+		__wb2 += __a2;	__cy2  = (__wb2 < __a2);	__wc2 += __b2;	__cz2  = (__wc2 < __b2);	__wb2 += __a2;	__cy2 += (__wb2 < __a2);	__wc2 += __b2;	__cz2 += (__wc2 < __b2);	__wc2 += __cy2;	__cz2 += (__wc2 < __cy2);	__wd2 += __cz2;\
+		__wb3 += __a3;	__cy3  = (__wb3 < __a3);	__wc3 += __b3;	__cz3  = (__wc3 < __b3);	__wb3 += __a3;	__cy3 += (__wb3 < __a3);	__wc3 += __b3;	__cz3 += (__wc3 < __b3);	__wc3 += __cy3;	__cz3 += (__wc3 < __cy3);	__wd3 += __cz3;\
+		__wb4 += __a4;	__cy4  = (__wb4 < __a4);	__wc4 += __b4;	__cz4  = (__wc4 < __b4);	__wb4 += __a4;	__cy4 += (__wb4 < __a4);	__wc4 += __b4;	__cz4 += (__wc4 < __b4);	__wc4 += __cy4;	__cz4 += (__wc4 < __cy4);	__wd4 += __cz4;\
+		__wb5 += __a5;	__cy5  = (__wb5 < __a5);	__wc5 += __b5;	__cz5  = (__wc5 < __b5);	__wb5 += __a5;	__cy5 += (__wb5 < __a5);	__wc5 += __b5;	__cz5 += (__wc5 < __b5);	__wc5 += __cy5;	__cz5 += (__wc5 < __cy5);	__wd5 += __cz5;\
+		__wb6 += __a6;	__cy6  = (__wb6 < __a6);	__wc6 += __b6;	__cz6  = (__wc6 < __b6);	__wb6 += __a6;	__cy6 += (__wb6 < __a6);	__wc6 += __b6;	__cz6 += (__wc6 < __b6);	__wc6 += __cy6;	__cz6 += (__wc6 < __cy6);	__wd6 += __cz6;\
+		__wb7 += __a7;	__cy7  = (__wb7 < __a7);	__wc7 += __b7;	__cz7  = (__wc7 < __b7);	__wb7 += __a7;	__cy7 += (__wb7 < __a7);	__wc7 += __b7;	__cz7 += (__wc7 < __b7);	__wc7 += __cy7;	__cz7 += (__wc7 < __cy7);	__wd7 += __cz7;\
 		\
 		/* Now store the high 128 bits of the result in __hi: */\
 		__hi0.d0 =  __wc0;	__hi0.d1 = __wd0;\
