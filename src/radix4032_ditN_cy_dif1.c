@@ -639,7 +639,11 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
-		/* cy_r = tmp;	cy_i = tmp+0x7e0; */	tmp += 2*0x7e0;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
+	   #ifndef MULTITHREAD
+		cy_r = tmp;	// cy_i is not declared in SSE2 mode: Fermat-mod walks off the end of cy_r into the
+					// cy_i half, which the carry-init loop below relies on being contiguous with it
+	   #endif
+										tmp += 2*0x7e0;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// 0x3f00 += 0xfc0 + 2 => sc_ptr += 0x4ec2
 		// This is where the value of half_arr_offset comes from
