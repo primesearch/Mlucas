@@ -1627,6 +1627,30 @@ extern int NTHREADS;
 	#define COMPILER_VERSION "[Unknown]"
 #endif
 
+/* Suppress loop auto-vectorization for the following loop.
+Clang's loop vectorizer miscompiles the outer DFT-dispatch loops in the radix-{144,176,208}
+dif_pass1() routines on an AVX-512 build, silently producing a wrong residue. Tested at
+288K radset {144,8,8,16}, p = 5782013, -shift 0 (correct Res64 = 9869BE81D9AB1564):
+
+	clang  14.0.0	8518F7A93A6691AE	wrong
+	clang  18.1.3	8518F7A93A6691AE	wrong
+	clang  19.1.7	8518F7A93A6691AE	wrong
+	clang  20.1.8	8518F7A93A6691AE	wrong
+	clang  21.1.8	9869BE81D9AB1564	ok
+	clang  22.1.8	9869BE81D9AB1564	ok
+	gcc 13, 16	9869BE81D9AB1564	ok
+
+so the last known-bad is 20.1.8 and the first known-good 21.1.8; no 21.x before 21.1.8 was
+available to test. Apple clang uses its own version numbering that does not map onto upstream
+LLVM releases, so treat it as affected regardless of major.
+Deliberately expands to nothing for non-clang compilers: GCC warns on unrecognized
+"#pragma clang ..." under -Wall, which every Mlucas build uses. */
+#if defined(__clang__) && (defined(__apple_build_version__) || __clang_major__ < 21)
+	#define NO_LOOP_VECTORIZE	_Pragma("clang loop vectorize(disable)")
+#else
+	#define NO_LOOP_VECTORIZE
+#endif
+
 // In case OS_BITS not yet def'd:
 #ifndef	OS_BITS
 	#if __SIZEOF_LONG_LONG__ == 4
