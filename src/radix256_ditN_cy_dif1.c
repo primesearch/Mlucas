@@ -1561,7 +1561,7 @@ for(outer=0; outer <= 1; outer++)
 		khi = 1;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			_khi[ithread] = 1;	// Fermat-mod uses khi = 1 with a full-span jhi
 			/*
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
