@@ -27,8 +27,8 @@ Feature | | Mlucas | Prime95/MPrime
 \- | Suyama | ✔️ | 
 **PRP** | Proof generation | | ✔️
 \- | Proof certification | | ✔️
-**Error Checking** | Jacobi (LL/P-1) | LL only | LL only
-\- | Gerbicz (PRP/Pépin) | ✔️ | ✔️
+**Error Checking** | Jacobi (LL/P-1) | LL (P-1: integrity only) | LL only
+\- | Gerbicz (PRP/Pépin) | ✔️ (also P-1 stage 1) | ✔️
 **Random Shifts** | | ✔️ | ✔️
 **Interface** | CLI | ✔️ | MPrime only
 \- | GUI | | Prime95 only
