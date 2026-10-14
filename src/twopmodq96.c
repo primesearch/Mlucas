@@ -2440,7 +2440,7 @@ half		0x240
 
 	/* If current bit of pshift == 1, double each output modulo q: */	\n\t@\
 			/* if((pshift >> j) & (uint64)1) { */	\n\t@\
-			movl	%[__pshift],%%eax		\n\t@\
+			movq	%[__pshift],%%rax		\n\t@\
 			movl	%[__j],%%ecx			\n\t@\
 			shrq	%%cl,%%rax				\n\t@\
 			andq	$0x1,%%rax				\n\t@\
