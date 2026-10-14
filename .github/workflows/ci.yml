@@ -101,6 +101,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   Linux-32-bit:
@@ -155,6 +157,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   Linux-Singlethread:
@@ -225,6 +229,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   Linux-old:
@@ -329,6 +335,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   Linux-K1OM:
@@ -373,6 +381,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   ASan-Linux:
@@ -578,6 +588,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   macOS-Singlethread:
@@ -640,6 +652,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   ASan-macOS:
@@ -788,6 +802,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   Windows:
@@ -875,6 +891,8 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
         if-no-files-found: warn
 
   ASan-Windows:
