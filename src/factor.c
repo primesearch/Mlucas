@@ -1125,7 +1125,12 @@ exit(0);
 	// exponent to set the number of words of that allocated storage which are actually used:
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
-		findex = convert_base10_char_uint64(pstring);
+		itmp64 = convert_base10_char_uint64(pstring);	// Range-check before narrowing to uint32: 2^32+5 would silently become 5
+		if(itmp64 > MAX_BITS_P) {
+			fprintf(stderr,"p too large - limit is %u bits. Offending p = %s\n", MAX_BITS_P, pstring);
+			ASSERT(0,"0");
+		}
+		findex = (uint32)itmp64;
 		nbits_in_p = findex+1;
 		lenP = (nbits_in_p + 63)>>6;
 		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
@@ -1133,7 +1138,12 @@ exit(0);
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
 	{
-		findex = convert_base10_char_uint64(pstring);	// This var was really named as abbreviation of "Fermat index", but re-use for MMp
+		itmp64 = convert_base10_char_uint64(pstring);	// This var was really named as abbreviation of "Fermat index", but re-use for MMp
+		if(itmp64 > MAX_BITS_P) {	// Range-check before narrowing to uint32
+			fprintf(stderr,"p too large - limit is %u bits. Offending p = %s\n", MAX_BITS_P, pstring);
+			ASSERT(0,"0");
+		}
+		findex = (uint32)itmp64;
 		nbits_in_p = findex;
 		if(findex > 1000) {	// Large MMp need deeper sieving on each k passing the default sieve
 			kdeep = (uint32 *)CALLOC( 1024, sizeof(uint32));
@@ -1501,6 +1511,22 @@ ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passm
 		passnow = passmin;
 
 	}	/* endif(!incomplete_run) */
+
+	/* kmax may now come from -kplus, from bmax or from the savefile, none of which the kmax checks above saw: */
+	if((int64)kmax <= 0) {
+		fprintf(stderr,"ERROR: kmax = %s must be nonzero and 63 bits or less!\n", &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
+		ASSERT(0,"0");
+	}
+	{	// qmax = 2.kmax.p, into scratch storage of lenP+1 words:
+		uint64 *qmax = (uint64 *)CALLOC(lenP+1, sizeof(uint64));
+		qmax[lenP] = mi64_mul_scalar(p, 2*kmax, qmax, lenP);
+		nbits_in_q = ((lenP+1)<<6) - mi64_leadz(qmax, lenP+1);
+		free((void *)qmax);
+		if(nbits_in_q > MAX_BITS_Q) {
+			fprintf(stderr,"qmax too large - limit is %u bits. Offending p, kmax = %s, %s\n", MAX_BITS_Q, pstring, &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
+			ASSERT(0,"0");
+		}
+	}
 
 /*****************************************************/
 /****************** SIEVE STUFF: *********************/
@@ -4544,7 +4570,7 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 {
 	int itmp;
 	uint32 curr_line = 0, nerr = 0;
-	uint64 tf_passes = 0;
+	uint64 tf_passes = 0, pass64;
 	char *char_addr;
 	/* TF restart files are in HRF, not binary: */
 	fp = mlucas_fopen(fname, "r");
@@ -4703,8 +4729,9 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
 			char_addr++;
-			*passmin = (uint32)convert_base10_char_uint64(char_addr);
-			if(*passmin >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passmin[%u] < TF_PASSES[%u]",*passmin,TF_PASSES); }
+			pass64 = convert_base10_char_uint64(char_addr);	// Range-check before narrowing to uint32: 2^32 would wrap to 0
+			*passmin = (uint32)pass64;
+			if(pass64 >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passmin[%" PRIu64 "] < TF_PASSES[%u]",pass64,TF_PASSES); }
 		}
 
 		/* Line 9: passnow */
@@ -4721,8 +4748,9 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
 			char_addr++;
-			*passnow = (uint32)convert_base10_char_uint64(char_addr);
-			if(*passnow >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passnow[%u] < TF_PASSES[%u]",*passnow,TF_PASSES); }
+			pass64 = convert_base10_char_uint64(char_addr);	// Range-check before narrowing to uint32: 2^32 would wrap to 0
+			*passnow = (uint32)pass64;
+			if(pass64 >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passnow[%" PRIu64 "] < TF_PASSES[%u]",pass64,TF_PASSES); }
 			if(*passnow <  *passmin  )	{ ++nerr; fprintf(stderr,"factor.c: Require passnow[%u] >= passmin[%u]",*passnow,*passmin); }
 		}
 
@@ -4740,8 +4768,9 @@ uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*pa
 				++nerr; fprintf(stderr,"ERROR: Line %d of factoring restart file %s lacks the required = sign!\n",curr_line,fname);
 			}
 			char_addr++;
-			*passmax = (uint32)convert_base10_char_uint64(char_addr);
-			if(*passmax >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passmax[%u] < TF_PASSES[%u]",*passmax,TF_PASSES); }
+			pass64 = convert_base10_char_uint64(char_addr);	// Range-check before narrowing to uint32: 2^32 would wrap to 0
+			*passmax = (uint32)pass64;
+			if(pass64 >= TF_PASSES)	{ ++nerr; fprintf(stderr,"factor.c: Require passmax[%" PRIu64 "] < TF_PASSES[%u]",pass64,TF_PASSES); }
 			if(*passmax <  *passnow  )	{ ++nerr; fprintf(stderr,"factor.c: Require passmax[%u] >= passnow[%u]",*passmax,*passnow); }
 		}
 
