@@ -71,6 +71,21 @@ passes), and PerPass_tfSieve() adds its own count to it for the '#Q tried' field
 so that field is the total for the run, not just for the pass being checkpointed: */
 static uint64 tf_count_base = 0ull;
 
+/* The k of every factor the current run has reported, in the order reported; the first tf_nfac_prev of them
+were reported by earlier sessions of a resumed run. The list is kept in the savefile too (lines 12 and up, see
+read_savefile), because a resumed run redoes whatever it had done since its last checkpoint - in a multithreaded
+run the whole wave of passes it was killed in, in a single-threaded one the rest of the current pass - and
+without the list it would report the factors in that stretch a second time. PerPass_tfSieve() skips the
+factors reported by earlier sessions, and appends each new one to the list and the savefile as it reports it.
+Only main() and PerPass_tfSieve()'s mutex-protected factor-reporting code touch the list: */
+static uint64 *tf_fac_k = 0x0;
+static uint32 tf_nfac = 0, tf_nfac_prev = 0, tf_fac_cap = 0;
+static void tf_add_reported_factor(const char*fname, uint64 k);
+#ifdef FACTOR_STANDALONE	// Only main() reads the list, and Mfactor has no main() in a non-standalone build
+static uint32 tf_read_reported_factors(const char*fname);
+#endif
+static int tf_reported_before(uint64 k);
+
 
 #undef RTIME
 #undef CTIME
@@ -1349,6 +1364,9 @@ exit(0);
 			passmin = passmin_file; passnow = passnow_file; passmax = passmax_file;
 			kmin = kmin_file; know = know_file; kmax = kmax_file;
 			kplus = 0;
+			/* The factors already reported by this run, which we must not report again: */
+			if(tf_read_reported_factors(RESTARTFILE))
+				fprintf(stderr,"INFO: The earlier session(s) of this run reported %u factor(s); these will not be reported again.\n", tf_nfac_prev);
 		} else {
 			count_prev = 0ull;	// A new run, whose count starts from zero
 			/* With no new bounds on the command line there is nothing to extend the completed run to: */
@@ -2567,6 +2585,7 @@ candidate factors that survive sieving.	*/
   #endif	// MULTITHREAD ?
 
 /*...all done.	*/
+	nfactor += tf_nfac_prev;	// The summary covers the whole run, including the factors its earlier sessions reported
   #ifdef FACTOR_STANDALONE
 	if(!restart)
 	{
@@ -3992,7 +4011,11 @@ MFACTOR_HELP:
 									/* Recover the factor: */
 									q[lenP] = mi64_mul_scalar( p, 2*k_to_try[l], q, lenP);
 									q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-									if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1)
+									/* A resumed run redoes the stretch after its last checkpoint; don't report again a factor
+									that an earlier session of the run already reported (see tf_fac_k): */
+									if(tf_reported_before(k_to_try[l])) {
+										fprintf(stderr, "INFO: k = %" PRIu64 " was reported before this run was resumed; not reporting it again.\n", k_to_try[l]);
+									} else if(mi64_twopmodq(p, lenP, k_to_try[l], q, lenQ, q2) != 1)
 									{
 										fprintf(stderr, "ERROR: k = %" PRIu64 ", post-check indicates this does not yield a factor.\n", k_to_try[l]);
 									//	printf("Args sent to mi64_twopmodq:\n");
@@ -4060,6 +4083,7 @@ MFACTOR_HELP:
 										fp = mlucas_fopen(   OFILE,"a");	ASSERT(fp != 0x0,"0");
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
+										tf_add_reported_factor(RESTARTFILE, k_to_try[l]);	// Only now, so a kill in between repeats the report rather than lose it
 									#ifdef QUIT_WHEN_FACTOR_FOUND
 									  #ifdef MULTITHREAD
 										return;
@@ -4658,9 +4682,65 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 
 	Line 11:	Number of q's tried so far during the run
 
-	Line 12+:	Any diagnostic info not needed for restarting from interrupt
-				(mainly, in standalone mode can use this in place of STATFILE.)
+	Line 12+:	One line "factor k = {k}" per factor the run has reported so far (none if it has found none).
+				Optional, so a savefile without these lines, e.g. one written by an older build, still
+				reads; read_savefile() itself stops at line 11, and tf_read_reported_factors() reads these.
 */
+
+/* Add k to the run's list of reported factors (tf_fac_k), and if fname is given, append it to that savefile.
+The savefile always exists by the time factors are reported; opening it "r+" (not "a") ensures this can't
+create a stub savefile if it has gone missing, which would make the next run abort on reading it: */
+static void tf_add_reported_factor(const char*fname, uint64 k)
+{
+	FILE *fsave;
+	if(tf_nfac == tf_fac_cap) {
+		tf_fac_cap = tf_fac_cap ? 2*tf_fac_cap : 16;
+		tf_fac_k = (uint64 *)realloc(tf_fac_k, tf_fac_cap * sizeof(uint64));
+		ASSERT(tf_fac_k != 0x0, "Unable to grow the list of reported factors!");
+	}
+	tf_fac_k[tf_nfac++] = k;
+	if(!fname) return;
+	fsave = mlucas_fopen(fname,"r+");
+	if(!fsave || fseek(fsave, 0L, SEEK_END) || fprintf(fsave,"factor k = %" PRIu64 "\n", k) <= 0) {
+		fprintf(stderr,"WARN: Unable to add factor k = %" PRIu64 " to savefile %s; a resumed run may report it again.\n", k, fname);
+	}
+	if(fsave) fclose(fsave);
+}
+
+#ifdef FACTOR_STANDALONE
+/* Read the factors the run has reported so far from lines 12 and up of savefile fname (see the format above)
+into tf_fac_k, and mark them as reported by an earlier session. A line without its newline is the tail of an
+append that was cut short, whose factor was nonetheless reported, so the worst case is a repeat report: */
+static uint32 tf_read_reported_factors(const char*fname)
+{
+	char line[STR_MAX_LEN];
+	uint32 curr_line = 0;
+	uint64 k;
+	FILE *fsave = mlucas_fopen(fname,"r");
+	if(fsave) {
+		while(fgets(line, STR_MAX_LEN, fsave)) {
+			if(++curr_line <= 11 || !strchr(line, '\n')) continue;
+			if(sscanf(line, "factor k = %" SCNu64, &k) == 1)
+				tf_add_reported_factor(0x0, k);
+		}
+		fclose(fsave);
+	}
+	tf_nfac_prev = tf_nfac;
+	return tf_nfac_prev;
+}
+#endif
+
+/* Was k reported by an earlier session of the run? Checks only those, so a factor reported twice within
+one session - which would be a sieve bug - still shows: */
+static int tf_reported_before(uint64 k)
+{
+	uint32 i;
+	for(i = 0; i < tf_nfac_prev; i++) {
+		if(tf_fac_k[i] == k) return 1;
+	}
+	return 0;
+}
+
 int read_savefile(const char*fname, const char*pstring, double*bmin, double*bmax,
 uint64*kmin, uint64*know, uint64*kmax, uint32*passmin, uint32*passnow, uint32*passmax, uint64*count)
 {
@@ -4962,8 +5042,15 @@ uint64 kmin, uint64 know, uint64 kmax, uint32 passmin, uint32 passnow, uint32 pa
 		}
 		/* Line 11: Number of q's tried: */
 		++curr_line; itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
+		/* Lines 12+: the factors the run has reported so far: */
+		{
+			uint32 i;
+			for(i = 0; itmp > 0 && i < tf_nfac; i++) {
+				++curr_line; itmp = fprintf(fp,"factor k = %" PRIu64 "\n", tf_fac_k[i]);
+			}
+		}
 		if(itmp <= 0) {
-			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n",curr_line,fname);
+			++nerr; fprintf(stderr,"ERROR: unable to write Line %d (#Q tried or reported factor) of factoring restart file %s!\n",curr_line,fname);
 		}
 		// v21: If any of the above writes failed we have nothing worth publishing, so drop the scratch file and
 		// leave any pre-existing savefile alone; otherwise commit it, counting a failure to do so as one more error:
