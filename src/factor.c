@@ -3546,7 +3546,7 @@ MFACTOR_HELP:
 
 						  #elif(defined(P4WORD))
 
-							ASSERT(0ull == mi64_mul_scalar(two_p,k,(uint64*)&q256,lenQ), "2.k.p overflows!");
+							ASSERT(0ull == mi64_mul_scalar(two_p,k,q256.w,lenQ), "2.k.p overflows!");
 							q256.d0 += 1;	// No need to check for carry since 2.k.p even
 							p256.d0 = p[0]; p256.d1 = p[1]; p256.d2 = p[2]; p256.d3 = p[3];
 							t256 = twopmodq256(p256,q256);

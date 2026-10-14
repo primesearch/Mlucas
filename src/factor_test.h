@@ -374,7 +374,7 @@ int test_fac()
 	*/
 	k = 7143819210136784550ull;	p64 = 127;
 	p192.d0 = 2294959606785646778ull; p192.d1 = 10167084567166165345ull; p192.d2 = 2688959234133783535ull;
-	mi64_mul_vector_hi_qmmp((uint64*)&p192, p64, k, (uint64*)&q192, 192);
+	mi64_mul_vector_hi_qmmp(p192.w, p64, k, q192.w, 192);
 	ASSERT(q192.d0 == 141525868296128525ull && q192.d1 == 4269430960237156763ull && q192.d2 == 1041345754856384950ull, "mi64_mul_vector_hi_qmmp test fails!");
 
 	/* 09/30/2015: Adapt above to test Fermat-factor analog of above, mi64_mul_vector_hi_qferm:
@@ -390,7 +390,7 @@ int test_fac()
 	*/
 	k = 3571909605068392275ull;	p64 = 128;
 	p192.d0 = 2294959606785646778ull; p192.d1 = 10167084567166165345ull; p192.d2 = 2688959234133783535ull;
-	mi64_mul_vector_hi_qferm((uint64*)&p192, p64, k, (uint64*)&q192, 192);
+	mi64_mul_vector_hi_qferm(p192.w, p64, k, q192.w, 192);
 	ASSERT(q192.d0 == 2224217378008898426ull && q192.d1 == 4269430960237156763ull && q192.d2 == 1041345754856384950ull, "mi64_mul_vector_hi_qferm test fails!");
 
 	// Apr 2015: mi64_div bug debug - 0-pad both inputs to yield a length-4 mi64 array:
@@ -1360,7 +1360,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 		p64 = fac96[i].p;
 		q128.d1 = (uint64)fac96[i].d1; q128.d0 = fac96[i].d0;
 		q128.d0 -= 1ull;	// Sub off the 1 in q = 2.k.p+1 and check that result == 0 (mod 2.p)
-		res64 = mi64_div_binary((uint64*)&q128, &p64, 2,1, 0x0,0x0,0x0);
+		res64 = mi64_div_binary(q128.w, &p64, 2,1, 0x0,0x0,0x0);
 		if(res64 != 1) {
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
@@ -1474,7 +1474,7 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 	if(x128.d1 == 0) {
-		res64 = twopmodq128x2((uint64 *)&p128, k);
+		res64 = twopmodq128x2(p128.w, k);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR: twopmodq128x2(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
@@ -1643,7 +1643,7 @@ if((q128.d1 >> 14) == 0) {
 		p64 = fac128[i].p;
 		q128.d1 = fac128[i].d1; q128.d0 = fac128[i].d0;
 		q128.d0 -= 1ull;	// Sub off the 1 in q = 2.k.p+1 and check that result == 0 (mod 2.p)
-		res64 = mi64_div_binary((uint64*)&q128, &p64, 2,1, 0x0,0x0,0x0);
+		res64 = mi64_div_binary(q128.w, &p64, 2,1, 0x0,0x0,0x0);
 		if(res64 != 1) {
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
@@ -1833,7 +1833,7 @@ if((q128.d1 >> 14) == 0) {
 		if(x128.d1 == 0)	// k must be 64-bit
 		{
 			p128.d0 = p64; p128.d1 = 0;
-			res64 = twopmodq128x2((uint64 *)&p128, k);
+			res64 = twopmodq128x2(p128.w, k);
 			if(res64 != 1)
 			{
 				fprintf(stderr,"ERROR: twopmodq128x2(%" PRIu64 ", k = %" PRIu64 ") returns non-unity result %u\n",p64,k, (uint32)res64);
@@ -1841,7 +1841,7 @@ if((q128.d1 >> 14) == 0) {
 			}
 
 		#if(TRYQ == 4)
-			res64 = twopmodq128_q4((uint64 *)&p128,k,k,k,k);
+			res64 = twopmodq128_q4(p128.w,k,k,k,k);
 			if(res64 != 15)
 			{
 				fprintf(stderr,"ERROR: twopmodq128_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
@@ -2098,7 +2098,7 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 		// Now compute k = (q-1)/2p, while verifying that q%2p = 1:
-		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
+		mi64_div(q192.w, two_p192.w, 3,3, x192.w, res192.w);	// x192 contains k
 		ASSERT(x192.d2 == 0 && x192.d1 == 0,"k > 2^64!");
 		if(!CMPEQ192(res192, ONE192))
 		{
@@ -2120,7 +2120,7 @@ if((q128.d1 >> 14) == 0) {
 			ASSERT(0,"0");
 		}
 */
-		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
+		res64 = twopmodq192_q4(p192.w,x192.d0,x192.d0,x192.d0,x192.d0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
@@ -2173,7 +2173,7 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 		// Now compute k = (q-1)/2p, while verifying that q%2p = 1:
-		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
+		mi64_div(q192.w, two_p192.w, 3,3, x192.w, res192.w);	// x192 contains k
 		if(!CMPEQ192(res192, ONE192))
 		{
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
@@ -2217,7 +2217,7 @@ if((q128.d1 >> 14) == 0) {
 				ASSERT(0,"0");
 			}
 		*/
-			res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
+			res64 = twopmodq192_q4(p192.w,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 15)
 			{
 				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
@@ -2279,7 +2279,7 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 		// Now compute k = (q-1)/2p, while verifying that q%2p = 1:
-		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
+		mi64_div(q192.w, two_p192.w, 3,3, x192.w, res192.w);	// x192 contains k
 		if(!CMPEQ192(res192, ONE192))
 		{
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
@@ -2343,7 +2343,7 @@ if((q128.d1 >> 14) == 0) {
 	#if(TRYQ == 4)
 		if(x192.d2 == 0 && x192.d1 == 0)	// k must be 64-bit for these
 		{
-			res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
+			res64 = twopmodq192_q4(p192.w,x192.d0,x192.d0,x192.d0,x192.d0);
 			if(res64 != 15)
 			{
 				fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
