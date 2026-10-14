@@ -202,7 +202,12 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 #define ERR_INTERRUPT				15	// On one of several interrupt SIGs, exit iteration loop prematurely, write savefiles and exit
 #define ERR_GERBICZ_CHECK			16
 #define ERR_JACOBI_CHECK			17	// v21: LL Jacobi-symbol residue check failed - roll back to a Jacobi-passed savefile
-#define ERR_MAX		ERR_JACOBI_CHECK
+/* v21: sanity checks for failure modes neither the roundoff check nor the reference-residue
+comparison can see. See ernstMain() and the selfTest driver in main(). */
+#define ERR_ZERO_RESIDUE			18
+#define ERR_ZERO_ROUNDOFF			19
+#define ERR_DUPLICATE_RES64			20
+#define ERR_MAX		ERR_DUPLICATE_RES64
 
 /***********************************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
