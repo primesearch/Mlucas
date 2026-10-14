@@ -974,7 +974,7 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 		dsum = 0; for(j = 0; j < npad; j++) { dsum += fabs(a[j]); }; fprintf(stderr,"a^2: MME = %8.6f, a[0] = %20.8f, a[1] = %20.8f, L1(a) = %20.8f\n",MME,a[0],a[1],dsum/n); MME = 0;
 	#endif
 	  if(pow&1)	{	// y *= a; mode_flag for this fixed = 3:
-		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)b +  3ull, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; if(ierr) nerr |= 1<<ierr;
+		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)(uintptr_t)b +  3ull, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -1393,7 +1393,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	memcpy(mult[1],pow,nbytes);	// 1 copy in mult[1]...
 	memcpy(      a,pow,nbytes);	// another in a[]...
 	ierr += func_mod_square(      a, 0x0, n, 0,1,     4ull + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);/* fwdFFT(a) */
-	ierr += func_mod_square(mult[1], 0x0, n, 0,1,(uint64)a + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);/* and done. */
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1,(uint64)(uintptr_t)a + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);/* and done. */
 	if(ierr != 0) {
 		sprintf(cbuf,"Modmul test hit an error of type = %u! Aborting.",ierr);
 		ASSERT(0,cbuf);
@@ -1523,7 +1523,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		// mult[0] *= a[]: mult[0] holds result, thus is not fwd-FFTed (that is, in fwd-FFT-pass-1-done form) on entry;
 		// Since mult[0] holds pure-int copy of stage 1 residue A on loop entry, bit 0 of mode_flag = 0 for just its first use:
 		//                                                                                vvvvvvvv
-		ierr = func_mod_square(mult[0], 0x0, n, 0,1, (uint64)a + (uint64)(mode_flag - (j==3)), p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
+		ierr = func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)a + (uint64)(mode_flag - (j==3)), p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -1537,7 +1537,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		}
 		// Up-multiply the fwd-FFT-pass-1-done(A^8,16,24,...) by fixed multiplier fwd-FFT(A^8):
 		// mult[2] = A^16,24,... :
-		ierr = func_mod_square(mult[2], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
+		ierr = func_mod_square(mult[2], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 		if(ierr == ERR_INTERRUPT) {
 			return ierr;
 		}
@@ -1596,7 +1596,7 @@ fprintf(stderr,"#1: vec2 = A^-1 checksums = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ";
 	ierr += func_mod_square(mult[1],      0x0, n, 0,1, 4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
 	// mult[0] = A * A^-1, check that result = 1 as expected:
 	mode_flag = 0;	// bits 0:1 of mode_flag = 0, since mult[0] enters in pure-int form and want output the same way
-	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	ASSERT(mult[0][0] == 1.0, "inverse-check fails!");
 	for(i = 1; i < npad; i++) { ASSERT(mult[0][i] == 0.0, "inverse-check fails!"); }
    #endif
@@ -1659,7 +1659,7 @@ ierr  = func_mod_square(pow, 0x0, n, 0,1, 2ull, p, scrnFlag,&tdif2, FALSE, 0x0);
 ierr  = func_mod_square(  a, 0x0, n, 0,1, 2ull, p, scrnFlag,&tdif2, FALSE, 0x0);	// A^-2
 for(k = 0; k < npad; k++) { a[k] += pow[k]; }	// V[2] = A^2 + A^-2
 // Normalization-modmul - Have fwd-FFT-pass-1-done inputs and want pure-int outputs, so force 1 in place of mode_flag:
-ierr += func_mod_square(  a, 0x0, n, 0,1, (uint64)vone + 1ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+ierr += func_mod_square(  a, 0x0, n, 0,1, (uint64)(uintptr_t)vone + 1ull, p, scrnFlag,&tdif2, FALSE, 0x0);
 j = 0; for(k = 0; k < npad; k++) {	// j stores #mismatches
 	if(a[k] != mult[1][k]) {
 		fprintf(stderr,"V[2] check: a[%u] (%10.2f) != mult[1][%u] (%10.2f)\n",j,a[k],j,mult[1][k]);
@@ -1677,7 +1677,7 @@ MME = 0;
 #warning *************************** MULSUB path here gives ROE = 0.5! ***************************
   #if 1//def USE_VEC_DBL_SUB
 	// mult[0] = V[2]*V[1]:
-	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	// V[3] = V[2]*V[1] - V[1]; both sub-inputs are fwd-FFT-pass-1-done. The parallel-vector-sub leaves result in a[]:
    #ifdef MULTITHREAD
 	vec_double_sub(tpool,tdat,mult[2]);
@@ -1687,7 +1687,7 @@ MME = 0;
 	memcpy(mult[0],a,nbytes);
   #else
 	// V[3] = V[2]*V[1] - V[1]:
-	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(~((uint64)mult[2])));
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(uintptr_t)(~((uint64)(uintptr_t)mult[2])));
 /*	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
    #ifdef MULTITHREAD
 	vec_double_sub(tpool,tdat,mult[2]);
@@ -1745,7 +1745,7 @@ MME = 0;
 		V[103]=V[101]*V[2] - V[99] has L1 =   3735250.9816183313
 	  ***/
 		// V[2*i-1] *= V[2]:
-		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 		// V[2*i+1] = V[2*i-1]*V[2] - V[2*i-3]; the parallel-vector-sub leaves result in a[]:
 	  #ifdef MULTITHREAD
 		vec_double_sub(tpool,tdat,mult[2]);
@@ -1753,13 +1753,13 @@ MME = 0;
 		vec_double_sub(mult[0],mult[2],a,npad);
 	  #endif
 		// Normalization-multiply by fwdFFT(1):
-		ierr += func_mod_square(a, 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+		ierr += func_mod_square(a, 0x0, n, 0,1, (uint64)(uintptr_t)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 		memcpy(mult[0],     a,nbytes);	// V[2*i+1] replaces V[2*i-1]:
 		if(j < jhi) memcpy(mult[2],buf[i],nbytes);	// V[2*i-1] replaces V[2*i-3]
 	#else
 	  #error This path gives ROE = 0.5!
 		// V[2*i+1] replaces V[2*i-1]:
-		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(~((uint64)mult[2])));
+		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(uintptr_t)(~((uint64)(uintptr_t)mult[2])));
 		memcpy(mult[2],buf[i],nbytes);	// V[2*i-1] replaces V[2*i-3]
 		// MULSUB version needs subtrahend fully-fwdFFTed:
 		ierr += func_mod_square(mult[2], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
@@ -2029,7 +2029,7 @@ MME = 0;
 	ierr += func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	// mult[0] = A^D * A^((k0-1)*D) = A^(k0*D):
 	memcpy(mult[0],mult[2],nbytes);
-	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
   /******************************************************************************************************/
   /********** Repeat above sequence for A^-1, adding resulting 3 vectors to mult[0-2] as we go: *********/
   /******************************************************************************************************/
@@ -2046,7 +2046,7 @@ MME = 0;
 	fprintf(stderr,"fwdFFT(A^-D) has element 0 = %20.5f, sum = %20.5f\n",a[0],dsum);	// [0] = 66475254.49010, sum = 69950177280.00076
 	// mult[0] = A^+D * A^-D, check that result = 1 as expected:
 	mode_flag = 1;	// bits 0:1 of mode_flag = 1,0, since mult[2] enters in fwd-FFT-pass-1-done form and want output in pure-int form
-	ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)a + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)(uintptr_t)a + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	ASSERT(mult[2][0] == 1.0, "inverse-check fails!");
 	for(i = 1; i < npad; i++) {
 		ASSERT(mult[2][i] == 0.0, "inverse-check fails!");
@@ -2058,7 +2058,7 @@ MME = 0;
 	// mult[2] = V[D] = A^D + A^-D:
 	for(i = 0; i < npad; i++) { mult[2][i] += a[i]; }
 	// Normalization-multiply by fwdFFT(1):
-	ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)(uintptr_t)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 
    #if 0
 	#ifndef pp1_vd2_cross_check
@@ -2094,7 +2094,7 @@ MME = 0;
    #if 0
 	// pow[] = A^+((k0-1)*D) * A^-((k0-1)*D), check that result = 1 as expected:
 	mode_flag = 1;	// bits 0:1 of mode_flag = 1,0, since pow[] enters in fwd-FFT-pass-1-done form and want output in pure-int form
-	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)(uintptr_t)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	ASSERT(pow[0] == 1.0, "A^-(k0-1)*D inverse-check fails!");
 	for(i = 1; i < npad; i++) {
 		ASSERT(pow[i] == 0.0, "A^-(k0-1)*D inverse-check fails!");
@@ -2108,7 +2108,7 @@ MME = 0;
 	// mult[1] = A^((k0-1)*D) + A^-((k0-1)*D):
 	for(i = 0; i < npad; i++) { mult[1][i] += pow[i]; }
 	// Normalization-multiply by fwdFFT(1):
-	ierr += func_mod_square(mult[1], 0x0, n, 0,1, (uint64)vone + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1, (uint64)(uintptr_t)vone + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 
 	/* Problem: destroyed A^-D in computing A^-((k0-1)*D) ... how can we compute A^-D * A^-((k0-1)*D) = A^-(k0*D)
 	with just those 2 double-float residue storage arrays and A^-D destroyed? Here's where we get absolutely filthy:
@@ -2119,13 +2119,13 @@ MME = 0;
 		ierr += func_mod_square(a, 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	}
 	// pow = A^-(k0*D) = A^-D * A^-((k0-1)*D) ... unlike positive-powers case, both inputs here already fwd-FFTed:
-	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)a + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)(uintptr_t)a + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 
 	// Debug: check inverse A^-(k0*D) by mpying A^+(k0*D) (mult[0]) and A^-(k0*D) (pow[]):
    #if 1
 	ierr += func_mod_square(mult[0], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	mode_flag = 1;	// bits 0:1 of mode_flag = 1,0, since pow[] enters in fwd-FFT-pass-1-done form and want output in pure-int form
-	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)(uintptr_t)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 	ASSERT(pow[0] == 1.0, "A^-k0*D inverse-check fails!");
 	for(i = 1; i < npad; i++) {
 		ASSERT(pow[i] == 0.0, "A^-k0*D inverse-check fails!");
@@ -2137,7 +2137,7 @@ MME = 0;
 	// mult[0] = A^(k0*D) + A^-(k0*D):
 	for(i = 0; i < npad; i++) { mult[0][i] += pow[i]; }
 	// Normalization-multiply by fwdFFT(1):
-	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)(uintptr_t)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
 
   #endif	// ifdef USE_PP1_MULTS
 
@@ -2259,9 +2259,9 @@ MME = 0;
 				vec_double_sub(mult[0],buf[i],a,npad);	// a[] = (mult[0][] - buf[i][])
 			  #endif
 				// pow = pow*(mult[0] - buf[i]) % n: Don't increment nmodmul until after call due to ambiguity in eval order of func(i,++i):
-				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,    0x0);	if(ierr) nerr |= 1<<ierr;
+				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,    0x0);	if(ierr) nerr |= 1<<ierr;
 			 #else
-				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[i]); if(ierr) nerr |= 1<<ierr;
+				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[i]); if(ierr) nerr |= 1<<ierr;
 			 #endif
 				if(ierr == ERR_INTERRUPT) {
 					return ierr;
@@ -2312,9 +2312,9 @@ MME = 0;
 						vec_double_sub(mult[0],buf[tmp+j],a,npad);
 					  #endif
 						// pow = pow*(mult[0] - buf[tmp+j]) % n;
-						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); if(ierr) nerr |= 1<<ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); if(ierr) nerr |= 1<<ierr;
 					 #else
-						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+j]); if(ierr) nerr |= 1<<ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+j]); if(ierr) nerr |= 1<<ierr;
 					 #endif
 						if(ierr == ERR_INTERRUPT) {
 							return ierr;
@@ -2354,9 +2354,9 @@ MME = 0;
 						vec_double_sub(mult[0],buf[tmp+i],a,npad);
 					  #endif
 						// pow = pow*(mult[0] - buf[tmp+i]) % n:
-						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); if(ierr) nerr |= 1<<ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); if(ierr) nerr |= 1<<ierr;
 					 #else
-						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+i]); if(ierr) nerr |= 1<<ierr;
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+i]); if(ierr) nerr |= 1<<ierr;
 					 #endif
 						if(ierr == ERR_INTERRUPT) {
 							return ierr;
@@ -2513,12 +2513,12 @@ MME = 0;
 		Since mult[0-2] all fwd-FFTed, this costs 2 x [dyadic-mul, inv-FFT, carry, fwd-FFT] = equivalent of 2 mod-squares.
 		*/
 			// Only increment nmodmul every 2nd call here, since each call is 1-FFT:
-/* [1a]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[1] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
+/* [1a]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)mult[1] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			if(ierr == ERR_INTERRUPT) {
 				return ierr;
 			}
 /* [1b]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
-/* [2a]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
+/* [2a]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			if(ierr == ERR_INTERRUPT) {
 				return ierr;
 			}
@@ -2545,7 +2545,7 @@ MME = 0;
 			/******** For initial impl, use the sequence: ********/
 			memcpy(a,mult[0],nbytes);	// Save copy of V[n] = A^(k*D) + A^-(k*D) in a[];
 				// V[n] *= V[j] overwrites mult[0]:
-			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
+			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)(uintptr_t)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); if(ierr) nerr |= 1<<ierr;
 			if(ierr == ERR_INTERRUPT) {
 				return ierr;
 			}
