@@ -66,7 +66,7 @@
 		static double *sc_arr = 0x0, *sc_ptr;
 		const double *dptr0,*dptr1,*dptr2,*dptr3,*dptr4,*dptr5,*dptr6,*dptr7;
 		double *dptr,dtmp;
-		vec_dbl *tmp,*tm1;
+		double *tmp,*tm1;
 	  #ifdef MULTITHREAD
 		static double *__r0;	// Base address for discrete per-thread local stores ...
 	  #else
@@ -236,9 +236,6 @@
 
 	#endif
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		#error MUL_LOHI64_SUBROUTINE defined!
-	#endif
 		ASSERT((p >> 63) == 0, "twopmodq100_q32: p must be < 2^63!");
 
 	#ifdef USE_AVX512_I
@@ -269,7 +266,7 @@
 	/*** CF notes in twopmodq78_3WORD_DOUBLE_q32 routine on qinv-computation ... need to add high-32-bits accumulator to go beyond 96 bits here ***/
 		dtmp = p+p;	dptr = &dtmp;	// dtmp = double; dptr = double*
 		dptr0 = &base; dptr1 = &binv; dptr2 = &base0; dptr3 = &binv0; dptr4 = &base1; dptr5 = &binv1; dptr6 = &TWO32FLOAT; dptr7 = &TWO32FLINV;
-		tmp = (vec_dbl*)fq0[0];	tm1 = (vec_dbl*)kdbl;	// Use vec_dbl* ptrs to hold address args ... asm-code cares not a whit about types
+		tmp = fq0[0];	tm1 = kdbl;	// Address args for the asm below, which cares not a whit about types
 		__asm__ volatile (\
 			"movq	%[__fq0] ,%%rax				\n\t"\
 			"movq	%[__p2]  ,%%rbx				\n\t"\
@@ -566,9 +563,8 @@ opcount - umulh adds 5 mul, 3 fma, 5 add, 1 round:
 			"addq	%%rdx,%%rcx		\n\t"\
 			"addq	%%rcx,%%rax		\n\t"\
 			"movq	%%rax,%[__result]	\n\t"\
-			:					/* outputs: none */\
+			: [__result] "=m" (r)	/* outputs: the template stores into these */\
 			: [__fq0] "m" (dptr)	/* All inputs from memory addresses here */\
-			 ,[__result] "m" (r)	\
 			: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm30","xmm31"	/* Clobbered registers */\
 		);
 

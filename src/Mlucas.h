@@ -86,14 +86,18 @@ void	generate_JSON_report(
 	const uint32 B1, const uint64 B2, const char *factor, const uint32 s2_partial, char *p_cstr
 );
 void	print_help(void);
+void	cfgDropStaleEntry(uint32 kblocks);
 int		cfgNeedsUpdating(const char *p_in_line);
 const char *returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
-uint32	Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 ilo,
+uint32	Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[], uint64 ci[], uint32 nsq,
 	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
 	int n, int scrnFlag, double *tdiff, char *const gcd_str);
 int		test_types_compatible(uint32 t1, uint32 t2);
+int		write_savefile_field(FILE *fp, const uint64 val, const uint32 nbyte);
+void	close_savefile(const char *fname, FILE *fp);
+int		savefile_ends_at(const char *func, const char *fname, FILE *fp, uint32 nread, uint64 expect_len, int need_gcheck);
 int		 read_ppm1_residue(const uint32 nbytes, FILE *fp,       uint8 arr_tmp[],       uint64 *Res64,       uint64 *Res35m1,       uint64 *Res36m1);
 void	write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
 int		 read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, uint64 *ilo, uint8 arr1[], uint64 *Res64, uint64 *Res35m1, uint64 *Res36m1, uint8 arr2[], uint64 *i1, uint64 *i2, uint64 *i3);
@@ -111,6 +115,16 @@ void dif1_dit1_func_name(
 uint32	extract_known_factors(uint64 p, char *fac_start);
 uint32	gcd(uint32 stage, uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb, char *const gcd_str);
 void	modinv(uint64 p, uint64 *vec1, uint64 *vec2, uint32 nlimb);
+#define JACOBI_UNAVAILABLE	2	// v21: jacobi_check() return value when built without a usable GMP
+int		jacobi_check_available(void);
+int		jacobi_check(uint64 p, const uint64 *res, uint32 nlimb, uint32 sub, double *tsec);
+uint64	pm1_gcheck_prepare(uint32 gchk_iter, uint64 bits[], uint32 nbits);
+struct jacobi_thread_args { uint64 p; const uint64 *res; uint32 nlimb; int jsym; double tsec; };	// v21: end-of-stage-1 Jacobi check on its own thread
+void	*jacobi_thread_main(void *arg);
+int		pm1_gcheck_g3(double g3[], uint64 bits[], uint32 nbits, int n, uint32 npad, uint64 p,
+			int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff);
+int		pm1_gcheck_apply(double d[], double c[], double g2[], double u0[], double g3[], uint64 H, uint64 bits[], uint32 nbits, int n, uint32 npad, uint64 p,
+			int (*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *), int scrnFlag, double *tdiff);
 int		restart_file_valid(const char *fname, const uint64 p, uint8 *arr1, uint8 *arr2);
 uint32	filegrep(const char *fname, const char *find_str, char *p_cstr, uint32 find_before_line_number);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
@@ -119,10 +133,10 @@ void	write_fft_debug_data(double a[], int jlo, int jhi);
 uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const double tests_saved);
 uint32	pm1_check_bounds();
 uint32	compute_pm1_s1_product(const uint64 p);
-uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
-int		 read_pm1_s1_prod(const char *fname, uint64 p, uint32 *nbits, uint64 arr[], uint64 *sum64);
-int		write_pm1_s1_prod(const char *fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
-void	pm1_bigstep_size(uint32 *nbuf, uint32 *bigstep, uint32 *m, const uint32 psmall);
+uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 accum_alloc, uint32 *nmul, uint64 *maxmult);
+int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uint64*sum64);
+int		write_pm1_s1_prod(const char*fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
+void	pm1_bigstep_size(uint32 *nbuf, uint32*bigstep, uint32*m, const uint32 psmall);
 int		modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 			int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),
 			uint64 p, int n, int scrnFlag, double *tdiff);

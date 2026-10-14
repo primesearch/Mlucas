@@ -20,10 +20,30 @@
 *                                                                              *
 *******************************************************************************/
 
+/* sched_getaffinity() and the CPU_* macros are GNU extensions: <sched.h> only declares them when
+_GNU_SOURCE is defined, and it must be defined before *any* libc header is pulled in - defining it
+just above '#include <sched.h>', as platform.h does, is too late once <pthread.h> has already
+included sched.h and left its include guard set. makemake.sh passes -D_GNU_SOURCE so ordinary
+builds are fine, but this file should not depend on that: the Clang-Tidy and GCC-analyzer CI jobs
+compile it with their own flag sets, where it failed with 'CPU_SETSIZE undeclared'. */
+#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+#endif
+
 #include "align.h"
 #include "util.h"
 #include "factor.h"	// Needed for twopmodq64() prototype
 #include "imul_macro.h"
+/* mkdir_p() below needs these. They belong up here rather than beside it: reached from partway
+down the file, <sys/stat.h> on glibc 2.31 and older pulls in bits/statx.h -> linux/stat.h before
+linux/types.h has supplied __s64/__u32, and the build dies with "unknown type name '__s64'".
+Ubuntu 20.04 and earlier hit this; newer glibc happens to tolerate it. */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <direct.h>
+#else
+	#include <sys/types.h>
+	#include <sys/stat.h>
+#endif
 #ifdef TEST_SIMD
 	#include "dft_macro.h"
   #ifdef USE_SSE2
@@ -36,12 +56,23 @@
 #endif
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <windows.h>
+	#include <io.h>		// v21: _commit(), _fileno() - the Windows spellings of fsync(), fileno()
+#else
+	#include <fcntl.h>	// v21: open() of the savefile's containing directory, to fsync() a rename
+	#include <unistd.h>	// v21: fsync(), fileno(), close()
 #endif
 
 #if 0
 	#define USE_FMADD
 	#warning USE_FMADD local-defined!
 #endif
+/* Detected per-core L2 and (shared) L3 cache sizes, 0 = unknown; filled by report_cpu_topology()
+below. Defined here rather than in Mlucas.c because the references are in this file and Mfactor
+links util.o without Mlucas.o: with LTO the linker drops the unreferenced reads and the missing
+definition goes unnoticed, but any build without it - the sanitizer jobs at -Og, and every clang
+old enough that makemake.sh turns -flto off - fails with "undefined reference to L2_CACHE_BYTES". */
+uint64 L2_CACHE_BYTES = 0, L3_CACHE_BYTES = 0;
+
 /**********************************/
 /******* INFO, WARN ASSERT ********/
 /**********************************/
@@ -735,11 +766,7 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			// Debug-print results sample:
 			for(i = 0; i < N; ++i) {
 				iax = ABS(h_A[i]);	iay = ABS(h_B[i]);
-			#ifdef MUL_LOHI64_SUBROUTINE
-				MUL_LOHI64(iax,iay,&ialo,&iahi);
-			#else
 				MUL_LOHI64(iax,iay, ialo, iahi);
-			#endif
 			//	printf("I = %d: x = %f; y = %f; hi,lo = %f,%f\n",i, h_A[i],h_B[i],h_D[i],h_C[i]);
 				if(cmp_fma_lohi_vs_exact(h_A[i],h_B[i],h_D[i],h_C[i], iax,iay,iahi,ialo)) {
 					printf("ERROR: pow2 = %d, I = %d, outputs differ!\n",pow2,i);
@@ -1116,12 +1143,8 @@ void	ui64_bitstr(const uint64 ui64, char*ostr)
 			hi64 = (uint64)p * pinv96.d0;
 			pinv96.d0 = pinv96.d0*((uint64)2 - hi64);
 			// pinv96 has 96 bits, but only the upper 64 get modified here:
-		#ifdef MUL_LOHI64_SUBROUTINE
-			pinv96.d1 = -pinv96.d0*__MULH64((uint64)p, pinv96.d0);
-		#else
 			MULH64((uint64)p, pinv96.d0, hi64);
 			pinv96.d1 = -pinv96.d0*hi64;
-		#endif
 			// k is simply the bottom 96 bits of ((q-1)/2)*pinv96:
 			x96.d0	= ((q96.d0-1) >> 1) + ((uint64)q96.d1 << 63);	x96.d1	= (q96.d1 >> 1);	// (q-1)/2
 			MULL96(x96, pinv96, x96);
@@ -1844,6 +1867,16 @@ exit(0);
 	ASSERT(MAX_THREADS > 0,"Mlucas.c: MAX_THREADS must be > 0");
 
 	printf("INFO: System has %d available processor cores.\n", MAX_THREADS);
+	/* If some external agency (taskset/numactl/systemd/batch scheduler/container cpuset) has restricted
+	this process's CPU-affinity mask, say so: the default core set is then taken from that mask rather
+	than from the system-wide core count, so the user needs to see which of the two is in play. Note we
+	deliberately leave MAX_THREADS as the system-wide logical-CPU count, since it doubles as the upper
+	bound on legal -cpu core *indices* - which remain OS-wide indices, not offsets into the mask:
+	*/
+	uint64 avail_cores[MAX_CORES>>6];
+	int navail_cores = get_avail_cores(avail_cores,MAX_CORES>>6);
+	if(navail_cores > 0 && navail_cores < MAX_THREADS)
+		printf("INFO: Inherited CPU-affinity mask permits use of only %d of those cores.\n", navail_cores);
 
 	/* Test Multithreading via simple pthreading self-test: */
   #if 0
@@ -1961,6 +1994,31 @@ uint32 get_system_ram(void) {
 	size_t len = sizeof(totalram);
 	sysctlbyname("hw.memsize", &totalram, &len, NULL, 0);
 	return (totalram >> 20);
+
+#else
+
+	/* Catch-all for every OS_TYPE with no branch of its own above - Solaris, AIX, GNU/Hurd,
+	DEC OSF and VMS today, plus anything added later. Without it the function runs off its end,
+	which is undefined behavior, and in practice returns whatever is in the return register -
+	and SYSTEM_RAM, which sizes the p-1 stage 2 buffers, gets seeded from that garbage.
+
+	sysconf() is the one query these share; there is no portable free-memory equivalent, so
+	report total physical RAM, exactly as the MacOS branch above does with hw.memsize: */
+	#include <unistd.h>
+
+  #if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
+	const long npage = sysconf(_SC_PHYS_PAGES), pagesize = sysconf(_SC_PAGESIZE);
+	if(npage < 1 || pagesize < 1) {
+		fprintf(stderr,"INFO: sysconf() was unable to determine the system RAM size.\n");
+		return 0;
+	}
+	const uint64 totalram = (uint64)npage * (uint64)pagesize;
+	fprintf(stderr,"System total RAM = %" PRIu64 "\n", totalram>>20);
+	return (uint32)(totalram>>20);
+  #else
+	#warning No system-RAM query is implemented for this OS ... reporting 0 MB.
+	return 0;
+  #endif
 
 #endif
 }
@@ -2225,11 +2283,7 @@ void print_host_info(void)
 	printf("INFO: Using prefetch.\n");
 #endif
 
-#ifdef MUL_LOHI64_SUBROUTINE
-	printf("INFO: Using subroutine form of MUL_LOHI64.\n");
-#else
 	printf("INFO: Using inline-macro form of MUL_LOHI64.\n");
-#endif
 
 #ifdef USE_FMADD
 	printf("INFO: Using FMADD-based 100-bit modmul routines for factoring.\n");
@@ -3103,17 +3157,10 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 					if(dblo) { dblo = log(dblo)*ILG2;	if(dblo > l2lo) l2lo = dblo; }
 					if(dbhi) { dbhi = log(dbhi)*ILG2;	if(dbhi > l2hi) l2hi = dbhi; }
 				}
-			  #ifdef MUL_LOHI64_SUBROUTINE
-				MUL_LOHI64(iax,iay,&ialo,&iahi);
-				MUL_LOHI64(ibx,iby,&iblo,&ibhi);
-				MUL_LOHI64(icx,icy,&iclo,&ichi);
-				MUL_LOHI64(idx,idy,&idlo,&idhi);
-			  #else
 				MUL_LOHI64(iax,iay, ialo, iahi);
 				MUL_LOHI64(ibx,iby, iblo, ibhi);
 				MUL_LOHI64(icx,icy, iclo, ichi);
 				MUL_LOHI64(idx,idy, idlo, idhi);
-			  #endif
 			  /*
 				if(pow2 == 53 && i < 100) {
 					printf("I = %d: ax = %" PRIu64 " ay = %" PRIu64 " ahi,alo = %f,%f\n",i, *ax,*ay, *ahi,*alo);
@@ -3385,7 +3432,7 @@ uint64 reverse64(uint64 i, uint32 nbits)
 	bout8[7] = brev8[bin8[0]];
 	// See the identical read-back in mi64.c:brev64() for why this is a memcpy and not a cast:
 	memcpy(&out, bout8, sizeof(out));
-	return out >> pad_bits;
+	return nbits ? out >> pad_bits : 0ull;	// nbits = 0 would shift by 64
 }
 
 /******* Bit-level utilities: ********/
@@ -3425,7 +3472,7 @@ DEV uint32 ishft32(uint32 x, int shift)
 DEV uint64 ishft64(uint64 x, int shift)
 {
 	uint64 r;
-	if(shift > 64)
+	if(shift >= 64)
 		r  = 0ull;
 	else if(shift > 0)
 		r  = x << shift;
@@ -3649,9 +3696,13 @@ DEV uint32 trailz64(uint64 x)
 	__asm__ volatile (\
 		"bsfq %[__x],%%rax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
-		:	/* outputs: none */\
+		: [__bpos] "=m" (bpos)	/* outputs: bpos is written by the movl above, so it must be
+								declared here and not as an "m" input. As an input the compiler
+								is entitled to treat it as unmodified - and, since nothing else
+								writes it, as still uninitialized at the read below, which clang
+								duly reports ("variable 'bpos' is uninitialized when used here").
+								The "memory" clobber is what has kept this working. */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
-		 ,[__bpos] "m" (bpos)	\
 		: "cc","memory","rax"	/* Clobbered registers */\
 	);
 	return bpos;
@@ -3716,9 +3767,13 @@ DEV uint32 leadz32(uint32 x)
 	__asm__ volatile (\
 		"bsrl %[__x],%%eax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
-		:	/* outputs: none */\
+		: [__bpos] "=m" (bpos)	/* outputs: bpos is written by the movl above, so it must be
+								declared here and not as an "m" input. As an input the compiler
+								is entitled to treat it as unmodified - and, since nothing else
+								writes it, as still uninitialized at the read below, which clang
+								duly reports ("variable 'bpos' is uninitialized when used here").
+								The "memory" clobber is what has kept this working. */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
-		 ,[__bpos] "m" (bpos)	\
 		: "cc","memory","eax"	/* Clobbered registers */\
 	);
 	lz = (31 - bpos);	// BSR returns *index* of leftmost set bit, must subtract from (#bits - 1) to get #lz.
@@ -3752,9 +3807,13 @@ DEV uint32 leadz64(uint64 x)
 	__asm__ volatile (\
 		"bsrq %[__x],%%rax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
-		:	/* outputs: none */\
+		: [__bpos] "=m" (bpos)	/* outputs: bpos is written by the movl above, so it must be
+								declared here and not as an "m" input. As an input the compiler
+								is entitled to treat it as unmodified - and, since nothing else
+								writes it, as still uninitialized at the read below, which clang
+								duly reports ("variable 'bpos' is uninitialized when used here").
+								The "memory" clobber is what has kept this working. */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
-		 ,[__bpos] "m" (bpos)	\
 		: "cc","memory","rax"	/* Clobbered registers */\
 	);
 	lz = (63 - bpos);	// BSR returns *index* of leftmost set bit, must subtract from (#bits - 1) to get #lz.
@@ -3854,14 +3913,14 @@ DEV uint64 nbits64(uint64 i) { return 64-leadz64(i); }
 DEV uint32 ibits32(uint32 i, uint32 beg, uint32 nbits)
 {
 	uint32 ones_mask = 0xFFFFFFFF;
-	return ( (i >> beg) & ~(ones_mask << nbits) );
+	return ( (i >> beg) & (nbits < 32 ? ~(ones_mask << nbits) : ones_mask) );
 }
 
 DEV uint64 ibits64(uint64 i, uint32 beg, uint32 nbits)
 {
 	uint64 ib;
 	uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
-	ib = (i >> beg) & ~(ones_mask << nbits);
+	ib = (i >> beg) & (nbits < 64 ? ~(ones_mask << nbits) : ones_mask);
 	return ( ib );
 }
 
@@ -5372,11 +5431,7 @@ double	convert_base10_char_double (const char*char_buf)
 		curr_digit = (uint64)(c - CHAROFFSET);
 		ASSERT(curr_digit < 10,"convert_base10_char_double: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
-	#else
 		MUL_LOHI64((uint64)10,curr_sum, curr_sum, hi);
-	#endif
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_double: Offending input string = %s\n", char_buf);
@@ -5445,11 +5500,7 @@ uint64 convert_base10_char_uint64 (const char*char_buf)
 		curr_digit = (uint64)(c - CHAROFFSET);
 		ASSERT(curr_digit < 10,"convert_base10_char_uint64: curr_digit < 10");
 		/* Store 10*currsum in a 128-bit product, so can check for overflow: */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		MUL_LOHI64((uint64)10,curr_sum,&curr_sum,&hi);
-	#else
 		MUL_LOHI64((uint64)10,curr_sum, curr_sum, hi);
-	#endif
 		if(hi != 0)
 		{
 			fprintf(stderr, "ERROR: Mul-by-10 overflows in convert_base10_char_uint64: Offending input string = %s\n", char_buf);
@@ -7933,7 +7984,9 @@ ftmp0 = ftmp;
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
 		/* The normal index-munging takes way too many cycles in this context, so inline it via 8-way loop unroll:
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -8232,7 +8285,9 @@ printf("DIF: nerr = %u, ",nerr);
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
 		/* The normal index-munging takes way too many cycles in this context, so inline it via 8-way loop unroll:
-			#ifdef USE_AVX
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
 				j1 = (j & mask02) + br8[j&7];
 			#elif defined(USE_SSE2)
 				j1 = (j & mask01) + br4[j&3];
@@ -8969,6 +9024,65 @@ exit(0);
 
   #endif
 
+	/* Does this platform give us a way to ask which CPUs the process is actually *allowed* to use?
+	sched_getaffinity() is Linux-specific, so the guard here deliberately mirrors the one around the
+	sched_setaffinity() call in threadpool.c::worker_thr_routine(), ensuring the two always agree
+	about which builds do OS-level thread pinning by logical-CPU index:
+	*/
+  #if defined(OS_TYPE_LINUX) && !defined(OS_TYPE_WINDOWS) && !defined(__MINGW32__)
+	#define MLUCAS_HAVE_GETAFFINITY	1
+  #else
+	#define MLUCAS_HAVE_GETAFFINITY	0
+  #endif
+
+	/* Snapshot the set of logical CPUs this process is *permitted* to run on, i.e. the CPU-affinity
+	mask it inherited from its parent. A user or job scheduler may have restricted that mask - via
+	taskset, numactl, systemd 'CPUAffinity=', SLURM, a container runtime - in which case the
+	system-wide online-CPU count returned by get_num_cores() says nothing about where we may run.
+
+	Fills avail[0:nword-1], a bitmap indexed exactly as the global CORE_SET is, and returns the number
+	of permitted CPUs. A return value of 0 (avail[] all-zero) means the mask could not be determined,
+	and must be treated by callers as "no information", *not* as "no CPUs".
+	*/
+	int get_avail_cores(uint64 avail[], int nword)
+	{
+		int i, nset = 0;
+		for(i = 0; i < nword; i++) { avail[i] = 0ull; }
+	#if MLUCAS_HAVE_GETAFFINITY
+		cpu_set_t cpu_set;
+		CPU_ZERO(&cpu_set);
+		// Fails e.g. on a machine with more CPUs than CPU_SETSIZE, or under a libc/sandbox lacking the
+		// syscall; in that case fall back to the legacy whole-machine behavior rather than guessing:
+		if(sched_getaffinity(0, sizeof(cpu_set), &cpu_set) != 0)
+			return 0;
+		for(i = 0; i < CPU_SETSIZE && i < (nword<<6); i++) {
+			if(CPU_ISSET(i, &cpu_set)) { avail[i>>6] |= 1ull<<(i&63);	++nset; }
+		}
+	  #if INCLUDE_HWLOC
+		/* The above is in OS logical-CPU indices, but in an hwloc build with per-thread binding support
+		threadpool.c consumes CORE_SET bit indices as hwloc *logical* PU indices
+		(hwloc_get_obj_by_type(...,HWLOC_OBJ_PU,i)) - an ordering which differs from the OS one on any
+		SMT machine. Translate, so this bitmap is always in the same index space as CORE_SET:
+		*/
+		if(HWLOC_AFFINITY && nset) {
+			uint64 lmap[nword];
+			int nl = 0;
+			for(i = 0; i < nword; i++) { lmap[i] = 0ull; }
+			for(i = 0; i < (nword<<6); i++) {
+				if(!(avail[i>>6] & (1ull<<(i&63)))) continue;
+				hwloc_obj_t obj = hwloc_get_pu_obj_by_os_index(hw_topology, (unsigned)i);
+				if(obj && obj->logical_index < (unsigned)(nword<<6)) {
+					lmap[obj->logical_index>>6] |= 1ull<<(obj->logical_index&63);	++nl;
+				}
+			}
+			// Only adopt the translated map if every permitted CPU mapped to a PU in the loaded topology:
+			if(nl == nset) { for(i = 0; i < nword; i++) { avail[i] = lmap[i]; } }
+		}
+	  #endif
+	#endif
+		return nset;
+	}
+
 	// Simple struct to pass multiple args to the loop/join-test thread function:
 	struct do_loop_test_thread_data{
 		int tid;
@@ -9054,7 +9168,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)(intptr_t)status);
 					isum += retval[tid];
 				}
 			}
@@ -9080,7 +9194,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)(intptr_t)status);
 					isum += retval[tid];
 				}
 			}
@@ -9211,21 +9325,34 @@ exit(0);
 	{
 		int ncpu = 0, lo = -1,hi = lo,incr = 1, i,bit,word;
 		char *char_addr = istr, *endp;
+		unsigned long utmp;
 		ASSERT(char_addr != 0x0, "Null input-string pointer!");
 		size_t len = strlen(istr);
 		if(len == 0) return 0;	// Allow 0-length input, resulting in no-op
 		ASSERT(len <= STR_MAX_LEN, "Excessive input-substring length!");
-		lo = strtoul(char_addr, &endp, 10);	ASSERT(lo >= 0, "lo-substring not a valid nonnegative number!");
+		/* NB: strtoul() returns an unsigned long, so assigning its result straight into an int silently
+		truncates any value >= 2^32 - '-cpu 4294967299' used to quietly bind to core 3, the truncated
+		index also sliding past the range check in parseAffinityString() below. And strtoul() converting
+		no digits at all is not an error, it just leaves endp == the input pointer - which is how '-cpu 0:'
+		used to be silently taken to mean '-cpu 0'. So for each field of the triplet, require that some
+		digits were actually consumed and that the value is a legal core index, *before* narrowing to int:
+		*/
+		utmp = strtoul(char_addr, &endp, 10);
+		ASSERT(endp != char_addr && utmp < MAX_CORES, "lo-substring of core-affinity-triplet not a valid core index in [0,MAX_CORES)!");
+		lo = (int)utmp;
 		if(*endp) {
 			ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 			char_addr = endp+1;
-			hi = strtoul(char_addr, &endp, 10);
+			utmp = strtoul(char_addr, &endp, 10);
+			ASSERT(endp != char_addr && utmp < MAX_CORES, "hi-substring of core-affinity-triplet not a valid core index in [0,MAX_CORES)!");
+			hi = (int)utmp;
 			ASSERT(hi >= lo, "hi-substring not a valid number >= lo!");
 			if(*endp) {
 				ASSERT(*endp == ':', "Non-colon separator in core-affinity-triplet substring!");
 				char_addr = endp+1;
-				incr = strtoul(char_addr, &endp, 10);
-				ASSERT(incr > 0, "incr-substring not a valid positive number!");
+				utmp = strtoul(char_addr, &endp, 10);
+				ASSERT(endp != char_addr && utmp > 0 && utmp < MAX_CORES, "incr-substring of core-affinity-triplet not a valid positive number < MAX_CORES!");
+				incr = (int)utmp;
 				ASSERT(*endp == 0x0, "Non-numeric increment substring in core-affinity-triplet substring!");
 			} else {
 				// If increment (third) argument of triplet omitted, default to incr = 1.
@@ -9333,7 +9460,219 @@ exit(0);
 			fprintf(stderr,"ERROR: %d cores in user-specified core set have index exceeding those of available logical cores = 0-%d!\n",core_count_oflow,MAX_THREADS-1);
 			exit(EXIT_FAILURE);
 		}
+		/* Lastly, warn about any specified core lying outside the CPU-affinity mask this process inherited
+		(taskset, numactl, systemd 'CPUAffinity=', SLURM, container cpuset). An explicit user-specified core
+		set still wins - overriding the inherited placement is the documented point of the -cpu flag - but
+		the resulting per-worker sched_setaffinity() will then either widen the process's mask back out,
+		silently defeating the operator's placement, or (under a cgroup cpuset) fail with EINVAL and leave
+		that worker unpinned. Neither outcome is otherwise apparent from the run's output:
+		*/
+		uint64 avail[MAX_CORES>>6];
+		if(get_avail_cores(avail,MAX_CORES>>6) > 0) {
+			nc = 0;
+			for(i = 0; i < MAX_CORES; i++) {
+				word = i>>6; bit = i & 63;
+				if((CORE_SET[word] & (1ull<<bit)) && !(avail[word] & (1ull<<bit))) {
+					if(!nc++) { fprintf(stderr,"WARN: Specified core set includes logical CPUs outside this process's inherited CPU-affinity mask: "); }
+					fprintf(stderr,"%u.",i);
+				}
+			}
+			if(nc) { fprintf(stderr,"\n      Pinning threads there overrides the externally-imposed affinity, or fails outright under a cgroup cpuset.\n"); }
+		}
 	}
+
+	/******************/
+	/* Set the default thread-affinity core set, i.e. the one used when the user specified no explicit
+	core set: either no affinity-related command-line flag at all, or just '-nthread [ncore]'.
+
+	This used to simply pin to logical CPUs [0:ncore-1], which silently discards any externally-imposed
+	CPU-affinity mask: the worker threads sched_setaffinity() themselves onto CPUs 0,1,...,ncore-1 no
+	matter where the operator placed the process, so the standard practice of running several instances
+	pinned to disjoint core groups ('taskset -c 0-3', 'taskset -c 4-7', ...) collapses every instance
+	onto the same low-numbered CPUs, with full contention and no diagnostic. Take the core set from the
+	first [ncore] CPUs of the process's *inherited* affinity mask instead. For a process whose mask is
+	unrestricted - the overwhelming majority of runs - those are exactly CPUs [0:ncore-1], hence the
+	resulting CORE_SET bitmap, the printed core list and NTHREADS are all unchanged.
+	*/
+	void setDefaultAffinity(uint32 ncore)
+	{
+		char ostr[STR_MAX_LEN+1];
+		uint64 avail[MAX_CORES>>6];
+		int i,j,lo,hi, nchar = 0, navail = get_avail_cores(avail,MAX_CORES>>6);
+		int use_mask = (navail > 0);
+		uint32 nc = 0;
+		ASSERT((int)ncore > 0, "#threads must be > 0!");
+		if(use_mask && ncore > (uint32)navail) {
+			if(navail < MAX_THREADS) {
+				// Oversubscribing an externally-restricted mask needs its own diagnostic, since the generic
+				// "exceeds #available logical cores" error issued by parseAffinityString() cites the
+				// machine-wide core count and so reads as a non sequitur here:
+				fprintf(stderr,"ERROR: #threads [ = %u] exceeds the %d logical CPUs permitted by this process's inherited CPU-affinity mask!\n",ncore,navail);
+				exit(EXIT_FAILURE);
+			}
+			// Mask unrestricted, user simply asked for more threads than the machine has cores: fall back to
+			// the legacy [0:ncore-1] core set so parseAffinityString() issues its usual error, unchanged:
+			use_mask = FALSE;
+		}
+		// Emit the first [ncore] permitted CPU indices as a comma-separated list of lo[:hi] triplets,
+		// collapsing runs of consecutive indices so the common cases stay well within STR_MAX_LEN:
+		for(i = 0; use_mask && i < MAX_CORES && nc < ncore; i++) {
+			if(!(avail[i>>6] & (1ull<<(i&63)))) continue;
+			lo = hi = i;	++nc;
+			while(nc < ncore && (hi+1) < MAX_CORES && (avail[(hi+1)>>6] & (1ull<<((hi+1)&63)))) { ++hi;	++nc; }
+			if(lo == hi)
+				j = snprintf(ostr+nchar,sizeof(ostr)-nchar,"%s%d"   ,(nchar ? "," : ""),lo);
+			else
+				j = snprintf(ostr+nchar,sizeof(ostr)-nchar,"%s%d:%d",(nchar ? "," : ""),lo,hi);
+			if(j < 0 || (size_t)(nchar+j) >= sizeof(ostr)) {
+				fprintf(stderr,"ERROR: Inherited CPU-affinity mask is too fragmented to encode as an affinity string ... use the -cpu flag to specify a core set explicitly.\n");
+				exit(EXIT_FAILURE);
+			}
+			nchar += j;	i = hi;
+		}
+		// nc = 0, i.e. no usable mask info (non-Linux build, or sched_getaffinity failed, or the
+		// unrestricted-mask-oversubscribed case above): legacy [0:ncore-1] core set
+		if(!nc) { snprintf(ostr,sizeof(ostr),"0:%u",ncore-1); }
+		parseAffinityString(ostr);
+	}
+
+	/* Return the physical-core key of logical CPU `cpu`, or -1 if unknown. Keys are only compared
+	   for equality, so any stable encoding works: (package << 16 | core_id) on Linux, hwloc CORE
+	   logical index, Windows core ordinal. */
+	static int cpu_core_key(uint32 cpu)
+	{
+	#if INCLUDE_HWLOC
+		/* Consistent with threadpool.c, which binds worker i to HWLOC_OBJ_PU with *logical* index i: */
+		hwloc_obj_t pu = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, cpu);
+		if(pu) {
+			hwloc_obj_t core = hwloc_get_ancestor_obj_by_type(hw_topology, HWLOC_OBJ_CORE, pu);
+			if(core) return (int)core->logical_index;
+		}
+		return -1;
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+		char path[128]; FILE *f; int core = -1, pkg = 0;
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/topology/core_id", cpu);
+		if((f = fopen(path, "r"))) { if(fscanf(f, "%d", &core) != 1) core = -1; fclose(f); }
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/topology/physical_package_id", cpu);
+		if((f = fopen(path, "r"))) { if(fscanf(f, "%d", &pkg) != 1) pkg = 0; fclose(f); }
+		return (core < 0) ? -1 : ((pkg & 0x7fff) << 16) | (core & 0xffff);
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		/* Enumerate RelationProcessorCore records; the k-th record is core k; a CPU belongs to it if
+		   its (group, bit) is in the record's GroupMask array. */
+		DWORD len = 0; int key = -1, k = 0;
+		GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
+		if(len == 0) return -1;
+		char *buf = malloc(len); if(!buf) return -1;
+		if(GetLogicalProcessorInformationEx(RelationProcessorCore, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+			char *p = buf;
+			while(p < buf + len) {
+				SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
+				for(WORD g = 0; g < rec->Processor.GroupCount; g++) {
+					GROUP_AFFINITY *ga = &rec->Processor.GroupMask[g];
+					if(ga->Group == (WORD)(cpu >> 6) && (ga->Mask & ((KAFFINITY)1 << (cpu & 63)))) { key = k; break; }
+				}
+				if(key >= 0) break;
+				p += rec->Size; k++;
+			}
+		}
+		free(buf);
+		return key;
+	#else
+		(void)cpu; return -1;
+	#endif
+	}
+	
+	/* Fill L2_CACHE_BYTES (per-core L2) and L3_CACHE_BYTES; leave 0 where unknown. */
+	static void detect_cache_sizes(void)
+	{
+	#if INCLUDE_HWLOC
+		hwloc_obj_t o;
+	  #if HWLOC_API_VERSION >= 0x00020000
+		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L2CACHE, 0)) && o->attr) L2_CACHE_BYTES = o->attr->cache.size;
+		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L3CACHE, 0)) && o->attr) L3_CACHE_BYTES = o->attr->cache.size;
+	  #else
+		/* hwloc 1.x has no per-level cache object types: there is one HWLOC_OBJ_CACHE and the level
+		lives in attr->cache.depth. Walk the cache objects and pick out L2 and L3. Ubuntu 18.04 and
+		older ship hwloc 1.x, where the 2.x-only HWLOC_OBJ_L2CACHE/L3CACHE do not compile at all. */
+		int nc = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_CACHE), i;
+		for(i = 0; i < nc; i++) {
+			if(!(o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CACHE, i)) || !o->attr) continue;
+			if(o->attr->cache.depth == 2 && !L2_CACHE_BYTES) L2_CACHE_BYTES = o->attr->cache.size;
+			if(o->attr->cache.depth == 3 && !L3_CACHE_BYTES) L3_CACHE_BYTES = o->attr->cache.size;
+		}
+	  #endif
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+		/* /sys/devices/system/cpu/cpu0/cache/indexN/{level,type,size}; size is like "256K" or "16384K" */
+		for(int i = 0; i < 8; i++) {
+			char path[128], type[32] = ""; int level = 0; unsigned long sz = 0; char unit = 0; FILE *f;
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/level", i);
+			if(!(f = fopen(path, "r"))) break;
+			if(fscanf(f, "%d", &level) != 1) level = 0;
+			fclose(f);
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/type", i);
+			if((f = fopen(path, "r"))) { if(fscanf(f, "%31s", type) != 1) type[0] = 0; fclose(f); }
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/size", i);
+			if((f = fopen(path, "r"))) { if(fscanf(f, "%lu%c", &sz, &unit) < 1) sz = 0; fclose(f); }
+			if(unit == 'K') sz <<= 10; else if(unit == 'M') sz <<= 20;
+			if(strcmp(type, "Instruction") == 0) continue;
+			if(level == 2) L2_CACHE_BYTES = sz; else if(level == 3) L3_CACHE_BYTES = sz;
+		}
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		DWORD len = 0;
+		GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
+		if(len) {
+			char *buf = malloc(len);
+			if(buf && GetLogicalProcessorInformationEx(RelationCache, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+				for(char *p = buf; p < buf + len; ) {
+					SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
+					if(rec->Cache.Type != CacheInstruction) {
+						if(rec->Cache.Level == 2 && !L2_CACHE_BYTES) L2_CACHE_BYTES = rec->Cache.CacheSize;
+						if(rec->Cache.Level == 3 && !L3_CACHE_BYTES) L3_CACHE_BYTES = rec->Cache.CacheSize;
+					}
+					p += rec->Size;
+				}
+			}
+			free(buf);
+		}
+	#endif
+	}
+	
+	/* Call once after CORE_SET/NTHREADS are final. `user_chose_smt` = TRUE when the set came from
+	   '-core lo:hi:tpc' with tpc > 1, i.e. sharing cores was requested. */
+	void report_cpu_topology(int user_chose_smt)
+	{
+		uint32 i, word, bit, nsel = 0, nunknown = 0, ncores = 0, maxper = 0;
+		int keys[MAX_CORES]; uint32 cnt[MAX_CORES];
+		detect_cache_sizes();
+		for(i = 0; i < MAX_CORES; i++) {
+			word = i >> 6; bit = i & 63;
+			if(!(CORE_SET[word] & (1ull << bit))) continue;
+			nsel++;
+			int k = cpu_core_key(i), j;
+			if(k < 0) { nunknown++; continue; }
+			for(j = 0; j < (int)ncores; j++) if(keys[j] == k) break;
+			if(j == (int)ncores) { keys[ncores] = k; cnt[ncores] = 0; ncores++; }
+			cnt[j]++; if(cnt[j] > maxper) maxper = cnt[j];
+		}
+		if(nunknown == nsel) {
+			fprintf(stderr, "INFO: %u logical CPUs selected; physical-core topology not available on this platform.\n", nsel);
+		} else {
+			fprintf(stderr, "INFO: %u logical CPUs selected on %u physical core%s (up to %u thread%s per core).\n",
+				nsel, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			if(maxper > 1 && !user_chose_smt) {
+				fprintf(stderr, "WARN: some selected logical CPUs are SMT siblings on the same physical core. Which logical\n"
+				                "      CPUs share a core is decided by firmware and varies from system to system; it is not a\n"
+				                "      property of the CPU vendor. Siblings may be numbered adjacently (0,1) on one machine and\n"
+				                "      as i, i+ncores (0,8) on another, so '-cpu 0:3' is not always 4 distinct cores. To run one\n"
+				                "      thread per core use '-core lo:hi:1' (hwloc builds) or list one logical CPU per core\n"
+				                "      explicitly, e.g. '-cpu 0:6:2'.\n");
+			}
+		}
+		if(L2_CACHE_BYTES || L3_CACHE_BYTES)
+			fprintf(stderr, "INFO: cache: L2 = %llu KB per core, L3 = %llu KB.\n",
+				(unsigned long long)(L2_CACHE_BYTES >> 10), (unsigned long long)(L3_CACHE_BYTES >> 10));
+	}
+	
 
 #endif	// MULTITHREAD ?
 
@@ -9345,6 +9684,33 @@ double get_time(double tdiff)
 	return tdiff/CLOCKS_PER_SEC;	/* NB: CLOCKS_PER_SEC may be a phony value used to scale clock() ranges */
 #else
 	return tdiff;
+#endif
+}
+
+/* Mean current core clock, in MHz, of the logical CPUs the run is pinned to (CORE_SET), read from
+Linux sysfs. A single sample: call it at the end of a timing run, when the clocks have settled under
+load. Turbo and power limits make the 1-thread and N-thread clocks differ on most CPUs, so a timing
+comparison across thread counts is not interpretable without this. Returns 0 where unavailable. */
+double cpuset_mean_mhz(void)
+{
+#if defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+	double sum = 0; uint32 n = 0, i, ncpu = 1;
+	char path[96]; FILE *f; unsigned long khz;
+  #ifdef MULTITHREAD
+	ncpu = MAX_CORES;
+  #endif
+	for(i = 0; i < ncpu; i++) {
+	  #ifdef MULTITHREAD
+		if(!(CORE_SET[i>>6] & (1ull << (i&63)))) continue;
+	  #endif
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cpufreq/scaling_cur_freq", i);
+		if(!(f = fopen(path, "r"))) continue;
+		if(fscanf(f, "%lu", &khz) == 1) { sum += khz/1000.0; n++; }
+		fclose(f);
+	}
+	return n ? sum/n : 0.0;
+#else
+	return 0.0;
 #endif
 }
 
@@ -9397,28 +9763,48 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
-	char *mlucas_path;
-	char *cmdstr;
-	char *expanded_str;
-	int  tmp;
-	FILE *pipe_ptr;
-	size_t bufsize;
+	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
+	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
-
-	mlucas_path = getenv("MLUCAS_PATH");
+	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
-		bufsize = strlen(mlucas_path) + 1;
-		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
 			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
 		strcpy(MLUCAS_PATH, mlucas_path);
-	} else {
-		bufsize = strlen(MLUCAS_PATH) + 1;
 	}
-	bufsize = (bufsize - 1) * 3 + 1;
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
+	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
+	   backslash, since both are directory separators on Windows).  */
+	size_t len = strlen(MLUCAS_PATH);
+	if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+		goto out_err_check;
+	if (len > STR_MAX_LEN) {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+	if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+#else
+	/* POSIX: run MLUCAS_PATH through the shell (via popen "printf") so $HOME-style
+	   variables get expanded, then enforce the length/trailing-slash invariants: */
+	char *cmdstr;
+	char *expanded_str;
+	int  tmp;
+	FILE *pipe_ptr;
+	size_t bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
 	mlucas_path = (char*)malloc(bufsize);
 	if (mlucas_path == NULL) {
 		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
@@ -9478,6 +9864,7 @@ void set_mlucas_path(void)
 	free(cmdstr);
 	out_mlucas_path:
 	free(mlucas_path);
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
@@ -9508,6 +9895,15 @@ char *quote_spaces(char *dest, char *src)
 	return dest;
 }
 
+/* MinGW's mkdir() takes no mode argument, and MSVC spells it _mkdir(); the headers these need
+are included at the top of this file - see the note there for why they cannot live here: */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#define MKDIR(p)	_mkdir(p)
+#else
+	#define MKDIR(p)	mkdir((p), 0777)
+#endif
+#define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
+
 /* Emulate `mkdir -p path'
    The command either makes directory `path' and all its parent directories
    or does absolutely nothing
@@ -9516,61 +9912,52 @@ char *quote_spaces(char *dest, char *src)
    Return 1 if the directory does not exist or is not writable  */
 int mkdir_p(char *path)
 {
-	char mlucas_path[STR_MAX_LEN + 1];
-	char cmdstr[4 * STR_MAX_LEN + 1];
-	char tmp[4 * STR_MAX_LEN + 1] = "";
-	char *tok;
+	char tmp[STR_MAX_LEN + 1];
+	char *p;
+	size_t len;
 	FILE *fp;
-	int err;
 
-	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
-	if (mlucas_path[0] == '\0')
+	snprintf(tmp, sizeof(tmp), "%s", path);
+	len = strlen(tmp);
+	if (len == 0)
 		return 1;
-	else if (mlucas_path[0] == '/')
-		strcpy(tmp, "/");
 
-	for (tok = strtok(mlucas_path, "/");
-	     tok != NULL;
-	     tok = strtok(NULL, "/")) {
-		shell_quote(cmdstr, tok);
-		strcat(tmp, cmdstr);
+	/* Create each parent component in turn, then the leaf. This used to shell out - 'mkdir ...
+	2> /dev/null' per component via system(), a 'printf' popen() to undo the shell-quoting, and
+	'rm -f' to clear the probe file - none of which exist under cmd.exe, so the whole function
+	was unusable on Windows for the same reason as issue #50. Going through the C library
+	instead is both portable and cheaper, and removes the shell-quoting round-trip entirely.
+	Per-component errors are deliberately ignored, and the writability probe below is what
+	determines the return value. Bailing out on anything other than EEXIST would be wrong:
+	a component that already exists is the common case on every startup after the first, but
+	not every prefix that fails is a problem either. On Windows a UNC path's leading
+	'\\server' component reports ENOENT rather than EEXIST, so an early return there would
+	reject '\\server\share\...' even though the full path is perfectly creatable. (Drive
+	letters are fine - '_mkdir("C:")' does report EEXIST.) On POSIX the question does not
+	arise: intermediate components only ever return success or EEXIST, and a genuine failure
+	such as EACCES lands on the leaf, which the probe catches anyway.  */
+	for (p = tmp + 1; *p != '\0'; ++p) {
+		if (*p == '/' || *p == '\\') {
+			char sep = *p;	*p = '\0';
+			(void)MKDIR(tmp);
+			*p = sep;
+		}
+	}
+	(void)MKDIR(tmp);
+
+	/* Confirm the directory exists and is writable by creating and removing a file in it: */
+	if (len + sizeof(MKDIR_P_PROBE) + 1 > sizeof(tmp))
+		return 1;
+	if (tmp[len - 1] != '/' && tmp[len - 1] != '\\')
 		strcat(tmp, "/");
-		strcpy(cmdstr, "mkdir ");
-		strcat(cmdstr, tmp);
-		strcat(cmdstr, " 2> /dev/null");
-		// mkdir (no -p) fails whenever this path component already exists, which is the
-		// common case on every startup after the first - deliberately ignore that here,
-		// matching mkdir -p semantics; only cast to void to silence the unused-result warning:
-		(void)system(cmdstr);
-	}
-
-	strcat(tmp, "_Mlucas_util_c_mkdir_p_tmp");
-	strcpy(cmdstr, "printf ");
-	strcat(cmdstr, tmp);
-	fp = popen(cmdstr, "r");
-	if (fp == NULL) {
-		fprintf(stderr, "ERROR: unable to open pipe fp in mkdir_p()\n");
-		ASSERT(0, "Exiting.");
-	}
-	if (fgets(tmp, STR_MAX_LEN + 1, fp) == NULL) {
-		fprintf(stderr, "ERROR: unable to retrieve file name in mkdir_p()\n");
-		ASSERT(0, "Exiting.");
-	}
-	pclose(fp);
+	strcat(tmp, MKDIR_P_PROBE);
 
 	fp = fopen(tmp, "a");
 	if (fp == NULL)
 		return 1;
 	fclose(fp);
-
-	strcpy(cmdstr, "rm -f ");
-	strcat(cmdstr, tmp);
-	strcat(cmdstr, " 2> /dev/null");
-	err = system(cmdstr);
-	if (err != 0) {
-		fprintf(stderr, "ERROR: mkdir_p failed <%s>\n", cmdstr);
-		ASSERT(0, "Exiting.");
-	}
+	/* A leftover probe file is harmless, so a failed remove() is not worth aborting the run over: */
+	(void)remove(tmp);
 	return 0;
 }
 
@@ -9618,6 +10005,184 @@ FILE *mlucas_fopen(const char *path, const char *mode)
 	return fopen(mlucas_path, mode);
 }
 
+/**************************************************************************************************/
+/*** v21: Crash-safe (atomic) savefile replacement - see the mlucas_fopen_atomic() comment below ***/
+/**************************************************************************************************/
+
+/* Suffix appended to a savefile name to form the name of the scratch file its replacement is
+staged in. Deliberately a fixed string rather than a mkstemp()-style random one: it keeps the
+scratch file next to its target in the same directory (a hard requirement, since rename() is only
+atomic *within* a filesystem), it is unique per target because savefile names already are, and a
+leftover from a previous crash is simply reused rather than accumulating as litter: */
+#define SAVEFILE_TMP_SUFFIX	".new"
+
+/* MLUCAS_PATH-prefix [path] (+ optional [suffix]) into caller-supplied buffer [dest], which must
+have room for MLUCAS_PATH_BUFSIZE chars. Same length reasoning as mlucas_fopen(): */
+#define MLUCAS_PATH_BUFSIZE	(2*STR_MAX_LEN + sizeof(SAVEFILE_TMP_SUFFIX) + 1)
+
+static void mlucas_path_cat(char dest[], const char *path, const char *suffix)
+{
+	strcpy(dest, MLUCAS_PATH);
+	strcat(dest, path);
+	if(suffix) strcat(dest, suffix);
+}
+
+/* Rename [oldpath] ==> [newpath], both MLUCAS_PATH-relative, replacing [newpath] if it exists.
+Returns 0 on success, nonzero on failure. Two things this does which a bare rename() call does not:
+
+	[1] It applies the MLUCAS_PATH prefix. Every Mlucas file is *created* through mlucas_fopen(),
+	    which prefixes; the bare rename() calls this replaces did not, so under a nonempty
+	    MLUCAS_PATH (the "$HOME/.mlucas.d/" packaging layout, or the MLUCAS_PATH env var) they
+	    named files which do not exist, and the renames simply failed.
+
+	[2] It replaces an existing destination on Windows as well as POSIX. rename(2) is required to
+	    atomically replace the destination on POSIX, but the Windows CRT rename() fails with EEXIST
+	    if the destination exists - which is exactly the case here, since the whole point is to
+	    overwrite the previous savefile. MoveFileEx(...,MOVEFILE_REPLACE_EXISTING) is the Windows
+	    equivalent; MOVEFILE_WRITE_THROUGH additionally asks that the rename be flushed before the
+	    call returns, which is what makes it durable rather than merely atomic.
+
+Note the preprocessor gate: platform.h routes MinGW builds down its OS_TYPE_LINUX branch on purpose
+(see the "MinGW builds use the Linux codepath" comment there), so a bare #ifdef OS_TYPE_WINDOWS would
+miss MinGW - whose rename() is the same replace-hostile msvcrt one. Test both, as platform.h itself
+does wherever it needs "is this a Windows target?" rather than "is this an MSVC build?".
+*/
+int mlucas_rename(const char *oldpath, const char *newpath)
+{
+	char obuf[MLUCAS_PATH_BUFSIZE], nbuf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(obuf, oldpath, 0x0);
+	mlucas_path_cat(nbuf, newpath, 0x0);
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	return !MoveFileEx(obuf, nbuf, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+	return rename(obuf, nbuf);
+#endif
+}
+
+/* remove() with the MLUCAS_PATH prefix applied, for the same reason mlucas_rename() exists: every
+savefile in the tree is created through mlucas_fopen(), which prepends MLUCAS_PATH, so a bare
+remove(name) under a nonempty prefix looks in the wrong directory. It does not fail loudly - it
+returns nonzero for "no such file", which the call sites then report as an inability to delete a
+file that was in fact never looked at. */
+int mlucas_remove(const char *path)
+{
+	char buf[MLUCAS_PATH_BUFSIZE];
+	mlucas_path_cat(buf, path, 0x0);
+	return remove(buf);
+}
+
+/* Open the scratch file in which a crash-safe replacement of savefile [path] is staged. Use exactly
+as mlucas_fopen(path,"wb"), but close the result with mlucas_fclose_atomic(path,fp) rather than
+fclose(fp); [path] must be the same string in both calls.
+
+Why this exists: a savefile write of the form
+
+	fp = mlucas_fopen(savefile,"wb");  ...write...  fclose(fp);
+
+truncates the target *before* writing a single byte of the replacement, so from the instant the file
+is opened until the instant the last byte lands, there is no complete copy of that checkpoint on
+disk. A crash, kill -9, power loss or full filesystem in that window leaves a short or garbage
+savefile behind and takes the previous good checkpoint with it. Measured, not theoretical: killing a
+p-1 run partway through a .s2 stage-2 checkpoint write leaves a truncated .s2 where the previous
+complete checkpoint used to be, and the next run then discards that stage-2 progress entirely and
+redoes the stage from its start. The p/q residue-savefile pair survives the same treatment only
+because there are two copies of it - the corrupt primary is detected and the secondary used instead.
+The .s2 checkpoint has no second copy, so there is nothing to fall back to.
+
+Staging the new contents in a sibling scratch file and rename()-ing it over the target closes that
+window: the target is only ever replaced by a rename, which is atomic, so at every instant the file
+on disk is either the complete old checkpoint or the complete new one - never a prefix of either.
+The scratch file must live in the same directory as its target for this to work, since rename() is
+only atomic within a filesystem; appending a suffix to the full target path guarantees that.
+*/
+FILE *mlucas_fopen_atomic(const char *path, const char *mode)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE];
+	ASSERT(mode != 0x0 && mode[0] == 'w', "mlucas_fopen_atomic: only write ('w'/'wb') modes make sense here!");
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	return fopen(tmp_path, mode);
+}
+
+/* Abandon a crash-safe savefile write begun with mlucas_fopen_atomic(path,...): close the scratch
+file and delete it, leaving [path] untouched. For callers which discover partway through - or after
+finishing - that the data they staged is not fit to be published: */
+void mlucas_discard_atomic(const char *path, FILE *fp)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE];
+	if(fp) fclose(fp);
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	remove(tmp_path);
+}
+
+/* Finish a crash-safe savefile write begun with mlucas_fopen_atomic(path,...): flush the stdio
+buffer, push the data to stable storage, close, then atomically rename the scratch file over [path].
+Returns 0 on success; on any failure returns nonzero having deleted the scratch file, so that [path]
+still holds the previous good checkpoint. Callers must check the return value - it is the analogue of
+a failed write, not of a failed fclose() nobody looks at.
+
+The fsync() is the difference between "a crash cannot corrupt the savefile" and "a *power loss*
+cannot corrupt the savefile". Without it the rename can reach the disk ahead of the data it is
+supposed to be publishing, leaving the target name pointing at a file whose contents never made it
+out of the page cache. Its failure is treated as a write failure, since a deferred ENOSPC/EIO is
+exactly how a filesystem reports that the data did not make it.
+*/
+int mlucas_fclose_atomic(const char *path, FILE *fp)
+{
+	char tmp_path[MLUCAS_PATH_BUFSIZE], tmp_name[STR_MAX_LEN + sizeof(SAVEFILE_TMP_SUFFIX)];
+	int err = 0;
+	if(!fp) return -1;
+	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
+	strcpy(tmp_name, path);	strcat(tmp_name, SAVEFILE_TMP_SUFFIX);	// MLUCAS_PATH-relative, for mlucas_rename()
+	/* [1] stdio buffer ==> OS: */
+	if(fflush(fp) != 0)
+		err = 1;
+	/* [2] OS page cache ==> stable storage. EINVAL/ENOTSUP mean the fd is of a type which cannot be
+	synced (a pipe, or a filesystem lacking the operation) rather than that the data was lost, so do
+	not treat those as write failures: */
+	if(!err) {
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		if(_commit(_fileno(fp)) != 0 && errno != EINVAL && errno != EBADF)
+			err = 1;
+	#else
+		if(fsync(fileno(fp)) != 0 && errno != EINVAL && errno != ENOTSUP)
+			err = 1;
+	#endif
+	}
+	/* [3] Close. A failed fclose() means buffered data was dropped, i.e. the file is short: */
+	if(fclose(fp) != 0)
+		err = 1;
+	if(err) {
+		remove(tmp_path);	// Leave [path] holding the previous good checkpoint
+		return 1;
+	}
+	/* [4] Publish, atomically: */
+	if(mlucas_rename(tmp_name, path)) {
+		remove(tmp_path);
+		return 1;
+	}
+	/* [5] Make the rename itself durable by syncing the containing directory. Best-effort: a
+	failure here means the *name change* might not survive a power loss, in which case the target
+	simply still holds the previous good checkpoint - no corruption either way - so unlike the data
+	fsync above this one does not fail the write. No Windows equivalent, and none needed: the
+	MOVEFILE_WRITE_THROUGH flag passed to MoveFileEx() already covers it. */
+#if !defined(OS_TYPE_WINDOWS) && !defined(__MINGW32__)
+	{
+		char *slash;	int dfd;
+		strcpy(tmp_path, MLUCAS_PATH);	strcat(tmp_path, path);
+		slash = strrchr(tmp_path,'/');
+		if(slash == tmp_path)	// Target sits in the root directory
+			tmp_path[1] = '\0';
+		else if(slash)
+			*slash = '\0';
+		else					// No directory component at all ==> current working directory
+			strcpy(tmp_path,".");
+		dfd = open(tmp_path, O_RDONLY);
+		if(dfd >= 0) { fsync(dfd); close(dfd); }
+	}
+#endif
+	return 0;
+}
+
 /*********************/
 /* Print the input string to current-assignment logfile and/or stderr, according to value of echo_to_stderr flag:
 	flag:	output to:
@@ -9653,12 +10218,19 @@ double mlucas_getOptVal(const char*fname, char*optname)
 	double result = strtod("NaN", 0x0);
 	if(fptr) {
 		while(fgets(cstr, STR_MAX_LEN, fptr)) {
-			if((cptr = strstr(cstr,optname)) != 0x0) {
-				if((cadd = strstr(cptr + strlen(optname),"=")) != 0x0) {
-				 	result = strtod(cadd+1,0x0);	// Could insert a ptr in place of 0x0 to hold ptr to any unconverted suffix, but
-				 									// in the case of an mlucas.ini entry it would typically just contain a newline.
-				 	return result;	// Return first occurrence of option in file
-				}
+			/* v21: Match the option name as a whole word, not as a substring - strstr() alone made "JacobiCheck" match a
+			"JacobiCheckHours = 0" line (returning 0 for an option that was never set). The name must start the line (after
+			any leading whitespace) and be followed by whitespace or '=': */
+			cptr = cstr;
+			while(*cptr == ' ' || *cptr == '\t') cptr++;
+			if(strncmp(cptr, optname, strlen(optname)) != 0) continue;
+			cadd = cptr + strlen(optname);
+			if(*cadd != ' ' && *cadd != '\t' && *cadd != '=') continue;
+			if((cadd = strstr(cadd,"=")) != 0x0) {
+			 	result = strtod(cadd+1,0x0);	// Could insert a ptr in place of 0x0 to hold ptr to any unconverted suffix, but
+			 									// in the case of an mlucas.ini entry it would typically just contain a newline.
+			 	fclose(fptr);
+			 	return result;	// Return first occurrence of option in file
 			}
 		}
 		fclose(fptr);	fptr = 0x0;
