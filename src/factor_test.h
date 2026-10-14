@@ -2049,7 +2049,7 @@ if((q128.d1 >> 14) == 0) {
 		q192.d2 = 0;	q192.d1 = (uint64)fac96[i].d1;	q192.d0 = fac96[i].d0;
 
 		// Compute k = (q-1)/2p, while verifying that q%2p = 1:
-		mi64_div((uint64*)&q192, (uint64*)&two_p192, 3,3, (uint64*)&x192, (uint64*)&res192);	// x192 contains k
+		mi64_div(q192.w, two_p192.w, 3,3, x192.w, res192.w);	// x192 contains k
 		if(!CMPEQ192(res192, ONE192))
 		{
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
@@ -2074,7 +2074,7 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 	#if(TRYQ == 4)
-		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
+		res64 = twopmodq192_q4(p192.w,x192.d0,x192.d0,x192.d0,x192.d0);
 		if(res64 != 15)
 		{
 			fprintf(stderr,"ERROR: twopmodq192_q4( %s, %s x 4 ) failed to find factor, res = %#1X.\n",
@@ -2194,7 +2194,7 @@ if((q128.d1 >> 14) == 0) {
 		for(j = 0; j < 4; j++)
 		{
 			if(((fac192p[i].res >> j) & 1) == 0)	continue;
-			ASSERT(!mi64_mul_scalar((uint64*)&two_p192, fac192p[i].k[j], (uint64*)&q192, 3), "q = 2.k.p+1 must be < 2^192!");
+			ASSERT(!mi64_mul_scalar(two_p192.w, fac192p[i].k[j], q192.w, 3), "q = 2.k.p+1 must be < 2^192!");
 			q192.d0 += 1;	/* 2.k.p is even, so this cannot carry */
 			res192 = twopmodq192(p192, q192);
 			if(!CMPEQ192(res192, ONE192))
@@ -2208,7 +2208,7 @@ if((q128.d1 >> 14) == 0) {
 		}
 
 	#if(TRYQ == 4)
-		res64 = twopmodq192_q4((uint64*)&p192, fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]);
+		res64 = twopmodq192_q4(p192.w, fac192p[i].k[0],fac192p[i].k[1],fac192p[i].k[2],fac192p[i].k[3]);
 		if(res64 != (uint64)fac192p[i].res)
 		{
 			fprintf(stderr,"ERROR: twopmodq192_q4( %s, k = %" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 " ) returns %#1X, expected %#1X.\n",
