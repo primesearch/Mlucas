@@ -172,7 +172,7 @@ void radix16_dyadic_square(
 	if(fwd_fft_only >> 2) {		// Do the following 3 steps in both cases - if bits 2:3 == 0 the ANDs are no-ops...
 		// The submul-auxiliary array c_arr[], if present, in already in proper double[] form, but b[] needs low-bits-cleared and casting
 	  #if !defined(USE_SSE2) || (!FULLY_FUSED && !defined(USE_ARM_V8_SIMD))
-		b = (double *)(fwd_fft_only & ~0xCull);
+		b = (double *)(uintptr_t)(fwd_fft_only & ~0xCull);
 	  #endif
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {

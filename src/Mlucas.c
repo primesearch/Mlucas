@@ -1968,7 +1968,7 @@ READ_RESTART_FILE:
 			step and force the undo-initial-FFT-pass-and-DWT-weighting step, leaving a pure-int G-check residue ready for savefile-writing: */
 				mode_flag = 3 - first_sub - (last_sub<<1);
 			//	printf("Iter %u: FFT(b)*FFT(c) step.\n",i);
-				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
+				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)(uintptr_t)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
 				if(ierr) {
 					if(ierr == ERR_INTERRUPT) {
 						fprintf(stderr,"Caught interrupt in FFT(b)*FFT(c) step.\n");

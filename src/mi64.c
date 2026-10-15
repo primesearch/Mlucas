@@ -4317,7 +4317,7 @@ void mi64_modmul53_batch(const double a[], const double b[], const double m[], d
 {
 	// Debug: short-length arrays to gather error-correction statistics:
 	//static int32 ierr[100];
-	static double err[72], *eptr = err;	while((uint64)eptr & 0x3f) { ++eptr; }
+	static double err[72], *eptr = err;	while((uintptr_t)eptr & 0x3f) { ++eptr; }
 // ewm: wrap in AVX (not AVX2) prepro flag because my older gcc on the Haswell barfs on the MULXs in this file when built using USE_AVX2, but is OK with the FMA3 portion of AVX2
 #if defined(USE_AVX) && !defined(USE_IMCI512)
   // This AVX-512 path uses VRCP28PD, an AVX-512ER instruction that exists only on Knights Landing
