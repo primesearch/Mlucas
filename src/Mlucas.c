@@ -4921,7 +4921,7 @@ TIMING_TEST_LOOP:
 				if ernstMain will accept it: a production run reverts any forced length more than 9/8 of the
 				default back to the default, which would bring us straight back here: */
 				k = 0;
-				if(!quick_fallback) {
+				if(!quick_fallback && modType == MODULUS_TYPE_MERSENNE) {	// The lookups below use the Mersenne table
 					j = iarg << 10;
 					do { j = get_nextlarger_fft_length(j); } while(j && (j & 1023));
 					k = j >> 10;
