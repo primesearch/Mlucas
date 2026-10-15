@@ -536,6 +536,15 @@ else
 	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
 fi
 
+# GCC before 5 (Ubuntu 14.04 and CentOS 7 ship 4.8) reports -Wmaybe-uninitialized for variables that are
+# always set before they are read: mainly the aj1p*/a1p* temporaries in the radix16/32 dyadic- and
+# wrapper-square loops, where it cannot see that the fwd_fft_only tests on either side of a goto agree.
+# Newer GCC and Clang see through these, so keep the warning for them and turn it off only for old GCC.
+# The preprocessor does the version test, since Clang also defines __GNUC__ (as 4):
+if printf '#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5\n#error\n#endif\n' | "${CC:-gcc}" -E -x c - >/dev/null 2>&1; then
+	C_ARGS+=(-Wno-maybe-uninitialized)
+fi
+
 # Clang-under-MacOS linker barfs if one tries to explicitly invoke standard libs - h/t tdulcet for the
 # conditional-inline syntax. Some OSes put the GMP headers in /usr/local/include, so -I that path in the
 # compile command. If said path does not exist, make silently ignores it.

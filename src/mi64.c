@@ -5091,7 +5091,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
   #endif
 	int retval = -1;	// -1 implies uninited
 	int i,j;			// i and j must be signed
-	uint32 lenW,lenD,lenS,lenQ, ybits, log2_numbits, n, p, nshift, nws = 0, nbs = 0, nc = 0;
+	uint32 lenW,lenD,lenS,lenQ = 0, ybits, log2_numbits, n, p, nshift, nws = 0, nbs = 0, nc = 0;
 	const uint32 ncmax = 16;
 	uint64 bw,mask,lo64,itmp64;
 	double fquo;
