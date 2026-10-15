@@ -7636,17 +7636,17 @@ int pm1_gcheck_apply(double d[], double c[], double g2[], double u0[], double g3
 		memset(g2, 0, nbytes_dbl);	g2[0] = 1.0;
 		for(b = 63 - (int)leadz64(H); b >= 0 && !ierr; b--) {
 			ierr = func_mod_square(g2, 0x0, n, 0,1, 0ull, p, scrnFlag, tdiff, FALSE, 0x0);
-			if(!ierr && ((H >> b) & 1ull)) ierr = func_mod_square(g2, 0x0, n, 0,1, (uint64)g3, p, scrnFlag, tdiff, FALSE, 0x0);
+			if(!ierr && ((H >> b) & 1ull)) ierr = func_mod_square(g2, 0x0, n, 0,1, (uint64)(uintptr_t)g3, p, scrnFlag, tdiff, FALSE, 0x0);
 		}
 		if(ierr) goto RESTORE;
 		ierr = func_mod_square(g2, 0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// g2 <- FFT(g2)
 		memcpy(c, u0, nbytes_dbl);
-		ierr = func_mod_square(c,  0x0, n, 0,1, (uint64)g2, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// c = u0 * g3^H, pure-int
+		ierr = func_mod_square(c,  0x0, n, 0,1, (uint64)(uintptr_t)g2, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// c = u0 * g3^H, pure-int
 	} else {
 		memcpy(c, u0, nbytes_dbl);	// H == 0: the correction is just u0
 	}
 	ierr = func_mod_square(c,  0x0, n, 0,1, 4ull, p, scrnFlag, tdiff, FALSE, 0x0);	if(ierr) goto RESTORE;	// c <- FFT(c)
-	ierr = func_mod_square(d,  0x0, n, 0,1, (uint64)c, p, scrnFlag, tdiff, FALSE, 0x0);	// d = d * c, pure-int
+	ierr = func_mod_square(d,  0x0, n, 0,1, (uint64)(uintptr_t)c, p, scrnFlag, tdiff, FALSE, 0x0);	// d = d * c, pure-int
 RESTORE:
 	BASE_MULTIPLIER_BITS = bmb_save;
 	ASSERT(BASE_MULTIPLIER_BITS == bmb_save, "pm1_gcheck_apply(): BASE_MULTIPLIER_BITS not restored!");
