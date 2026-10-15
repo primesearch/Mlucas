@@ -1650,9 +1650,10 @@ dif_pass1() routines on an AVX-512 build, silently producing a wrong residue. Te
 so the last known-bad is 20.1.8 and the first known-good 21.1.8; no 21.x before 21.1.8 was
 available to test. Apple clang uses its own version numbering that does not map onto upstream
 LLVM releases, so treat it as affected regardless of major.
-Deliberately expands to nothing for non-clang compilers: GCC warns on unrecognized
-"#pragma clang ..." under -Wall, which every Mlucas build uses. */
-#if defined(__clang__) && (defined(__apple_build_version__) || __clang_major__ < 21)
+Deliberately expands to nothing for non-clang compilers and for clang < 3.5, which predates
+"#pragma clang loop": both warn on an unrecognized pragma under -Wall, which every Mlucas build uses. */
+#if defined(__clang__) && (defined(__apple_build_version__) || __clang_major__ < 21) \
+	&& (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 5))	// clang loop pragmas arrived in 3.5
 	#define NO_LOOP_VECTORIZE	_Pragma("clang loop vectorize(disable)")
 #else
 	#define NO_LOOP_VECTORIZE
