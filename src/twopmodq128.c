@@ -211,7 +211,7 @@ uint128 twopmodq128(uint128 p, uint128 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
 	uint128 qhalf, qinv, x, lo, hi;
-	static uint128 psave = {0ull,0ull}, pshift;
+	static uint128 psave = {{0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT;
 	if(p.d1 != 0ull)
@@ -418,7 +418,7 @@ uint64 twopmodq128x2(uint64 *p_in, uint64 k)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
 	uint128 p, q, qhalf, qinv, x, lo, hi;
-	static uint128 psave = {0ull, 0ull}, pshift;
+	static uint128 psave = {{0ull, 0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 #if FAC_DEBUG
@@ -629,7 +629,7 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
 	uint128 p, qhalf, qinv, x, lo, hi;
-	static uint128 psave = {0ull, 0ull}, pshift;
+	static uint128 psave = {{0ull, 0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1];
@@ -737,7 +737,7 @@ uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		, x0, x1, x2, x3
 		, lo0, lo1, lo2, lo3
 		, hi0, hi1, hi2, hi3;
-	static uint128 psave = {0ull,0ull}, pshift;
+	static uint128 psave = {{0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1];
@@ -982,7 +982,7 @@ uint64 twopmodq128_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 		, x0, x1, x2, x3, x4, x5, x6, x7
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
 		, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7;
-	static uint128 psave = {0ull,0ull}, pshift;
+	static uint128 psave = {{0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 #if FAC_DEBUG
 if(dbg) printf("twopmodq128_q8:\n");

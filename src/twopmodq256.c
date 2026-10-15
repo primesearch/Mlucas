@@ -233,7 +233,7 @@ uint256 twopmodq256(uint256 p, uint256 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint256 qhalf, qinv, x, lo, hi;
-	static uint256 psave = {0ull, 0ull, 0ull, 0ull}, pshift;
+	static uint256 psave = {{0ull, 0ull, 0ull, 0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT;
 	if(p.d3 != 0ull)

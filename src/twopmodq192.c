@@ -206,7 +206,7 @@ uint192 twopmodq192(uint192 p, uint192 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint192 qhalf, qinv, x, lo, hi;
-	static uint192 psave = {0ull,0ull,0ull}, pshift;
+	static uint192 psave = {{0ull,0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT;
 	if(p.d2 != 0ull)
@@ -469,7 +469,7 @@ uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 			, lo0, lo1, lo2, lo3
 			, hi0, hi1, hi2, hi3;
 	uint192 x;
-	static uint192 psave = {0ull,0ull,0ull}, pshift;
+	static uint192 psave = {{0ull,0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
@@ -894,7 +894,7 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 			, hi0, hi1, hi2, hi3;
 	uint192 x;
 	static uint64 mmpsave;
-	static uint192 psave = {0ull,0ull,0ull}, pshift;
+	static uint192 psave = {{0ull,0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 #if FAC_DEBUG
@@ -1147,7 +1147,7 @@ uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 			, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
 			, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7;
 	uint192 x;
-	static uint192 psave = {0ull,0ull,0ull}, pshift;
+	static uint192 psave = {{0ull,0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
