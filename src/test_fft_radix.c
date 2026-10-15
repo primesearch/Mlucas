@@ -1082,7 +1082,7 @@ void test_fft_radix(void)
 				// Early-abort if DC components fail to match:
 				if(i == 0) {
 					printf("DC components fail to match ... aborting.\n");
-					exit(0);
+					exit(EXIT_FAILURE);
 				}
 			}
 		}
@@ -1395,7 +1395,7 @@ void test_fft_radix(void)
 				// Early-abort if DC components fail to match:
 				if(i == 0) {
 					printf("DC components fail to match ... aborting.\n");
-					exit(0);
+					exit(EXIT_FAILURE);
 				}
 			}
 		}
