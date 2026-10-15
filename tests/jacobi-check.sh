@@ -8,6 +8,10 @@
 # 216103 (prime exponents with composite Mersenne numbers, so a results line is emitted). The
 # fault-injection tests need the second binary; they are skipped with a notice if it is not given.
 #
+# M216091 and 216103 default to 10K, which an AVX-512 build cannot run (its radix-20 leading pass has no
+# AVX-512 code). Mlucas then moves those runs up to 11K; before that fix (#361) it exited 0 without
+# running them, and every test that uses them failed on an AVX-512 host.
+#
 # What is asserted, and why, is spelled out next to each test. Every expectation is one the check's
 # design makes: a check that passes at every checkpoint of a clean run; a corrupted savefile that is
 # refused on read; an injected fault caught at the next check with a rollback to the previous checkpoint
