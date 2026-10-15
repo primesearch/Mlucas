@@ -455,7 +455,7 @@ q*qinv*lo = |000 (192-x bits) 000||-------------------------------------- q*qinv
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq192_q4(const uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 #if FAC_DEBUG
 	int dbg = 0;//(k0 == 460441ull);
