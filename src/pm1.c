@@ -1218,7 +1218,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	if(k) {			// Only fiddle j if it is not already a multiple of RE_IM_STRIDE. In a scalar build the stride
 					// is 1, so k is always 0 and j needs no adjustment; without this guard the (k < stride/2)
 					// test below is 0 < 0, and the else-arm rounds j *up* by a full stride instead.
-		if(k < (RE_IM_STRIDE>>1))
+		if(2*k < RE_IM_STRIDE)	// i.e. k < RE_IM_STRIDE/2, written so clang 3.4 does not flag k < 0 in scalar builds
 			j -= k;
 		else
 			j += (RE_IM_STRIDE - k);
