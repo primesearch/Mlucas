@@ -4027,7 +4027,8 @@ int 	main(int argc, char *argv[])
 	int		nthread = 0, cpu = 0, core = 0;
 #endif
 	char *cptr = 0x0;
-	int		quick_self_test = 0, fftlen = 0, radset = -1;
+	int		quick_self_test = 0, quick_fallback = 0, fftlen = 0, radset = -1;
+	char	quick_estr[STR_MAX_LEN] = "";	// The production exponent a quick self-test is run for (the test itself changes ESTRING)
 	uint32 numrad = 0, rad_prod = 0, rvec[10], rvec2[10];	/* Temporary storage for FFT radices */
 	double	runtime,/* wruntime, */ runtime_best,wruntime_best, tdiff;	// v20: w-prefixed are weighted by associated ROEs
 	double	roerr_avg = 0, roerr_max = 0;
@@ -4547,6 +4548,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			/* If need to run a timing self-test at a particular FFT length, do that and then try again... */
 			if((retVal & 0xff) == ERR_RUN_SELFTEST_FORLENGTH) {
 				quick_self_test = TRUE;
+				snprintf(quick_estr, sizeof(quick_estr), "%s", ESTRING);
 				selfTest = TRUE;
 				k = (uint32)(retVal >> 8);
 				if((i = get_fft_radices(k, 0, 0x0, 0x0, 0)) != 0) {
@@ -4910,6 +4912,53 @@ TIMING_TEST_LOOP:
 		{
 			sprintf(cbuf, "WARNING: %d of %d radix-sets at FFT length %u K passed - skipping it. PLEASE CHECK YOUR BUILD OPTIONS.\n",nradix_set_succeed,radix_set,iarg);
 			fprintf(stderr,"%s", cbuf);
+			/* A production run came here for the one length it needs. Falling through would end at "Done" and
+			exit 0 without running the exponent at all. Try the next-larger length instead - the largest a
+			production run accepts (ernstMain allows one size above the default) - and failing that, stop
+			with an error: */
+			if(quick_self_test) {
+				/* Next-larger length that is a whole number of K (the cfg file and ernstMain work in K), and only
+				if ernstMain will accept it: a production run reverts any forced length more than 9/8 of the
+				default back to the default, which would bring us straight back here: */
+				k = 0;
+				if(!quick_fallback) {
+					j = iarg << 10;
+					do { j = get_nextlarger_fft_length(j); } while(j && (j & 1023));
+					k = j >> 10;
+					if(8*k > 9*iarg) k = 0;
+				}
+				if(!k) {
+					sprintf(cbuf, "ERROR: no radix set at FFT length %u K works in this build%s, so exponent %s cannot be run with it.\n", iarg, quick_fallback ? " (nor at the default length below it)" : ", and the next-larger length is beyond what a run at this exponent accepts", quick_estr);
+					fprintf(stderr,"%s", cbuf);
+					exit(EXIT_FAILURE);
+				}
+				sprintf(cbuf, "INFO: trying the next-larger FFT length, %u K, instead.\n", k);
+				fprintf(stderr,"%s", cbuf);
+				quick_fallback = 1;
+				// The production retry at ERNST_MAIN takes its FFT length from this slot:
+				MvecPtr[numTest].fftLength = k;
+				// Already in the cfg file? Timing it again would add a duplicate entry. The lookup expects the radix
+				// globals clear, as ernstMain leaves them on entry, but the failed timing tests above have set them:
+				for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
+				NRADICES = 0;
+				if(get_preferred_fft_radix(k)) {
+					quick_self_test = selfTest = 0; start = numTest; finish = start+1;
+					goto ERNST_MAIN;
+				}
+				for(i = 0; i < numTest; i++) {
+					if(MvecPtr[i].fftLength == k) {
+						userSetExponent = 0;
+						start = i; finish = start+1;
+						break;
+					}
+				}
+				if(i == numTest) {
+					userSetExponent = 1;
+					MvecPtr[numTest].exponent = convert_base10_char_uint64(quick_estr);
+					start = numTest; finish = start+1;
+				}
+				goto TIMING_TEST_LOOP;
+			}
 		}
 		/* If get a nonzero best-runtime, write the corresponding radix set index to the .cfg file: */
 		else
