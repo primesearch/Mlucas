@@ -628,6 +628,7 @@ On Alpha, this needs a total of 32 MUL, 82 ALU ops.
 		,__m,__n,__o,__p,__q,__r,__s,__t,__u,__v,__w,__z;\
 		\
 		MUL_LOHI64(__x.d0,__y.d0, __w0, __w1);	/*   x0*y0 */\
+		(void)__w0;	/* MULH256 wants only the high half */\
 		MUL_LOHI64(__x.d1,__y.d1, __w2, __w3);	/*   x1*y1 */\
 		MUL_LOHI64(__x.d2,__y.d2, __w4, __w5);	/*   x2*y2 */\
 		MUL_LOHI64(__x.d3,__y.d3, __w6, __w7);	/*   x3*y3 */\

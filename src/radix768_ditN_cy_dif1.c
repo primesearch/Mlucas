@@ -227,7 +227,11 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 	int err;
 	static int first_entry=TRUE;
 
@@ -1846,7 +1850,11 @@ void radix768_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -2181,7 +2189,7 @@ void radix768_dif_pass1(double a[], int n)
 		//
 		// Since i_data are in a local-complex scratch array, need to override any non-unity SIMD-re/im data stride with 1:
 		//                               vvv
-		RADIX_256_DIF((double *)(t+0x000),1,i_offsets_lo,i_offsets_hi, (a+j1     ),RE_IM_STRIDE,o_offsets_lo,o_idx1,o_offsets_hi1);	/* Inputs in t[ 00- ff] */
+		RADIX_256_DIF(t_u.d,1,i_offsets_lo,i_offsets_hi, (a+j1     ),RE_IM_STRIDE,o_offsets_lo,o_idx1,o_offsets_hi1);	/* Inputs in t[ 00- ff] */
 		RADIX_256_DIF((double *)(t+0x100),1,i_offsets_lo,i_offsets_hi, (a+j1+p200),RE_IM_STRIDE,o_offsets_lo,o_idx2,o_offsets_hi2);	/* Inputs in t[100-1ff] */
 		RADIX_256_DIF((double *)(t+0x200),1,i_offsets_lo,i_offsets_hi, (a+j1+p100),RE_IM_STRIDE,o_offsets_lo,o_idx3,o_offsets_hi3);	/* Inputs in t[200-2ff] */
 	}
@@ -2217,7 +2225,11 @@ void radix768_dit_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 	double t00,t01,t02,t03,t04,t05;
 
 	if(!first_entry && (n/RADIX) != NDIVR)	/* New runlength?	*/
@@ -2540,7 +2552,7 @@ void radix768_dit_pass1(double a[], int n)
 
 		// Since o_data are in a local-complex scratch array, need to override any non-unity SIMD-re/im data stride with 1:
 		//                                                                                              vvv
-		RADIX_256_DIT((a+j1     ),RE_IM_STRIDE,(int *)(i_offsets_lo+0x00),i_idx1,i_offsets_hi1, (double *)(t+0x000),1,o_offsets_lo,o_offsets_hi);	/* Outputs in t[ 00- ff] */
+		RADIX_256_DIT((a+j1     ),RE_IM_STRIDE,(int *)(i_offsets_lo+0x00),i_idx1,i_offsets_hi1, t_u.d,1,o_offsets_lo,o_offsets_hi);	/* Outputs in t[ 00- ff] */
 		RADIX_256_DIT((a+j1+p200),RE_IM_STRIDE,(int *)(i_offsets_lo+0x20),i_idx2,i_offsets_hi2, (double *)(t+0x100),1,o_offsets_lo,o_offsets_hi);	/* Outputs in t[100-1ff] */
 		RADIX_256_DIT((a+j1+p100),RE_IM_STRIDE,(int *)(i_offsets_lo+0x40),i_idx3,i_offsets_hi3, (double *)(t+0x200),1,o_offsets_lo,o_offsets_hi);	/* Outputs in t[200-2ff] */
 
@@ -2697,7 +2709,11 @@ void radix768_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		int *itmp;	// Pointer into the bjmodn array
 
 	#endif

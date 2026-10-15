@@ -36,8 +36,9 @@ Mlucas=Mlucas
 Mfactor=Mfactor
 TARGET=$Mlucas
 ARGS=(-DUSE_THREADS) # Optional compile args
-WORDS=''
+WORDS=
 C_ARGS=()
+CPP_ARGS=()
 # Mfactor's factor.c gets an explicit TRYQ. This is the value for a build with no word size
 # named on the command line; a word-size build picks its own in the block below.
 TRYQ_ARG=-DTRYQ=4
@@ -49,6 +50,7 @@ MAKE_ARGS=()
 MODES=()
 GMP=1
 HWLOC=0
+STATIC=0
 
 case $OSTYPE in
 	darwin*)
@@ -110,10 +112,17 @@ try_flag() {
 
 # Returns success iff $CC's assembler accepts the AVX-512 constructs Mlucas's inline-asm kernels use:
 # the "extended" register names (zmm16-31, xmm16-31, k0-k7). Some older Clang releases reject these even
-# when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register names - so probe them,
-# exactly as the CI does (#73). (The lone AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c
-# routine and is now gated to KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an
-# ER-capable assembler and the probe need not test it.)
+# when otherwise AVX-512-aware - e.g. clang 3.8 rejects the extended register names - so probe them.
+# (The lone AVX-512ER instruction, vrcp28pd, lived in an unused mi64.c routine and is now gated to
+# KNL-only via __AVX512ER__, so plain AVX-512 builds no longer need an ER-capable assembler and the
+# probe need not test it.)
+#
+# The probe must ask for what the kernels actually do, under the flags the build actually uses. The
+# kernels reference an extended xmm only as the 128-bit operand of a 512-bit instruction - 'vmovq
+# %rax,%xmm16', 'vpmovzxbq %xmm16,%zmm16', 'vpslld %xmm31,%zmm1,%zmm1' - which is plain AVX512F. They
+# never do a 128-bit EVEX op on one; a probe that did ('vmovdqa64 %xmm16,%xmm17') was asking for
+# AVX512VL, which -mavx512f does not enable, and so rejected clang 5.0 and 6.0 even though both build
+# the AVX-512 kernels cleanly.
 try_avx512_asm() {
 	local tmpdir
 	tmpdir=$(mktemp -d) || return 1
@@ -123,9 +132,10 @@ int main(void)
 {
 	__asm__ __volatile__(
 		"vpxord %%zmm31,%%zmm31,%%zmm31\n\t"
-		"vmovdqa64 %%xmm16,%%xmm17\n\t"
+		"vmovq %%rax,%%xmm16\n\t"
+		"vpmovzxbq %%xmm16,%%zmm16\n\t"
 		"kmovw %%k1,%%eax"
-		::: "zmm31","xmm16","xmm17","k1","eax"
+		::: "zmm31","xmm16","zmm16","k1","rax"
 	);
 	return 0;
 }
@@ -142,32 +152,69 @@ EOF
 # old binutils) only shows up once the linker actually has to combine LTO object files from more than
 # one translation unit - which is exactly what building Mlucas's ~90 source files does:
 try_lto() {
-	local cc=${CC:-gcc} flag=${1:--flto} tmpdir
+	local cc=${CC:-gcc} flag=${1} tmpdir
 	tmpdir=$(mktemp -d) || return 1
 	trap 'rm -rf "$tmpdir"' RETURN
 	printf 'int mm_lto_probe_helper(void){return 0;}\n' >"$tmpdir/a.c"
 	printf 'int mm_lto_probe_helper(void);\nint main(void){return mm_lto_probe_helper();}\n' >"$tmpdir/b.c"
 	(
-		cd "$tmpdir" && \
-		"$cc" "$flag" -c a.c -o a.o && \
-		"$cc" "$flag" -c b.c -o b.o && \
-		"$cc" "$flag" a.o b.o -o out
+		cd "$tmpdir" &&
+			"$cc" "$flag" -c a.c -o a.o &&
+			"$cc" "$flag" -c b.c -o b.o &&
+			"$cc" "$flag" a.o b.o -o out
 	) >/dev/null 2>&1
 }
 
-if [[ ! $OSTYPE == darwin* ]]; then
-	LD_ARGS+=(-lm -lpthread)
-fi
-# librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
-# $OSTYPE - which describes the *build host*, not the target. The old test only skipped -lrt for a
-# native msys/cygwin build, so a MinGW cross-build from Linux (CC=x86_64-w64-mingw32-gcc) still got
-# the flag and died at the link step with "cannot find -lrt". The probe covers every target that
-# lacks librt with one rule: Windows, macOS (whose realtime entry points live in libSystem), and any
-# system that has folded them into libc, which is where glibc has been heading since 2.34. That is
-# why this sits outside the darwin block above rather than inside it:
-if try_flag -lrt; then
-	LD_ARGS+=(-lrt)
-fi
+static_libs() {
+	local library=$1 archive libdir flags flag dirs=()
+
+	if command -v pkg-config >/dev/null && pkg-config --exists "$library"; then
+		libdir=$(pkg-config --variable=libdir "$library")
+		archive="$libdir/lib${library}.a"
+
+		if [[ -f $archive ]]; then
+			if ! output=$(pkg-config --static --libs "$library"); then
+				echo "Error: pkg-config could not determine the static link flags for '$library'." >&2
+				return 1
+			fi
+
+			read -ra flags <<<"$output"
+			for flag in "${flags[@]}"; do
+				if [[ $flag == "-l$library" ]]; then
+					LD_ARGS+=("$archive")
+				else
+					LD_ARGS+=("$flag")
+				fi
+			done
+
+			return
+		fi
+	fi
+
+	read -ra flags <<<"$LDFLAGS"
+	for flag in "${flags[@]}"; do
+		if [[ $flag == -L?* ]]; then
+			dirs+=("${flag#-L}")
+		fi
+	done
+
+	for libdir in "${dirs[@]}" /usr/local/lib /opt/homebrew/lib /usr/lib64 /usr/lib; do
+		archive="$libdir/lib${library}.a"
+		if [[ -f $archive ]]; then
+			LD_ARGS+=("$archive")
+			return
+		fi
+	done
+
+	if archive=$("${CC:-gcc}" -print-file-name="lib${library}.a" 2>/dev/null) && [[ -n $archive && $archive != "lib${library}.a" && -f $archive ]]; then
+		LD_ARGS+=("$archive")
+		return
+	fi
+
+	echo "Error: Static library 'lib${library}.a' was not found." >&2
+	return 1
+}
+
 # GNU Make's -O (synchronize parallel-job output) flag needs Make >= 4.0 - probe for the flag itself
 # rather than assuming by version number (which drifts, and varies by distro/backport):
 if "$MAKE" --help 2>/dev/null | grep -wq -- '-O'; then
@@ -202,14 +249,14 @@ MAKE_ARGS+=(-j "$CPU_THREADS")
 # TODO: revisit once GCC PR 54412 is fixed - gate the block on the gcc version below the fix so
 # Windows gets full-width autovectorization of the C code back.
 if [[ $OSTYPE == msys || $OSTYPE == cygwin ]] && ! "${CC:-gcc}" --version 2>/dev/null | grep -qi clang; then
-	pvw_tmp=$(mktemp -d)
-	printf 'int main(void){return 0;}\n' >"$pvw_tmp/t.c"
+	tmpdir=$(mktemp -d)
+	printf 'int main(void){return 0;}\n' >"$tmpdir/t.c"
 	# Compile a real temp file to a real output: native MinGW gcc misparses '-o /dev/null' as C:\dev\null.
-	if "${CC:-gcc}" -mprefer-vector-width=128 "$pvw_tmp/t.c" -o "$pvw_tmp/t.out" >/dev/null 2>&1; then
+	if "${CC:-gcc}" -mprefer-vector-width=128 "$tmpdir/t.c" -o "$tmpdir/t.out" >/dev/null 2>&1; then
 		echo -e "MinGW gcc detected: adding -mprefer-vector-width=128 to work around gcc's unaligned-AVX-spill bug on Windows.\n"
 		ARGS+=(-mprefer-vector-width=128)
 	fi
-	rm -rf "$pvw_tmp"
+	rm -rf "$tmpdir"
 fi
 
 # $0 contains script-name, but $@ starts with first ensuing cmd-line arg, if it exists:
@@ -232,6 +279,9 @@ for arg in "$@"; do
 		use_hwloc)
 			HWLOC=1
 			;;
+		static)
+			STATIC=1
+			;;
 		avx512_skylake | avx512_knl | avx512 | k1om | avx2 | avx | sse2 | asimd | nosimd)
 			MODES+=("$arg")
 			;;
@@ -243,7 +293,7 @@ for arg in "$@"; do
 			;;
 		*)
 			echo "Usage: $0 [SIMD build mode]" >&2
-			echo "Optional arguments must be 'no_gmp', 'use_hwloc' or one and only one of the supported SIMD-arithmetic types:" >&2
+			echo "Optional arguments must be 'no_gmp', 'use_hwloc', 'static' or one and only one of the supported SIMD-arithmetic types:" >&2
 			echo -e "\t[x86_64: avx512 k1om avx2 avx sse2]; [Armv8: asimd]; or 'nosimd' for scalar-double build.\n" >&2
 			exit 1
 			;;
@@ -252,7 +302,11 @@ for arg in "$@"; do
 done
 
 if ((GMP)); then
-	LD_ARGS+=(-lgmp)
+	if ((STATIC)); then
+		static_libs gmp
+	else
+		LD_ARGS+=(-lgmp)
+	fi
 else
 	echo "Building sans Gnu-MP ... this means no GCDs will be taken in p-1 work."
 	ARGS+=(-DINCLUDE_GMP=0)
@@ -261,7 +315,30 @@ fi
 if ((HWLOC)); then
 	echo "Building with HWLOC hardware-topology support."
 	ARGS+=(-DINCLUDE_HWLOC=1)
-	LD_ARGS+=(-lhwloc)
+
+	if ((STATIC)); then
+		static_libs hwloc
+
+		if [[ $OSTYPE == darwin* ]]; then
+			LD_ARGS+=(-framework Foundation -framework IOKit -framework OpenCL)
+		fi
+	else
+		LD_ARGS+=(-lhwloc)
+	fi
+fi
+
+if [[ ! $OSTYPE == darwin* ]]; then
+	LD_ARGS+=(-lm -lpthread)
+fi
+# librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
+# $OSTYPE - which describes the *build host*, not the target. The old test only skipped -lrt for a
+# native msys/cygwin build, so a MinGW cross-build from Linux (CC=x86_64-w64-mingw32-gcc) still got
+# the flag and died at the link step with "cannot find -lrt". The probe covers every target that
+# lacks librt with one rule: Windows, macOS (whose realtime entry points live in libSystem), and any
+# system that has folded them into libc, which is where glibc has been heading since 2.34. That is
+# why this sits outside the darwin block above rather than inside it:
+if try_flag -lrt; then
+	LD_ARGS+=(-lrt)
 fi
 
 if [[ $TARGET == "$Mfactor" ]]; then
@@ -273,7 +350,7 @@ fi
 if [[ -n $WORDS ]]; then
 	if [[ $TARGET == "$Mfactor" ]]; then
 		arg=$WORDS
-		if [[ ${arg} == 'nword' ]]; then
+		if [[ ${arg} == nword ]]; then
 			WORDS=-DNWORD
 		else
 			WORDS=-DP"${arg::1}"WORD
@@ -288,7 +365,7 @@ if [[ -n $WORDS ]]; then
 		# Set this per word size rather than by exception, so a word size that later grows a batch
 		# modpow - or wants some other width - names its own value here instead of inheriting one:
 		case ${arg} in
-			4word | nword) TRYQ_ARG= ;;
+			[4n]word) TRYQ_ARG= ;;
 			*) TRYQ_ARG=-DTRYQ=4 ;;
 		esac
 		Mfactor+="_$arg"
@@ -309,6 +386,11 @@ if [[ $OSTYPE == msys || $OSTYPE == cygwin ]]; then
 	Mlucas+=.exe
 	Mfactor+=.exe
 	TARGET+=.exe
+	CPP_ARGS+=(-DWINVER=0x0600 -D_WIN32_WINNT=0x0600)
+
+	if ((STATIC)); then
+		LD_ARGS+=(-static)
+	fi
 fi
 
 # First if/elif clause handles cross-platform builds and non-default values for "Use GMP?" and "Use HWLOC?":
@@ -385,7 +467,7 @@ else
 	cat <<'EOF' >"$tmpdir/simd.c"
 #include <stdio.h>
 
-#if !defined(__k1om__) && (defined(__i386__) || defined(__x86_64__))
+#if !defined(__k1om__) && defined(__x86_64__)
 	#define USE_AVX
 #endif
 #include "get_cpuid.c"
@@ -395,7 +477,7 @@ int main(void)
 #if defined(CPU_IS_K1OM)
 	// if (has_imci512())
     puts("k1om");
-#elif defined(CPU_IS_X86) || defined(CPU_IS_X86_64)
+#elif defined(CPU_IS_X86_64)
 	get_cpu();
 	if (has_avx512())
 	{
@@ -423,6 +505,8 @@ int main(void)
 		puts("sse2");
 	else
 		puts("nosimd");
+#elif defined(CPU_IS_X86)
+	puts("nosimd");
 #elif defined(CPU_IS_ARM_EABI)
 	// if (has_asimd())
 	#if defined(__aarch64__) && defined(__ARM_NEON)
@@ -437,7 +521,7 @@ int main(void)
 }
 EOF
 
-	"${CC:-gcc}" -std=gnu99 -Wall -g -O3 -Isrc -o "$tmpdir/simd" "$tmpdir/simd.c"
+	"${CC:-gcc}" -std=gnu99 -Wall -Wextra -g -O3 -Isrc -o "$tmpdir/simd" "$tmpdir/simd.c"
 	if ! output=$("$tmpdir/simd"); then
 		echo "$output"
 		echo "Error: Unable to detect the SIMD build mode" >&2
@@ -514,7 +598,7 @@ fi
 # before invoking this script has NO effect - a build that needs different flags entirely (the sanitizer
 # CI jobs) has to rewrite the generated "CFLAGS =" line, which is what those jobs now do. Prefer
 # -flto=auto (parallel LTO codegen, see #56) over plain -flto when supported:
-C_ARGS=(-std=gnu99 -Wall -g -O3)
+C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
 if try_flag -fdiagnostics-color; then
 	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
 fi
@@ -526,6 +610,15 @@ else
 	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
 fi
 
+# GCC before 5 (Ubuntu 14.04 and CentOS 7 ship 4.8) reports -Wmaybe-uninitialized for variables that are
+# always set before they are read: mainly the aj1p*/a1p* temporaries in the radix16/32 dyadic- and
+# wrapper-square loops, where it cannot see that the fwd_fft_only tests on either side of a goto agree.
+# Newer GCC and Clang see through these, so keep the warning for them and turn it off only for old GCC.
+# The preprocessor does the version test, since Clang also defines __GNUC__ (as 4):
+if printf '#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5\n#error\n#endif\n' | "${CC:-gcc}" -E -x c - >/dev/null 2>&1; then
+	C_ARGS+=(-Wno-maybe-uninitialized)
+fi
+
 # Clang-under-MacOS linker barfs if one tries to explicitly invoke standard libs - h/t tdulcet for the
 # conditional-inline syntax. Some OSes put the GMP headers in /usr/local/include, so -I that path in the
 # compile command. If said path does not exist, make silently ignores it.
@@ -535,9 +628,9 @@ fi
 cat <<EOF >Makefile
 CC ?= gcc
 CFLAGS = ${C_ARGS[*]}
-CPPFLAGS += -D_GNU_SOURCE -I/usr/local/include -I/opt/homebrew/include
+CPPFLAGS += -D_GNU_SOURCE ${CPP_ARGS[*]} -I/usr/local/include -I/opt/homebrew/include
 LDFLAGS += -L/usr/local/lib -L/opt/homebrew/lib
-LDLIBS = ${LD_ARGS[@]} # -static
+LDLIBS = ${LD_ARGS[@]}
 
 VPATH = ../src
 .PATH: ../src

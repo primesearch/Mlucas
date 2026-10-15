@@ -266,7 +266,11 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 #if !defined(MULTITHREAD) && !defined(USE_SSE2)
 	struct complex *tptr;
 #endif
@@ -290,8 +294,10 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	int idx_offset,idx_incr;
   #endif
 	static int cslots_in_local_store;
-  #ifdef USE_AVX2
-	static vec_dbl *one = 0x0, one_dat;
+  #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
+	// one_dat is read by FMA_TWIDDLE_FIDDLE with a 256-bit aligned load. struct double_x4 (the AVX vec_dbl) only
+	// carries aligned(16), so without an explicit 32 here the object is 32-byte aligned only by luck of placement:
+	static vec_dbl *one = 0x0, one_dat __attribute__ ((aligned (32)));
   #endif
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
@@ -311,7 +317,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
 	double *add0,*add1,*add2,*add3;
-   #ifdef USE_AVX2
+   #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
 	double *add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
    #endif
   #endif	// MULTITHREAD
@@ -1962,7 +1968,11 @@ void radix1024_dif_pass1(double a[], int n)
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 
 // Use to auto-gen the twiddles:
 //	print_pow2_twiddles(1024, 64,16);
@@ -1978,7 +1988,9 @@ void radix1024_dif_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n >> 10;
 		p1 = NDIVR;
@@ -2702,7 +2714,11 @@ void radix1024_dit_pass1(double a[], int n)
 	struct complex *tptr;
 	#include "radix1024_twiddles.h"
   #endif
-	struct complex t[RADIX];
+	// Union rather than a bare array: the DFT macros below walk this storage as double[],
+	// which through a (double*) cast of an array-of-struct is type punning. A union member
+	// is the language-sanctioned way to spell that view, and all members share an address.
+	union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+	struct complex *const t = t_u.c;
 
 	// New runlength?
 	if(!first_entry && (n >> 10) != NDIVR)
@@ -2714,7 +2730,9 @@ void radix1024_dit_pass1(double a[], int n)
 
 	if(first_entry)
 	{
-		ASSERT((double *)t == &(t[0].re), "Unexpected value for Tmp-array-start pointer!");
+		// The old ASSERT here checked that (double*)t == &t[0].re - i.e. that the pun it was about
+		// to perform held. With the union that is structural: C99 6.7.2.1 guarantees all members
+		// share a starting address, so the check can no longer fail and is dropped.
 		first_entry=FALSE;
 		NDIVR = n >> 10;
 		p1 = NDIVR;
@@ -3286,7 +3304,7 @@ void radix1024_dit_pass1(double a[], int n)
 		const double crnd = 3.0*0x4000000*0x2000000;
 	  #endif
 		double *add0,*add1,*add2,*add3;
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
 		double *add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
 	  #endif
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
@@ -3339,7 +3357,11 @@ void radix1024_dit_pass1(double a[], int n)
 		// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 		// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 		// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-		struct complex t[RADIX];
+		// Union rather than a bare array: the DFT macros below walk this storage as double[],
+		// which through a (double*) cast of an array-of-struct is type punning. A union member
+		// is the language-sanctioned way to spell that view, and all members share an address.
+		union { struct complex c[RADIX]; double d[2*RADIX]; } t_u;
+		struct complex *const t = t_u.c;
 		#include "radix1024_twiddles.h"
 		int *itmp;	// Pointer into the bjmodn array
 
