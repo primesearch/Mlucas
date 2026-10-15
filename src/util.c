@@ -2017,7 +2017,7 @@ uint32 get_system_ram(void) {
 	uint64 freeram = (uint64)(free_count + inactive_count) * page_size;
 	fprintf(stderr, "System total RAM = %lu, free RAM = %" PRIu64 "\n", physmem>>20, freeram>>20);
 	return freeram>>20;
-#else
+#elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
 
 	/* Catch-all for every OS_TYPE with no branch of its own above - Solaris, AIX, GNU/Hurd,
 	DEC OSF and VMS today, plus anything added later. Without it the function runs off its end,
@@ -2026,9 +2026,6 @@ uint32 get_system_ram(void) {
 
 	sysconf() is the one query these share; there is no portable free-memory equivalent, so
 	report total physical RAM, exactly as the MacOS branch above does with hw.memsize: */
-	#include <unistd.h>
-
-  #if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
 	const long npage = sysconf(_SC_PHYS_PAGES), pagesize = sysconf(_SC_PAGESIZE);
 	if(npage < 1 || pagesize < 1) {
 		fprintf(stderr,"INFO: sysconf() was unable to determine the system RAM size.\n");
@@ -2037,10 +2034,11 @@ uint32 get_system_ram(void) {
 	const uint64 totalram = (uint64)npage * (uint64)pagesize;
 	fprintf(stderr,"System total RAM = %" PRIu64 "\n", totalram>>20);
 	return (uint32)(totalram>>20);
-  #else
+
+#else
+
 	#warning No system-RAM query is implemented for this OS ... reporting 0 MB.
 	return 0;
-  #endif
 
 #endif
 }
