@@ -295,7 +295,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #ifndef MULTITHREAD
 	int *itmp;	// Pointer into the bjmodn array
 #endif
-#if !defined(MULTITHREAD) && defined(USE_AVX)
+#if !defined(MULTITHREAD) && defined(USE_AVX) && !defined(USE_AVX512)
 	int *itm2;
 #endif
 	int err;
@@ -388,7 +388,9 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
   #ifndef MULTITHREAD
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
   #endif
+  #ifndef USE_AVX512	// AVX-512 rounds with VRNDSCALEPD and keeps other constants in the sse2_rnd slot
 	const double crnd = 3.0*0x4000000*0x2000000;
+  #endif
   #ifndef USE_AVX
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
   #endif
@@ -2720,7 +2722,9 @@ void radix1008_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
+	  #ifndef USE_AVX512
 		const double crnd = 3.0*0x4000000*0x2000000;
+	  #endif
 		double
 			*add1, *add2, *add0, *add3
 		  #ifndef USE_SSE2
@@ -2733,13 +2737,16 @@ void radix1008_dit_pass1(double a[], int n)
 		vec_dbl *tm0;
 	  #endif
 		int *itmp;	// Pointer into the bjmodn array
-	  #if defined(USE_AVX)
+	  #if defined(USE_AVX) && !defined(USE_AVX512)
 		int *itm2;
 	  #endif
 	  #ifndef USE_AVX
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	  #endif
-		vec_dbl *max_err, *sse2_rnd, *half_arr,
+	  #ifndef USE_AVX512	// AVX-512 keeps base/baseinv/wts_mult/inv_mult in that slot instead, read via half_arr
+		vec_dbl *sse2_rnd;
+	  #endif
+		vec_dbl *max_err, *half_arr,
 			*two,/* *one,*sqrt2, */*isrt2,/* *cc0,*ss0, */	// radix-16 DFT roots
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
@@ -2856,7 +2863,6 @@ void radix1008_dit_pass1(double a[], int n)
 	  #ifdef USE_AVX512
 		cy_r = tmp;	cy_i = tmp+0x07e;	tmp += 2*0x07e;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
 		half_arr= tmp + 0x02;
 		base_negacyclic_root = half_arr + RADIX;	// Only used for Fermat-mod in AVX mode
 	  #elif defined(USE_AVX)

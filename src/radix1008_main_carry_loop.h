@@ -251,7 +251,10 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
-		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 unused in AVX-512 mode
+		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn;	// tm2 unused in AVX-512 mode
+	  #ifndef USE_AVX512
+		itm2 = bjmodn+4;
+	  #endif
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass:
 		// *** incr must divide nloop = RADIX/8 = 126, and be <= 8. 4 does NOT divide 126: with incr = 4 the
 		// inner l-loop below overran nloop by 2 on its final pass, reading poff[252],poff[254] past the end of
