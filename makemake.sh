@@ -436,6 +436,8 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 				exit 1
 			fi
 			ARGS+=(-march=knl)
+			# Clang 18 warns in every file that its KNL support is going away; known, and not actionable here.
+			if try_flag -Werror -Wknl-knm-isa-support-removed; then ARGS+=(-Wno-knl-knm-isa-support-removed); fi
 			# GCC 14 accepts -march=knl but still generates AVX512VL instructions (GCC bug 127459), so
 			# check the generated code.
 			if knl_emits_vl -mavx512f -mavx512cd -mfma -march=knl; then
