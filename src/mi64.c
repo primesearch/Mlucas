@@ -5053,7 +5053,11 @@ int mi64_div(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint6
 	if((xlen < ylen) || ((xlen == ylen) && mi64_cmpult(x, y, max_len)) ) {
 		/* If no modular reduction needed and X and R not the same array, set R = X: */
 		if(r != 0x0 && r != x) {
-			mi64_set_eq(r, x, lenX);
+			/* R holds lenY words (the normal path writes ylen and zeroes the rest up to lenY), and x < y
+			means xlen <= ylen <= lenY: copy x's significant words and zero the rest of R. Copying all lenX
+			words wrote past the end of R whenever lenX > lenY. */
+			if(xlen) mi64_set_eq(r, x, xlen);
+			mi64_clear(r+xlen, lenY-xlen);
 		}
 		if(q) mi64_clear(q,lenX);
 		return mi64_iszero(x, lenX);	// For x < y, y divides x iff x = 0
@@ -5724,7 +5728,11 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	if((xlen < ylen) || ((xlen == ylen) && mi64_cmpult(x, y, max_len)) ) {
 		/* If no modular reduction needed and X and R not the same array, set R = X: */
 		if(r != 0x0 && r != x) {
-			mi64_set_eq(r, x, lenX);
+			/* R holds lenY words (the normal path writes ylen and zeroes the rest up to lenY), and x < y
+			means xlen <= ylen <= lenY: copy x's significant words and zero the rest of R. Copying all lenX
+			words wrote past the end of R whenever lenX > lenY. */
+			if(xlen) mi64_set_eq(r, x, xlen);
+			mi64_clear(r+xlen, lenY-xlen);
 		}
 		if(q) {
 			q[0] = 0ull;	*lenQ = 1;
