@@ -3967,7 +3967,7 @@ LR binary modpow function and compares ?== 1 .
 #ifndef __CUDA_ARCH__
 uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 {
-	const uint32 max_dim = 4096;
+	enum { max_dim = 4096 };	// An integer constant expression, so these are plain arrays rather than VLAs
 	uint64 n[max_dim],result[max_dim];
 	ASSERT(len <= max_dim, "mi64_pprimeF: Required array length exceeds dimensioned maximum!");
 	mi64_set_eq(n, p, len);	mi64_sub_scalar(n, 1ull, n, len);	/* n = p - 1 */
@@ -3994,7 +3994,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	especially as this routine is too slow to be useful for inputs larger than a couple hundred words anyway:
 	*/
 	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
-		const uint32 max_dim = 4096;
+		enum { max_dim = 4096 };	// An integer constant expression, so these are plain arrays rather than VLAs
 		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], *lo = prod,*hi = 0x0, i64;
 		uint32 nbits, log2_numbits, wlen,wlen2, q32,qi32;
 		int j, start_index;
@@ -7027,6 +7027,7 @@ printf("\n");
 #if MI64_DIV_MONT64
 	if(dbg)printf("Computing quotient...\n");
 #endif
+	(void)lo;	// Both quotient loops below need only the high half of each MUL_LOHI64 product
 	// Now can use a simple loop and a sequence of word-size MULLs to obtain quotient.
 	// Fusing the functionality of mi64_sub_scalar and the quotient extraction is fastest here:
 	if(!nshift) {

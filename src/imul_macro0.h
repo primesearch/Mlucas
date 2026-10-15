@@ -829,6 +829,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 		{\
 			uint64 _tt;					\
 			MUL_LOHI64((_x), (_y), _tt, _hi);	\
+			(void)_tt;	/* Only the high half is wanted */\
 		}
 		#define	__MULL64(_x, _y)	({ uint64 _lo; MULL64((_x), (_y), _lo); _lo; })
 		#define	__MULH64(_x, _y)	({ uint64 _lo; MULH64((_x), (_y), _lo); _lo; })
