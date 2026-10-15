@@ -726,7 +726,7 @@ uint64 twopmodq128x2B(uint64 *p_in, uint128 q)
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq128_q4(const uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 	ASSERT(p_in != 0x0, "Null p_in pointer!");
 	 int32 j;

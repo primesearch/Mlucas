@@ -1898,8 +1898,8 @@ void set_stacklimit_restart(char *argv[])
 		fprintf(stderr, "Call to getrlimit() failed.\n");
 		ASSERT(0, "Exiting.");
 	}
-	printf("Old stack_limits: cur = %zu, max = %zu, [RLIM_INFINITY = %zu]\n",
-	       stack_limits.rlim_cur, stack_limits.rlim_max, RLIM_INFINITY);
+	printf("Old stack_limits: cur = %" PRIu64 ", max = %" PRIu64 ", [RLIM_INFINITY = %" PRIu64 "]\n",
+	       (uint64)stack_limits.rlim_cur, (uint64)stack_limits.rlim_max, (uint64)RLIM_INFINITY);
 
 	if (stack_limits.rlim_cur == stack_limits.rlim_max)
 		return;
@@ -1909,8 +1909,8 @@ void set_stacklimit_restart(char *argv[])
 		fprintf(stderr, "Call to setrlimit() failed.\n");
 		ASSERT(0, "Exiting.");
 	}
-	printf("New stack_limits: cur = %zu, max = %zu\n",
-	       stack_limits.rlim_cur, stack_limits.rlim_max);
+	printf("New stack_limits: cur = %" PRIu64 ", max = %" PRIu64 "\n",
+	       (uint64)stack_limits.rlim_cur, (uint64)stack_limits.rlim_max);
 
 	if(execvp(argv[0], argv)) {
 		fprintf(stderr, "Call to execvp() failed.\n");
@@ -2395,10 +2395,12 @@ For the purpose of completeness, the other FPU control bits are as follows
 	#ifdef USE_SSE2
 		int oldMXCSR, newMXCSR;
 	#endif
-	#ifdef CPU_IS_IA64
+	#if(FP_MANTISSA_BITS_DOUBLE == 64)	// FPUCTRL is only used in the x87 extended-precision branch below
+	  #ifdef CPU_IS_IA64
 		int64 FPUCTRL;
-	#else
+	  #else
 		unsigned short FPUCTRL;
+	  #endif
 	#endif
 		ASSERT((FPU_MODE == FPU_64RND) || (FPU_MODE == FPU_64CHOP), "Illegal value of FPU_MODE");
 
@@ -9058,7 +9060,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)(intptr_t)status);
 					isum += retval[tid];
 				}
 			}
@@ -9084,7 +9086,7 @@ exit(0);
 						printf("ERROR; return code from pthread_join() is %d\n", rc);
 						exit(-1);
 					}
-					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)status);
+					if(verbose) printf("Main: completed join with thread %d having a status of %" PRId64 "\n",tid,(int64)(intptr_t)status);
 					isum += retval[tid];
 				}
 			}

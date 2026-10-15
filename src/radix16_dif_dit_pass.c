@@ -169,7 +169,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	int j2;
 #endif
 	int p1,p2,p3,p4,p8,p12;
-#if !defined(USE_SSE2) || defined(USE_AVX512)
+#if !defined(USE_SSE2) || (defined(USE_AVX512) && !defined(USE_IMCI512))
 	double rt,it;
 #endif
 #if defined(MULTITHREAD) && defined(USE_SSE2)
@@ -2046,7 +2046,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 	int j2;
 #endif
 	int p1,p2,p3,p4,p8,p12;
-#if !defined(USE_SSE2) || defined(USE_AVX512)
+#if !defined(USE_SSE2) || (defined(USE_AVX512) && !defined(USE_IMCI512))
 	double rt,it;
 #endif
 	double re0,im0,re1,im1;
