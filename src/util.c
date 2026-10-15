@@ -2391,10 +2391,12 @@ For the purpose of completeness, the other FPU control bits are as follows
 	#ifdef USE_SSE2
 		int oldMXCSR, newMXCSR;
 	#endif
-	#ifdef CPU_IS_IA64
+	#if(FP_MANTISSA_BITS_DOUBLE == 64)	// FPUCTRL is only used in the x87 extended-precision branch below
+	  #ifdef CPU_IS_IA64
 		int64 FPUCTRL;
-	#else
+	  #else
 		unsigned short FPUCTRL;
+	  #endif
 	#endif
 		ASSERT((FPU_MODE == FPU_64RND) || (FPU_MODE == FPU_64CHOP), "Illegal value of FPU_MODE");
 

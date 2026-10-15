@@ -290,7 +290,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	int idx_offset,idx_incr;
   #endif
 	static int cslots_in_local_store;
-  #ifdef USE_AVX2
+  #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
 	static vec_dbl *one = 0x0, one_dat;
   #endif
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
@@ -311,7 +311,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
 	double *add0,*add1,*add2,*add3;
-   #ifdef USE_AVX2
+   #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
 	double *add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
    #endif
   #endif	// MULTITHREAD
@@ -3286,7 +3286,7 @@ void radix1024_dit_pass1(double a[], int n)
 		const double crnd = 3.0*0x4000000*0x2000000;
 	  #endif
 		double *add0,*add1,*add2,*add3;
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
 		double *add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
 	  #endif
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff

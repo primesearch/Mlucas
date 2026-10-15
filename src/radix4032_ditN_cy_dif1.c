@@ -186,7 +186,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #ifdef USE_SSE2
 	int nbytes;
 #endif
-#if defined(MULTITHREAD) || defined(USE_SSE2)
+#ifdef USE_SSE2	// Only the SIMD carry code uses the pointerized modulus; scalar mode reduces mod nwt
 	uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 #endif
 
