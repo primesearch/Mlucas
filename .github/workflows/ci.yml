@@ -1074,15 +1074,32 @@ jobs:
         if-no-files-found: warn
 
   Strict-aliasing:
-    name: Strict-aliasing check
+    name: Strict-aliasing check (${{ matrix.name }})
 
-    # Builds every translation unit in each x86 SIMD mode, and the Mfactor sources for each word
-    # size, with gcc's -Wstrict-aliasing=2, and fails on any warning. The level matters: the default
-    # level that -Wall enables reports none of the violations this tree has had. See the script.
-    runs-on: ubuntu-latest
+    # Builds every translation unit in each SIMD mode, multithreaded and single-threaded, and the
+    # Mfactor sources for each word size, with gcc's -Wstrict-aliasing=2, and fails on any warning. The
+    # level matters: the default level that -Wall enables reports none of the violations this tree has
+    # had. See the script.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - name: x86-64
+            os: ubuntu-latest
+          - name: 32-bit x86
+            os: ubuntu-latest
+            args: --m32
+          - name: Arm
+            os: ubuntu-24.04-arm
+      fail-fast: false
     steps:
     - uses: actions/checkout@v7
+    - name: Install
+      if: ${{ matrix.args == '--m32' }}
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y gcc-multilib
     - name: Check
       run: |
         gcc --version
-        bash -- .github/scripts/strict-aliasing-check.sh
+        bash -- .github/scripts/strict-aliasing-check.sh ${{ matrix.args }}
