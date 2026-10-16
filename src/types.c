@@ -31,21 +31,21 @@ const uint96  NIL96  = {(uint64)0, (uint32)0};
 const uint96  ONE96  = {(uint64)1, (uint32)0};
 const uint96  TWO96  = {(uint64)2, (uint32)0};
 
-const uint128 NIL128 = {(uint64)0, (uint64)0};
-const uint128 ONE128 = {(uint64)1, (uint64)0};
-const uint128 TWO128 = {(uint64)2, (uint64)0};
+const uint128 NIL128 = {{(uint64)0, (uint64)0}};
+const uint128 ONE128 = {{(uint64)1, (uint64)0}};
+const uint128 TWO128 = {{(uint64)2, (uint64)0}};
 
-const uint160 NIL160 = {(uint64)0, (uint64)0, (uint32)0};
-const uint160 ONE160 = {(uint64)1, (uint64)0, (uint32)0};
-const uint160 TWO160 = {(uint64)2, (uint64)0, (uint32)0};
+const uint160 NIL160 = {{(uint64)0, (uint64)0, (uint32)0}};
+const uint160 ONE160 = {{(uint64)1, (uint64)0, (uint32)0}};
+const uint160 TWO160 = {{(uint64)2, (uint64)0, (uint32)0}};
 
-const uint192 NIL192 = {(uint64)0, (uint64)0, (uint64)0};
-const uint192 ONE192 = {(uint64)1, (uint64)0, (uint64)0};
-const uint192 TWO192 = {(uint64)2, (uint64)0, (uint64)0};
+const uint192 NIL192 = {{(uint64)0, (uint64)0, (uint64)0}};
+const uint192 ONE192 = {{(uint64)1, (uint64)0, (uint64)0}};
+const uint192 TWO192 = {{(uint64)2, (uint64)0, (uint64)0}};
 
-const uint256 NIL256 = {(uint64)0, (uint64)0, (uint64)0, (uint64)0};
-const uint256 ONE256 = {(uint64)1, (uint64)0, (uint64)0, (uint64)0};
-const uint256 TWO256 = {(uint64)2, (uint64)0, (uint64)0, (uint64)0};
+const uint256 NIL256 = {{(uint64)0, (uint64)0, (uint64)0, (uint64)0}};
+const uint256 ONE256 = {{(uint64)1, (uint64)0, (uint64)0, (uint64)0}};
+const uint256 TWO256 = {{(uint64)2, (uint64)0, (uint64)0, (uint64)0}};
 
 const uint512 NIL512 = {(uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
 const uint512 ONE512 = {(uint64)1, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
