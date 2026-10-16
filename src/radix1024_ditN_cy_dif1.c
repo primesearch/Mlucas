@@ -291,7 +291,9 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
   #endif
 	static int cslots_in_local_store;
   #if defined(USE_AVX2) && !defined(USE_IMCI512)	// as at the uses: k1om takes the other path
-	static vec_dbl *one = 0x0, one_dat;
+	// one_dat is read by FMA_TWIDDLE_FIDDLE with a 256-bit aligned load. struct double_x4 (the AVX vec_dbl) only
+	// carries aligned(16), so without an explicit 32 here the object is 32-byte aligned only by luck of placement:
+	static vec_dbl *one = 0x0, one_dat __attribute__ ((aligned (32)));
   #endif
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
