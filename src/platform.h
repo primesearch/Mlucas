@@ -1313,6 +1313,11 @@ extern int NTHREADS;
 	#include <sys/sysctl.h>
 #endif
 
+// Single-threaded builds need <unistd.h> too, e.g. for sysconf() in util.c::get_system_ram:
+#ifdef OS_POSIX_COMPLIANT
+	#include <unistd.h>
+#endif
+
 #ifdef USE_THREADS
 
   #if defined(COMPILER_TYPE_GCC) && defined(OS_POSIX_COMPLIANT)
@@ -1370,7 +1375,6 @@ extern int NTHREADS;
 		#endif
 		#include <sched.h>
 
-		#include <unistd.h>	// Needed for Posix sleep() command, among other things
 		#if defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 
 			// These additional Linux-only includes make sure __NR_gettid, used in our syscall-based get-thread-ID, is defined:
