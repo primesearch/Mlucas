@@ -216,24 +216,19 @@ jobs:
                 (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
             done
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # The same tests as the multithreaded jobs' ladder, run as independent single-threaded
+        # processes, one per core: this build can only keep one core busy, so running them in turn
+        # left the rest of the runner idle. See .github/scripts/singlethread-tests.sh.
+        # Mfactor runs on one build only. The explicit-ISA builds above are for compile coverage: a
+        # runner may not be able to execute what they target. On ARM the native build is ASIMD,
+        # whose trial-factoring routines are stubs - twopmodq80.c's "No TF support on ARMv8!" lives
+        # under #ifdef USE_ARM_V8_SIMD - so the Fermat and Mfactor runs use the NOSIMD build there,
+        # which takes the scalar paths and self-tests normally.
         if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_NOSIMD
+            bash .github/scripts/singlethread-tests.sh obj obj_NOSIMD _NOSIMD
+        else
+            bash .github/scripts/singlethread-tests.sh obj obj -
         fi
-        bash -e -o pipefail -- ../config-fermat.sh
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -244,6 +239,10 @@ jobs:
           obj*/mlucas.cfg
           obj*/config-fermat.log
           obj*/fermat.cfg
+          selftest-par/*/task.log
+          selftest-par/*/mlucas.cfg
+          selftest-par/*/config-fermat.log
+          selftest-par/*/fermat.cfg
         if-no-files-found: warn
 
   Linux-old:
@@ -639,24 +638,19 @@ jobs:
                 (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
             done
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
+        # The same tests as the multithreaded jobs' ladder, run as independent single-threaded
+        # processes, one per core: this build can only keep one core busy, so running them in turn
+        # left the rest of the runner idle. See .github/scripts/singlethread-tests.sh.
+        # Mfactor runs on one build only. The explicit-ISA builds above are for compile coverage: a
+        # runner may not be able to execute what they target. On ARM the native build is ASIMD,
+        # whose trial-factoring routines are stubs - twopmodq80.c's "No TF support on ARMv8!" lives
+        # under #ifdef USE_ARM_V8_SIMD - so the Fermat and Mfactor runs use the NOSIMD build there,
+        # which takes the scalar paths and self-tests normally.
         if [[ $HOSTTYPE == arm64 ]]; then
-            cd ../obj_NOSIMD
+            bash .github/scripts/singlethread-tests.sh obj obj_NOSIMD _NOSIMD
+        else
+            bash .github/scripts/singlethread-tests.sh obj obj -
         fi
-        bash -e -o pipefail -- ../config-fermat.sh
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == arm64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -667,6 +661,10 @@ jobs:
           obj*/mlucas.cfg
           obj*/config-fermat.log
           obj*/fermat.cfg
+          selftest-par/*/task.log
+          selftest-par/*/mlucas.cfg
+          selftest-par/*/config-fermat.log
+          selftest-par/*/fermat.cfg
         if-no-files-found: warn
 
   ASan-macOS:
