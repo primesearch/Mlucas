@@ -98,7 +98,7 @@ jobs:
         if [[ $HOSTTYPE == aarch64 ]]; then
             TEST_DIRS=( obj ); MF_SUFFIXES=( NOSIMD )
         else
-            TEST_DIRS=( obj_NOSIMD obj_SSE2 obj_AVX obj_AVX2 obj_AVX512 ); MF_SUFFIXES=( SSE2 AVX AVX2 AVX512 )
+            TEST_DIRS=( obj_NOSIMD obj_SSE2 obj_AVX obj_AVX2 obj_AVX512 ); MF_SUFFIXES=( NOSIMD SSE2 AVX AVX2 AVX512 )
         fi
         for d in "${TEST_DIRS[@]}"; do
             mkdir -p "stage/$d"
@@ -183,11 +183,14 @@ jobs:
             if [[ $TEST_ISA != AVX512 ]]; then
                 echo "::warning::This runner has no AVX-512, so the AVX512 build is not tested here."
             fi
-            # Every ISA below the best one gets a quick self-test pass, so the scalar, SSE2 and AVX
-            # code paths run too. The full test set below runs on the best ISA only.
+            # Every ISA below the best one gets a quick self-test pass and the Mfactor runs, so the
+            # scalar, SSE2 and AVX code paths run too. The full test set below runs on the best ISA only.
             for isa in NOSIMD SSE2 AVX AVX2 AVX512; do
                 [[ $isa == "$TEST_ISA" ]] && break
                 (cd "obj_$isa" && for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done)
+                for word in '' {{1..4},n}word; do
+                    (cd "obj_$isa" && time "../obj_mfac${word:+_$word}_$isa/Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
             done
         fi
         cd "$TEST_DIR"
