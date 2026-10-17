@@ -235,7 +235,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			nradices_radix0 = 5;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default :
-			sprintf(char_str, "radix[0] = %d not available.\n",RADIX_VEC[i]);
+			sprintf(char_str, "radix[0] = %d not available.\n",radix_vec0);
 			ASSERT(0, char_str);
 		}
 
