@@ -161,7 +161,7 @@ uint256 twopmmodq256(uint256 p, uint256 q)
 	at present don't care about optimizing this rarely-used function. */
 	// First compute R^2 (mod q) in prep. for Mont-mul with initial seed:
 	uint64 vtmp[9] = {0ull,0ull,0ull,0ull,0ull,0ull,0ull,0ull,1ull};	// R^2 = 2^384
-	mi64_div_binary((const uint64*)vtmp, (const uint64*)&q, 9,4, 0x0, (uint32*)&j, (uint64*)&rsqr);
+	mi64_div_binary((const uint64*)vtmp, q.w, 9,4, 0x0, (uint32*)&j, rsqr.w);
 
 	// If leadb = 256, x = 2^256 = R, thus rsqr holds our desired starting value for x:
 	if(leadb == 256)
@@ -233,7 +233,7 @@ uint256 twopmodq256(uint256 p, uint256 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint256 qhalf, qinv, x, lo, hi;
-	static uint256 psave = {0ull, 0ull, 0ull, 0ull}, pshift;
+	static uint256 psave = {{0ull, 0ull, 0ull, 0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT;
 	if(p.d3 != 0ull)

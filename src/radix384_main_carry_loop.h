@@ -158,7 +158,7 @@ if(tid == 1) {
 	#else	/* !USE_SSE2 */
 
 	/*...gather the needed data (384 64-bit complex) and do 3 radix-128 transforms,	*/
-		RADIX_128_DIT((a+j1     ),dit_i_offsets      ,RE_IM_STRIDE, (double *)(t+0x000),dit_o_offsets,1);	// Outputs in t[ 00- 7f]
+		RADIX_128_DIT((a+j1     ),dit_i_offsets      ,RE_IM_STRIDE, t_u.d,dit_o_offsets,1);	// Outputs in t[ 00- 7f]
 		RADIX_128_DIT((a+j1+p080),dit_i_offsets+0x080,RE_IM_STRIDE, (double *)(t+0x080),dit_o_offsets,1);	// Outputs in t[ 80- ff]
 		RADIX_128_DIT((a+j1+p100),dit_i_offsets+0x100,RE_IM_STRIDE, (double *)(t+0x100),dit_o_offsets,1);	// Outputs in t[100-17f]
 /******************* AVX debug stuff: *******************/
@@ -716,7 +716,7 @@ if(tid == 1) {
 #endif
 /********************************************************/
 	/*...and now do 3 radix-128 transforms: */
-		RADIX_128_DIF((double *)(t+0x000),dif_i_offsets,1, (a+j1     ),dif_o_offsets      ,RE_IM_STRIDE);	// Inputs in t[ 00- 7f]
+		RADIX_128_DIF(t_u.d,dif_i_offsets,1, (a+j1     ),dif_o_offsets      ,RE_IM_STRIDE);	// Inputs in t[ 00- 7f]
 		RADIX_128_DIF((double *)(t+0x080),dif_i_offsets,1, (a+j1+p100),dif_o_offsets+0x080,RE_IM_STRIDE);	// Inputs in t[ 80- ff]
 		RADIX_128_DIF((double *)(t+0x100),dif_i_offsets,1, (a+j1+p080),dif_o_offsets+0x100,RE_IM_STRIDE);	// Inputs in t[100-17f]
 

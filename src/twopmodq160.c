@@ -46,7 +46,7 @@ uint64 twopmodq160(uint64 *p_in, uint64 k)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint160 p /*= {p_in[0],p_in[1],p_in[2]}*/, q, qhalf, qinv, x, lo, hi;	// MSVC gives "illegal initialization" error for this p-init...
-	static uint160 psave = {0ull,0ull,0ull}, pshift;
+	static uint160 psave = {{0ull,0ull,0ull}}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	p.d0 = p_in[0];	p.d1 = p_in[1];	p.d2 = p_in[2];	// ... so do it the hard way here.
 #if FAC_DEBUG
@@ -67,7 +67,7 @@ if(dbg)printf("twopmodq160:\n");
 #endif
 	ASSERT((p.d2 == 0) && (p.d1 >> 63) == 0, "p must be < 2^127!");
 	ADD128(p,p, q);
-	q.d2 = mi64_mul_scalar((uint64 *)&q, k, (uint64 *)&q, 2);
+	q.d2 = mi64_mul_scalar(q.w, k, q.w, 2);
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST160(q, 1, qhalf);	/* = (q-1)/2, since q odd. */

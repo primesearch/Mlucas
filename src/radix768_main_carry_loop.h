@@ -146,7 +146,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/*...gather the needed data (768 64-bit complex) and do 3 radix-256 transforms,	*/
 
-		RADIX_256_DIT((a+j1     ),RE_IM_STRIDE,(int *)(dit_offsets_lo+0x00),dit_idx1,dit_offsets_hi1, (double *)(t+0x000),1,t_offsets_lo,t_offsets_hi);	/* Outputs in t[ 00- ff] */
+		RADIX_256_DIT((a+j1     ),RE_IM_STRIDE,(int *)(dit_offsets_lo+0x00),dit_idx1,dit_offsets_hi1, t_u.d,1,t_offsets_lo,t_offsets_hi);	/* Outputs in t[ 00- ff] */
 		RADIX_256_DIT((a+j1+p200),RE_IM_STRIDE,(int *)(dit_offsets_lo+0x20),dit_idx2,dit_offsets_hi2, (double *)(t+0x100),1,t_offsets_lo,t_offsets_hi);	/* Outputs in t[100-1ff] */
 		RADIX_256_DIT((a+j1+p100),RE_IM_STRIDE,(int *)(dit_offsets_lo+0x40),dit_idx3,dit_offsets_hi3, (double *)(t+0x200),1,t_offsets_lo,t_offsets_hi);	/* Outputs in t[200-2ff] */
 
@@ -652,7 +652,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/*...and now do 3 radix-256 transforms: */
 
-		RADIX_256_DIF((double *)(t+0x000),1,t_offsets_lo,t_offsets_hi, (a+j1     ),RE_IM_STRIDE,dif_offsets_lo,dif_idx1,dif_offsets_hi1);	/* Inputs in t[ 00- ff] */
+		RADIX_256_DIF(t_u.d,1,t_offsets_lo,t_offsets_hi, (a+j1     ),RE_IM_STRIDE,dif_offsets_lo,dif_idx1,dif_offsets_hi1);	/* Inputs in t[ 00- ff] */
 		RADIX_256_DIF((double *)(t+0x100),1,t_offsets_lo,t_offsets_hi, (a+j1+p200),RE_IM_STRIDE,dif_offsets_lo,dif_idx2,dif_offsets_hi2);	/* Inputs in t[100-1ff] */
 		RADIX_256_DIF((double *)(t+0x200),1,t_offsets_lo,t_offsets_hi, (a+j1+p100),RE_IM_STRIDE,dif_offsets_lo,dif_idx3,dif_offsets_hi3);	/* Inputs in t[200-2ff] */
 

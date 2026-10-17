@@ -195,7 +195,7 @@ that don't correctly inline the macro form of these.
 /* Really dumb-but-reliable wide-mul emulation, using bitwise multiword add-and-accumulate: */
 void mul_lohi64_via_bitwise_add(uint64 x, uint64 y, uint64 *lo, uint64 *hi)
 {
-	uint128 product = {0ull, 0ull}, yshift;
+	uint128 product = {{0ull, 0ull}}, yshift;
 	yshift.d0 = y;
 	yshift.d1 = 0ull;
 	while(x)
