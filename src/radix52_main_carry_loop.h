@@ -214,6 +214,13 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  if(inc_arr[0]) {	// Have no specialized HIACC carry macro in AVX-512, so use 0-or-not-ness of the low
 						// inc_arr element to divert non-AVX512 builds to 'else' clause of if() in HIACC mode.
+	  #ifdef USE_AVX512
+		// AVX-512 has no HIACC carry macro. Its LOACC macros chain the DWT weights from one carry-macro call to the next
+		// via multiply-by-wts_mult, and the roundoff that accumulates along that chain adds ~0.05-0.1 to the per-iteration
+		// max ROE versus the AVX2 build's HIACC macro. So in HIACC mode, instead re-init exact weights from the wt0,wt1
+		// tables before every carry-macro call, in the same way as the inc_arr[]-driven re-inits in e.g. radix176:
+		const int reseed = (USE_SHORT_CY_CHAIN >= USE_SHORT_CY_CHAIN_MAX), co2save = co2;
+	  #endif
 		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -229,6 +236,14 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < RADIX>>3; l++) {
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l+l];
+		  #ifdef USE_AVX512
+			if(reseed && l) {	// Weights for the l = 0 call were inited above
+				add1 = &wt1[col      +8*l];
+				add2 = &wt1[co2save-1-8*l];
+				add3 = &wt1[co3    -1-8*l];
+				AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, itmp, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
+			}
+		  #endif
 		  #ifdef USE_AVX512	// In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwie-unused sse2_rnd vec_dbl:
 			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr);
 			tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
@@ -241,10 +256,26 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add0 = a + j1 + pfetch_dist + poff[l+l];
 	   #ifdef USE_AVX512
 		// AVX-512 mode calls this macro twice, with Call 2ptr-offsets fiddled as described in comments to that version of the macro:
+		if(reseed) {
+			// Re-init the weights for indices 44-51 rather than 48-55: that keeps the wt1[] and bjmodn[] reads in bounds and puts
+			// the 48-51 weights in the d4-7 slots, which the two X4 calls read via a +0x20 offset on the weights-data byte offsets.
+			// wtsinit does an aligned 32-byte load of its 8 bjmodn values, and bjmodn+44 is only 16-byte aligned, so use an aligned copy:
+			int bjmodn_rs[8] __attribute__ ((aligned (32))), *itmp_rs = bjmodn_rs;
+			for(int ir = 0; ir < 8; ir++) { bjmodn_rs[ir] = bjmodn[RADIX-8+ir]; }
+			add1 = &wt1[col      +RADIX-8];
+			add2 = &wt1[co2save-1-RADIX+8];
+			add3 = &wt1[co3    -1-RADIX+8];
+			AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, itmp_rs, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
+			AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x020, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
+			add0 += p04;				// prefetch of a + [prefetch offset] + p4,5,6,7
+			tmp  = (vec_dbl *)((double *)tmp +  4);	// Call 2 will handle the .d4-7 doubles of our 4 input zmm register-sized vector data
+			AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x820, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
+		} else {
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x000, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 += p04;				// prefetch of a + [prefetch offset] + p4,5,6,7
 		tmp  = (vec_dbl *)((double *)tmp +  4);	// Call 2 will handle the .d4-7 doubles of our 4 input zmm register-sized vector data
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x800, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);	// Call 2 wts-data pointers += 0x400
+		}
 	   #else
 		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,i,     sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 	   #endif
