@@ -1749,7 +1749,7 @@ for(outer=0; outer <= 1; outer++)
 		khi = n_div_nwt/CY_THREADS;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			if(!full_pass)
 				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;
 			else
@@ -1766,7 +1766,7 @@ for(outer=0; outer <= 1; outer++)
 		khi = 1;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+			_jstart[ithread] = ithread*(NDIVR/CY_THREADS);
 			if(!full_pass)
 				_jhi[ithread] = _jstart[ithread] + jhi_wrap_ferm;
 			else
