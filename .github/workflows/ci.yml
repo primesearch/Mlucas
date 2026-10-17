@@ -12,6 +12,7 @@ on:
       - 'docs/**'
       - 'LICENSE'
       - 'help.txt'
+      - 'src/**/*.c.txt'
   schedule:
     - cron: '0 0 1 * *'
 
