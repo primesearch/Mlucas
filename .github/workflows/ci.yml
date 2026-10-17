@@ -96,7 +96,7 @@ jobs:
         # Only what the test job runs is uploaded. Compile-only builds stay on this runner.
         # x86 ships every ISA build; the test job runs the best one its runner supports.
         if [[ $HOSTTYPE == aarch64 ]]; then
-            TEST_DIRS=( obj ); MF_SUFFIXES=( NOSIMD )
+            TEST_DIRS=( obj obj_NOSIMD ); MF_SUFFIXES=( NOSIMD )
         else
             TEST_DIRS=( obj_NOSIMD obj_SSE2 obj_AVX obj_AVX2 obj_AVX512 ); MF_SUFFIXES=( NOSIMD SSE2 AVX AVX2 AVX512 )
         fi
