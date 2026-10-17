@@ -495,16 +495,18 @@ jobs:
         if-no-files-found: error
 
   ASan-Linux-test:
-    name: AddressSanitizer Linux test
+    name: AddressSanitizer Linux test (${{ matrix.part }}, ${{ matrix.cc }})
 
     needs: ASan-Linux-build
     runs-on: ubuntu-latest
     strategy:
       matrix:
         cc: [gcc, clang]
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      PART: ${{ matrix.part }}
     steps:
     - uses: actions/checkout@v7
     - name: Install
@@ -524,12 +526,25 @@ jobs:
       run: |
         set -x
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
+        case "$PART" in
+          selftest-short)
+            for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+            ;;
+          selftest-m)
+            time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))"
+            ;;
+          prp)
+            for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+            ;;
+          fermat)
+            bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+            ;;
+          mfactor)
+            for word in '' {{1..4},n}word; do
+                (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            done
+            ;;
+        esac
 
   TSan-Linux:
     name: ThreadSanitizer Linux
