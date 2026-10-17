@@ -60,11 +60,7 @@ if(dbg)printf("twopmodq128_96:\n");
 
 	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;	q.d1 = 0;
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(q.d0, k,&q.d0,&q.d1);
-#else
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
-#endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	ASSERT((q.d1 >> 32) == 0, "(q.d1 >> 32) != 0");
 
@@ -136,12 +132,8 @@ if(dbg)printf("twopmodq128_96:\n");
 	MULL128(qinv, x, x);
 #endif
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, hi64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-#endif
 
 #if FAC_DEBUG
 	ASSERT(qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq128_96 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
@@ -301,17 +293,10 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
 	q0.d1 = q1.d1 = q2.d1 = q3.d1 = 0;
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(q0.d0, k0,&q0.d0,&q0.d1);
-	MUL_LOHI64(q1.d0, k1,&q1.d0,&q1.d1);
-	MUL_LOHI64(q2.d0, k2,&q2.d0,&q2.d1);
-	MUL_LOHI64(q3.d0, k3,&q3.d0,&q3.d1);
-#else
 	MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 	MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 	MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-#endif
 	ASSERT((q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
 	ASSERT((q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
 	ASSERT((q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
@@ -348,12 +333,6 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, hi0);
 	MULH64(q1.d0, qinv1.d0, hi1);
 	MULH64(q2.d0, qinv2.d0, hi2);
@@ -363,7 +342,6 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + hi1);
 	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + hi2);
 	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + hi3);
-#endif
 
 #if FAC_DEBUG
 	if(dbg) printf("q    = %s\n", &char_buf[convert_uint128_base10_char(char_buf, q0   )]);
@@ -641,16 +619,6 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
 	q0.d1 = q1.d1 = q2.d1 = q3.d1 = q4.d1 = q5.d1 = q6.d1 = q7.d1 = 0;
-#ifdef MUL_LOHI64_SUBROUTINE
-	MUL_LOHI64(q0.d0, k0,&q0.d0,&q0.d1);
-	MUL_LOHI64(q1.d0, k1,&q1.d0,&q1.d1);
-	MUL_LOHI64(q2.d0, k2,&q2.d0,&q2.d1);
-	MUL_LOHI64(q3.d0, k3,&q3.d0,&q3.d1);
-	MUL_LOHI64(q4.d0, k4,&q4.d0,&q4.d1);
-	MUL_LOHI64(q5.d0, k5,&q5.d0,&q5.d1);
-	MUL_LOHI64(q6.d0, k6,&q6.d0,&q6.d1);
-	MUL_LOHI64(q7.d0, k7,&q7.d0,&q7.d1);
-#else
 	MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 	MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
@@ -659,7 +627,6 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	MUL_LOHI64(q5.d0, k5, q5.d0, q5.d1);
 	MUL_LOHI64(q6.d0, k6, q6.d0, q6.d1);
 	MUL_LOHI64(q7.d0, k7, q7.d0, q7.d1);
-#endif
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
@@ -723,16 +690,6 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	}
 
 	/* qinv has 128 bits, but only the upper 64 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-	qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-	qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-	qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-#else
 	MULH64(q0.d0, qinv0.d0, hi0);
 	MULH64(q1.d0, qinv1.d0, hi1);
 	MULH64(q2.d0, qinv2.d0, hi2);
@@ -750,7 +707,6 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + hi5);
 	qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + hi6);
 	qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + hi7);
-#endif
 
 	/* Since zstart is a power of two < 2^128, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;

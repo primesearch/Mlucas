@@ -66,12 +66,7 @@ other compiler or configuration is affected. */
 		uint64 hi64;
 		uint96 q, qhalf, qinv, x, lo, hi;
 		q.d0 = (uint64)p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-	#else
 		MUL_LOHI64(q.d0, k, q.d0, q.d1);
-	#endif
 		q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		RSHIFT_FAST96(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -90,12 +85,8 @@ other compiler or configuration is affected. */
 		qinv.d0 = qinv.d0*((uint64)2 - hi64);
 		// Now that have bottom 64 bits of qinv, do one more Newton iteration using full 96-bit operands:
 		// qinv has 96 bits, but only the upper 32 get modified here:
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-	#else
 		MULH64(q.d0, qinv.d0, hi64);
 		qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-	#endif
 
 		/* Since zstart is a power of two < 2^96, use a streamlined code sequence for the first iteration: */
 		j = start_index-1;
@@ -245,12 +236,7 @@ if(dbg)printf("twopmodq96:\n");
 #endif
 	ASSERT((p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;
-#ifdef MUL_LOHI64_SUBROUTINE
-	// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-	MUL_LOHI64(q.d0, k,&q.d0,&hi64);	q.d1 = hi64;
-#else
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
-#endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 
 	RSHIFT_FAST96(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
@@ -304,12 +290,8 @@ if(dbg)printf("twopmodq96:\n");
 	ASSERT(x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0, "x.d1 == (y.d1 & 0x00000000ffffffff) && x.d0 == y.d0");
 #endif
 	/* qinv has 96 bits, but only the upper 32 get modified here. */
-#ifdef MUL_LOHI64_SUBROUTINE
-	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
-#else
 	MULH64(q.d0, qinv.d0, hi64);
 	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + hi64);
-#endif
 	qinv.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 
 #ifdef FAC_DEBUG
@@ -1126,18 +1108,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 		MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
-	#endif
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
 		q2.d0 += 1;
@@ -1200,12 +1174,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		using full 96-bit operands. See twopmodq96 for details on streamlining here.
 		*/
 		/* qinv has 96 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -1220,7 +1188,6 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		qinv1.d1 &= 0x00000000ffffffff;
 		qinv2.d1 &= 0x00000000ffffffff;
 		qinv3.d1 &= 0x00000000ffffffff;
-	#endif
 	  #ifdef FAC_DEBUG
 		if(dbg)
 		{
@@ -2123,17 +2090,6 @@ exit(0);
 
 		ASSERT((p >> 63) == 0, "p must be < 2^63!");
 		q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
-	#ifdef MUL_LOHI64_SUBROUTINE
-		// MUL_LOHI64 expects a 64-bit high-part pointer, in 32bit builds this buggers us if we try dumping hi-part directly into 32-bit q.d1
-		MUL_LOHI64(q0.d0, k0,&q0.d0,&tmp0);	q0.d1 = tmp0;
-		MUL_LOHI64(q1.d0, k1,&q1.d0,&tmp0);	q1.d1 = tmp0;
-		MUL_LOHI64(q2.d0, k2,&q2.d0,&tmp0);	q2.d1 = tmp0;
-		MUL_LOHI64(q3.d0, k3,&q3.d0,&tmp0);	q3.d1 = tmp0;
-		MUL_LOHI64(q4.d0, k4,&q4.d0,&tmp0);	q4.d1 = tmp0;
-		MUL_LOHI64(q5.d0, k5,&q5.d0,&tmp0);	q5.d1 = tmp0;
-		MUL_LOHI64(q6.d0, k6,&q6.d0,&tmp0);	q6.d1 = tmp0;
-		MUL_LOHI64(q7.d0, k7,&q7.d0,&tmp0);	q7.d1 = tmp0;
-	#else
 		MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 		MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 		MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
@@ -2142,7 +2098,6 @@ exit(0);
 		MUL_LOHI64(q5.d0, k5, q5.d0, q5.d1);
 		MUL_LOHI64(q6.d0, k6, q6.d0, q6.d1);
 		MUL_LOHI64(q7.d0, k7, q7.d0, q7.d1);
-	#endif
 
 		q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 		q1.d0 += 1;
@@ -2217,16 +2172,6 @@ exit(0);
 		using full 96-bit operands. See twopmodq96 for details on streamlining here.
 		*/
 		/* qinv has 96 bits, but only the upper 64 get modified here. */
-	#ifdef MUL_LOHI64_SUBROUTINE
-		qinv0.d1 = -qinv0.d0*(q0.d1*qinv0.d0 + __MULH64(q0.d0, qinv0.d0));
-		qinv1.d1 = -qinv1.d0*(q1.d1*qinv1.d0 + __MULH64(q1.d0, qinv1.d0));
-		qinv2.d1 = -qinv2.d0*(q2.d1*qinv2.d0 + __MULH64(q2.d0, qinv2.d0));
-		qinv3.d1 = -qinv3.d0*(q3.d1*qinv3.d0 + __MULH64(q3.d0, qinv3.d0));
-		qinv4.d1 = -qinv4.d0*(q4.d1*qinv4.d0 + __MULH64(q4.d0, qinv4.d0));
-		qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + __MULH64(q5.d0, qinv5.d0));
-		qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + __MULH64(q6.d0, qinv6.d0));
-		qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + __MULH64(q7.d0, qinv7.d0));
-	#else
 		MULH64(q0.d0, qinv0.d0, tmp0);
 		MULH64(q1.d0, qinv1.d0, tmp1);
 		MULH64(q2.d0, qinv2.d0, tmp2);
@@ -2244,7 +2189,6 @@ exit(0);
 		qinv5.d1 = -qinv5.d0*(q5.d1*qinv5.d0 + tmp5);
 		qinv6.d1 = -qinv6.d0*(q6.d1*qinv6.d0 + tmp6);
 		qinv7.d1 = -qinv7.d0*(q7.d1*qinv7.d0 + tmp7);
-	#endif
 		qinv0.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 		qinv1.d1 &= 0x00000000ffffffff;
 		qinv2.d1 &= 0x00000000ffffffff;
