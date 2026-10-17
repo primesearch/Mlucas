@@ -84,6 +84,13 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux-build-logs_${{ matrix.os }}_${{ matrix.cc }}
+        path: obj*/build.log
+        if-no-files-found: warn
     - name: Stage test binaries
       run: |
         # Only what the test job runs is uploaded. Compile-only builds stay on this runner.
@@ -157,7 +164,6 @@ jobs:
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
