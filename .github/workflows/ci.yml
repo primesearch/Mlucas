@@ -94,16 +94,22 @@ jobs:
     - name: Stage test binaries
       run: |
         # Only what the test job runs is uploaded. Compile-only builds stay on this runner.
-        if [[ $HOSTTYPE == aarch64 ]]; then TEST_DIRS=( obj obj_NOSIMD ); MF_MODE=NOSIMD; else TEST_DIRS=( obj ); MF_MODE=; fi
+        # x86 ships every ISA build; the test job runs the best one its runner supports.
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            TEST_DIRS=( obj ); MF_SUFFIXES=( NOSIMD )
+        else
+            TEST_DIRS=( obj_SSE2 obj_AVX obj_AVX2 obj_AVX512 ); MF_SUFFIXES=( SSE2 AVX AVX2 AVX512 )
+        fi
         for d in "${TEST_DIRS[@]}"; do
             mkdir -p "stage/$d"
             cp -p "$d/Mlucas" "stage/$d/"
-            cp -p "$d/build.log" "stage/$d/" || true
         done
-        for word in '' {{1..4},n}word; do
-            d="obj_mfac${word:+_$word}${MF_MODE:+_$MF_MODE}"
-            mkdir -p "stage/$d"
-            cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+        for sfx in "${MF_SUFFIXES[@]}"; do
+            for word in '' {{1..4},n}word; do
+                d="obj_mfac${word:+_$word}_$sfx"
+                mkdir -p "stage/$d"
+                cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+            done
         done
     - name: Upload build
       uses: actions/upload-artifact@v7
@@ -137,13 +143,48 @@ jobs:
         name: linux-build_${{ matrix.os }}_${{ matrix.cc }}
     - name: Restore executable bits
       run: chmod +x obj*/Mlucas obj*/Mfactor*
+    - name: Detect CPU
+      run: |
+        # Compile a probe with this job's compiler and pick the best ISA this runner supports.
+        # Mirrors makemake.sh's detection: AVX-512F and AVX-512CD, then AVX2, AVX, SSE2.
+        cat > isa_probe.c <<'EOF'
+        #include <stdio.h>
+
+        int main(void)
+        {
+        #if defined(__x86_64__) || defined(__i386__)
+            __builtin_cpu_init();
+            if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd"))
+                puts("AVX512");
+            else if (__builtin_cpu_supports("avx2"))
+                puts("AVX2");
+            else if (__builtin_cpu_supports("avx"))
+                puts("AVX");
+            else
+                puts("SSE2");
+        #else
+            puts("ASIMD");
+        #endif
+            return 0;
+        }
+        EOF
+        $CC -O2 -o isa_probe isa_probe.c
+        echo "TEST_ISA=$(./isa_probe)" >> "$GITHUB_ENV"
     - name: Script
       run: |
         set -x -o pipefail
         lscpu
         cat /proc/cpuinfo
-        if [[ $HOSTTYPE == aarch64 ]]; then MF_MODE=NOSIMD; else MF_MODE=; fi
-        cd obj
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            TEST_DIR=obj; MF_SUFFIX=NOSIMD
+        else
+            TEST_DIR=obj_$TEST_ISA; MF_SUFFIX=$TEST_ISA
+            echo "::notice::This runner supports $TEST_ISA; testing the $TEST_ISA build."
+            if [[ $TEST_ISA != AVX512 ]]; then
+                echo "::warning::This runner has no AVX-512, so the AVX512 build is not tested here."
+            fi
+        fi
+        cd "$TEST_DIR"
         # Ladder stops at 'm'. The 'l' self-test (FFT lengths 16M-60M) ran here on every push and
         # every pull request and was most of this job's self-test time; it now runs monthly against
         # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
@@ -157,7 +198,7 @@ jobs:
         # self-tests normally; the ASIMD build's trial-factoring routines are stubs.
         # M(521), not M(127): the 4-word build's 256-bit modpow needs p + 256 >= 512.
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${MF_MODE:+_$MF_MODE}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            (cd "../obj_mfac${word:+_$word}_$MF_SUFFIX" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - uses: actions/upload-artifact@v7
       if: always()
