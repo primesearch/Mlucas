@@ -1,4 +1,4 @@
-name: Large self-test
+name: Large and huge self-tests
 
 # The 'large' (l) and 'huge' (h) self-tests: 16 exponents each, at FFT lengths 16M-60M and 64M-240M.
 # ci.yml's ladders stop at 'm', so these are the only runs of the largest FFT lengths; 'h' had never
@@ -6,8 +6,8 @@ name: Large self-test
 # per case (it switches to 1000 above 4 threads). Measured on 4 cores of a Zen 4 desktop (AVX2 build):
 # 'm' 133 s, 'l' 396 s, 'h' 1943 s, so 'l' is about 3x 'm' and 'h' about 15x. On a runner, where 'm'
 # takes ~4.8 minutes, that puts 'l' near 15 minutes and 'h' a little over an hour. 'h' peaks at about
-# 9 GB of RAM: the Linux, Windows and FreeBSD jobs have room for it, but macos-latest has 7 GB, so the
-# macOS job runs 'l' only.
+# 9 GB of RAM: the Linux, Windows and FreeBSD jobs and the macOS Intel runner (14 GB) have room for it,
+# but the arm64 macos-latest runner has 7 GB, so it runs 'l' only.
 #
 # One job per OS, as in ci.yml, each building the native SIMD mode only: the explicit-ISA builds in
 # ci.yml are for compile coverage, and what these jobs are for is running the largest lengths on
@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   Linux:
-    name: Large self-test Linux
+    name: Large and huge self-tests Linux
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -53,30 +53,33 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
     - name: Self-test
       run: |
+        set -x -o pipefail
         cd obj
-        # Exit status: 0 passes, and so does 2 - some length had too few usable radix sets in this
-        # build, a property of the build rather than a wrong answer. Anything else, including a crash
-        # part-way through, fails the job. '|| st=...' because the step runs under set -e.
-        rc=0
-        for s in l h; do
-            st=0
-            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
-            if (( st != 0 && st != 2 )); then rc=1; fi
-        done
-        (( rc == 0 ))
+        for s in l h; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: ${{ matrix.os }}_large_selftest
+        name: ${{ matrix.os }}_large_huge_selftest
         path: |
+          obj/build.log
           obj/test.log
           obj/mlucas.cfg
         if-no-files-found: warn
 
   macOS:
-    name: Large self-test macOS
+    name: Large and huge self-tests macOS
 
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # arm64, 7 GB: 'l' only, since 'h' needs ~9 GB.
+          - os: macos-latest
+            sizes: l
+          # Intel, 14 GB: room for 'h' too.
+          - os: macos-26-intel
+            sizes: l h
+      fail-fast: false
     steps:
     - uses: actions/checkout@v7
     - name: Install
@@ -88,26 +91,21 @@ jobs:
         bash -e -o pipefail -- makemake.sh use_hwloc
     - name: Self-test
       run: |
+        set -x -o pipefail
         cd obj
-        # Same gate as the Linux job. 'l' only: 'h' needs ~9 GB and this runner has 7 GB.
-        rc=0
-        for s in l; do
-            st=0
-            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
-            if (( st != 0 && st != 2 )); then rc=1; fi
-        done
-        (( rc == 0 ))
+        for s in ${{ matrix.sizes }}; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: macos-latest_large_selftest
+        name: ${{ matrix.os }}_large_huge_selftest
         path: |
+          obj/build.log
           obj/test.log
           obj/mlucas.cfg
         if-no-files-found: warn
 
   Windows:
-    name: Large self-test Windows
+    name: Large and huge self-tests Windows
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -145,26 +143,21 @@ jobs:
     - name: Self-test
       shell: bash
       run: |
+        set -x -o pipefail
         cd obj
-        # Same gate as the Linux job.
-        rc=0
-        for s in l h; do
-            st=0
-            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
-            if (( st != 0 && st != 2 )); then rc=1; fi
-        done
-        (( rc == 0 ))
+        for s in l h; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: ${{ matrix.os }}_${{ matrix.cc }}_large_selftest
+        name: ${{ matrix.os }}_${{ matrix.cc }}_large_huge_selftest
         path: |
+          obj/build.log
           obj/test.log
           obj/mlucas.cfg
         if-no-files-found: warn
 
   FreeBSD:
-    name: Large self-test FreeBSD
+    name: Large and huge self-tests FreeBSD
 
     runs-on: ubuntu-latest
     env:
@@ -174,35 +167,24 @@ jobs:
     - name: Self-test
       uses: vmactions/freebsd-vm@v1
       with:
-        release: '15'
         cpu: 4
         mem: 12288
         envs: 'CC'
         usesh: true
-        sync: nfs
         prepare: |
           pkg install -y bash gmp hwloc2
         run: |
-          set -e -o pipefail
+          set -ex -o pipefail
           $CC --version
           bash -e -o pipefail -- makemake.sh use_hwloc
           cd obj
-          # Same gate as the Linux job, written for the VM's /bin/sh: no ${PIPESTATUS[n]} and no
-          # (( ... )), so Mlucas writes to a file whose status is taken directly, and the file is
-          # then shown and appended to test.log.
-          rc=0
-          for s in l h; do
-              st=0
-              time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" > selftest.out 2>&1 || st=$?
-              tee -a test.log < selftest.out
-              if [ "$st" -ne 0 ] && [ "$st" -ne 2 ]; then rc=1; fi
-          done
-          [ "$rc" -eq 0 ]
+          for s in l h; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: freebsd-15_large_selftest
+        name: freebsd_large_huge_selftest
         path: |
+          obj/build.log
           obj/test.log
           obj/mlucas.cfg
         if-no-files-found: warn
