@@ -150,6 +150,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
+echo "-- P2b: resume from savefiles with no check-product at an iteration that is not a multiple of the block length"
+# As left by a version without the product, or by an interrupt after an earlier such restart. The epoch has to wait
+# for the next checkpoint, since the product only holds residues at multiples of L; starting it at the interrupt
+# iteration tripped an assertion at the next check.
+d=$(setup p2b); run_until_iter_then_interrupt "$d" 1300000; S=$d/p$P.stat
+it=$(grep -o "Received SIGINT signal: writing savefile at Iter = [0-9]*" "$S" | grep -o "[0-9]*$")
+if [[ -n $it && -f $d/p$P && -f $d/q$P ]]; then
+	# The product is appended last: an 8-byte zero field, then the residue bytes and its 18-byte checksum triplet.
+	cut=$(( $(stat -c %s "$d/p$P") - (8 + (P+7)/8 + 18) ))
+	if [[ $(od -An -tx1 -j "$cut" -N 8 "$d/p$P" | tr -d ' \n') == 0000000000000000 ]]; then
+		truncate -s "$cut" "$d/p$P"; truncate -s "$cut" "$d/q$P"; ok "stripped the check-product from p/q (interrupted at iteration $it)"
+		run "$d"
+		if (( it % 1000 )); then
+			expect_grep "$S" "is at stage 1 iteration $it, not a multiple of the Gerbicz block length 1000; the new check epoch starts at the next checkpoint" "epoch deferred"
+			expect_grep "$S" "Starting a new Gerbicz check epoch at stage 1 iteration $(( (it/10000 + 1)*10000 ))" "epoch started at the next checkpoint"
+		else
+			skip "the interrupt landed on a block boundary ($it), so the epoch starts at once"
+		fi
+		expect_grep "$S" "At iteration 2000000, shift = 0: Gerbicz check passed" "the first check of the new epoch passed"
+		expect_grep "$S" "At iteration $LASTCHK, shift = 0: Gerbicz check passed" "the end-of-run check passed"
+		if [[ $(final_res64 "$d") == "$CLEAN" ]]; then ok "final stage 1 Res64 matches the clean run"; else bad "final Res64 $(final_res64 "$d") != clean $CLEAN"; fi
+	else
+		bad "no check-product where expected at byte $cut of p$P"
+	fi
+else
+	bad "could not interrupt the run in time"
+fi
+
+# ---------------------------------------------------------------------------------------------
 echo "-- P3: damaged primary savefile is refused by the Jacobi read check; the secondary is used"
 d=$(setup p3); run_until_iter_then_interrupt "$d" 1300000; S=$d/p$P.stat
 if [[ -f $d/p$P && -f $d/q$P ]]; then
@@ -171,6 +200,38 @@ if [[ -f $d/p$P && -f $d/q$P ]]; then
 	if [[ $(final_res64 "$d") == "$CLEAN" ]]; then ok "final stage 1 Res64 matches the clean run"; else bad "final Res64 $(final_res64 "$d") != clean $CLEAN"; fi
 else
 	bad "expected p/q savefiles after the interrupt"
+fi
+
+# ---------------------------------------------------------------------------------------------
+# P3 damages the file after it is written, so its checksum triplet already refuses it. A residue that is corrupt
+# *before* the write gets a matching triplet, and only the Jacobi read check can refuse it: the injector perturbs
+# the residue at a checkpoint before it is checksummed and saved, and the run stops right after that save.
+if [[ -n $MLUCAS_FI ]]; then
+	echo "-- P3b: a primary savefile written from a corrupt residue (consistent triplet) is refused by the Jacobi read check"
+	p3b_setup() {	# short stage 1: B1 = 20000, 28866 iterations
+		local d=$WORK/$1
+		rm -rf "$d"; mkdir -p "$d"; ln -s "$2" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+		printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
+		echo "$d"
+	}
+	g=$(p3b_setup p3b-good "$MLUCAS_FI"); run "$g" MLUCAS_FAULT_STOP_AT=20000
+	d=$(p3b_setup p3b "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_ITER=20000 MLUCAS_FAULT_STOP_AT=20000; S=$d/p$P.stat
+	expect_grep "$S" "FAULT INJECTION: added 1.0 to residue digit 0 at iteration 20000" "injection fired before the checkpoint write"
+	if [[ -f $g/q$P && -f $d/p$P ]]; then
+		cp "$g/q$P" "$d/q$P"	# a good secondary from an uninjected run stopped at the same iteration
+		rm -f "$d/Mlucas"; ln -s "$MLUCAS" "$d/Mlucas"; run "$d"
+		expect_nogrep "$S" "read_ppm1_savefiles Failed on savefile p$P" "the damaged primary reads fine: its triplet matches"
+		expect_grep "$S" "Restart file p$P (stage 1 iteration 20000) FAILED the Jacobi check" "damaged primary refused by the Jacobi read check"
+		expect_grep "$S" "Restart file q$P (stage 1 iteration 20000) passed the Jacobi check" "good secondary passed and was used"
+		run "$g"	# finish the uninjected run for the reference residue
+		ref=$(grep "S1 bit = 28866 " "$g/p$P.stat" | grep -o "Res64: [0-9A-F]*" | tail -1)
+		got=$(grep "S1 bit = 28866 " "$S" | grep -o "Res64: [0-9A-F]*" | tail -1)
+		if [[ -n $ref && $got == "$ref" ]]; then ok "final stage 1 $got matches the uninjected run"; else bad "final '$got' != uninjected '$ref'"; fi
+	else
+		bad "expected savefiles from both stopped runs"
+	fi
+else
+	skip "P3b: needs a -DMLUCAS_FAULT_INJECT build as the 2nd argument"
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -250,7 +311,11 @@ if [[ -n $MLUCAS_FI ]]; then
 	d=$(setup2 p8 "$MLUCAS_FI"); run "$d" MLUCAS_FAULT_S2=accum MLUCAS_FAULT_S2_Q=1000000; S=$d/p$P.stat
 	expect_grep "$S" "FAULT INJECTION: stage 2 accum perturbed" "injection fired"
 	expect_nogrep "$S" "ERROR: M$P stage 2" "nothing catches it - this is the documented limit of the stage 2 checks"
-	if [[ $(s2_final "$d" | tail -1) != "$CLEAN2" ]]; then ok "run ends with a WRONG accumulator $(s2_final "$d" | tail -1) - documented, not hidden"; else bad "accumulator equals the clean one?!"; fi
+	# Compare only a completed run: one that stopped early would also differ from CLEAN2 and prove nothing.
+	f=$(s2_final "$d" | tail -1)
+	if [[ $(cat "$d/exit") != 0 || $f != "Res64: "?* ]] || ! grep -q '"B2":2000000' "$d/results.txt" 2>/dev/null; then
+		bad "injected run did not complete stage 2 (exit $(cat "$d/exit"), final '$f') - nothing to compare"
+	elif [[ $f != "$CLEAN2" ]]; then ok "run ends with a WRONG accumulator $f - documented, not hidden"; else bad "accumulator equals the clean one?!"; fi
 else
 	skip "P6-P8: stage 2 fault-injection tests need a -DMLUCAS_FAULT_INJECT build"
 fi

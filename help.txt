@@ -824,9 +824,12 @@ P-1 runs (section [9c]) add these lines:
 	The savefile is damaged; the secondary is tried next. If both fail the run stops with
 	"No usable p-1 savefile ..." - delete the exponent's p-1 savefiles to start the run over.
 
-	"Stage 1 final residue FAILED the Jacobi check ... Aborting before the GCD"
-	The final residue is corrupt in the conversion or savefile path. Restart: the savefiles are
-	intact and are re-read and re-checked. If it recurs, test the hardware.
+	"Stage 1 final residue FAILED the Jacobi check (symbol = S, expected +1, T sec): the residue
+	handed to the GCD is corrupt. Aborting; ..."
+	The final residue is corrupt in the conversion or savefile path. The stage 1 GCD has already
+	run by then (a corrupt residue cannot yield a false factor), but the run stops rather than
+	pass the residue on to stage 2. Restart: the savefiles are intact and are re-read and
+	re-checked. If it recurs, test the hardware.
 
 	"ERROR: ... stage 2 ladder check FAILED ..." / "... stage 2 table entry I of N fails its
 	checksum ..." / "... stage 2 accumulator is identically zero ..." / "... stage 2 accumulator

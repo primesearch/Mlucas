@@ -1843,9 +1843,17 @@ READ_RESTART_FILE:
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 				}
 				memset(u0, 0, npad*sizeof(double));	u0[0] = PRP_BASE;	PM1_GCHECK_EPOCH_START = 0;
-			} else {
+			} else if(ilo % ITERS_BETWEEN_GCHECK_UPDATES == 0) {
 				memcpy(b, a, nbytes);	memcpy(u0, a, nbytes);	PM1_GCHECK_EPOCH_START = (uint32)ilo;
 				snprintf(cbuf,sizeof(cbuf), "Savefile %s carries no Gerbicz check-product; starting a new check epoch at stage 1 iteration %u.\n",g_cstr,PM1_GCHECK_EPOCH_START);
+				mlucas_fprint(cbuf,1);
+			} else {
+				/* The check-product is a product of residues at multiples of the block length L, so an epoch can only start
+				at one. A file written by an interrupt (or by a version without the product) can be at any iteration, so
+				leave the check off until the next checkpoint, which after a restart is always a multiple of CheckInterval
+				and hence of L, and start the epoch there - see the end of the checkpoint loop below: */
+				PM1_GCHECK_EPOCH_START = PM1_GCHECK_EPOCH_PENDING;
+				snprintf(cbuf,sizeof(cbuf), "Savefile %s carries no Gerbicz check-product and is at stage 1 iteration %u, not a multiple of the Gerbicz block length %d; the new check epoch starts at the next checkpoint.\n",g_cstr,(uint32)ilo,ITERS_BETWEEN_GCHECK_UPDATES);
 				mlucas_fprint(cbuf,1);
 			}
 			memcpy(d, b, nbytes);	s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;
@@ -2206,6 +2214,7 @@ READ_RESTART_FILE:
 				(Self-tests never reach that check, so leave their b[]-handling exactly as it was.)
 				*/
 				if(!INTERACT && (i % ITERS_BETWEEN_GCHECK_UPDATES)) continue;
+				if(TEST_TYPE == TEST_TYPE_PM1 && PM1_GCHECK_EPOCH_START == PM1_GCHECK_EPOCH_PENDING) continue;	// v21: no epoch yet, nothing to update
 				/* Is this the last checkproduct update of the run, i.e. the one our end-of-run G-check must use?
 				(No further update can occur, since the next L-aligned iteration count exceeds maxiter.) Snapshot the
 				iteration count and first_sub, since the check itself may not run until a later iteration interval: */
@@ -2535,7 +2544,8 @@ READ_RESTART_FILE:
 		*/
 		i = ITERS_BETWEEN_GCHECKS; j = ITERS_BETWEEN_GCHECK_UPDATES;
 		if(!gchk_final) gchk_iter = ihi;
-		if(MLUCAS_KEEP_RUNNING && DO_GCHECK && (gchk_final || ((ilo/j < ihi/j) && (ihi % i) == 0))) {
+		if(MLUCAS_KEEP_RUNNING && DO_GCHECK && !(TEST_TYPE == TEST_TYPE_PM1 && PM1_GCHECK_EPOCH_START == PM1_GCHECK_EPOCH_PENDING)
+			&& (gchk_final || ((ilo/j < ihi/j) && (ihi % i) == 0))) {
 			// Un-updated copy of the checkproduct saved in [d]; square that ITERS_BETWEEN_GCHECK_UPDATES times...
 			/*
 			Mar 2022: User hit assertion-exit below ... had set CheckInterval = 1000 = ITERS_BETWEEN_GCHECK_UPDATES,
@@ -2710,6 +2720,14 @@ READ_RESTART_FILE:
 					goto READ_RESTART_FILE;
 				}
 			}
+		}
+		// v21: p-1: start a pending check epoch (see the restart-file read) here, where a[] is a plain residue:
+		if(TEST_TYPE == TEST_TYPE_PM1 && DO_GCHECK && PM1_GCHECK_EPOCH_START == PM1_GCHECK_EPOCH_PENDING
+			&& MLUCAS_KEEP_RUNNING && !loop_exit && ihi % ITERS_BETWEEN_GCHECK_UPDATES == 0) {
+			memcpy(b, a, nbytes);	memcpy(u0, a, nbytes);	memcpy(d, b, nbytes);	PM1_GCHECK_EPOCH_START = ihi;
+			s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;
+			snprintf(cbuf,sizeof(cbuf), "Starting a new Gerbicz check epoch at stage 1 iteration %u.\n",ihi);
+			mlucas_fprint(cbuf,1);
 		}
 		// v21: Deferred loop-exit: the final Gerbicz check has now been done, so leave without a final-residue write,
 		// exactly as the pre-check exit above would have. (No-op unless the check just done was the end-of-run one.)
