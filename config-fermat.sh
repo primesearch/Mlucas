@@ -64,9 +64,13 @@ for ((n = 0; n < 16; ++n)); do
 	done
 done
 # Mlucas returns 1 for a wrong answer and 2 for "this build had too few usable radix sets at this
-# FFT length to write a cfg entry". This script is normally invoked as 'bash -e -o pipefail', under
-# which either status would end the loop at the first affected length and leave every larger Fermat
+# FFT length to write a cfg entry". CI invokes this script as 'bash -e -o pipefail', under which
+# either status would end the loop at the first affected length and leave every larger Fermat
 # number unconfigured and untested. Carry on instead, and report at the end.
+# pipefail is set here too, so that the status check below works under a plain 'bash
+# config-fermat.sh' as well: without it the pipeline's status is grep's, which almost always
+# matches something, so a failing Mlucas would go unnoticed.
+set -o pipefail
 rc=0
 for fft in "${!FFTS[@]}"; do
 	f=${FFTS[fft]}
