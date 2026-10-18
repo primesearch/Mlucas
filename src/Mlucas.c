@@ -4200,7 +4200,8 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				else if(STREQ(cptr,"K") || STREQ(cptr,"k")) // add lower case k KK 2026-07-12, see above comment
 					i64arg = darg;
 				else {
-					ASSERT(0, "The only non-numeric suffixes allowed for the argument to -fft are K and M or the lowercase equivalents k and m");
+					fprintf(stderr,"ERROR: FFT-length argument = %s: the only non-numeric suffixes allowed are K and M, or the lowercase equivalents k and m\n",stFlag);
+					exit(EXIT_FAILURE);
 				}
 			} else
 				i64arg = darg;
@@ -4232,9 +4233,13 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			char_addr = stFlag;
 			cptr = strchr(char_addr,',');
 			if(!cptr) {	// It's a radix-set index
-				i64arg = atoll(stFlag);
-				// Must be < 2^32:
-				ASSERT(i64arg < 20, "radset-index argument must be < 2^32 ... halting.");
+				// A bad index is a user input error, like a bad -fft argument above: report it and exit
+				// cleanly. (atoll() would read non-numeric text as index 0 and silently run that set.)
+				i64arg = strtoull(stFlag,&cptr,10);
+				if(cptr == stFlag || *cptr != '\0' || stFlag[0] == '-' || i64arg >= 20) {
+					fprintf(stderr,"ERROR: radix-set index argument = %s: must be an integer in [0,19], or a comma-separated set of radices\n",stFlag);
+					exit(EXIT_FAILURE);
+				}
 				radset = (uint32)i64arg;
 			} else {	// It's a set of complex-FFT radices
 				// One pass over the comma-separated list, bounding the count as we go: stFlag is
