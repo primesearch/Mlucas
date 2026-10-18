@@ -4238,12 +4238,11 @@ Check the compile optimization level - If -O0, try upping to at east -O1.
 		"/* Store larger of maxerr1,2: */	\n\t	movslq	%[__idx_incr],%%rdi		\n\t"\
 		"maxpd		%%xmm14,%%xmm6		\n\t		addq	%%r10,%%rdi				\n\t"\
 		"movaps		%%xmm6,-0x20(%%rcx)	\n\t		mov	%%edi, %[__idx_offset]	/* Store twice-incremented idx_offset */	\n\t"\
-		:						/* outputs: none */\
+		: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		,	[__cy]			"m" (Xcy)\
 		,	[__nrt_bits]	"m" (Xnrt_bits)\
 		,	[__nrtm1]		"m" (Xnrtm1)\
-		,	[__idx_offset]	"m" (Xidx_offset)\
 		,	[__idx_incr]	"m" (Xidx_incr)\
 		,	[__half_arr]	"m" (Xhalf_arr)\
 		,	[__sign_mask]	"m" (Xsign_mask)\
