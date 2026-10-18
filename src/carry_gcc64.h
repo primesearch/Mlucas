@@ -24458,7 +24458,7 @@ If so, why does the weights-multiplier stuff work w/o extra shuffling here?
 		 ,[__cyA]		"+m" (XcyA)\
 		 ,[__cyB]		"+m" (XcyB)\
 		 ,[__bjmod_0]	"+m" (Xbjmod_0)\
-		 ,[__i]			"=m" (Xi)\
+		 ,[__i]			"=&m" (Xi)	/* early-clobber: set at the top of the loop, before the inputs are re-read */\
 		: [__half_arr]	"m" (Xhalf_arr)		\
 		, [__sign_mask]	"m" (Xsign_mask)	\
 		, [__sse_bw]	"m" (Xsse_bw)		\

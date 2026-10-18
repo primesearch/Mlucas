@@ -6892,7 +6892,7 @@ if(~pshift != p+78) {
 				"addq	%%rdx,%%rcx		\n\t"\
 				"addq	%%rcx,%%rax		\n\t"\
 				"shlq	$32,%%rax	\n\t	addq	%%rax,%[__result]	\n\t"\
-				: [__result] "=m" (r)	/* outputs: the template stores into these */\
+				: [__result] "=&m" (r)	/* output; early-clobber, as it is stored before the 2nd quartet re-reads fq0 and two26f */\
 				: [__fq0] "m" (dptr)	/* All inputs from memory addresses here */\
 				 ,[__two26f] "m" (two26f)	\
 				: "cc","memory","k0","k1","k2","k3","k4","k5","k6","k7","cl","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10", "xmm12","xmm13","xmm14", "xmm16","xmm17","xmm18", "xmm20","xmm21","xmm22", "xmm24","xmm25","xmm26", "xmm28","xmm29","xmm30"	/* Clobbered registers */\
