@@ -422,7 +422,7 @@ jobs:
         $CC --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         # Build the runner's native SIMD mode under the sanitizers: AVX2 or AVX-512 on x86,
         # depending on the runner, and ASIMD on ARM. This is the only job that builds the
         # hand-tuned SIMD asm under a sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during
@@ -443,8 +443,8 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_nosimd
         fi
@@ -456,7 +456,13 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_asan_mlucas
-        path: ${{ github.workspace }}
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   TSan-Linux:
     name: ThreadSanitizer Linux
@@ -482,11 +488,22 @@ jobs:
         $CC --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         cd obj_nosimd
         make clean
-        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))"
+        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux_${{ matrix.cc }}_tsan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   GCC-analyzer:
     name: GCC analyzer
@@ -703,7 +720,7 @@ jobs:
         clang --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
         # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
         # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
@@ -715,12 +732,23 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" |& tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_asan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -737,14 +765,25 @@ jobs:
         clang --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         cd obj_nosimd
         make clean
         # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
         # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
         # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
-        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" |& tee -a test.log
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_tsan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   FreeBSD:
     name: Mlucas FreeBSD
@@ -963,9 +1002,20 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: windows_asan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
