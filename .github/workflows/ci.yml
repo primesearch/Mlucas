@@ -109,6 +109,28 @@ jobs:
             # and costs slightly less than 127 did (726k trial divides vs 1.66M).
             (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - name: Test
+      run: |
+        set -x -o pipefail
+        CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
+        CPPFLAGS=(-D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_GMP=0)
+        mkdir obj_test_fft_radix
+        cd obj_test_fft_radix
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
+        mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
+        for file in "${files[@]}"; do
+            radix=${file##*/radix}
+            radix=${radix%%_*}
+            printf '\nTesting RADIX %s\n' "$radix"
+            for ttype in 1 2 3; do
+                printf '\n\tTTYPE %s\n\n' "$ttype"
+                $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
+                $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm -lpthread -lrt &>>build.log
+                time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
+            done
+        done
+        rm -- *.o test_fft_radix
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -127,7 +149,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-26.04-arm]
         cc: [gcc] # clang
       fail-fast: false
     env:
@@ -183,7 +205,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-26.04-arm]
         cc: [gcc] # clang
       fail-fast: false
     env:
@@ -237,6 +259,28 @@ jobs:
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - name: Test
+      run: |
+        set -x -o pipefail
+        CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
+        CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
+        mkdir obj_test_fft_radix
+        cd obj_test_fft_radix
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
+        mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
+        for file in "${files[@]}"; do
+            radix=${file##*/radix}
+            radix=${radix%%_*}
+            printf '\nTesting RADIX %s\n' "$radix"
+            for ttype in 1 2 3; do
+                printf '\n\tTTYPE %s\n\n' "$ttype"
+                $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
+                $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm &>>build.log
+                time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
+            done
+        done
+        rm -- *.o test_fft_radix
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -255,14 +299,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"] # "ubuntu:12.04"
+        os: [ubuntu-latest, ubuntu-26.04-arm]
+        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.24"] # "ubuntu:12.04"
         cc: [gcc, clang]
         exclude:
           # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
           # cannot assemble the inline asm in dft_macro.c on ARM ("unknown register name 'v0'").
           # Its gcc builds fine there, as do both compilers on x86-64, so drop only this one combo.
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-26.04-arm
             container: "ubuntu:14.04"
             cc: clang
       fail-fast: false
