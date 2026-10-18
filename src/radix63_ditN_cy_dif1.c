@@ -543,8 +543,11 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			target_set = target_idx / NDIVR;	// which of the RADIX(=63) independent carry sub-chains holds the target
 			target_idx -= target_set*NDIVR;		// target_idx now = index within that sub-chain
 			// radix-63 is scalar all the way through - DIT, carry and DIF each handle one complex datum per
-			// loop pass - so the main loop counts complex data, advancing by a logical 2 whatever the build,
-			// and the target index aligns to that, not to the SIMD width. (The physical layout is still
+			// loop pass - so the main loop must count complex data, advancing by a logical 2 whatever the
+			// build, and the target index aligns to that, not to the SIMD width. NB: in a SIMD build the
+			// carry loop must actually step by 2 for this to hold. Where it still steps by 2*RE_IM_STRIDE
+			// (= stride), it carries only one SIMD lane per pass and the residue is wrong with or without
+			// a shift, so the injection below cannot fix that build on its own. (The physical layout is still
 			// interleaved: the carry loop maps the logical j to j1 through the same br4/br8/br16 scramble
 			// the DIF/DIT passes use, and the Im part sits RE_IM_STRIDE doubles above the Re part - which is
 			// where RE_IM_STRIDE enters, at the decode in radix63_main_carry_loop.h, not here.)
