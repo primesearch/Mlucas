@@ -219,7 +219,7 @@ jobs:
         sed -i 's/-DUSE_THREADS//; s/-lpthread//' makemake.sh
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
-    - name: Script
+    - name: Build
       run: |
         set -x
         MODES=( '' NOSIMD )
@@ -243,24 +243,53 @@ jobs:
                 (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
             done
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
-        if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
+    # The single-threaded build keeps only one core busy, but these tests are independent of each other,
+    # so they run as three concurrent steps of roughly equal length: '-s m' alone is about half the work.
+    # Each runs in its own directory under selftest/, so their cfg files and logs do not collide.
+    # On ARM the native build is ASIMD, whose trial-factoring routines are stubs - twopmodq80.c's
+    # "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so config-fermat.sh and the Mfactor
+    # self-tests run from the NOSIMD builds there, which the build step has already made. The Mfactor
+    # self-test runs on one build only: the explicit-ISA builds are for compile coverage, and a runner
+    # may not be able to execute what they target.
+    - parallel:
+      - name: Self-test m
+        run: |
+          set -x -o pipefail
+          mkdir -p selftest/m
+          cd selftest/m
+          ln -sf ../../obj/Mlucas .
+          time ./Mlucas -s m 2>&1 | tee -a test.log
+      - name: Fermat F15-F27, PRP self-tests
+        run: |
+          set -x -o pipefail
+          if [[ $HOSTTYPE == aarch64 ]]; then fermat=obj_NOSIMD; else fermat=obj; fi
+          # config-fermat.sh runs ./Mlucas over Fermat numbers MIN..MAX. The top one is about as long
+          # as all the others together, so the next step does it and this one does the rest.
+          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' config-fermat.sh)
+          mkdir -p selftest/fermat-rest selftest/prp
+          cd selftest/fermat-rest
+          ln -sf "../../$fermat/Mlucas" .
+          sed "s/^MAX=.*/MAX=$((max - 1))/" ../../config-fermat.sh > config-fermat.sh
+          bash -e -o pipefail -- config-fermat.sh
+          cd ../prp
+          ln -sf ../../obj/Mlucas .
+          for s in tt t s; do time ./Mlucas -prp -s $s 2>&1 | tee -a test.log; done
+      - name: Fermat top, small self-tests, Mfactor
+        run: |
+          set -x -o pipefail
+          if [[ $HOSTTYPE == aarch64 ]]; then fermat=obj_NOSIMD; mode=NOSIMD; else fermat=obj; mode=; fi
+          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' config-fermat.sh)
+          mkdir -p selftest/fermat-top selftest/small
+          cd selftest/fermat-top
+          ln -sf "../../$fermat/Mlucas" .
+          sed "s/^MIN=.*/MIN=$max/" ../../config-fermat.sh > config-fermat.sh
+          bash -e -o pipefail -- config-fermat.sh
+          cd ../small
+          ln -sf ../../obj/Mlucas .
+          for s in tt t s; do time ./Mlucas -s $s 2>&1 | tee -a test.log; done
+          for word in '' {{1..4},n}word; do
+              (cd "../../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+          done
     - name: Test
       run: |
         set -x -o pipefail
@@ -706,7 +735,7 @@ jobs:
         sed -i '' 's/-DUSE_THREADS//' makemake.sh
         sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
-    - name: Script
+    - name: Build
       run: |
         set -x
         MODES=( '' NOSIMD )
@@ -725,24 +754,53 @@ jobs:
                 (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
             done
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s; done
-        for s in tt t s; do time ./Mlucas -prp -s $s; done
-        if [[ $HOSTTYPE == arm64 ]]; then
-            cd ../obj_NOSIMD
-        fi
-        bash -e -o pipefail -- ../config-fermat.sh
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
-        # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
-        # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
-        # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == arm64 ]]; then mode=NOSIMD; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-        done
+    # The single-threaded build keeps only one core busy, but these tests are independent of each other,
+    # so they run as three concurrent steps of roughly equal length: '-s m' alone is about half the work.
+    # Each runs in its own directory under selftest/, so their cfg files and logs do not collide.
+    # On ARM the native build is ASIMD, whose trial-factoring routines are stubs - twopmodq80.c's
+    # "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so config-fermat.sh and the Mfactor
+    # self-tests run from the NOSIMD builds there, which the build step has already made. The Mfactor
+    # self-test runs on one build only: the explicit-ISA builds are for compile coverage, and a runner
+    # may not be able to execute what they target.
+    - parallel:
+      - name: Self-test m
+        run: |
+          set -x -o pipefail
+          mkdir -p selftest/m
+          cd selftest/m
+          ln -sf ../../obj/Mlucas .
+          time ./Mlucas -s m 2>&1 | tee -a test.log
+      - name: Fermat F15-F27, PRP self-tests
+        run: |
+          set -x -o pipefail
+          if [[ $HOSTTYPE == arm64 ]]; then fermat=obj_NOSIMD; else fermat=obj; fi
+          # config-fermat.sh runs ./Mlucas over Fermat numbers MIN..MAX. The top one is about as long
+          # as all the others together, so the next step does it and this one does the rest.
+          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' config-fermat.sh)
+          mkdir -p selftest/fermat-rest selftest/prp
+          cd selftest/fermat-rest
+          ln -sf "../../$fermat/Mlucas" .
+          sed "s/^MAX=.*/MAX=$((max - 1))/" ../../config-fermat.sh > config-fermat.sh
+          bash -e -o pipefail -- config-fermat.sh
+          cd ../prp
+          ln -sf ../../obj/Mlucas .
+          for s in tt t s; do time ./Mlucas -prp -s $s 2>&1 | tee -a test.log; done
+      - name: Fermat top, small self-tests, Mfactor
+        run: |
+          set -x -o pipefail
+          if [[ $HOSTTYPE == arm64 ]]; then fermat=obj_NOSIMD; mode=NOSIMD; else fermat=obj; mode=; fi
+          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' config-fermat.sh)
+          mkdir -p selftest/fermat-top selftest/small
+          cd selftest/fermat-top
+          ln -sf "../../$fermat/Mlucas" .
+          sed "s/^MIN=.*/MIN=$max/" ../../config-fermat.sh > config-fermat.sh
+          bash -e -o pipefail -- config-fermat.sh
+          cd ../small
+          ln -sf ../../obj/Mlucas .
+          for s in tt t s; do time ./Mlucas -s $s 2>&1 | tee -a test.log; done
+          for word in '' {{1..4},n}word; do
+              (cd "../../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+          done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
