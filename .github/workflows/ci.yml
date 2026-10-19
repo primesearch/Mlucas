@@ -23,9 +23,11 @@ on:
 # past the point where they will ever start.
 #
 # Pushes to main and the monthly schedule are deliberately not cancelled - those runs are the record
-# of what the branch does, and a later push should not erase an earlier result.
+# of what the branch does, and a later push should not erase an earlier result. Every other run gets
+# a group of its own (github.run_id): in a shared group, a pending run is replaced by a newer one even
+# without cancel-in-progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
