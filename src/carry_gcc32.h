@@ -153,12 +153,11 @@
 		"addl	%[__idx_incr],%%ebx		\n\t"\
 		"movl	%%ebx, %[__idx_offset]	\n\t"/* Store incremented idx_offset */\
 	"popl %%ebx	\n\t"\
-	:						/* outputs: none */\
+	: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 	,	[__cy]			"m" (Xcy)\
 	,	[__nrt_bits]	"m" (Xnrt_bits)\
 	,	[__nrtm1]		"m" (Xnrtm1)\
-	,	[__idx_offset]	"m" (Xidx_offset)\
 	,	[__idx_incr]	"m" (Xidx_incr)\
 	,	[__half_arr]	"m" (Xhalf_arr)\
 	,	[__sign_mask]	"m" (Xsign_mask)\
@@ -288,12 +287,11 @@
 		"movl	%[__idx_offset],%%esi	\n\t"\
 		"addl	%[__idx_incr],%%esi		\n\t"\
 		"movl	%%esi, %[__idx_offset]	\n\t"/* Store incremented idx_offset */\
-	:						/* outputs: none */\
+	: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 	,	[__cy]			"m" (Xcy)\
 	,	[__nrt_bits]	"m" (Xnrt_bits)\
 	,	[__nrtm1]		"m" (Xnrtm1)\
-	,	[__idx_offset]	"m" (Xidx_offset)\
 	,	[__idx_incr]	"m" (Xidx_incr)\
 	,	[__half_arr]	"m" (Xhalf_arr)\
 	,	[__sign_mask]	"m" (Xsign_mask)\
@@ -475,12 +473,11 @@
 		"addl	%[__idx_incr],%%ecx		\n\t"\
 		"movl	%%ecx, %[__idx_offset]	\n\t"/* Store incremented idx_offset */\
 	"popl %%ebx	\n\t"\
-	:						/* outputs: none */\
+	: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 	,	[__cy]			"m" (Xcy)\
 	,	[__nrt_bits]	"m" (Xnrt_bits)\
 	,	[__nrtm1]		"m" (Xnrtm1)\
-	,	[__idx_offset]	"m" (Xidx_offset)\
 	,	[__idx_incr]	"m" (Xidx_incr)\
 	,	[__odd_radix]   "m" (Xodd_radix)\
 	,	[__half_arr]	"m" (Xhalf_arr)\
@@ -633,12 +630,11 @@
 		/* Store incremented idx offsetL:  */\
 		"movl	%%esi, %[__idx_offset]	\n\t"\
 	"popl %%ebx	\n\t"\
-	:						/* outputs: none */\
+	: [__idx_offset]	"+m" (Xidx_offset)	/* outputs: the template stores into these */\
 	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 	,	[__cy]			"m" (Xcy)\
 	,	[__nrt_bits]	"m" (Xnrt_bits)\
 	,	[__nrtm1]		"m" (Xnrtm1)\
-	,	[__idx_offset]	"m" (Xidx_offset)\
 	,	[__idx_incr]	"m" (Xidx_incr)\
 	,	[__odd_radix]   "m" (Xodd_radix)\
 	,	[__half_arr]	"m" (Xhalf_arr)\
@@ -854,11 +850,10 @@
 		"movl	%[__bjmod_0],%%ecx		\n\t"\
 		"movaps	%%xmm0,(%%ecx)			\n\t"\
 	"popl %%ebx	\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
+		 ,[__wtC]		"+m" (XwtC)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
-		, [__wtC]		"m" (XwtC)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
@@ -1076,10 +1071,9 @@
 		"movaps		%%xmm1,0x10(%%eax)	\n\t	movaps		%%xmm5,0x50(%%eax)	\n\t"\
 		"movaps		%%xmm0,    (%%eax)	\n\t	movaps		%%xmm4,0x40(%%eax)	\n\t"\
 	"popl %%ebx	\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
@@ -1609,11 +1603,10 @@
 		"movl	%[__bjmod_0],%%ecx		\n\t"\
 		"movaps	%%xmm0,(%%ecx)			\n\t"\
 	"popl %%ebx	\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
+		 ,[__wtC]		"+m" (XwtC)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
-		, [__wtC]		"m" (XwtC)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
@@ -1838,10 +1831,9 @@
 		"movaps		%%xmm1,0x10(%%eax)	\n\t	movaps		%%xmm5,0x50(%%eax)	\n\t"\
 		"movaps		%%xmm0,    (%%eax)	\n\t	movaps		%%xmm4,0x40(%%eax)	\n\t"\
 	"popl %%ebx	\n\t"\
-		:					/* outputs: none */\
+		: [__wtA]		"+m" (XwtA)	/* outputs: the template stores into these */\
+		 ,[__wtB]		"+m" (XwtB)\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		, [__wtA]		"m" (XwtA)		\
-		, [__wtB]		"m" (XwtB)		\
 		, [__cyA]		"m" (XcyA)		\
 		, [__cyB]		"m" (XcyB)		\
 		, [__bjmod_0]	"m" (Xbjmod_0)		\
