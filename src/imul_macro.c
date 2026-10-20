@@ -67,128 +67,6 @@ that don't correctly inline the macro form of these.
 /* Had to move the subroutine-form definitions of these here to fix MSVC
 "error LNK2005 already defined ... fatal error LNK1169 ... multiple symbols found" errors:
 */
-#ifdef	MUL_LOHI64_SUBROUTINE
-
-	/* 64x32=>96-bit product algorithm: represent the inputs as x = a + b*2^32, y = c ( < 2^32),
-	then do 4 MULs and a bunch of add-with-carries to get x*y = b*c*2^32 + a*c .
-	COST: 2 MUL, 6 IOPs.
-
-	Even though the high output for 64x32-bit is always < 2^32,
-	declare y and hi here as 64-bit ints to allow flexibility for caller:
-	*/
-	void	MUL64x32(uint64 x, uint64 y, uint64 *lo, uint64 *hi)
-	{
-		uint64 t;
-
-		DBG_ASSERT((y >> 32) == 0,"MUL64x32: (y >> 32) == 0");
-	/* v21: use only the low 32 bits of y (this routine's contract is y < 2^32), and cast one factor of
-	each partial product to uint64 so the product is 64-bit, matching the macro form in imul_macro0.h.
-	The previous `(uint32)(x) * y` used the full 64-bit y, so a caller passing stray high bits in y got a
-	wrong result. */
-		*lo =  (uint64)(uint32)(x)        * (uint32)(y);	/* a*c */
-		 t  =  (uint64)(uint32)(x >> 32)  * (uint32)(y);	/* b*c */
-		*hi = (t >> 32);
-		 t <<= 32;
-		*lo +=  t;
-		*hi += (*lo < t);
-	}
-
-	/* Generic 128-bit product algorithm: represent the inputs as x = a + b*2^32, y = c + d*2^32, and
-	then do 4 MULs and a bunch of add-with-carries to get x*y = b*d*2^64 + (a*d + b*c)*2^32 + a*c .
-	COST: 4 MUL, 18 IOPs.
-	*/
-	void MUL_LOHI64(uint64 x, uint64 y, uint64 *lo, uint64 *hi)
-	{
-	#if 0
-		uint64 a,b,c,d,ac,ad,bc;
-		a = x & (uint64)0x00000000ffffffff;
-		/*a = (x<<32)>>32;*/
-		b =  x>>32;
-	#else
-	/* try this 32x64-bit form in hopes compiler can optimize it better than 64x64-bit: */
-		uint32 a,b;
-		uint64 c,d,ac,ad,bc;
-		a = (uint32)(x);
-		b = (uint32)(x>>32);
-	#endif
-		c = y & (uint64)0x00000000ffffffff;
-		/*c = (y<<32)>>32;*/
-		d = y>>32;
-		/* Calculate 4 subproducts in order in which they are first used */
-		 ac  = a*c;
-		 bc  = b*c;
-		*hi  = b*d;
-		 ad  = a*d;
-		*lo  =  ac;	/* use lo to store copy of ac */
-		 ac +=       (bc<<32);	*hi += ( ac < *lo);
-		*lo  =  ac + (ad<<32);	*hi += (*lo <  ac);
-								*hi += (bc>>32) + (ad>>32);
-	}
-
-	/* Generic 128-bit squaring algorithm: represent the input as x = a + b*2^32, and
-	then do 3 MULs and a bunch of add-with-carries to get x^2 = b^2*2^64 + a*b*2^33 + a^2 . */
-	/*
-	void SQR_LOHI64(uint64 x, uint64 *lo, uint64 *hi)
-	{
-		uint64 a = x & (uint64)0x00000000ffffffff;
-		uint64 b = x>>32;
-		uint64 aa = a*a;
-		uint64 ab = a*b;
-		uint64 bb = b*b;
-		*hi =  bb;
-		*lo =  aa + (ab<<33); if(*lo < aa) ++*hi;
-		*hi = *hi + (ab>>31);
-	}
-	*/
-	void SQR_LOHI64(uint64 x, uint64 *lo, uint64 *hi)
-	{
-	#if 0
-		uint64 a,b,aa,ab;
-		a = x & (uint64)0x00000000ffffffff;
-		/*a = (x<<32)>>32;*/
-		b = x>>32;
-		 ab = a*b;
-		 aa = a*a;
-		*hi = b*b;
-	#else
-	/* try this 32x64-bit form in hopes compiler can optimize it better than 64x64-bit: */
-		uint32 a,b;
-		uint64 ab,aa;
-		a = (uint32)(x);
-		b = (uint32)(x>>32);
-		 ab = a*(uint64)b;
-		 aa = a*(uint64)a;
-		*hi = b*(uint64)b;
-	#endif
-		*lo = aa + (ab<<33);
-		*hi+= (ab>>31) + (*lo < aa);
-	}
-
-	/*
-	uint32	__MULL32	(uint32 x32, uint32 y32)
-	{
-		return x32*y32;
-	}
-
-	uint32	__MULH32	(uint32 x32, uint32 y32)
-	{
-		return ((x32*(uint64)y32) >> 32);
-	}
-	*/
-
-	uint64	__MULL64	(uint64 x, uint64 y)
-	{
-		return (uint64)x*y;
-	}
-
-	uint64	__MULH64	(uint64 x, uint64 y)
-	{
-		uint64 lo, hi;
-		MUL_LOHI64(x, y, &lo, &hi);
-		return hi;
-	}
-
-#endif
 
 /************************/
 
@@ -281,22 +159,14 @@ int test_mul()
 		for(j=0;j<ntest;++j)
 		{
 			mul_lohi64_via_bitwise_add(in64[i],in64[j],&lo0,&hi0);
-		#ifdef MUL_LOHI64_SUBROUTINE
-			MUL_LOHI64(in64[i],in64[j],&lo1,&hi1);
-		#else
 			MUL_LOHI64(in64[i],in64[j], lo1, hi1);
-		#endif
 			ASSERT(lo1 == lo0, "test_mul() low-output mismatch!");
 			ASSERT(hi1 == hi0, "test_mul() hi -output mismatch!");
 
 		/* Squaring is a special case: */
 		  if(i ==j)
 		  {
-		#ifdef MUL_LOHI64_SUBROUTINE
-			SQR_LOHI64(in64[i],&lo1,&hi1);
-		#else
 			SQR_LOHI64(in64[i], lo1, hi1);
-		#endif
 			ASSERT(lo1 == lo0, "test_mul() low-output mismatch!");
 			ASSERT(hi1 == hi0, "test_mul() hi -output mismatch!");
 		  }
