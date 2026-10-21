@@ -1025,8 +1025,8 @@ jobs:
           selftest/*/fermat.cfg
         if-no-files-found: warn
 
-  ASan-macOS:
-    name: AddressSanitizer macOS
+  ASan-macOS-build:
+    name: AddressSanitizer macOS build
 
     runs-on: macos-latest
     steps:
@@ -1037,9 +1037,8 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
-    - name: Script
+    - name: Build
       run: |
         set -x -o pipefail
         # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
@@ -1052,21 +1051,87 @@ jobs:
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj_nosimd
-        # Ladder stops at 's', as in the TSan jobs: in this NOSIMD build '-s m' took about 45 of the job's
-        # 95 minutes, and the Linux and Windows ASan jobs run it in their SIMD builds.
-        for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_asan_build_logs
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      run: |
+        set -x
+        mkdir -p stage/obj_nosimd
+        cp -p obj_nosimd/Mlucas stage/obj_nosimd/
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            d="obj_mfac${word:+_$word}_nosimd"
+            mkdir -p "stage/$d"
+            cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
         done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan-macos-build
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  ASan-macOS-test:
+    name: AddressSanitizer macOS test (${{ matrix.part }})
+
+    needs: ASan-macOS-build
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+      fail-fast: false
+    env:
+      PART: ${{ matrix.part }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        brew install hwloc
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: asan-macos-build
+    - name: Restore executable bits
+      run: chmod +x obj_nosimd/Mlucas obj_mfac*_nosimd/Mfactor*
+    - name: Before script
+      run: |
+        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
+    - name: Script
+      run: |
+        set -x -o pipefail
+        cd obj_nosimd
+        case "$PART" in
+            selftest-short)
+                for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+                ;;
+            selftest-m)
+                time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+                ;;
+            prp)
+                for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+                ;;
+            fermat)
+                bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+                ;;
+            mfactor)
+                for word in '' {{1..4},n}word; do
+                    (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
+                ;;
+            *)
+                echo "::error::Unknown test part '$PART'."; exit 1
+                ;;
+        esac
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: macos_asan_mlucas
+        name: macos_${{ matrix.part }}_asan_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
@@ -1290,8 +1355,8 @@ jobs:
           obj*/fermat.cfg
         if-no-files-found: warn
 
-  ASan-Windows:
-    name: AddressSanitizer Windows
+  ASan-Windows-build:
+    name: AddressSanitizer Windows build
 
     runs-on: windows-latest
     env:
@@ -1313,9 +1378,8 @@ jobs:
       shell: bash
       run: |
         sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
-    - name: Script
+    - name: Build
       shell: bash
       run: |
         set -x
@@ -1328,19 +1392,98 @@ jobs:
             bash -e -o pipefail -- makemake.sh mfac $word
             (cd obj_mfac${word:+_$word}; make clean)
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: windows_asan_build_logs
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      shell: bash
+      run: |
+        set -x
+        mkdir -p stage/obj_nosimd
+        cp -p obj_nosimd/Mlucas.exe stage/obj_nosimd/
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            d="obj_mfac${word:+_$word}_nosimd"
+            mkdir -p "stage/$d"
+            cp -p "$d/Mfactor${word:+_$word}.exe" "stage/$d/"
         done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan-windows-build
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  ASan-Windows-test:
+    name: AddressSanitizer Windows test (${{ matrix.part }})
+
+    needs: ASan-Windows-build
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+      fail-fast: false
+    env:
+      PART: ${{ matrix.part }}
+      PACKAGE_PREFIX: mingw-w64-clang-x86_64-
+    steps:
+    - uses: actions/checkout@v7
+    - name: Before Install
+      run: |
+        echo "C:\msys64\clang64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - name: Install
+      run: |
+        # The toolchain package carries the ASan runtime DLLs the sanitized binaries load.
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}toolchain"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: asan-windows-build
+    - name: Restore executable bits
+      shell: bash
+      run: chmod +x obj_nosimd/Mlucas.exe obj_mfac*_nosimd/Mfactor*.exe
+    - name: Before script
+      shell: bash
+      run: |
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
+    - name: Script
+      shell: bash
+      run: |
+        set -x -o pipefail
+        cd obj_nosimd
+        case "$PART" in
+            selftest-short)
+                for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+                ;;
+            selftest-m)
+                time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+                ;;
+            prp)
+                for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+                ;;
+            fermat)
+                bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+                ;;
+            mfactor)
+                for word in '' {{1..4},n}word; do
+                    (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
+                ;;
+            *)
+                echo "::error::Unknown test part '$PART'."; exit 1
+                ;;
+        esac
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: windows_asan_mlucas
+        name: windows_${{ matrix.part }}_asan_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
