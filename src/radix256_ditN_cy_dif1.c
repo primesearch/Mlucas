@@ -628,7 +628,7 @@ int radix256_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{	// Unequal spans need only that every thread can own one outer-loop pass:
-			if(CY_THREADS > n_div_nwt) { WARN(HERE, "CY_THREADS > n_div_nwt ... more threads than this leading radix can handle.", "", 1); return(ERR_ASSERT); }
+			if(CY_THREADS > (uint32)n_div_nwt) { WARN(HERE, "CY_THREADS > n_div_nwt ... more threads than this leading radix can handle.", "", 1); return(ERR_ASSERT); }
 		}
 		else
 		{
@@ -1415,7 +1415,7 @@ int radix256_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			_bjmodnini[0] = 0;
 			{
 				int kbase_ini = n_div_nwt/CY_THREADS, krem_ini = n_div_nwt%CY_THREADS, jj, bj = 0;
-				for(ithread = 0; ithread < CY_THREADS; ithread++)
+				for(ithread = 0; ithread < (int)CY_THREADS; ithread++)
 				{
 					int span = (kbase_ini + (ithread < krem_ini)) * nwt;
 					for(jj = 0; jj < span; jj++)
@@ -1543,7 +1543,7 @@ for(outer=0; outer <= 1; outer++)
 		kcum = 0;
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_khi[ithread] = khi + (ithread < (n_div_nwt%CY_THREADS));
+			_khi[ithread] = khi + (ithread < (int)(n_div_nwt%CY_THREADS));
 			_jstart[ithread] = kcum*nwt;
 			if(!full_pass)
 				_jhi[ithread] = _jstart[ithread] + jhi_wrap_mers;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
@@ -1610,7 +1610,7 @@ for(outer=0; outer <= 1; outer++)
 	if(!full_pass)
 	{
 		khi = 1;
-		for(ithread = 0; ithread < CY_THREADS; ithread++) { _khi[ithread] = 1; }
+		for(ithread = 0; ithread < (int)CY_THREADS; ithread++) { _khi[ithread] = 1; }
 	}
 #ifdef USE_PTHREAD
 	/* Populate the thread-specific data structs - use the invariant terms as memchecks: */
