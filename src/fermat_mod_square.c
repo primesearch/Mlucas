@@ -1190,6 +1190,11 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	// New run, or need to up #threads in local-store inits:
 	if(init_sse2 == FALSE || (init_sse2 < nchunks)) {
 	//	init_sse2 = TRUE;
+		// Record the leading radix the dyadic-square routines get inited for below, as the 'else' branch does. Without
+		// this, rad0save keeps an older radix0, and a later call back at that radix0 with the same n (e.g. a production
+		// run following an in-process self-test that used a larger leading radix) skips the re-init and the dyadic-square
+		// routines then try to re-init themselves from inside the threadpool:
+		rad0save = radix0;
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
 		radix8_dif_pass (0x0, 0, 0x0, 0x0, 0x0, 0, 0, init_sse2, thr_id);
