@@ -98,6 +98,8 @@ Native Windows builds are experimental. For now, Windows users should use the [W
 
 To build with Clang or another compiler instead of GCC, run: `export CC=<compiler>`, for example: `export CC=clang`.
 
+To build with your own compiler flags instead of the default ones (`-Wall -Wextra -g -O3`, plus link-time optimization where it works), set `CFLAGS`, for example: `CFLAGS='-g -Og -fsanitize=address,undefined' bash makemake.sh`. The flags for the SIMD build mode are still added, so you only need to give the optimization and debug flags. `CPPFLAGS` and `LDFLAGS` are added to the defaults rather than replacing them.
+
 #### Setup and Run
 
 1. Change into the `obj` directory. Run: `cd obj` or `cd obj_mfac` depending on if one built Mlucas or Mfactor respectively.
