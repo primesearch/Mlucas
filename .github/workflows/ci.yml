@@ -577,8 +577,8 @@ jobs:
           obj*/fermat.cfg
         if-no-files-found: warn
 
-  ASan-Linux:
-    name: AddressSanitizer Linux
+  ASan-Linux-build:
+    name: AddressSanitizer Linux build
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -597,24 +597,30 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
-    - name: Script
+    - name: Build
       run: |
         set -x -o pipefail
-        # Build the runner's native SIMD mode under the sanitizers: AVX2 or AVX-512 on x86,
-        # depending on the runner, and ASIMD on ARM. This and the Windows ASan job are the only ones
-        # that build the hand-tuned SIMD asm under a sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during
-        # 'Mlucas -s m', was reported by ASan on an ARM runner. (The macOS ASan job stays on
-        # NOSIMD, see PR #71: there the SIMD asm fails to assemble under -Og, "invalid CFI
-        # advance_loc expression".)
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        (cd obj; make clean)
-        # On ARM, config-fermat.sh runs from the NOSIMD build, as in the Linux job above: the ASIMD
-        # build's trial-factoring routines are stubs ("No TF support on ARMv8!" in twopmodq80.c).
+        # Build the SIMD modes under the sanitizers: AVX2 and AVX-512 on x86, and ASIMD on ARM.
+        # This is the only job that builds the hand-tuned SIMD asm under a sanitizer. Issue #12, a
+        # SEGV in radix48_dit_pass1 during 'Mlucas -s m', was reported by ASan on an ARM runner.
+        # (The macOS ASan job stays on NOSIMD, see PR #71: there the SIMD asm fails to assemble
+        # under -Og, "invalid CFI advance_loc expression".)
+        # On x86 both explicit modes are built rather than the native one: the test jobs run on
+        # other runners, which may or may not have AVX-512, and each runs the best build its own
+        # runner supports.
         if [[ $HOSTTYPE == aarch64 ]]; then
+            bash -e -o pipefail -- makemake.sh use_hwloc
+            (cd obj; make clean)
+            # On ARM, config-fermat.sh runs from the NOSIMD build, as in the Linux job above: the ASIMD
+            # build's trial-factoring routines are stubs ("No TF support on ARMv8!" in twopmodq80.c).
             bash -e -o pipefail -- makemake.sh use_hwloc nosimd
             (cd obj_nosimd; make clean)
+        else
+            for mode in avx2 avx512; do
+                bash -e -o pipefail -- makemake.sh use_hwloc $mode
+                (cd obj_$mode; make clean)
+            done
         fi
         # Mfactor builds the native SIMD mode too, except on ARM, where it builds NOSIMD for the same reason.
         if [[ $HOSTTYPE == aarch64 ]]; then mode=nosimd; else mode=; fi
@@ -623,22 +629,136 @@ jobs:
             bash -e -o pipefail -- makemake.sh mfac $word $mode
             (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_build_logs
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      run: |
+        set -x
         if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_nosimd
+            TEST_DIRS=( obj obj_nosimd )
+        else
+            TEST_DIRS=( obj_avx2 obj_avx512 )
         fi
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+        for d in "${TEST_DIRS[@]}"; do
+            mkdir -p "stage/$d"
+            cp -p "$d/Mlucas" "stage/$d/"
         done
+        for word in '' {{1..4},n}word; do
+            d="obj_mfac${word:+_$word}_nosimd"
+            mkdir -p "stage/$d"
+            cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+        done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan-linux-build_${{ matrix.os }}_${{ matrix.cc }}
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  ASan-Linux-test:
+    name: AddressSanitizer Linux test (${{ matrix.os }}, ${{ matrix.cc }}, ${{ matrix.part }})
+
+    needs: ASan-Linux-build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04-arm]
+        cc: [gcc, clang]
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      PART: ${{ matrix.part }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: asan-linux-build_${{ matrix.os }}_${{ matrix.cc }}
+    - name: Restore executable bits
+      run: chmod +x obj*/Mlucas obj_mfac*_nosimd/Mfactor*
+    - name: Detect CPU
+      run: |
+        # Same probe as the Linux test job: the best ISA this runner supports.
+        cat > isa_probe.c <<'EOF'
+        #include <stdio.h>
+
+        int main(void)
+        {
+        #if defined(__x86_64__) || defined(__i386__)
+            __builtin_cpu_init();
+            if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd"))
+                puts("AVX512");
+            else if (__builtin_cpu_supports("avx2"))
+                puts("AVX2");
+            else if (__builtin_cpu_supports("avx"))
+                puts("AVX");
+            else
+                puts("SSE2");
+        #else
+            puts("ASIMD");
+        #endif
+            return 0;
+        }
+        EOF
+        $CC -O2 -o isa_probe isa_probe.c
+        echo "TEST_ISA=$(./isa_probe)" >> "$GITHUB_ENV"
+    - name: Before script
+      run: |
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
+    - name: Script
+      run: |
+        set -x -o pipefail
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            TEST_DIR=obj
+        else
+            case "$TEST_ISA" in
+                AVX512 | AVX2) TEST_DIR=obj_${TEST_ISA,,} ;;
+                *) echo "::error::This runner supports neither AVX2 nor AVX-512, and only those builds are staged."; exit 1 ;;
+            esac
+            echo "::notice::This runner supports $TEST_ISA; testing the $TEST_ISA build."
+        fi
+        cd "$TEST_DIR"
+        case "$PART" in
+            selftest-short)
+                for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+                ;;
+            selftest-m)
+                time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+                ;;
+            prp)
+                for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+                ;;
+            fermat)
+                if [[ $HOSTTYPE == aarch64 ]]; then
+                    cd ../obj_nosimd
+                fi
+                bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+                ;;
+            mfactor)
+                for word in '' {{1..4},n}word; do
+                    (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
+                ;;
+            *)
+                echo "::error::Unknown test part '$PART'."; exit 1
+                ;;
+        esac
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_mlucas
+        name: ${{ matrix.os }}_${{ matrix.cc }}_${{ matrix.part }}_asan_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
