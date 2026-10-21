@@ -27,7 +27,10 @@ Pass B ("is it live"): preprocess each src/*.c once per ISA mode and parse the
 
 The two passes are joined on a signature over (registers used, clobbers
 declared), not on line numbers, so the join survives macro argument
-substitution.
+substitution.  A live Pass B finding whose signature matches no Pass A finding
+-- e.g. the clobber list or a register name comes in through a macro argument,
+so the raw text and the compiled block disagree -- is reported as well, at the
+file:line the preprocessor attributes it to (for a macro, its invocation).
 
 Usage
 -----
@@ -410,10 +413,18 @@ def pass_a(srcdir):
     return out
 
 
+def _in_tree(path):
+    """True for a pp_locator path inside srcdir (not a system header, not <built-in>)."""
+    return not (path.startswith("<") or os.path.isabs(path) or
+                path == ".." or path.startswith(".." + os.sep))
+
+
 def pass_b(srcdir, modes, cc, jobs):
-    """Preprocess each TU per ISA mode; return {signature: set(modes)} for the
-    asm blocks that are actually live, plus any preprocessor failures."""
-    live, errors = {}, []
+    """Preprocess each TU per ISA mode.  Return {signature: set(modes)} for the
+    asm blocks that are actually live, {(path, line, signature): Finding} with
+    one located sample of each live in-tree finding, and any preprocessor
+    failures."""
+    live, samples, errors = {}, {}, []
     files = sorted(os.path.basename(f) for f in glob.glob(os.path.join(srcdir, "*.c")))
     work = [(mode, f) for mode in modes for f in files]
 
@@ -428,18 +439,19 @@ def pass_b(srcdir, modes, cc, jobs):
         if p.returncode != 0:
             tail = p.stderr.strip().splitlines()
             return mode, f, (tail[-1] if tail else "rc=%d" % p.returncode), ()
-        sigs = {fi.sig for fi in scan_text(p.stdout, pp_locator(p.stdout, srcdir),
-                                           want_comments_stripped=False)}
-        return mode, f, None, sigs
+        return mode, f, None, scan_text(p.stdout, pp_locator(p.stdout, srcdir),
+                                        want_comments_stripped=False)
 
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        for mode, f, err, sigs in pool.map(one, work):
+        for mode, f, err, found in pool.map(one, work):
             if err:
                 errors.append((mode, f, err))
                 continue
-            for s in sigs:
-                live.setdefault(s, set()).add(mode)
-    return live, errors
+            for fi in found:
+                live.setdefault(fi.sig, set()).add(mode)
+                if _in_tree(fi.path):
+                    samples.setdefault((fi.path, fi.line, fi.sig), fi)
+    return live, samples, errors
 
 
 # --------------------------------------------------------------- baseline io --
@@ -596,10 +608,17 @@ def main():
             sys.exit("unknown ISA mode %r (have: %s)" % (m, ", ".join(ALL_MODES)))
 
     raw = pass_a(args.srcdir)
-    live, pperrs = pass_b(args.srcdir, modes, args.cc, args.jobs)
+    live, samples, pperrs = pass_b(args.srcdir, modes, args.cc, args.jobs)
 
     for f in raw:
         f.modes = sorted(live.get(f.sig, ()), key=ALL_MODES.index)
+    # A compiled block whose signature no raw-source block shares would otherwise
+    # vanish from the report -- the one thing a pass/fail lint must never do.
+    raw_sigs = {f.sig for f in raw}
+    for (_, _, sig), fi in sorted(samples.items()):
+        if sig not in raw_sigs:
+            fi.modes = sorted(live[sig], key=ALL_MODES.index)
+            raw.append(fi)
     reported = raw if args.include_dead else [f for f in raw if f.modes]
 
     if args.write_baseline:
