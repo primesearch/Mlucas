@@ -5051,7 +5051,7 @@ entries whose count matches the current run, so a .cfg file may legitimately hol
 thread-count field is replaced unconditionally: it is exactly what this run is re-timing.
 
 Writes via a scratch file next to the target and rename()s over it, so an interrupted rewrite cannot
-truncate the .cfg file. A failure at any step leaves the original untouched; the worst case is that
+truncate the .cfg file. A failure at any step, including a read or write error part-way through, leaves the original untouched; the worst case is that
 this run's entry is appended after all, which is the old behaviour.
 */
 void cfgDropStaleEntry(uint32 kblocks)
@@ -5060,7 +5060,7 @@ void cfgDropStaleEntry(uint32 kblocks)
 	FILE *fp, *ft;
 	char *nt_addr;
 	uint32 i, nt, ndrop = 0;
-	int first = TRUE;
+	int first = TRUE, io_err;
 
 	snprintf(cfg_path, sizeof(cfg_path), "%s%s"    , MLUCAS_PATH, CONFIGFILE);
 	snprintf(tmp_path, sizeof(tmp_path), "%s%s.new", MLUCAS_PATH, CONFIGFILE);
@@ -5081,8 +5081,12 @@ void cfgDropStaleEntry(uint32 kblocks)
 		}
 		fputs(line, ft);
 	}
+	/* fgets() returns NULL on a read error just as at EOF, and a failed fputs() leaves only the
+	stream's sticky error flag, which fclose() need not report - so check both streams, else a
+	truncated copy could be rename()d over the original: */
+	io_err = ferror(fp) || ferror(ft);
 	fclose(fp);
-	if(fclose(ft) || !ndrop || rename(tmp_path, cfg_path))
+	if(fclose(ft) || io_err || !ndrop || rename(tmp_path, cfg_path))
 		remove(tmp_path);
 }
 
