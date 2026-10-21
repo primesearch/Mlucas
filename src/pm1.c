@@ -1777,7 +1777,7 @@ MME = 0;
 	periodic-check clock is set to "every checkpoint". Also allocate the scratch array the ladder check needs: */
 	if(bufsum) free((void *)bufsum);
 	bufsum = (uint64 *)calloc(m*num_b, sizeof(uint64));	ASSERT(bufsum != 0x0, "calloc of stage 2 buffer checksums failed!");
-	for(i = 0; i < m*num_b; i++) bufsum[i] = pm1_s2_checksum((uint64 *)buf[i], nbytes>>3);
+	for(i = 0; i < (int)(m*num_b); i++) bufsum[i] = pm1_s2_checksum((uint64 *)buf[i], nbytes>>3);
 	if(s2chk_ptmp) { free((void *)s2chk_ptmp); s2chk_ptmp = s2chk = 0x0; }
 	s2chk_ptmp = ALLOC_DOUBLE(s2chk_ptmp, npad);	ASSERT(s2chk_ptmp != 0x0, "alloc of stage 2 check scratch array failed!");
 	s2chk = ALIGN_DOUBLE(s2chk_ptmp);
@@ -2574,7 +2574,7 @@ MME = 0;
 			/* [2] Static tables: a rotating 1/16 of buf[] per checkpoint, all of them when JacobiCheckHours = 0: */
 			{
 				uint32 nb = m*num_b, per = (JACOBI_CHECK_HOURS == 0.0) ? nb : (nb + 15)/16, lo = s2chk_round*per, hi = MIN(nb, lo+per);
-				for(i = lo; i < hi; i++) {
+				for(i = lo; i < (int)hi; i++) {
 					if(pm1_s2_checksum((uint64 *)buf[i], nbytes>>3) != bufsum[i]) {
 						snprintf(cbuf,sizeof(cbuf), "ERROR: %s stage 2 table entry %u of %u fails its checksum at q = %" PRIu64 " - the precomputed A^(b^2) buffers have been corrupted in memory. Aborting; the .s2 checkpoint is intact and a restart rebuilds the tables.\n",PSTRING,i,nb,q+bigstep);
 						mlucas_fprint(cbuf,pm1_standlone+1); ASSERT(0,cbuf);
