@@ -64,6 +64,12 @@ COMMON_FLAGS = ["-E", "-std=gnu99", "-D_GNU_SOURCE", "-DUSE_THREADS"]
 PER_FILE_FLAGS = {
     "factor.c": ["-DFACTOR_STANDALONE", "-DTRYQ=4"],
 }
+# And a few are only ever built in some modes.  test_fft_radix.c is the standalone radix-DFT test
+# driver: it '#error's out in a SIMD build by design, and CI compiles it non-SIMD only.  Preprocessing
+# it in the other modes would only report that #error as a coverage failure.
+PER_FILE_MODES = {
+    "test_fft_radix.c": ["nosimd"],
+}
 ISA_FLAGS = {
     "nosimd": [],
     "sse2":   ["-DUSE_SSE2", "-msse2"],
@@ -426,7 +432,7 @@ def pass_b(srcdir, modes, cc, jobs):
     failures."""
     live, samples, errors = {}, {}, []
     files = sorted(os.path.basename(f) for f in glob.glob(os.path.join(srcdir, "*.c")))
-    work = [(mode, f) for mode in modes for f in files]
+    work = [(mode, f) for mode in modes for f in files if mode in PER_FILE_MODES.get(f, ALL_MODES)]
 
     def one(job):
         mode, f = job
