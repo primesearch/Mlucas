@@ -1228,6 +1228,10 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 		if(p < 64)
 			return ((1ull << p) % q) << nshift;
 	}
+	// q = 1 (passed in as such, or left by stripping an exact power of 2 with p >= 64 + nshift)
+	// divides everything; the Montgomery setup below needs q odd > 1, so return the 0 directly:
+	if(q == 1ull)
+		return 0ull;
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 	// Extract leftmost 7 bits of (p - 64); if > 64, use leftmost 6 instead:
 	pshift = p - 64;	j = leadz64(pshift);
