@@ -328,7 +328,9 @@ def scan_text(text, locate, want_comments_stripped=True):
         body = text[open_paren + 1:j]
         secs = split_sections(body)
         extended = len(secs) > 1
-        used = template_regs(" ".join(string_literals(secs[0])), extended)
+        # Adjacent string literals concatenate with nothing between them, as in C, so
+        # '"%%r" "dx"' (or a stringized macro argument after '-E') names rdx.
+        used = template_regs("".join(string_literals(secs[0])), extended)
         if not used:
             continue
         bound = set()
@@ -539,6 +541,12 @@ SELF_TESTS = [
      []),
     ("comment mentioning a register is ignored",
      '__asm__ volatile (/* uses %%rdx */ "movq %[a],%%r13 \\n\\t" :: [a] "m" (x) : "r13");',
+     []),
+    ("register name split across adjacent string literals",
+     '__asm__ volatile ("movq %[a],%%r" "dx \\n\\t" :: [a] "m" (x) : "cc");',
+     ["rdx"]),
+    ("split register name satisfied by its clobber (control)",
+     '__asm__ volatile ("movq %[a],%%r" "dx \\n\\t" :: [a] "m" (x) : "cc","rdx");',
      []),
     ("clobber spelled ymm still satisfies a ymm use",
      '__asm__ volatile ("vmovaps (%%rax),%%ymm7 \\n\\t" :: [a] "m" (x) : "rax","ymm7");',
