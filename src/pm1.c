@@ -487,6 +487,7 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uin
 	uint8 c;
 	uint32 i,j,b1 = 0,nbytes,nlimbs;
 	uint64 itmp64 = 0ull,isum64 = 0ull;
+	(void)p;	// No longer used here; kept so the callers and prototype need not change
 	ASSERT(arr != 0x0, "Null arr pointer!");
 	ASSERT(strlen(fname) != 0, "Empty filename!");
   #ifdef PM1_STANDALONE
