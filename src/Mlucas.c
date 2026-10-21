@@ -1848,6 +1848,11 @@ READ_RESTART_FILE:
 						// maxiter) for a run which finishes its full-modulus phase in this same invocation.
 						// Here we are resuming from a savefile whose residue is already the final one, so
 						// the loop is skipped and ihi still holds the next-checkpoint value set on read.
+			// Skipping the loop also skips its closing convert_res_FP_bytewise() call, and the savefile read
+			// left arrtmp[] holding the residue with the circular shift applied (convert_res_bytewise_FP() shifts
+			// it in place). The Mersenne-PRP postprocessing below reads arrtmp[] directly - Res64, Res2048 and the
+			// residue handed to Suyama_CF_PRP() - so rebuild the shift-removed copy from a[] here:
+			convert_res_FP_bytewise(a, (uint8 *)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
 			goto PM1_STAGE2;	// The CF-handling is a clause of the if/else beginning at this label
 		}
 	}
