@@ -484,8 +484,8 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #if HIACC
 		#error The HIACC Fermat-mod carry arm does not work for the ODD_RADIX == 63 radices. Measured on\
  AVX2 with -DHIACC=1: radix1008 F24 at 1008K halts on roundoff, radix4032 F26 at 4032K returns\
- Res64 = 0000000000000000 at MaxErr 0 - i.e. one of the silent all-zero residues this file's LOACC\
- arm was fixed to stop producing. Neither is reachable in a stock build, since nothing defines\
+ Res64 = 0000000000000000 at MaxErr 0 - i.e. one of the silent all-zero residues the LOACC\
+ arm in this file was fixed to stop producing. Neither is reachable in a stock build, since nothing defines\
  HIACC here; this guard is so that defining it fails loudly instead. Use the LOACC arm below.
 		// Hi-accuracy version needs RADIX/4 copies of each base root:
 		l = (j >> 1);	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
