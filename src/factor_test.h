@@ -2079,8 +2079,9 @@ if((q128.d1 >> 14) == 0) {
 	/* Test <= 96-bit factors using the 192-bit modmul routines.
 	This is NOT redundant with the 96- and 128-bit testing above, and it is the only coverage the
 	192-bit q-pipelined routines get below 2^90. A P3WORD build of factor.c feeds *every* candidate
-	to twopmodq192_q4 (factor.c:3599), including sub-2^64 ones - the runtime bit-length narrowing
-	which would hand those off to a narrower modpow is commented out at factor.c:3667-3671 - so
+	to twopmodq192_q4 (the P3WORD branch of factor.c's TRYQ == 4 dispatch), including sub-2^64 ones -
+	the runtime bit-length narrowing which would hand those off to a narrower modpow is commented out
+	(see the P3WORD branch of the TRYQ == 8 dispatch) - so
 	twopmodq192_q4 has to be correct for small q, not just for q near 2^128.
 	Before this loop existed the only twopmodq192_q4 coverage in test_fac() was the fac128x2 loop
 	below (q = 90...127 bits); the fac160/fac192 loops further down cannot supply any, since all of
