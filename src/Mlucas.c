@@ -4610,7 +4610,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			/**** IF POSSIBLE, USE ONE OF THE STANDARD TEST EXPONENTS HERE, SO CAN CHECK RES64s!!! ****/
 				if(modType == MODULUS_TYPE_FERMAT) {
 					for(i = 0; i < numFerm; i++) {
-						if(FermVec[i].fftLength == k) {
+						if((uint32)FermVec[i].fftLength == k) {
 							userSetExponent = 0;
 							start = i; finish = start+1;
 							break;
@@ -4625,7 +4625,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 					}
 				} else {
 					for(i = 0; i < numTest; i++) {
-						if(MvecPtr[i].fftLength == k) {
+						if((uint32)MvecPtr[i].fftLength == k) {
 							userSetExponent = 0;
 							start = i; finish = start+1;
 							break;
@@ -5002,7 +5002,7 @@ TIMING_TEST_LOOP:
 						goto ERNST_MAIN;
 					}
 					for(i = 0; i < numTest; i++) {
-						if(MvecPtr[i].fftLength == k) {
+						if((uint32)MvecPtr[i].fftLength == k) {
 							userSetExponent = 0;
 							start = i; finish = start+1;
 							break;
