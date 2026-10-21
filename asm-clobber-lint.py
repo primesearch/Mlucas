@@ -66,8 +66,7 @@ ISA_FLAGS = {
     "sse2":   ["-DUSE_SSE2", "-msse2"],
     "avx":    ["-DUSE_AVX", "-mavx"],
     "avx2":   ["-DUSE_AVX2", "-mavx2", "-mfma"],
-    "avx512": ["-DUSE_AVX512", "-mavx512f", "-mavx512cd", "-mavx512dq",
-               "-mavx512bw", "-mavx512vl", "-mfma"],
+    "avx512": ["-DUSE_AVX512", "-mavx512f", "-mavx512cd", "-mfma"],
 }
 ALL_MODES = list(ISA_FLAGS)
 
