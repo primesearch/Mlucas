@@ -2545,7 +2545,12 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			So use the shift-removed uint64 residue in arrtmp[] - filled by the convert_res_FP_bytewise()
 			call at the end of the iteration loop - which is the same array the Mersenne-PRP clause above
 			tests. It holds the residue fully reduced (mod N) but truncated to p bits, so N-1 = 2^p shows
-			up as all-limbs-zero; a Pépin residue of 0 cannot occur (gcd(3,F_m) = 1), so no ambiguity. */
+			up as all-limbs-zero; a Pépin residue of 0 cannot occur (gcd(3,F_m) = 1), so no ambiguity.
+			[The one route here which bypasses that loop-end call is the PRP-CF restart shortcut above the
+			iteration loop, which leaves arrtmp[] holding the savefile residue with the shift re-applied by
+			convert_res_bytewise_FP(). The verdict below is then stale, but harmlessly so: that shortcut is only
+			taken when KNOWN_FACTORS[0] != 0, in which case Suyama_CF_PRP() overwrites isprime further down and
+			rebuilds arrtmp[] from a[] itself.] */
 			isprime = 1;
 			j = (p+63)>>6;	// # of 64-bit limbs in the p-bit residue
 			for(i = 0; i < j; i++) {
