@@ -2398,7 +2398,7 @@ READ_RESTART_FILE:
 			// Only need to compute this for initial interval - after that the needed adjustment-shift remains constant.
 			// v21: '<=' rather than '==' so that a run too short to ever hit iteration ITERS_BETWEEN_GCHECKS - for which
 			// the end-of-run check below is the *only* check, hence the first - also gets GCHECK_SHIFT computed:
-			if(gchk_iter <= ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
+			if(gchk_iter <= (uint32)ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
 				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 					/* d[] needs initial-shift applied prior to final scalar multiply, but don't explicitly,
 					store the initial shift, so need to recompute it from a current value s at iteration i:
@@ -2497,7 +2497,7 @@ READ_RESTART_FILE:
 						snprintf(cbuf,sizeof(cbuf),"Final Gerbicz check at iteration %u failed %u times in a row - the error is not being cleared by restarting from the last-good-Gerbicz-check data, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",gchk_iter,gchk_nfail,PSTRING);
 						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
 					}
-					if(gchk_iter <= ITERS_BETWEEN_GCHECKS)
+					if(gchk_iter <= (uint32)ITERS_BETWEEN_GCHECKS)
 						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from scratch.\n",gchk_iter);
 					else
 						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from last-good-Gerbicz-check data.\n",gchk_iter);
@@ -5892,7 +5892,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	nerr = 0ull;
 	for(j = 0; j < 4; j++) {
 		i = fgetc(fp);
-		if(i == EOF) {
+		if((int)i == EOF) {
 			if(!j) {
 				if(!savefile_ends_at(func,fname,fp,1,len_v20,FALSE)) return 0;
 				goto SAVEFILE_READ_DONE;
@@ -7218,6 +7218,7 @@ int jacobi_check_available(void) {
 
 int jacobi_check(uint64 p, const uint64 *res, uint32 nlimb, uint32 sub, double *tsec) {
 #if !(INCLUDE_GMP && defined(__GNU_MP_RELEASE) && (__GNU_MP_RELEASE >= 50100))
+	(void)p; (void)res; (void)nlimb; (void)sub;
 	if(tsec) *tsec = 0.0;
 	return JACOBI_UNAVAILABLE;
 #else
