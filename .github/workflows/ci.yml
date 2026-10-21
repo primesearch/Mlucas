@@ -554,8 +554,13 @@ jobs:
     # Deliberately no 'continue-on-error' and no pipe into 'tee': a CI job that
     # cannot fail is not a CI job.
     runs-on: ubuntu-latest
+    # The job only reads the tree and runs no git commands after checkout.
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
     - name: Self-test
       run: python3 asm-clobber-lint.py --self-test
     - name: Registers used vs registers declared
