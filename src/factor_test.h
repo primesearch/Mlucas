@@ -2108,11 +2108,6 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
 			ASSERT(0,"0");
 		}
-		/* A handful of the fac96 entries have p > 2^32 and k >= 2^64; the q-pipelined routines
-		take a 64-bit k, so those simply are not expressible as inputs to them: */
-		if(x192.d2 != 0 || x192.d1 != 0)
-			continue;
-
 		res192 = twopmodq192(p192, q192);
 		if(!CMPEQ192(res192, ONE192))
 		{
@@ -2122,6 +2117,12 @@ if((q128.d1 >> 14) == 0) {
 					&cbuf2[convert_uint192_base10_char(cbuf2, res192)]);
 			ASSERT(0,"0");
 		}
+
+		/* 30 of the fac96 entries (q = 89...96 bits, p < 2^25) have k >= 2^64. The scalar
+		twopmodq192 above takes the full 192-bit p and q, so it checks those too, but the
+		q-pipelined routines take a 64-bit k, so those entries are not expressible as inputs to them: */
+		if(x192.d2 != 0 || x192.d1 != 0)
+			continue;
 
 	#if(TRYQ == 4)
 		res64 = twopmodq192_q4((uint64*)&p192,x192.d0,x192.d0,x192.d0,x192.d0);
