@@ -9770,7 +9770,7 @@ int mlucas_rename(const char *oldpath, const char *newpath)
 	mlucas_path_cat(obuf, oldpath, 0x0);
 	mlucas_path_cat(nbuf, newpath, 0x0);
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
-	return !MoveFileEx(obuf, nbuf, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+	return !MoveFileExA(obuf, nbuf, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
 #else
 	return rename(obuf, nbuf);
 #endif
