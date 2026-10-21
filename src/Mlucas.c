@@ -1664,6 +1664,12 @@ READ_RESTART_FILE:
 	ASSERT(TEST_TYPE <= TEST_TYPE_MAX,"Given TEST_TYPE not supported!");
 	if(ilo == 0)
 	{
+		/* The G-check power-of-2 correction belongs to the b[] product being (re)seeded below, so restart it too.
+		On resume it comes back from the savefile instead, but a from-scratch start - the next assignment of a
+		multi-exponent run, or a restart after a failed G-check with no .G savefile - would otherwise inherit
+		the previous run's value: the Fermat-mod accumulator would carry it straight into the first check, and
+		the Mersenne-mod first-check recovery only overwrites it when the new run has a nonzero shift: */
+		GCHECK_SHIFT = 0ull;
 		memset(a, 0, npad*sizeof(double));
 		if(b) memset(b, 0, npad*sizeof(double));
 		if(c) memset(c, 0, npad*sizeof(double));
