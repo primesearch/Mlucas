@@ -1657,7 +1657,7 @@ READ_RESTART_FILE:
 		// stage 1 prime-powers product into BASE_MULTIPLIER_BITS per interval, and the carry step reads bit (iter-1) % ITERS_BETWEEN_CHECKPOINTS.
 		// A command-line p-1 run is INTERACT, and its timing_test_iters is the full product bit length, which is normally larger:
 		if(INTERACT && TEST_TYPE == TEST_TYPE_PM1)
-			ihi = MIN(timing_test_iters, ITERS_BETWEEN_CHECKPOINTS);
+			ihi = MIN(timing_test_iters, (uint32)ITERS_BETWEEN_CHECKPOINTS);
 		else if(INTERACT)
 			ihi = timing_test_iters;
 		else
