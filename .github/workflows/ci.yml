@@ -623,7 +623,8 @@ jobs:
         make clean
         # Self-test exit status: 0 and 2 (too few usable radix sets at some length, which a stock build
         # still hits at 1K and 2K) pass; anything else - a wrong answer, a crash - fails the job.
-        # '|| st=$?' because this runs under set -e, which would otherwise end the step on status 2.
+        # '|| st=${PIPESTATUS[0]}' because this runs under set -e and pipefail, which would otherwise end
+        # the step on status 2.
         st=0
         time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
         (( st == 0 || st == 2 ))
@@ -953,7 +954,8 @@ jobs:
         # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
         # Self-test exit status: 0 and 2 (too few usable radix sets at some length, which a stock build
         # still hits at 1K and 2K) pass; anything else - a wrong answer, a crash - fails the job.
-        # '|| st=$?' because this runs under set -e, which would otherwise end the step on status 2.
+        # '|| st=${PIPESTATUS[0]}' because this runs under set -e and pipefail, which would otherwise end
+        # the step on status 2.
         st=0
         time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
         (( st == 0 || st == 2 ))
