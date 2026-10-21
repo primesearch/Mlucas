@@ -119,12 +119,12 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 				within range in favor of an out-of-range one that later trips the caller's ASSERT:
 				*/
 				if((i >= kblocks) && (i <= (kblocks<<1)) && (char_addr = strstr(g_in_line, "msec/iter =")) != 0) {
-					/* Entries carry the thread count they were timed with ('nthreads = N', written by the
-					self-test since v21.1). A radix set that is fastest at 1 thread is often not fastest at
-					4 or 16, because the FFT-phase working set grows with the thread count, so a timing taken
-					with a different count is not evidence for this run: skip such lines. Lines without the
-					field (older cfg files) are accepted as before. Doing this before the duplicate-entry
-					check below is what lets one cfg file hold an entry per (FFT length, thread count):
+					/* Entries carry the thread count they were timed with ('nthreads = N', which the self-test writes;
+					versions up to 21.0.2 did not). A radix set that is fastest at 1 thread is often not fastest at
+					4 or 16, because the FFT-phase working set grows with the thread count, so a timing taken with a
+					different count is not evidence for this run: skip such lines. Lines without the field (older
+					cfg files) are accepted as before. Doing this before the duplicate-entry check below is what
+					lets one cfg file hold an entry per (FFT length, thread count):
 					*/
 					if((nt_addr = strstr(g_in_line, "nthreads =")) != 0x0 && sscanf(nt_addr + 10, "%u", &nt) == 1 && nt != (uint32)NTHREADS) {
 						if(i == kblocks) { nt_skipped++; nt_seen = nt; }	// Reported below, only if no matching entry turns up
