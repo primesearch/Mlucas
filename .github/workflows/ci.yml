@@ -23,9 +23,11 @@ on:
 # past the point where they will ever start.
 #
 # Pushes to main and the monthly schedule are deliberately not cancelled - those runs are the record
-# of what the branch does, and a later push should not erase an earlier result.
+# of what the branch does, and a later push should not erase an earlier result. Every other run gets
+# a group of its own (github.run_id): in a shared group, a pending run is replaced by a newer one even
+# without cancel-in-progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -84,7 +86,10 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # Ladder stops at 'm'. The 'l' self-test (FFT lengths 16M-60M) ran here on every push and
+        # every pull request and was most of this job's self-test time; it now runs monthly against
+        # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
@@ -120,6 +125,28 @@ jobs:
             time bash tests/jacobi-check.sh obj/Mlucas obj_fi/Mlucas obj/mlucas.cfg |& tee -a obj/test.log
         JACOBI_TEST_CPU="0:$(( $(nproc --all) - 1 ))" JACOBI_TEST_DIR="$PWD/obj/jacobi-pm1-tests" \
             time bash tests/jacobi-pm1.sh obj/Mlucas obj_fi/Mlucas obj/mlucas.cfg |& tee -a obj/test.log
+    - name: Test
+      run: |
+        set -x -o pipefail
+        CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
+        CPPFLAGS=(-D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_GMP=0)
+        mkdir obj_test_fft_radix
+        cd obj_test_fft_radix
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
+        mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
+        for file in "${files[@]}"; do
+            radix=${file##*/radix}
+            radix=${radix%%_*}
+            printf '\nTesting RADIX %s\n' "$radix"
+            for ttype in 1 2 3; do
+                printf '\n\tTTYPE %s\n\n' "$ttype"
+                $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
+                $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm -lpthread -lrt &>>build.log
+                time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
+            done
+        done
+        rm -- *.o test_fft_radix
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -138,7 +165,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-26.04-arm]
         cc: [gcc] # clang
       fail-fast: false
     env:
@@ -194,7 +221,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-26.04-arm]
         cc: [gcc] # clang
       fail-fast: false
     env:
@@ -248,6 +275,28 @@ jobs:
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - name: Test
+      run: |
+        set -x -o pipefail
+        CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
+        CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
+        mkdir obj_test_fft_radix
+        cd obj_test_fft_radix
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
+        mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
+        for file in "${files[@]}"; do
+            radix=${file##*/radix}
+            radix=${radix%%_*}
+            printf '\nTesting RADIX %s\n' "$radix"
+            for ttype in 1 2 3; do
+                printf '\n\tTTYPE %s\n\n' "$ttype"
+                $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
+                $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm &>>build.log
+                time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
+            done
+        done
+        rm -- *.o test_fft_radix
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -266,14 +315,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20", "alpine:3.24"] # "ubuntu:12.04"
+        os: [ubuntu-latest, ubuntu-26.04-arm]
+        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.24"] # "ubuntu:12.04"
         cc: [gcc, clang]
         exclude:
           # Ubuntu 14.04's clang (3.4-era) predates AArch64 NEON 'v'-register asm syntax, so it
           # cannot assemble the inline asm in dft_macro.c on ARM ("unknown register name 'v0'").
           # Its gcc builds fine there, as do both compilers on x86-64, so drop only this one combo.
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-26.04-arm
             container: "ubuntu:14.04"
             cc: clang
       fail-fast: false
@@ -415,9 +464,10 @@ jobs:
   ASan-Linux:
     name: AddressSanitizer Linux
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, ubuntu-26.04-arm]
         cc: [gcc, clang]
       fail-fast: false
     env:
@@ -435,24 +485,47 @@ jobs:
         $CC --version
     - name: Script
       run: |
-        set -x
-        # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
-        # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
-        # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
+        set -x -o pipefail
+        # Build the runner's native SIMD mode under the sanitizers: AVX2 or AVX-512 on x86,
+        # depending on the runner, and ASIMD on ARM. This is the only job that builds the
+        # hand-tuned SIMD asm under a sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during
+        # 'Mlucas -s m', was reported by ASan on an ARM runner. (The macOS ASan job stays on
+        # NOSIMD, see PR #71: there the SIMD asm fails to assemble under -Og, "invalid CFI
+        # advance_loc expression".)
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        (cd obj; make clean)
+        # On ARM, config-fermat.sh runs from the NOSIMD build, as in the Linux job above: the ASIMD
+        # build's trial-factoring routines are stubs ("No TF support on ARMv8!" in twopmodq80.c).
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+            (cd obj_nosimd; make clean)
+        fi
         for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        cd obj
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            cd ../obj_nosimd
+        fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   TSan-Linux:
     name: ThreadSanitizer Linux
@@ -478,11 +551,22 @@ jobs:
         $CC --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         cd obj_nosimd
         make clean
-        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))"
+        time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux_${{ matrix.cc }}_tsan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   GCC-analyzer:
     name: GCC analyzer
@@ -590,7 +674,9 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | grep -v '^ld:' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        # Ladder stops at 'm'; 'l' runs monthly against main in selftest-large.yml. See the note in
+        # the Linux job above.
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         if [[ $HOSTTYPE == arm64 ]]; then
             cd ../obj_NOSIMD
@@ -699,7 +785,7 @@ jobs:
         clang --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
         # SIMD asm under ASan/UBSan adds little, and on macOS it fails to assemble under -Og
         # ("invalid CFI advance_loc expression"). NOSIMD exercises the same C-level logic.
@@ -711,12 +797,23 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_asan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   TSan-macOS:
     name: ThreadSanitizer macOS
@@ -733,14 +830,25 @@ jobs:
         clang --version
     - name: Script
       run: |
-        set -x
+        set -x -o pipefail
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
         cd obj_nosimd
         make clean
         # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
         # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
         # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
-        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+        time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_tsan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   FreeBSD:
     name: Mlucas FreeBSD
@@ -895,7 +1003,9 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m l; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        # Ladder stops at 'm'; 'l' runs monthly against main in selftest-large.yml. See the note in
+        # the Linux job above.
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         if [[ "${{ matrix.os }}" == *-arm ]]; then
             cd ../obj_NOSIMD
@@ -959,9 +1069,20 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: windows_asan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
