@@ -28,6 +28,7 @@ Sections:
 [13]: *** DON'Ts ***
 [14]: General troubleshooting
 	[14a]: How to safely interrupt a running instance
+	[14b]: Jacobi residue check log messages
 
 ===============================================================================
 
@@ -720,7 +721,7 @@ file. What each means and what, if anything, to do about it:
 	means the residue itself has been corrupted in a way rollback cannot clear. Treat it
 	like the 5-consecutive-failures case below.
 
-	"Jacobi check at iteration N failed %u times in a row, the last after restarting from
+	"Jacobi check at iteration N failed 5 times in a row, the last after restarting from
 	scratch - ... Please check this machine for hardware errors."
 	Five consecutive Jacobi-check failures, the last one from a fresh restart, means the
 	corruption is not being cleared by rolling back savefiles, so it is not transient. Stop
