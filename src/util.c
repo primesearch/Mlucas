@@ -9850,8 +9850,10 @@ int mlucas_fclose_atomic(const char *path, FILE *fp)
 	if(!fp) return -1;
 	mlucas_path_cat(tmp_path, path, SAVEFILE_TMP_SUFFIX);
 	strcpy(tmp_name, path);	strcat(tmp_name, SAVEFILE_TMP_SUFFIX);	// MLUCAS_PATH-relative, for mlucas_rename()
-	/* [1] stdio buffer ==> OS: */
-	if(fflush(fp) != 0)
+	/* [1] stdio buffer ==> OS. Check the sticky error indicator first: callers need not check each
+	fputc()/fprintf(), and once an earlier write has failed (ENOSPC, EIO, EFBIG) the data it held is
+	gone but a later fflush() of whatever is left in the buffer can still succeed: */
+	if(ferror(fp) || fflush(fp) != 0)
 		err = 1;
 	/* [2] OS page cache ==> stable storage. EINVAL/ENOTSUP mean the fd is of a type which cannot be
 	synced (a pipe, or a filesystem lacking the operation) rather than that the data was lost, so do
