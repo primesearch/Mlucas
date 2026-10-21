@@ -2252,7 +2252,7 @@ READ_RESTART_FILE:
 			the initial interval - after that the needed adjustment-shift remains constant.
 			Fermat-mod: GCHECK_SHIFT is instead the running (mod 2p) accumulator maintained at each check-product
 			update, which genuinely changes from one check interval to the next, so nothing to do here. */
-			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && ihi == ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
+			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && ihi == (uint32)ITERS_BETWEEN_GCHECKS && RES_SHIFT) {
 				/* d[] needs initial-shift applied prior to final scalar multiply, but don't explicitly,
 				store the initial shift, so need to recompute it from a current value s at iteration i:
 					s = s0.2^i (mod p)
