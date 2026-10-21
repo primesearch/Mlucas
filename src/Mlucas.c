@@ -4841,7 +4841,7 @@ TIMING_TEST_LOOP:
 		for(i = 0; i < (int)(sizeof(odd_ok)/sizeof(odd_ok[0])); i++) {
 			for(len = odd_ok[i]; len <= lmax; len <<= 1) {
 				if(get_fft_radices(len, 0, 0x0, 0x0, 0) != 0) continue;	// Not a supported length
-				for(j = 0; j < numTest; j++) { if(MvecPtr[j].fftLength == len) break; }
+				for(j = 0; j < numTest; j++) { if((uint32)MvecPtr[j].fftLength == len) break; }
 				if(j < numTest) continue;								// Already covered by some tier
 				ASSERT(nsweep < (int)(sizeof(sweepVec)/sizeof(sweepVec[0])), "sweepVec[] overflow");
 				sweepVec[nsweep++] = len;
