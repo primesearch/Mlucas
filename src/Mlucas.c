@@ -5550,7 +5550,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	for(j = 0; j < 3 && i != EOF; j++) {
 		i = fgetc(fp);	*kblocks += (uint64)i << (8*j);
 	}
-	if(i == EOF) {	// v21: EOF here means either a pre-v18 savefile or a truncated current-format one - which?
+	if((int)i == EOF) {	// v21: EOF here means either a pre-v18 savefile or a truncated current-format one - which?
 		*kblocks = 0;
 		if(!savefile_ends_at(func,fname,fp,j,len_v17,DO_GCHECK)) return 0;
 		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks in savefile %s ... assuming a pre-v18 savefile.\n",func,fname); mlucas_fprint(cbuf,1);
@@ -5574,7 +5574,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	prp_base = 0;
 	for(j = 0; j < 4; j++) {
 		i = fgetc(fp);
-		if(i == EOF) {	// v21: Formerly unchecked, leaving PRP_BASE = 0xFEFEFEFF on a failed read
+		if((int)i == EOF) {	// v21: Formerly unchecked, leaving PRP_BASE = 0xFEFEFEFF on a failed read
 			sprintf(cbuf, "%s: Hit EOF in read of PRP-base in savefile %s!\n",func,fname);
 			fprintf(stderr,"%s", cbuf);	return 0;
 		}
@@ -5586,7 +5586,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	gcheck_shift = 0ull;
 	for(j = 0; j < 8; j++) {
 		i = fgetc(fp);
-		if(i == EOF) {	// v21: ditto for GCHECK_SHIFT
+		if((int)i == EOF) {	// v21: ditto for GCHECK_SHIFT
 			sprintf(cbuf, "%s: Hit EOF in read of G-check residue-shift in savefile %s!\n",func,fname);
 			fprintf(stderr,"%s", cbuf);	return 0;
 		}
@@ -5618,7 +5618,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	nerr = 0ull;
 	for(j = 0; j < 4; j++) {
 		i = fgetc(fp);
-		if(i == EOF) {	// v21: This loop formerly had no EOF check at all, so a savefile truncated in its
+		if((int)i == EOF) {	// v21: This loop formerly had no EOF check at all, so a savefile truncated in its
 			// last 4 bytes read back as NERR_GCHECK = 0xFEFEFEFF = 4278124287 with the read still reporting
 			// success - which then got submitted to the server as error-code 0x00F00000 ("15 Gerbicz errors")
 			// plus a literal "gerbicz":4278124287, even for test types which have no Gerbicz check at all:
