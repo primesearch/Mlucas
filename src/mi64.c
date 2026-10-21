@@ -652,14 +652,14 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 		hi64 = x[nwshift-1];
 	}
 	if(!rembits) {	// Whole-word shift:
-		for(i = 0; i < len-nwshift && i < (int)output_len; i++) {	// v21: clamp to output_len (fudge-factor case)
+		for(i = 0; (uint32)i < len-nwshift && i < (int)output_len; i++) {	// v21: clamp to output_len (fudge-factor case)
 			y[i] = x[i+nwshift];
 		}
 	} else {	// nshift not an exact multiple of the wordlength:
 		m64bits = (64-rembits);
 		if(nwshift)
 			hi64 = (hi64 >> rembits) + (x[nwshift] << m64bits);
-		for(i = 0; i < len-nwshift-1 && i < (int)output_len; i++) {	// v21: clamp to output_len (fudge-factor case)
+		for(i = 0; (uint32)i < len-nwshift-1 && i < (int)output_len; i++) {	// v21: clamp to output_len (fudge-factor case)
 			y[i] = (x[i+nwshift] >> rembits) + (x[i+nwshift+1] << m64bits);	// Ex: on exit have just finished y[37] = x[1130]>>48 + x[1131]<<16
 		}																	// thus 2432 of our 2448 target bits
 		// Most-significant element gets zeros shifted in from the left:
