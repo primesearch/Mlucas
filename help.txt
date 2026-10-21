@@ -621,7 +621,8 @@ checked checkpoint, passed that check and fails every later one - the retry from
 at the same iteration and the rollback moves on to .J1; on a failed check Mlucas rolls back through
 the chain p -> q -> .J -> .J1 -> from scratch, Jacobi-checking each file as it is read. At a
 332-million-bit exponent each savefile is 41.5 MB, so an LL run's p, q, .J and .J1 files
-together total roughly 166 MB.
+together total roughly 166 MB. When the test completes, .J and .J1 are deleted along with q; only
+the p savefile is kept, as described above.
 
 o Savefiles append a 4-byte Jacobi-check-failure count after the existing roundoff- and
 Gerbicz-error counts. Older Mlucas versions and third-party savefile readers ignore trailing

@@ -3133,6 +3133,14 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		fprintf(stderr, "Unable to delete secondary restart file %s\n",RESTARTFILE);
 
 	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+	/* v21: Likewise the LL Jacobi-check rollback checkpoints [p][expo].J and .J1: they exist only to recover the run
+	that has just completed (the primary kept above covers re-running its last iterations), and left in place they
+	would be two more full-size savefiles per exponent and a stale rollback target should the exponent be rerun.
+	Not gated on do_jcheck, so they also go if the check was switched off partway through the run: */
+	if(TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+		snprintf(jchk_fname,STR_MAX_LEN, "%s.J" ,RESTARTFILE);	mlucas_remove(jchk_fname);
+		snprintf(jchk_fname,STR_MAX_LEN, "%s.J1",RESTARTFILE);	mlucas_remove(jchk_fname);
+	}
 
 	/*...If in non-interactive (production) mode, delete the just-completed assignment from the workfile.
 	Do this by copying all the currently assigned exponents (except the first) from the workfile to a temporary file,

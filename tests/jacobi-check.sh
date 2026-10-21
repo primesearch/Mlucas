@@ -86,7 +86,8 @@ expect_grep  "$S" "M86243 is a known MERSENNE PRIME" "correct verdict"
 expect_count "$S" "Jacobi check passed" 87 "a pass logged at every checkpoint plus the final residue"
 expect_nogrep "$S" "FAILED" "no failure on a clean run"
 expect_grep  "$S" "At iteration 86241, shift = [0-9]*: Jacobi check passed" "final residue checked before the verdict"
-if [[ -f $d/p86243.J && -f $d/p86243.J1 ]]; then ok ".J and .J1 written"; else bad ".J/.J1 missing"; fi
+# .J/.J1 are written during the run (T4 relies on .J being there after an interrupt) and deleted with q at the end:
+if [[ -f $d/p86243.J || -f $d/p86243.J1 ]]; then bad ".J/.J1 left behind after completion"; else ok ".J and .J1 removed at completion"; fi
 if [[ -f $d/q86243 ]]; then bad "q86243 left behind after completion"; else ok "q86243 removed at completion"; fi
 
 # ---------------------------------------------------------------------------------------------
@@ -126,6 +127,7 @@ echo "-- T4: corrupted savefile is refused on read and the chain falls through (
 d=$(setup t4 216091 10000)
 run_until_iter_then_interrupt "$d" 216091 30000
 S=$d/p216091.stat
+if [[ -f $d/p216091.J1 ]]; then ok ".J1 written by the third checkpoint"; else bad ".J1 missing after three checked checkpoints"; fi
 if [[ -f $d/p216091 && -f $d/q216091 && -f $d/p216091.J ]]; then
 	# Damage p and q identically in the residue body, which breaks their checksum triplet; .J is
 	# intact and must be the file the run resumes from. Seek to the middle of the file rather than a
