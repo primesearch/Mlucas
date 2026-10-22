@@ -2692,6 +2692,7 @@ READ_RESTART_FILE:
 				if(i != -1) {
 					sprintf(cbuf,"Gerbicz check passes if D *= 2^%u (mod 2^p-1)\n",i);
 					mlucas_fprint(cbuf,0);
+					if(gchk_iter >= gchk_fail_iter) gchk_nfail = 0;	// v21: as above - once a rollback has mod-doubled the shift, every later pass comes this way
 					// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 					memcpy(d, b, nbytes);
 					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
