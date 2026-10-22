@@ -4986,7 +4986,7 @@ TIMING_TEST_LOOP:
 				j = iarg << 10;
 				do { j = get_nextlarger_fft_length(j); } while(j && (j & 1023));
 				k = j >> 10;
-				if(k && 8*k <= 9*iarg) {
+				if(k && 8*k <= 9*get_default_fft_length(convert_base10_char_uint64(quick_estr))) {
 					sprintf(cbuf, "INFO: trying the next-larger FFT length, %u K, instead.\n", k);
 					fprintf(stderr,"%s", cbuf);
 					quick_fallback = 1;
