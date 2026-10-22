@@ -92,7 +92,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	uint32 i, j, k, kprod, found, retval = 0;
 	double tbest = 0, tcurr;
 	char *char_addr, *nt_addr;
-	uint32 nt, nt_skipped = 0, nt_seen = 0;	// #entries for the target length skipped for a thread-count mismatch, and the last such count
+	uint32 nt, nt_skipped = 0, nt_lo = 0, nt_hi = 0;	// #entries for the target length skipped for a thread-count mismatch, and the range of their counts
 
 	/* FFT-radix configuration file is named mlucas.cfg or fermat.cfg,
 	depending on whether Mersenne or Fermat number test is being done:
@@ -127,7 +127,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 					lets one cfg file hold an entry per (FFT length, thread count):
 					*/
 					if((nt_addr = strstr(g_in_line, "nthreads =")) != 0x0 && sscanf(nt_addr + 10, "%u", &nt) == 1 && nt != (uint32)NTHREADS) {
-						if(i == kblocks) { nt_skipped++; nt_seen = nt; }	// Reported below, only if no matching entry turns up
+						if(i == kblocks) { if(!nt_skipped++) nt_lo = nt_hi = nt; else if(nt < nt_lo) nt_lo = nt; else if(nt > nt_hi) nt_hi = nt; }	// Reported below, only if no matching entry turns up
 						continue;
 					}
 					/* Stores whether we found an entry for the requested FFT length
@@ -231,8 +231,13 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	*/
 	if(!found) {
 		if(nt_skipped) {
-			fprintf(stderr, "INFO: %s has %u entr%s for FFT length %uK, but timed with a different thread count (%u) than this run's %d; ignoring %s. A timing test for this length at %d threads will be run and its result appended.\n",
-				CONFIGFILE, nt_skipped, nt_skipped == 1 ? "y" : "ies", kblocks, nt_seen, NTHREADS, nt_skipped == 1 ? "it" : "them", NTHREADS);
+			char nt_str[24];
+			if(nt_lo == nt_hi)
+				snprintf(nt_str, sizeof(nt_str), "%u", nt_lo);
+			else
+				snprintf(nt_str, sizeof(nt_str), "%u-%u", nt_lo, nt_hi);
+			fprintf(stderr, "INFO: %s has %u entr%s for FFT length %uK, but timed at %s threads rather than this run's %d; ignoring %s.\n",
+				CONFIGFILE, nt_skipped, nt_skipped == 1 ? "y" : "ies", kblocks, nt_str, NTHREADS, nt_skipped == 1 ? "it" : "them");
 		}
 		retval = 0;
 		for(j=0; j<10; j++) { RADIX_VEC[j] = 0; }
