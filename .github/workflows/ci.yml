@@ -31,8 +31,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  Linux:
-    name: Mlucas Linux
+  Linux-build:
+    name: Mlucas Linux build
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -56,7 +56,7 @@ jobs:
         else
             $CC -dM -E -march=native - </dev/null
         fi
-    - name: Script
+    - name: Build
       run: |
         set -x -o pipefail
         lscpu
@@ -86,6 +86,122 @@ jobs:
         echo -e '## Warnings\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' build.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux-build-logs_${{ matrix.os }}_${{ matrix.cc }}
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      run: |
+        set -x
+        # Only what the test job runs is uploaded. Compile-only builds stay on this runner.
+        # x86 ships every explicit-ISA build rather than the native one, so the binaries don't
+        # depend on this runner's CPU; the test job runs the best one its own runner supports.
+        # On ARM the native build is ASIMD; config-fermat.sh and the Mfactor runs use NOSIMD there.
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            TEST_DIRS=( obj obj_NOSIMD ); MF_SUFFIXES=( NOSIMD )
+        else
+            TEST_DIRS=( obj_NOSIMD obj_SSE2 obj_AVX obj_AVX2 obj_AVX512 ); MF_SUFFIXES=( NOSIMD SSE2 AVX AVX2 AVX512 )
+        fi
+        for d in "${TEST_DIRS[@]}"; do
+            mkdir -p "stage/$d"
+            cp -p "$d/Mlucas" "stage/$d/"
+        done
+        for sfx in "${MF_SUFFIXES[@]}"; do
+            for word in '' {{1..4},n}word; do
+                d="obj_mfac${word:+_$word}_$sfx"
+                mkdir -p "stage/$d"
+                cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+            done
+        done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: linux-build_${{ matrix.os }}_${{ matrix.cc }}
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  Linux-test:
+    name: Mlucas Linux test
+
+    needs: Linux-build
+    # Each matrix entry tests its own build's artifact, so run even if some other build entry
+    # failed; an entry whose own build failed then fails at 'Fetch build', where its artifact is missing.
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, ubuntu-22.04-arm, ubuntu-24.04-arm, ubuntu-26.04-arm]
+        cc: [gcc, clang]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: linux-build_${{ matrix.os }}_${{ matrix.cc }}
+    - name: Restore executable bits
+      run: chmod +x obj*/Mlucas obj*/Mfactor*
+    - name: Detect CPU
+      run: |
+        # Compile a probe with this job's compiler and pick the best ISA this runner supports.
+        # Mirrors makemake.sh's detection: AVX-512F and AVX-512CD, then AVX2, AVX, SSE2.
+        cat > isa_probe.c <<'EOF'
+        #include <stdio.h>
+
+        int main(void)
+        {
+        #if defined(__x86_64__) || defined(__i386__)
+            __builtin_cpu_init();
+            if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd"))
+                puts("AVX512");
+            else if (__builtin_cpu_supports("avx2"))
+                puts("AVX2");
+            else if (__builtin_cpu_supports("avx"))
+                puts("AVX");
+            else
+                puts("SSE2");
+        #else
+            puts("ASIMD");
+        #endif
+            return 0;
+        }
+        EOF
+        $CC -O2 -o isa_probe isa_probe.c
+        echo "TEST_ISA=$(./isa_probe)" >> "$GITHUB_ENV"
+    - name: Script
+      run: |
+        set -x -o pipefail
+        lscpu
+        cat /proc/cpuinfo
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            TEST_DIR=obj; MF_SUFFIX=NOSIMD
+        else
+            TEST_DIR=obj_$TEST_ISA; MF_SUFFIX=$TEST_ISA
+            echo "::notice::This runner supports $TEST_ISA; testing the $TEST_ISA build."
+            if [[ $TEST_ISA != AVX512 ]]; then
+                echo "::warning::This runner has no AVX-512, so the AVX512 build is not tested here."
+            fi
+            # Every ISA below the best one gets a quick self-test pass and the Mfactor runs, so the
+            # scalar, SSE2 and AVX code paths run too. The full test set below runs on the best ISA only.
+            for isa in NOSIMD SSE2 AVX AVX2 AVX512; do
+                [[ $isa == "$TEST_ISA" ]] && break
+                (cd "obj_$isa" && for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done)
+                for word in '' {{1..4},n}word; do
+                    (cd "obj_mfac${word:+_$word}_$isa" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
+            done
+        fi
+        cd "$TEST_DIR"
         # Ladder stops at 'm'. The 'l' self-test (FFT lengths 16M-60M) ran here on every push and
         # every pull request and was most of this job's self-test time; it now runs monthly against
         # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
@@ -95,21 +211,18 @@ jobs:
             cd ../obj_NOSIMD
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
-        # Mfactor self-test on one build only. The explicit-ISA builds above are for compile
-        # coverage: a runner may not be able to execute what they target.
+        # Mfactor self-test on the tested ISA; the lower ones ran above.
         # On ARM the native build is ASIMD, whose trial-factoring routines are stubs -
         # twopmodq80.c's "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so run
         # the NOSIMD build there instead, which takes the scalar TF path and self-tests normally.
-        # Same substitution config-fermat.sh already makes above, and the loop above has already
-        # built these, so it costs no extra build time.
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
+        # Same substitution config-fermat.sh already makes above.
         for word in '' {{1..4},n}word; do
             # M(521), not M(127): the 4-word build's 256-bit modpow needs p + 256 >= 512 to have a
             # lead chunk to work with, and asserts ("twopmodq256 : start_index < 2!") below that.
             # M(127) only ever passed because a stray -DTRYQ=4 sent that build down the single-word
             # path instead. 521 is the smallest Mersenne-prime exponent every word variant handles,
             # and costs slightly less than 127 did (726k trial divides vs 1.66M).
-            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            (cd "../obj_mfac${word:+_$word}_$MF_SUFFIX" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - name: Test
       run: |
@@ -137,6 +250,8 @@ jobs:
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cc }}_mlucas
+        # The Mlucas and Mfactor build logs are uploaded by the build job; the only build.log
+        # here is test_fft_radix's, from the Test step.
         path: |
           obj*/build.log
           obj*/test.log
@@ -447,8 +562,8 @@ jobs:
           obj*/fermat.cfg
         if-no-files-found: warn
 
-  ASan-Linux:
-    name: AddressSanitizer Linux
+  ASan-Linux-build:
+    name: AddressSanitizer Linux build
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -467,46 +582,180 @@ jobs:
     - name: Before script
       run: |
         sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
-    - name: Script
+    - name: Build
       run: |
         set -x -o pipefail
-        # Build the runner's native SIMD mode under the sanitizers: AVX2 or AVX-512 on x86,
-        # depending on the runner, and ASIMD on ARM. This is the only job that builds the
-        # hand-tuned SIMD asm under a sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during
-        # 'Mlucas -s m', was reported by ASan on an ARM runner. (The macOS ASan job stays on
-        # NOSIMD, see PR #71: there the SIMD asm fails to assemble under -Og, "invalid CFI
-        # advance_loc expression".)
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        (cd obj; make clean)
-        # On ARM, config-fermat.sh runs from the NOSIMD build, as in the Linux job above: the ASIMD
-        # build's trial-factoring routines are stubs ("No TF support on ARMv8!" in twopmodq80.c).
+        # Build the SIMD modes under the sanitizers: AVX2 and AVX-512 on x86, and ASIMD on ARM.
+        # This is the only job that builds the hand-tuned SIMD asm under a sanitizer. Issue #12, a
+        # SEGV in radix48_dit_pass1 during 'Mlucas -s m', was reported by ASan on an ARM runner.
+        # (The macOS ASan job stays on NOSIMD, see PR #71: there the SIMD asm fails to assemble
+        # under -Og, "invalid CFI advance_loc expression".)
+        # On x86 both explicit modes are built rather than the native one: the test jobs run on
+        # other runners, which may or may not have AVX-512, and each runs the best build its own
+        # runner supports.
         if [[ $HOSTTYPE == aarch64 ]]; then
+            bash -e -o pipefail -- makemake.sh use_hwloc
+            (cd obj; make clean)
+            # On ARM, config-fermat.sh runs from the NOSIMD build, as in the Linux job above: the ASIMD
+            # build's trial-factoring routines are stubs ("No TF support on ARMv8!" in twopmodq80.c).
             bash -e -o pipefail -- makemake.sh use_hwloc nosimd
             (cd obj_nosimd; make clean)
+        else
+            for mode in avx2 avx512; do
+                bash -e -o pipefail -- makemake.sh use_hwloc $mode
+                (cd obj_$mode; make clean)
+            done
         fi
         for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_build_logs
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      run: |
+        set -x
         if [[ $HOSTTYPE == aarch64 ]]; then
-            cd ../obj_nosimd
+            TEST_DIRS=( obj obj_nosimd )
+        else
+            TEST_DIRS=( obj_avx2 obj_avx512 )
         fi
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+        for d in "${TEST_DIRS[@]}"; do
+            mkdir -p "stage/$d"
+            cp -p "$d/Mlucas" "stage/$d/"
+        done
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            d="obj_mfac${word:+_$word}_nosimd"
+            mkdir -p "stage/$d"
+            cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+        done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan-linux-build_${{ matrix.os }}_${{ matrix.cc }}
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  ASan-Linux-test:
+    name: AddressSanitizer Linux test (${{ matrix.os }}, ${{ matrix.cc }}, ${{ matrix.part }})
+
+    needs: ASan-Linux-build
+    # Each matrix entry tests its own build's artifact, so run even if some other build entry
+    # failed; an entry whose own build failed then fails at 'Fetch build', where its artifact is missing.
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04-arm]
+        cc: [gcc, clang]
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+      fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
+      PART: ${{ matrix.part }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libhwloc-dev
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: asan-linux-build_${{ matrix.os }}_${{ matrix.cc }}
+    - name: Restore executable bits
+      run: chmod +x obj*/Mlucas obj_mfac*_nosimd/Mfactor*
+    - name: Detect CPU
+      run: |
+        # Same probe as the Linux test job: the best ISA this runner supports.
+        cat > isa_probe.c <<'EOF'
+        #include <stdio.h>
+
+        int main(void)
+        {
+        #if defined(__x86_64__) || defined(__i386__)
+            __builtin_cpu_init();
+            if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd"))
+                puts("AVX512");
+            else if (__builtin_cpu_supports("avx2"))
+                puts("AVX2");
+            else if (__builtin_cpu_supports("avx"))
+                puts("AVX");
+            else
+                puts("SSE2");
+        #else
+            puts("ASIMD");
+        #endif
+            return 0;
+        }
+        EOF
+        $CC -O2 -o isa_probe isa_probe.c
+        echo "TEST_ISA=$(./isa_probe)" >> "$GITHUB_ENV"
+    - name: Before script
+      run: |
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
+    - name: Script
+      run: |
+        set -x -o pipefail
+        if [[ $PART == mfactor ]]; then
+            # Mfactor runs from the NOSIMD builds on every runner, so once is enough, and
+            # before the ISA check below, which only concerns the Mlucas builds:
+            for word in '' {{1..4},n}word; do
+                (cd "obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            done
+            exit 0
+        fi
+        # Which builds to test: on ARM, the native ASIMD build. On x86, the AVX2 build always, and
+        # the AVX-512 build as well when this runner has AVX-512 - most runners do not, and there
+        # the AVX-512 binary would only die on an illegal instruction.
+        if [[ $HOSTTYPE == aarch64 ]]; then
+            TEST_DIRS=(obj)
+        else
+            case "$TEST_ISA" in
+                AVX512) TEST_DIRS=(obj_avx2 obj_avx512) ;;
+                AVX2) TEST_DIRS=(obj_avx2) ;;
+                *) echo "::error::This runner supports neither AVX2 nor AVX-512, and only those builds are staged."; exit 1 ;;
+            esac
+            echo "::notice::This runner supports $TEST_ISA; testing ${TEST_DIRS[*]}."
+        fi
+        for TEST_DIR in "${TEST_DIRS[@]}"; do
+            pushd "$TEST_DIR"
+            case "$PART" in
+                selftest-short)
+                    for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+                    ;;
+                selftest-m)
+                    time ./Mlucas -s m -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+                    ;;
+                prp)
+                    for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+                    ;;
+                fermat)
+                    # On ARM config-fermat.sh runs from the NOSIMD build, as in the Linux job:
+                    if [[ $HOSTTYPE == aarch64 ]]; then
+                        cd ../obj_nosimd
+                    fi
+                    bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+                    ;;
+                *)
+                    echo "::error::Unknown test part '$PART'."; exit 1
+                    ;;
+            esac
+            popd
         done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: ${{ matrix.os }}_${{ matrix.cc }}_asan_mlucas
+        name: ${{ matrix.os }}_${{ matrix.cc }}_${{ matrix.part }}_asan_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
@@ -755,8 +1004,8 @@ jobs:
           obj*/fermat.cfg
         if-no-files-found: warn
 
-  ASan-macOS:
-    name: AddressSanitizer macOS
+  ASan-macOS-build:
+    name: AddressSanitizer macOS build
 
     runs-on: macos-latest
     steps:
@@ -767,9 +1016,8 @@ jobs:
     - name: Before script
       run: |
         sed -i '' 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
         clang --version
-    - name: Script
+    - name: Build
       run: |
         set -x -o pipefail
         # Build NOSIMD under the sanitizer (see PR #71 discussion): testing the hand-tuned
@@ -782,19 +1030,87 @@ jobs:
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_asan_build_logs
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      run: |
+        set -x
+        mkdir -p stage/obj_nosimd
+        cp -p obj_nosimd/Mlucas stage/obj_nosimd/
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            d="obj_mfac${word:+_$word}_nosimd"
+            mkdir -p "stage/$d"
+            cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
         done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan-macos-build
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  ASan-macOS-test:
+    name: AddressSanitizer macOS test (${{ matrix.part }})
+
+    needs: ASan-macOS-build
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+      fail-fast: false
+    env:
+      PART: ${{ matrix.part }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install
+      run: |
+        brew install hwloc
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: asan-macos-build
+    - name: Restore executable bits
+      run: chmod +x obj_nosimd/Mlucas obj_mfac*_nosimd/Mfactor*
+    - name: Before script
+      run: |
+        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
+    - name: Script
+      run: |
+        set -x -o pipefail
+        cd obj_nosimd
+        case "$PART" in
+            selftest-short)
+                for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+                ;;
+            selftest-m)
+                time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+                ;;
+            prp)
+                for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+                ;;
+            fermat)
+                bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
+                ;;
+            mfactor)
+                for word in '' {{1..4},n}word; do
+                    (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
+                ;;
+            *)
+                echo "::error::Unknown test part '$PART'."; exit 1
+                ;;
+        esac
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: macos_asan_mlucas
+        name: macos_${{ matrix.part }}_asan_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
@@ -1018,8 +1334,8 @@ jobs:
           obj*/fermat.cfg
         if-no-files-found: warn
 
-  ASan-Windows:
-    name: AddressSanitizer Windows
+  ASan-Windows-build:
+    name: AddressSanitizer Windows build
 
     runs-on: windows-latest
     env:
@@ -1041,9 +1357,8 @@ jobs:
       shell: bash
       run: |
         sed -i 's/^CFLAGS = .*/CFLAGS = -std=gnu99 -Wall -Wextra -g -Og -fsanitize=address,undefined/' makemake.sh
-        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
-    - name: Script
+    - name: Build
       shell: bash
       run: |
         set -x
@@ -1054,19 +1369,98 @@ jobs:
             bash -e -o pipefail -- makemake.sh mfac $word nosimd
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
-        cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-        bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+    - name: Upload build logs
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: windows_asan_build_logs
+        path: obj*/build.log
+        if-no-files-found: warn
+    - name: Stage test binaries
+      shell: bash
+      run: |
+        set -x
+        mkdir -p stage/obj_nosimd
+        cp -p obj_nosimd/Mlucas.exe stage/obj_nosimd/
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            d="obj_mfac${word:+_$word}_nosimd"
+            mkdir -p "stage/$d"
+            cp -p "$d/Mfactor${word:+_$word}.exe" "stage/$d/"
         done
+    - name: Upload build
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan-windows-build
+        path: stage/**
+        retention-days: 1
+        if-no-files-found: error
+
+  ASan-Windows-test:
+    name: AddressSanitizer Windows test (${{ matrix.part }})
+
+    needs: ASan-Windows-build
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+      fail-fast: false
+    env:
+      PART: ${{ matrix.part }}
+      PACKAGE_PREFIX: mingw-w64-clang-x86_64-
+    steps:
+    - uses: actions/checkout@v7
+    - name: Before Install
+      run: |
+        echo "C:\msys64\clang64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - name: Install
+      run: |
+        # The toolchain package carries the ASan runtime DLLs the sanitized binaries load.
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}toolchain"
+        pacman -S --noconfirm "${env:PACKAGE_PREFIX}gmp" "${env:PACKAGE_PREFIX}hwloc"
+    - name: Fetch build
+      uses: actions/download-artifact@v8
+      with:
+        name: asan-windows-build
+    - name: Restore executable bits
+      shell: bash
+      run: chmod +x obj_nosimd/Mlucas.exe obj_mfac*_nosimd/Mfactor*.exe
+    - name: Before script
+      shell: bash
+      run: |
+        sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
+    - name: Script
+      shell: bash
+      run: |
+        set -x -o pipefail
+        cd obj_nosimd
+        case "$PART" in
+            selftest-short)
+                for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+                ;;
+            selftest-m)
+                time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+                ;;
+            prp)
+                for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+                ;;
+            fermat)
+                bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+                ;;
+            mfactor)
+                for word in '' {{1..4},n}word; do
+                    (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                done
+                ;;
+            *)
+                echo "::error::Unknown test part '$PART'."; exit 1
+                ;;
+        esac
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: windows_asan_mlucas
+        name: windows_${{ matrix.part }}_asan_mlucas
         path: |
-          obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
           obj*/config-fermat.log
