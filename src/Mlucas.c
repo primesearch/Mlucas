@@ -4047,7 +4047,7 @@ int 	main(int argc, char *argv[])
 	int		i,j, idum, nargs, scrnFlag, maxAllocSet = FALSE, nbufSet = FALSE;
 	int		start = -1, finish = -1, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0, xRow = 0;
 	/* v21: '-s c' coverage sweep - see the block which fills sweepVec[] below for the rationale. */
-	int		sweepMode = 0, nsweep = 0;
+	int		sweepMode = 0, nsweep = 0, nSelfTestFlag = 0;
 	uint32	sweepVec[64];
 #ifdef MULTITHREAD
 	// Vars for mgmt of mutually exclusive arg sets; 'core' is specifically for hwloc-including builds:
@@ -4146,6 +4146,11 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		/* Mersenne self-test: requires a user-set exponent, FFT length or one of the supported -s arguments below: */
 		if(STREQ(stFlag, "-s"))
 		{
+			// Each -s argument overwrites start/finish, so a second one would silently discard the first:
+			if(nSelfTestFlag) {	// Bad user input: report it and exit cleanly, as for a bad -fft or -radset
+				fprintf(stderr,"ERROR: only one -s option may be given per run.\n");	exit(EXIT_FAILURE);
+			}
+			nSelfTestFlag = TRUE;
 			selfTest = TRUE;
 			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 			for(;;) {
@@ -4503,6 +4508,15 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		pm1_check_bounds();
 	}
 
+	// The coverage sweep picks its own FFT lengths, exponents and radix sets, and indexes the Mersenne
+	// reference table: any of -fft, -radset, -m or -f would either be ignored or leave start/finish
+	// pointing at a single-case slot, so that the sweep runs nothing and still reports success.
+	if(sweepMode) {
+		if(fftlen || radset != -1 || userSetExponent || modType != MODULUS_TYPE_MERSENNE) {
+			fprintf(stderr,"ERROR: -s c cannot be combined with -fft, -radset, -m or -f.\n");	exit(EXIT_FAILURE);
+		}
+	}
+
 	if(!modType)
 		modType = MODULUS_TYPE_MERSENNE;
 
@@ -4857,6 +4871,7 @@ TIMING_TEST_LOOP:
 			fprintf(stderr,"INFO: every supported FFT length has a reference-table row - nothing to sweep.\n");
 			goto DONE;
 		}
+		ASSERT(start == 0, "coverage sweep: starting index must be 0!");
 		finish = nsweep;
 		fprintf(stderr,"Coverage sweep over the %d supported FFT length(s) with no reference-table row:\n   ",nsweep);
 		for(i = 0; i < nsweep; i++) fprintf(stderr," %u",sweepVec[i]);
