@@ -141,6 +141,9 @@ The (very rough) time estimates are for 1000 iterations done using 4 or more cor
 			depends only on the exponent and the iteration count, not on the FFT length, so each
 			swept length borrows the exponent and stored residues of the nearest tabulated length
 			at or below it. Roughly the cost of '-s l'.
+			Cannot be combined with -fft, -radset, -m or -f.
+
+	Only one -s option may be given per run.
 
 	Exit status of any of the above: 0 if every radix set tried either matched its reference or
 	was skipped for a reason that does not impugn the answer; 1 if any case returned a wrong
