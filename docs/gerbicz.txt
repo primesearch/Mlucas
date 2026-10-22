@@ -248,8 +248,8 @@ bc sketch (L = 4 for readability; E any odd number; N any odd modulus):
 			x = (x^2 * a^bit) % n; cc = 2*cc + bit; i = i + 1;
 			if(i % L == 0) {
 				if(i % (L*L) == 0) {
-					/* check: d^(2^L) * a * a^c must equal b*x */
-					d = modpow(d, 2^L, n) * a % n * modpow(a, c, n) % n;
+					/* check: d^(2^L) * a * a^(c+cc) must equal b*x; cc is the block just finished */
+					d = modpow(d, 2^L, n) * a % n * modpow(a, c + cc, n) % n;
 					if(d != b*x % n) print "mismatch at ", i, "\n";
 				}
 				b = b*x % n; d = b; c = c + cc; cc = 0;
