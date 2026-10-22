@@ -4926,8 +4926,10 @@ TIMING_TEST_LOOP:
 			/* Replace any entry this file already holds for this FFT length, rather than appending a
 			second one that get_preferred_fft_radix() would then refuse to read past. See the
 			cfgDropStaleEntry() comment: */
-			if(!new_cfg)
-				cfgDropStaleEntry((uint32)iarg);
+			if(!new_cfg && !cfgDropStaleEntry((uint32)iarg)) {
+				snprintf(cbuf, sizeof(cbuf), "ERROR: Unable to replace the existing entry for FFT length %uK in %s, and appending a second one would leave a file that later runs refuse to read. Check that the directory holding %s is writable, or delete that entry by hand, and retry.\n", iarg, CONFIGFILE, CONFIGFILE);
+				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+			}
 			fp = mlucas_fopen(CONFIGFILE,FILE_ACCESS_MODE);
 			if(!fp) {
 				sprintf(cbuf  , "INFO: Unable to open %s file in %s mode ... \n", CONFIGFILE, FILE_ACCESS_MODE);
@@ -5051,27 +5053,30 @@ entries whose count matches the current run, so a .cfg file may legitimately hol
 thread-count field is replaced unconditionally: it is exactly what this run is re-timing.
 
 Writes via a scratch file next to the target and rename()s over it, so an interrupted rewrite cannot
-truncate the .cfg file. A failure at any step, including a read or write error part-way through, leaves the original untouched; the worst case is that
-this run's entry is appended after all, which is the old behaviour.
+truncate the .cfg file. A failure at any step, including a read or write error part-way through, leaves
+the original untouched.
+
+Returns TRUE if the caller may append its entry: there was nothing to drop, or the drop succeeded.
+Returns FALSE if an entry the reader would count may still be in the file - appending then would
+recreate exactly the duplicate this function exists to prevent, so the caller must not.
 */
-void cfgDropStaleEntry(uint32 kblocks)
+int cfgDropStaleEntry(uint32 kblocks)
 {
 	char cfg_path[2*STR_MAX_LEN+1], tmp_path[2*STR_MAX_LEN+8], line[STR_MAX_LEN];
 	FILE *fp, *ft;
 	char *nt_addr;
 	uint32 i, nt, ndrop = 0;
-	int first = TRUE, io_err;
+	int first = TRUE, rd_err, wr_err;
 
 	snprintf(cfg_path, sizeof(cfg_path), "%s%s"    , MLUCAS_PATH, CONFIGFILE);
 	snprintf(tmp_path, sizeof(tmp_path), "%s%s.new", MLUCAS_PATH, CONFIGFILE);
 	if(!(fp = fopen(cfg_path, "r")))	// No .cfg file yet - nothing to drop
-		return;
-	if(!(ft = fopen(tmp_path, "w"))) {	// Read-only directory - leave the file alone
-		fclose(fp);	return;
-	}
+		return TRUE;
+	/* NULL if the directory is read-only; scan the file anyway, to learn whether anything needed dropping: */
+	ft = fopen(tmp_path, "w");
 	while(fgets(line, sizeof(line), fp)) {
 		if(first) {	// Line 1 is the program version, not an entry - and would parse as a length
-			first = FALSE;	fputs(line, ft);	continue;
+			first = FALSE;	if(ft) fputs(line, ft);	continue;
 		}
 		if(sscanf(line, "%u", &i) == 1 && i == kblocks && strstr(line, "msec/iter =")) {
 			/* get_preferred_fft_radix() counts a line as an entry only if it also holds a timing, so a
@@ -5083,15 +5088,26 @@ void cfgDropStaleEntry(uint32 kblocks)
 				++ndrop;	continue;
 			}
 		}
-		fputs(line, ft);
+		if(ft) fputs(line, ft);
 	}
 	/* fgets() returns NULL on a read error just as at EOF, and a failed fputs() leaves only the
 	stream's sticky error flag, which fclose() need not report - so check both streams, else a
-	truncated copy could be rename()d over the original: */
-	io_err = ferror(fp) || ferror(ft);
+	truncated copy could be rename()d over the original. A read error also means an entry may sit
+	in the part of the file not seen: */
+	rd_err = ferror(fp);
 	fclose(fp);
-	if(fclose(ft) || io_err || !ndrop || rename(tmp_path, cfg_path))
-		remove(tmp_path);
+	if(!ft)
+		return !rd_err && !ndrop;
+	wr_err = ferror(ft);
+	if(fclose(ft))
+		wr_err = TRUE;
+	if(!rd_err && !ndrop) {	// Nothing to replace
+		remove(tmp_path);	return TRUE;
+	}
+	if(!rd_err && !wr_err && !rename(tmp_path, cfg_path))
+		return TRUE;
+	remove(tmp_path);
+	return FALSE;
 }
 
 /******************/
