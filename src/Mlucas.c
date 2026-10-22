@@ -5073,9 +5073,11 @@ void cfgDropStaleEntry(uint32 kblocks)
 		if(first) {	// Line 1 is the program version, not an entry - and would parse as a length
 			first = FALSE;	fputs(line, ft);	continue;
 		}
-		if(sscanf(line, "%u", &i) == 1 && i == kblocks) {
-			/* Keep exactly the entries get_preferred_fft_radix() may skip - a parseable thread count other
-			than this run's - and drop the rest, so the two always agree on what is a duplicate: */
+		if(sscanf(line, "%u", &i) == 1 && i == kblocks && strstr(line, "msec/iter =")) {
+			/* get_preferred_fft_radix() counts a line as an entry only if it also holds a timing, so a
+			same-length line without one (a comment starting with a number, say) is kept. Of the entries,
+			keep exactly the ones it may skip - a parseable thread count other than this run's - and drop
+			the rest, so the two always agree on what is a duplicate: */
 			nt_addr = strstr(line, "nthreads =");
 			if(!(nt_addr && sscanf(nt_addr + 10, "%u", &nt) == 1 && nt != (uint32)NTHREADS)) {
 				++ndrop;	continue;
