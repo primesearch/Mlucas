@@ -103,7 +103,8 @@ default (randomly chosen, nonzero) shift failed its first GEC at the millionth i
 assignment was abandoned; `-shift 0` therefore had to be added to the command line. That restriction has 
 been lifted - the Fermat-mod GEC now maintains its own correction accumulator - and `-shift 0` is no 
 longer needed for GEC. It is still required for FFT lengths whose leading radix is less than 16 (see the 
-small-FFT note below) and for p-1 runs.
+small-FFT note below), for p-1 runs, and for _F_<sub>32</sub> and larger, whose exponents exceed the 
+largest exponent that supports a residue shift.
 
 ## Cofactor compositeness testing: Suyama’s test
 Suyama’s test is a Fermat probable primality test on the cofactor of a Fermat number. As a prerequisite, 
