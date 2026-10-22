@@ -404,7 +404,7 @@ uint32	ernstMain
 	is the iteration count that update corresponds to, and gchk_first_sub the first_sub value in effect at
 	that point (needed for the [d] mode_flag, since the update may not be in the final iteration interval).
 	gchk_nfail bounds the retry count, so a persistent (non-transient) final-check failure cannot spin: */
-	uint32 gchk_final = FALSE, gchk_iter = 0, gchk_first_sub = 0, gchk_nfail = 0, loop_exit = 0;
+	uint32 gchk_final = FALSE, gchk_iter = 0, gchk_first_sub = 0, gchk_nfail = 0, gchk_fail_iter = 0, loop_exit = 0;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
 	form in the factoring module. For all other types of assignments uint64 should suffice: */
@@ -465,7 +465,7 @@ RANGE_BEG:
 	ROE_ITER = 0; ROE_VAL = 0.0;
 	NERR_GCHECK = NERR_ROE = 0;	// v20: Add counters for Gerbicz-check errors and dangerously high ROEs encountered
 								// during test - if a restart, will re-read actual cumulative values from checkpoint file.
-	gchk_final = FALSE; gchk_nfail = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
+	gchk_final = FALSE; gchk_nfail = 0; gchk_fail_iter = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
 										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
 	// Clear out any FFT-radix or known-factor data that might remain from a just-completed run:
 	for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
@@ -2311,6 +2311,7 @@ READ_RESTART_FILE:
 			if(mi64_cmp_eq(e_uint64_ptr,c_uint64_ptr,j)) {
 				sprintf(cbuf,"At iteration %u, shift = %" PRIu64 ": Gerbicz check passed.\n",gchk_iter,RES_SHIFT);
 				mlucas_fprint(cbuf,0);
+				if(gchk_iter >= gchk_fail_iter) gchk_nfail = 0;	// v21: a pass at or beyond the last failure point clears the retry count
 				// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 				memcpy(d, b, nbytes);
 				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
@@ -2319,6 +2320,7 @@ READ_RESTART_FILE:
 				if(i != -1) {
 					sprintf(cbuf,"Gerbicz check passes if D *= 2^%u (mod 2^p-1)\n",i);
 					mlucas_fprint(cbuf,0);
+					if(gchk_iter >= gchk_fail_iter) gchk_nfail = 0;	// v21: as above - once a rollback has mod-doubled the shift, every later pass comes this way
 					// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 					memcpy(d, b, nbytes);
 					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
@@ -2328,8 +2330,13 @@ READ_RESTART_FILE:
 					reproducible one, not the transient data corruption this machinery targets) would retry forever
 					and the run would never terminate. So bound the retries and hard-exit with a diagnostic instead of
 					looping - the savefiles and the worktodo entry are left intact, and no result is emitted: */
-					if(gchk_final && ++gchk_nfail > 3) {
-						snprintf(cbuf,sizeof(cbuf),"Final Gerbicz check at iteration %u failed %u times in a row - the error is not being cleared by restarting from the last-good-Gerbicz-check data, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",gchk_iter,gchk_nfail,PSTRING);
+					/* v21: bound the retries for every check, not just the end-of-run one: a reproducible error at one
+					iteration otherwise rolls back to .G and fails there again forever. The count clears only when a check
+					passes at or beyond the failure point (see the pass branch), so the earlier checkpoints passing again on
+					the way back up do not reset it: */
+					gchk_fail_iter = gchk_iter;
+					if(++gchk_nfail > 3) {
+						snprintf(cbuf,sizeof(cbuf),"%sGerbicz check at iteration %u failed %u times in a row - the error is not being cleared by restarting from the last-good-Gerbicz-check data, so it is not transient. Aborting rather than retrying without bound; %s savefiles left in place. Please check this machine for hardware errors.\n",gchk_final ? "Final " : "",gchk_iter,gchk_nfail,PSTRING);
 						mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
 					}
 					if(gchk_iter <= (uint32)ITERS_BETWEEN_GCHECKS)
