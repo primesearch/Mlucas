@@ -34,7 +34,7 @@ Caveats: x86 AT&T syntax only; access width comes from the mnemonic suffix; oper
 expression is not a plain identifier declared in the same file cannot be type-resolved and are
 skipped rather than guessed at.
 """
-import argparse, collections, glob, os, re, sys, tempfile
+import argparse, bisect, collections, glob, os, re, sys, tempfile
 
 WIDTH = {'q': 8, 'l': 4, 'w': 2, 'b': 1}
 MNEM = re.compile(r'\b(mov|movs|movz|add|adc|sub|sbb|and|or|xor|cmp|test|imul|mul|inc|dec|neg|not'
@@ -45,7 +45,11 @@ OPDECL = re.compile(r'\[\s*(\w+)\s*\]\s*"([^"]*)"\s*\(\s*([A-Za-z_]\w*)\s*\)')
 TSIZE = {'uint64': 8, 'sint64': 8, 'int64': 8, 'uint32': 4, 'int32': 4, 'sint32': 4, 'int': 4,
          'uint': 4, 'uint16': 2, 'sint16': 2, 'uint8': 1, 'sint8': 1, 'double': 8, 'float': 4,
          'size_t': 8, 'intptr_t': 8}
-DECL = re.compile(r'\b(' + '|'.join(TSIZE) + r')\b\s*([*\s]*)([^;{}()=]*)')
+TYPE_RE = re.compile(r'\b(' + '|'.join(sorted(TSIZE, key=len, reverse=True)) + r')\b')
+# After the type: any stars and qualifiers, the declared name, then '[' (an array) or '(' (a
+# function, not a variable).
+DECLARATOR = re.compile(r'((?:\s|\*|\b(?:const|volatile|restrict|__restrict|__restrict__)\b)*)'
+                        r'([A-Za-z_]\w*)\s*([\[(])?')
 
 
 def asm_blocks(path):
@@ -71,18 +75,111 @@ def asm_text(block):
     return ' '.join(re.findall(r'"((?:[^"\\]|\\.)*)"', block))
 
 
-def decl_type(lines, ident, before):
-    """Resolve the declared type of `ident`, searching backwards from line `before`."""
-    for n in range(min(before, len(lines)) - 1, -1, -1):
-        line = lines[n]
-        if '__asm__' in line:
+def strip_c(text, keep_strings=False):
+    """Blank out comments (and, unless keep_strings, the contents of string and character
+    literals) with spaces, keeping every newline so that offsets and line numbers still hold.
+    Backslash-newline macro continuations become plain newlines."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith('/*', i):
+            j = text.find('*/', i + 2)
+            j = n if j < 0 else j + 2
+            out.append(re.sub(r'[^\n]', ' ', text[i:j]))
+        elif text.startswith('//', i):
+            j = text.find('\n', i)
+            j = n if j < 0 else j
+            out.append(' ' * (j - i))
+        elif c in '"\'':
+            j = i + 1
+            while j < n and text[j] not in (c, '\n'):
+                j += 2 if text[j] == '\\' else 1
+            j = min(j, n)
+            body = text[i + 1:j]
+            if not keep_strings:
+                body = re.sub(r'[^\n]', ' ', body)
+            close = c if j < n and text[j] == c else ''
+            out.append(c + body + close)
+            j += len(close)
+        else:
+            j = i + 1
+            out.append(c)
+        i = j
+    return ''.join(out).replace('\\\n', ' \n')
+
+
+def parse_decls(stripped, base, filescope, out):
+    """Collect the declarations in one statement (text between ';', '{' and '}').
+
+    Parenthesised groups are parsed recursively as their own lists, so each parameter of a
+    function's parameter list carries its own type, and a cast or a call cannot lend its type
+    to anything around it. At the top level, a comma-separated part that names a type starts a
+    new declaration; a part that does not is a further declarator of the same type, as in
+    'uint32 *p, v;' - and the stars belong to the declarator they precede, so v is a uint32.
+    Appends (offset, ident, typename, size, filescope) to out."""
+    flat, depth, start, groups = list(stripped), 0, 0, []
+    for i, ch in enumerate(stripped):
+        if ch == '(':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ')' and depth:
+            depth -= 1
+            if depth == 0:
+                groups.append((start, i))
+    if depth:
+        groups.append((start, len(stripped)))
+    for s, e in groups:
+        parse_decls(stripped[s + 1:e], base + s + 1, False, out)
+        for k in range(s + 1, e):
+            if flat[k] != '\n':
+                flat[k] = ' '
+    flat = ''.join(flat)
+    ty, pos = None, 0
+    for part in flat.split(','):
+        off = pos
+        pos += len(part) + 1
+        tm = TYPE_RE.search(part)
+        if tm:
+            prev = part[:tm.start()].split()
+            ty = None if prev and prev[-1] in ('long', 'short') else tm.group(1)
+            d, doff = part[tm.end():], off + tm.end()
+        else:
+            d, doff = part, off
+        if not ty:
             continue
-        for m in DECL.finditer(line):
-            ty, stars, rest = m.group(1), m.group(2), m.group(3)
-            for tok in re.finditer(r'(\**)\s*\b' + re.escape(ident) + r'\b\s*(\[)?', rest):
-                isptr = bool(stars.strip()) or bool(tok.group(1)) or bool(tok.group(2))
-                return ty + ('*' if isptr else ''), (8 if isptr else TSIZE[ty]), n + 1
-    return None
+        dm = DECLARATOR.match(d)
+        if not dm or dm.group(3) == '(':
+            continue
+        isptr = '*' in dm.group(1) or dm.group(3) == '['
+        out.append((base + doff + dm.start(2), dm.group(2), ty + ('*' if isptr else ''),
+                    8 if isptr else TSIZE[ty], filescope))
+
+
+def file_decls(text):
+    """Every declaration in a file as (line, ident, typename, size), comments and string
+    literals stripped first so that prose and printf formats are not read as declarations."""
+    stripped = strip_c(text)
+    raw, pos, depth = [], 0, 0
+    for m in re.finditer(r'[;{}]', stripped + ';'):
+        parse_decls(stripped[pos:m.start()], pos, depth == 0, raw)
+        if m.group() == '{':
+            depth += 1
+        elif m.group() == '}':
+            depth = max(depth - 1, 0)
+        pos = m.end()
+    nl = [i for i, ch in enumerate(stripped) if ch == '\n']
+    return [(bisect.bisect_left(nl, off) + 1, ident, ty, size, fs)
+            for off, ident, ty, size, fs in raw]
+
+
+def decl_type(decls, ident, before):
+    """Resolve the declared type of `ident`: the nearest declaration above line `before`."""
+    best = None
+    for line, name, ty, size, _ in decls:
+        if name == ident and line < before and (best is None or line >= best[2]):
+            best = (ty, size, line)
+    return best
 
 
 def scan(srcdir):
@@ -91,6 +188,7 @@ def scan(srcdir):
     files = sorted(glob.glob(os.path.join(srcdir, '*.c')) + glob.glob(os.path.join(srcdir, '*.h')))
     for path in files:
         rel = os.path.relpath(path, os.path.dirname(srcdir.rstrip('/')) or '.')
+        fdecls = None
         for ln, block, lines in asm_blocks(path):
             asm = asm_text(block)
             if not asm.strip():
@@ -126,7 +224,9 @@ def scan(srcdir):
                 ident = decls.get(name)
                 if not ident:
                     continue
-                t = decl_type(lines, ident, ln)
+                if fdecls is None:
+                    fdecls = file_decls('\n'.join(lines))
+                t = decl_type(fdecls, ident, ln)
                 if not t:
                     continue
                 tyname, size, dln = t
@@ -171,33 +271,31 @@ def write_baseline(path, findings):
             f.write(key + '\n')
 
 
-SELF_TEST_SOURCES = {
-    # Should fire A: same slot at 4 and 8 bytes.
-    'a_hit.c': '''
+# (file name, what it shows, the exact finding keys it must produce, source). Each case is
+# scanned as its own file, and must produce exactly the keys listed: no fewer, no more.
+SELF_TEST_CASES = [
+    ('a_hit.c', 'A fires on a mixed-width slot', ['A src/a_hit.c %rsi+0x8 [4, 8]'], '''
 void f(void *p) {
 	__asm__ ("movq 0x8(%%rsi),%%r12	\\n\\t"
 		"movl 0x8(%%rsi),%%edx	\\n\\t"
 		:: [__x] "m" (p) : "cc","memory");
 }
-''',
-    # Should NOT fire A: same width throughout.
-    'a_miss.c': '''
+'''),
+    ('a_miss.c', 'A silent on a uniform-width slot', [], '''
 void f(void *p) {
 	__asm__ ("movq 0x8(%%rsi),%%r12	\\n\\t"
 		"movq 0x8(%%rsi),%%rdx	\\n\\t"
 		:: [__x] "m" (p) : "cc","memory");
 }
-''',
-    # Should fire B: movl on a uint64.
-    'b_hit.c': '''
+'''),
+    ('b_hit.c', 'B fires on movl of a uint64', ['B src/b_hit.c %[__p] pp uint64 8 4'], '''
 void f(void) {
 	uint64 pp;
 	__asm__ ("movl %[__p],%%eax	\\n\\t"
 		:: [__p] "m" (pp) : "cc","rax");
 }
-''',
-    # Should NOT fire B: movq on a uint64, movl on a uint32.
-    'b_miss.c': '''
+'''),
+    ('b_miss.c', 'B silent when widths match the types', [], '''
 void f(void) {
 	uint64 pp;
 	uint32 qq;
@@ -205,42 +303,67 @@ void f(void) {
 		"movl %[__q],%%ecx	\\n\\t"
 		:: [__p] "m" (pp), [__q] "m" (qq) : "cc","rax","rcx");
 }
-''',
-    # Should NOT fire A: SIMD blocks are skipped (vector code legitimately mixes widths).
-    'simd_skip.c': '''
+'''),
+    ('simd_skip.c', 'SIMD blocks are skipped by A', [], '''
 void f(void *p) {
 	__asm__ ("vmovaps 0x8(%%rsi),%%ymm0	\\n\\t"
 		"movl 0x8(%%rsi),%%edx	\\n\\t"
 		:: [__x] "m" (p) : "cc","memory");
 }
-''',
+'''),
+    # Each parameter carries its own type: len is a uint32 even though the list began with a
+    # uint64. Both a mismatch (movq) and a match (movl) on it, so the case fails either way if
+    # len were resolved as 8 bytes.
+    ('b_params.c', 'B types each parameter of a list separately',
+     ['B src/b_params.c %[__len] len uint32 4 8'], '''
+void f(const uint64 x[], uint32 len)
+{
+	__asm__ ("movq %[__len],%%rcx	\\n\\t"
+		"movl %[__len],%%edx	\\n\\t"
+		:: [__len] "m" (len) : "cc","rcx","rdx");
 }
+'''),
+    # Prose in a comment is not a declaration: 'int x[] and a' must not make a an int.
+    ('b_comment.c', 'B ignores declarations in comments', [], '''
+void f(uint64 a)
+{
+	/* Given a vector int x[] and a dimension (len), ... */
+	__asm__ ("movq %[__a],%%rax	\\n\\t"
+		:: [__a] "m" (a) : "cc","rax");
+}
+'''),
+    # The star belongs to its own declarator: v is a 4-byte uint32, not a pointer.
+    ('b_declarator.c', 'B applies a pointer star to its own declarator only',
+     ['B src/b_declarator.c %[__v] v uint32 4 8'], '''
+void f(void)
+{
+	uint32 *ptr, v;
+	__asm__ ("movq %[__v],%%rax	\\n\\t"
+		"movq %[__ptr],%%rcx	\\n\\t"
+		:: [__v] "m" (v), [__ptr] "m" (ptr) : "cc","rax","rcx");
+}
+'''),
+]
 
 
 def self_test():
+    ok = True
     with tempfile.TemporaryDirectory() as td:
         src = os.path.join(td, 'src')
         os.makedirs(src)
-        for name, text in SELF_TEST_SOURCES.items():
+        for name, what, expect, text in SELF_TEST_CASES:
             open(os.path.join(src, name), 'w').write(text)
         findings, _, _ = scan(src)
-        keys = ' '.join(k for k, _ in findings)
-        checks = [
-            ('A fires on a mixed-width slot',        'a_hit.c' in keys and keys.count('A ') >= 1),
-            ('A silent on a uniform-width slot',     'a_miss.c' not in keys),
-            ('B fires on movl of a uint64',          'b_hit.c' in keys),
-            ('B silent when widths match the types', 'b_miss.c' not in keys),
-            ('SIMD blocks are skipped by A',         'simd_skip.c' not in keys),
-        ]
-        ok = True
-        for what, passed in checks:
+        for name, what, expect, text in SELF_TEST_CASES:
+            got = sorted({k for k, _ in findings if k.split()[1] == 'src/' + name})
+            passed = got == sorted(expect)
             print(f"  {'ok  ' if passed else 'FAIL'} - {what}")
+            if not passed:
+                print(f"         expected {sorted(expect)}\n         got      {got}")
             ok &= passed
-        if not ok:
-            print("\nself-test FAILED: the check does not behave as documented", file=sys.stderr)
-            for _, detail in findings:
-                print(f"    got: {detail}", file=sys.stderr)
-        return 0 if ok else 1
+    if not ok:
+        print("\nself-test FAILED: the check does not behave as documented", file=sys.stderr)
+    return 0 if ok else 1
 
 
 def main():
