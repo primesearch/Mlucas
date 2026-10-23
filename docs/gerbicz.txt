@@ -221,7 +221,8 @@ bit most significant),
 	x_{(k+1)L} = x_{kL}^(2^L) * a^(c_k)                                   [0']
 which is [0] with an extra factor. Keep the PRP bookkeeping unchanged: b = product of the x_{kL} at every block
 boundary of the current epoch (seeded with the epoch's starting residue u0, = a from scratch), d = the copy of b
-at the previous check. Then, with P = the product up to block boundary i-L and Q = the same up to i,
+at the previous block boundary, i.e. one block (L iterations) back - as in the PRP check, d is refreshed at every
+update, not only at checks. Then, with P = the product up to block boundary i-L and Q = the same up to i,
 	P^(2^L) = prod_{k} x_{kL}^(2^L) = prod_{k} x_{(k+1)L} * a^(-c_k) = (Q / u0) * a^(-C),   C = sum_k c_k ,
 i.e.
 	Q = u0 * P^(2^L) * a^C                                                 [3']
@@ -238,18 +239,24 @@ Two things the PRP check never meets, because there the multiply-by-base bits ar
 	o u0 is a full residue, not the scalar a, when an epoch starts from a loaded savefile residue rather than
 	  from scratch; it is kept as an array and multiplied in rather than folded into the exponent.
 
-bc sketch (L = 4 for readability; E any odd number; N any odd modulus):
-	define pm1_gerbicz(a,e,n,L) {
-		auto i,t,x,b,d,c,cc,nb,bit;
-		nb = length2(e);           /* #bits of e; leading bit is the seed */
-		x = a; b = a; d = a; c = 0; cc = 0; i = 0;
-		for(t = nb-2; t >= 0; t--) {
+Only L-aligned points can be checked, so the last check of stage 1 is at the largest multiple of L not past its
+end (Mlucas's end-of-run check), and the fewer than L iterations after it are covered by the Jacobi check of the
+stage 1 final residue instead.
+
+bc sketch (L = 4 for readability; N any odd modulus). u0 is the epoch's starting residue and the low nb bits of e
+are the exponent bits still to be consumed, MSB first. From scratch: u0 = a, e = E, nb = length2(E)-1 (E's leading
+bit is the seed). Resuming from a savefile residue u0: e and nb are the bits that remain. Checks happen every
+L^2 iterations; a tail of fewer than L^2 is left to the end-of-run check described above, which the sketch omits:
+	define pm1_gerbicz(a,u0,e,nb,n,L) {
+		auto i,t,x,b,d,c,cc,bit;
+		x = u0; b = u0; d = u0; c = 0; cc = 0; i = 0;
+		for(t = nb-1; t >= 0; t--) {
 			bit = (e / 2^t) % 2;
 			x = (x^2 * a^bit) % n; cc = 2*cc + bit; i = i + 1;
 			if(i % L == 0) {
 				if(i % (L*L) == 0) {
-					/* check: d^(2^L) * a * a^(c+cc) must equal b*x; cc is the block just finished */
-					d = modpow(d, 2^L, n) * a % n * modpow(a, c + cc, n) % n;
+					/* check: d^(2^L) * u0 * a^(c+cc) must equal b*x; cc is the block just finished */
+					d = modpow(d, 2^L, n) * u0 % n * modpow(a, c + cc, n) % n;
 					if(d != b*x % n) print "mismatch at ", i, "\n";
 				}
 				b = b*x % n; d = b; c = c + cc; cc = 0;
