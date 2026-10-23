@@ -297,7 +297,9 @@ def scan(srcdir):
                             off = mm.group(1) or '0'
                             off = int(off, 16) if 'x' in off.lower() else int(off)
                             acc[(mm.group(2), off)].add(w)
-                    for n in NAMED.finditer(text):
+                    # A named operand inside an address, as in (%[__p]) or 0x8(%[__p],%%rax,8), is the
+                    # base or index register: the suffix width is that of the data it points to.
+                    for n in NAMED.finditer(re.sub(r'\([^()]*\)', ' ', text)):
                         named[n.group(1)].add(w)
 
             # A: one slot, two widths.
@@ -492,6 +494,16 @@ void f(void)
 	__asm__ ("movq %[__v],%%rax	\\n\\t"
 		"movq %[__ptr],%%rcx	\\n\\t"
 		:: [__v] "m" (v), [__ptr] "m" (ptr) : "cc","rax","rcx");
+}
+'''),
+    # A named operand used as an address register: movl (%[__p]) reads 4 bytes of what p points
+    # to, which says nothing about p itself.
+    ('b_addr_reg.c', 'B skips named operands inside an address', [], '''
+void f(uint32 *p, uint32 *q)
+{
+	__asm__ ("movl (%[__p]),%%eax	\\n\\t"
+		"movl 0x8(%[__q],%%rcx,4),%%edx	\\n\\t"
+		:: [__p] "r" (p), [__q] "r" (q) : "cc","rax","rcx","rdx");
 }
 '''),
     # Scope: g's local uint64 p is not visible in f, which sees the file-scope uint32 p declared
