@@ -238,7 +238,8 @@ def scan(srcdir):
             named = collections.defaultdict(set)
             for stmt in re.split(r'\\n|;', asm):
                 m = MNEM.search(stmt)
-                if not m:
+                # lea computes an address and touches no memory, so it has no access width.
+                if not m or m.group(1) == 'lea':
                     continue
                 w = WIDTH[m.group(2)]
                 if not is_simd:
@@ -407,6 +408,17 @@ void f(void *p) {
 		:: [__x] "m" (p) : "cc", "memory");
 	__asm__ ("movl 0x8(%%rsi),%%edx	\\n\\t"
 		:: [__x] "m" (p) : "cc", "memory");
+}
+'''),
+    # lea only computes an address: neither its memory operand nor a named one is an access.
+    ('lea.c', 'lea is not a memory access, for A or for B', [], '''
+void f(void)
+{
+	uint32 p;
+	__asm__ ("leaq 0x8(%%rsi),%%rax	\\n\\t"
+		"movl 0x8(%%rsi),%%edx	\\n\\t"
+		"leaq %[__p],%%rcx	\\n\\t"
+		:: [__p] "m" (p) : "cc","rax","rcx","rdx");
 }
 '''),
 ]
