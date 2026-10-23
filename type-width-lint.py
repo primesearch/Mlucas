@@ -26,9 +26,11 @@ Usage:
     python3 type-width-lint.py --write-baseline   # regenerate the baseline
     python3 type-width-lint.py --self-test        # prove the checks fire, and do not over-fire
 
-Exit status is 1 if any finding is not covered by the baseline, 0 otherwise. Baseline entries
-that no longer reproduce are reported but do not fail the run, so a fix leaves a nudge to
-drop the stale line rather than silently keeping a dead exemption.
+Exit status is 1 if any finding is not covered by the baseline, 0 otherwise. The baseline
+counts the asm blocks each key is found in, so the same finding in one more block is not
+covered. Baseline entries found in fewer blocks than listed (or none) are reported but do not
+fail the run, so a fix leaves a nudge to lower or drop the line rather than silently keeping
+a dead exemption.
 
 Caveats: x86 AT&T syntax only; access width comes from the mnemonic suffix; operands whose
 expression is not a plain identifier declared in the same file cannot be type-resolved and are
@@ -304,7 +306,10 @@ def scan(srcdir):
 BASELINE_HEADER = """\
 # type-width-lint baseline -- known, accepted findings.
 #
-# One key per line. Keys carry no line numbers, so unrelated edits do not invalidate them.
+# Each line is '<count> <key>'. The key carries no line number, so unrelated edits do not
+# invalidate it; the count is the number of asm blocks that produce it, so a new block with the
+# same finding in the same file is still caught. The lint fails if a key is found in more
+# blocks than its count.
 #
 # The 'A' entries in twopmodq96.c are deliberate: the asm reads those uint96 d1 slots 8 bytes
 # wide, which also touches the struct padding, and that is safe only because the local store is
@@ -316,21 +321,38 @@ BASELINE_HEADER = """\
 
 
 def load_baseline(path):
+    """Return {key: count}. A line with no leading count allows one block."""
+    out = collections.Counter()
     if not os.path.exists(path):
-        return set()
-    out = set()
+        return out
     for line in open(path):
         line = line.strip()
         if line and not line.startswith('#'):
-            out.add(line)
+            m = re.match(r'(\d+)\s+(\S.*)$', line)
+            out[m.group(2) if m else line] += int(m.group(1)) if m else 1
     return out
 
 
 def write_baseline(path, findings):
+    counts = collections.Counter(k for k, _ in findings)
     with open(path, 'w') as f:
         f.write(BASELINE_HEADER)
-        for key in sorted({k for k, _ in findings}):
-            f.write(key + '\n')
+        for key in sorted(counts):
+            f.write(f"{counts[key]} {key}\n")
+
+
+def compare(findings, baseline):
+    """Return (over, under). over lists (key, blocks found, blocks allowed, details) for each
+    key found in more blocks than the baseline allows - a key absent from it allows none;
+    under lists (key, found, allowed) for each key found in fewer."""
+    found = collections.Counter(k for k, _ in findings)
+    details = collections.defaultdict(list)
+    for k, d in findings:
+        details[k].append(d)
+    over = [(k, found[k], baseline[k], details[k])
+            for k in sorted(found) if found[k] > baseline[k]]
+    under = [(k, found[k], n) for k, n in sorted(baseline.items()) if found[k] < n]
+    return over, under
 
 
 # (file name, what it shows, the exact finding keys it must produce, source). Each case is
@@ -459,6 +481,20 @@ void f(void)
 		:: [__c] "m" (c), [__n] "m" (n) : "cc","rax","rcx","rdx","r8");
 }
 '''),
+    # The same finding in two blocks of one file: one baseline entry must not cover both.
+    ('baseline_count.c', 'a finding in two blocks is counted twice',
+     ['A src/baseline_count.c %rsi+0x8 [4, 8]'], '''
+void f(void *p) {
+	__asm__ ("movq 0x8(%%rsi),%%r12	\\n\\t"
+		"movl 0x8(%%rsi),%%edx	\\n\\t"
+		:: [__x] "m" (p) : "cc","memory");
+}
+void g(void *p) {
+	__asm__ ("movq 0x8(%%rsi),%%r12	\\n\\t"
+		"movl 0x8(%%rsi),%%edx	\\n\\t"
+		:: [__x] "m" (p) : "cc","memory");
+}
+'''),
 ]
 
 
@@ -476,6 +512,18 @@ def self_test():
             print(f"  {'ok  ' if passed else 'FAIL'} - {what}")
             if not passed:
                 print(f"         expected {sorted(expect)}\n         got      {got}")
+            ok &= passed
+
+        # Baseline: a count of 1 does not cover the key's second block; a count of 2 does.
+        key = 'A src/baseline_count.c %rsi+0x8 [4, 8]'
+        mine = [(k, d) for k, d in findings if k == key]
+        bl = os.path.join(td, 'baseline.txt')
+        for count, want_over in ((1, True), (2, False)):
+            open(bl, 'w').write(f"# comment\n{count} {key}\n")
+            over, _ = compare(mine, load_baseline(bl))
+            passed = bool(over) == want_over
+            print(f"  {'ok  ' if passed else 'FAIL'} - a baseline count of {count} "
+                  f"{'does not cover' if want_over else 'covers'} a finding in two blocks")
             ok &= passed
     if not ok:
         print("\nself-test FAILED: the check does not behave as documented", file=sys.stderr)
@@ -503,27 +551,30 @@ def main():
         print(f"wrote {args.baseline} with {len({k for k, _ in findings})} entries")
         return 0
 
-    baseline = set() if args.all else load_baseline(args.baseline)
-    new = [(k, d) for k, d in findings if k not in baseline]
-    seen = {k for k, _ in findings}
-    stale = sorted(baseline - seen)
+    baseline = collections.Counter() if args.all else load_baseline(args.baseline)
+    over, under = compare(findings, baseline)
+    nnew = sum(found - allowed for _, found, allowed, _ in over)
 
     print(f"asm blocks scanned: {nblocks} ({nsimd} SIMD, skipped by check A)")
-    print(f"findings: {len(findings)} total, {len(new)} not covered by the baseline")
+    print(f"findings: {len(findings)} total, {nnew} not covered by the baseline")
 
-    if new:
+    if over:
         print("\nNot in the baseline:")
-        for _, detail in sorted(set(new)):
-            print(f"  {detail}")
+        for key, found, allowed, details in over:
+            if allowed:
+                print(f"  {key}: found in {found} blocks, the baseline allows {allowed}:")
+            for d in details:
+                print(f"  {'  ' if allowed else ''}{d}")
         print("\nA: a slot written at one width and read at another is an aliasing hazard - either")
         print("   make the access widths agree, or guarantee the padding and add it to the baseline.")
         print("B: the asm operand's access width disagrees with the C type behind it, which")
         print("   silently drops the high bits. Use the mnemonic suffix that matches the type.")
-    if stale:
-        print(f"\nBaseline entries that no longer reproduce ({len(stale)}) - drop them:")
-        for k in stale:
-            print(f"  {k}")
-    return 1 if new else 0
+    if under:
+        print(f"\nBaseline entries found in fewer blocks than listed ({len(under)}) - "
+              f"lower the count, or drop the line at 0:")
+        for key, found, allowed in under:
+            print(f"  {key}: found in {found}, listed as {allowed}")
+    return 1 if over else 0
 
 
 if __name__ == '__main__':
