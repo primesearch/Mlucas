@@ -1430,9 +1430,7 @@ exit(0);
 	bits_in_pq2 = nbits_in_p*lenQ*lenQ;
 	bits_in_pq2 = 32 - leadz32(bits_in_pq2);
 	CMASKBITS = (30 - (bits_in_pq2>>1));
-	countmask = (1ull << CMASKBITS) - 1;
-
-	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %" PRIu64 " factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
+	countmask = (1ull << CMASKBITS) - 1;	// Gates the per-pass progress report and sanity check, not the savefile writes
 
   #warning bmax/kmax-synchro needs re-do!
 	/* If it's not a restart of an as-yet-uncompleted run, synchronize the factoring-bound params: */
