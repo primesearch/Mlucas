@@ -1399,6 +1399,11 @@ exit(0);
 	// may be up to (len*64)-1 larger than the user-specified kmax:
 	if(kmax) {
 		interval_hi = (uint64)ceil( (double)kmax / ((uint64)len << TF_CLSHIFT) );	// Copied from restart-file code below
+		// The rounded-up kmax gets doubled in a uint64 below (2*k is the multiplier of p), so it must stay under 2^63:
+		if(interval_hi > (0x7FFFFFFFFFFFFFFFull / ((uint64)len << TF_CLSHIFT))) {
+			fprintf(stderr,"kmax too large - rounded up to a whole sieve interval it must stay below 2^63. Offending p, kmax = %s, %s\n", pstring, &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
+			ASSERT(0,"0");
+		}
 		// Actual kmax used at runtime = interval_hi*(len << TF_CLSHIFT);
 		u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
 		lenQ = lenP + (u64_arr[lenP] != 0);
