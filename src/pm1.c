@@ -2582,6 +2582,7 @@ MME = 0;
 				}
 				s2chk_round = (hi >= nb) ? 0 : s2chk_round+1;
 			}
+		  #if !USE_PP1_MULTS	// The PP1 path keeps the Lucas value A^(kD) + A^-(kD) in mult[0], and allocates no s2chk_A
 			/* [3] Ladder: recompute A^((kD)^2) from the stage 1 residue (packed form kept in vec1[]) by the same
 			two-step modpow the stage 2 setup uses - D^2 first, then k^2 - forward-FFT it as the loop does, and require
 			the result to be bit-identical to mult[0]. Same integer, same carry normalisation, same FFT, so it is.
@@ -2609,6 +2610,9 @@ MME = 0;
 				snprintf(cbuf,sizeof(cbuf), "Stage 2 ladder check passed at q = %" PRIu64 " (k = %u, %.1f sec).\n",q+bigstep,k,s2chk_tdur);
 				mlucas_fprint(cbuf,pm1_standlone+scrnFlag);
 			}
+		  #else
+			(void)s2chk_tlast; (void)s2chk_tdur;
+		  #endif
 		  #ifdef RTIME
 			clock2 = getRealTime();	*tdiff = clock2 - clock1;	clock1 = clock2;
 		  #endif
