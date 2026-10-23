@@ -39,6 +39,9 @@ import argparse, bisect, collections, glob, os, re, sys, tempfile
 WIDTH = {'q': 8, 'l': 4, 'w': 2, 'b': 1}
 MNEM = re.compile(r'\b(mov|movs|movz|add|adc|sub|sbb|and|or|xor|cmp|test|imul|mul|inc|dec|neg|not'
                   r'|shl|shr|sar|rol|ror|shld|shrd|bt|bts|btr|xchg|lea|push|pop)(q|l|w|b)\b')
+# Sign- and zero-extending moves carry two suffixes: the source's width, then the destination
+# register's. The source is the only operand that can be in memory.
+EXTMOV = re.compile(r'\b(?:movz|movs)(?:b[wlq]|w[lq])\b|\bmovslq\b')
 MEMOP = re.compile(r'(-?0x[0-9a-fA-F]+|-?\d+)?\(%%?(r[a-z0-9]+|e[a-z]{2})\s*(?:,[^)]*)?\)')
 NAMED = re.compile(r'%\[\s*(\w+)\s*\]')
 OPDECL = re.compile(r'\[\s*(\w+)\s*\]\s*"([^"]*)"\s*\(\s*([A-Za-z_]\w*)\s*\)')
@@ -220,6 +223,17 @@ def decl_type(fdecls, ident, before):
     return best and best[1]
 
 
+def split_first_operand(ops):
+    """Split an AT&T operand list at its first top-level comma - not one inside the
+    parentheses of a memory operand such as 0x8(%rsi,%rax,8)."""
+    depth = 0
+    for i, ch in enumerate(ops):
+        depth += (ch == '(') - (ch == ')')
+        if ch == ',' and depth == 0:
+            return ops[:i], ops[i + 1:]
+    return ops, ''
+
+
 def scan(srcdir):
     """Return (findings, nblocks, nsimd). Each finding is (key, human-readable detail)."""
     findings, nblocks, nsimd = [], 0, 0
@@ -238,17 +252,26 @@ def scan(srcdir):
             named = collections.defaultdict(set)
             for stmt in re.split(r'\\n|;', asm):
                 m = MNEM.search(stmt)
+                x = EXTMOV.search(stmt)
+                if x and (not m or x.start() <= m.start()):
+                    # movzbl and kin: the source operand is accessed at the first suffix's
+                    # width, the destination register at the second's.
+                    mn = x.group()
+                    srcop, dstop = split_first_operand(stmt[x.end():])
+                    parts = [(srcop, WIDTH[mn[-2]]), (dstop, WIDTH[mn[-1]])]
                 # lea computes an address and touches no memory, so it has no access width.
-                if not m or m.group(1) == 'lea':
+                elif m and m.group(1) != 'lea':
+                    parts = [(stmt, WIDTH[m.group(2)])]
+                else:
                     continue
-                w = WIDTH[m.group(2)]
-                if not is_simd:
-                    for mm in MEMOP.finditer(stmt):
-                        off = mm.group(1) or '0'
-                        off = int(off, 16) if 'x' in off.lower() else int(off)
-                        acc[(mm.group(2), off)].add(w)
-                for n in NAMED.finditer(stmt):
-                    named[n.group(1)].add(w)
+                for text, w in parts:
+                    if not is_simd:
+                        for mm in MEMOP.finditer(text):
+                            off = mm.group(1) or '0'
+                            off = int(off, 16) if 'x' in off.lower() else int(off)
+                            acc[(mm.group(2), off)].add(w)
+                    for n in NAMED.finditer(text):
+                        named[n.group(1)].add(w)
 
             # A: one slot, two widths.
             for (reg, off), widths in sorted(acc.items()):
@@ -419,6 +442,21 @@ void f(void)
 		"movl 0x8(%%rsi),%%edx	\\n\\t"
 		"leaq %[__p],%%rcx	\\n\\t"
 		:: [__p] "m" (p) : "cc","rax","rcx","rdx");
+}
+'''),
+    # Two-suffix extending moves read their source at the first suffix's width: movzbl reads
+    # one byte, so it is a mismatch on a uint32 and, against an 8-byte read of the same slot,
+    # an A finding; movslq reads four, which matches a uint32.
+    ('extmov.c', 'two-suffix moves (movzbl, movslq, ...) access their source at the first width',
+     ['A src/extmov.c %rsi+0x8 [1, 8]', 'B src/extmov.c %[__c] c uint32 4 1'], '''
+void f(void)
+{
+	uint32 c, n;
+	__asm__ ("movzbl %[__c],%%eax	\\n\\t"
+		"movslq %[__n],%%rcx	\\n\\t"
+		"movzbl 0x8(%%rsi),%%edx	\\n\\t"
+		"movq 0x8(%%rsi),%%r8	\\n\\t"
+		:: [__c] "m" (c), [__n] "m" (n) : "cc","rax","rcx","rdx","r8");
 }
 '''),
 ]
