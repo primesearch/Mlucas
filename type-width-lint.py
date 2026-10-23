@@ -157,8 +157,11 @@ def parse_decls(stripped, base, filescope, out):
 
 
 def file_decls(text):
-    """Every declaration in a file as (line, ident, typename, size), comments and string
-    literals stripped first so that prose and printf formats are not read as declarations."""
+    """Every declaration in a file, comments and string literals stripped first so that prose
+    and printf formats are not read as declarations. Returns (decls, ends): decls is a list of
+    (line, ident, typename, size, filescope), filescope meaning outside any braces and any
+    parameter list; ends lists the lines that start with '}' in column 0, which in this tree is
+    how a function ends."""
     stripped = strip_c(text)
     raw, pos, depth = [], 0, 0
     for m in re.finditer(r'[;{}]', stripped + ';'):
@@ -166,20 +169,35 @@ def file_decls(text):
         if m.group() == '{':
             depth += 1
         elif m.group() == '}':
-            depth = max(depth - 1, 0)
+            # A column-0 brace closes a function: resynchronise, in case an #if/#else pair
+            # opened a brace twice.
+            col0 = m.start() == 0 or stripped[m.start() - 1] == '\n'
+            depth = 0 if col0 else max(depth - 1, 0)
         pos = m.end()
     nl = [i for i, ch in enumerate(stripped) if ch == '\n']
-    return [(bisect.bisect_left(nl, off) + 1, ident, ty, size, fs)
-            for off, ident, ty, size, fs in raw]
+    decls = [(bisect.bisect_left(nl, off) + 1, ident, ty, size, fs)
+             for off, ident, ty, size, fs in raw]
+    ends = [n + 1 for n, line in enumerate(stripped.split('\n')) if line.startswith('}')]
+    return decls, ends
 
 
-def decl_type(decls, ident, before):
-    """Resolve the declared type of `ident`: the nearest declaration above line `before`."""
+def decl_type(fdecls, ident, before):
+    """Resolve the declared type of `ident` as seen from line `before`: the nearest declaration
+    in the enclosing function (everything after the previous column-0 '}', which takes in the
+    function's own parameter list), else the nearest file-scope one. A same-named local of an
+    earlier function is never used."""
+    decls, ends = fdecls
+    i = bisect.bisect_left(ends, before)
+    start = ends[i - 1] if i else 0
     best = None
-    for line, name, ty, size, _ in decls:
-        if name == ident and line < before and (best is None or line >= best[2]):
-            best = (ty, size, line)
-    return best
+    for line, name, ty, size, fs in decls:
+        if name != ident or line >= before:
+            continue
+        if line > start or fs:
+            rank = (line > start, line)
+            if best is None or rank >= best[0]:
+                best = (rank, (ty, size, line))
+    return best and best[1]
 
 
 def scan(srcdir):
@@ -341,6 +359,24 @@ void f(void)
 	__asm__ ("movq %[__v],%%rax	\\n\\t"
 		"movq %[__ptr],%%rcx	\\n\\t"
 		:: [__v] "m" (v), [__ptr] "m" (ptr) : "cc","rax","rcx");
+}
+'''),
+    # Scope: g's local uint64 p is not visible in f, which sees the file-scope uint32 p declared
+    # above g - so movq on it is a mismatch. f's own parameter q shadows the global uint64 q.
+    ('b_scope.c', 'B resolves names in the enclosing function, else at file scope',
+     ['B src/b_scope.c %[__p] p uint32 4 8', 'B src/b_scope.c %[__q] q uint32 4 8'], '''
+uint32 p;
+uint64 q;
+void g(void)
+{
+	uint64 p = 0;
+	(void)p;
+}
+void f(uint32 q)
+{
+	__asm__ ("movq %[__p],%%rax	\\n\\t"
+		"movq %[__q],%%rcx	\\n\\t"
+		:: [__p] "m" (p), [__q] "m" (q) : "cc","rax","rcx");
 }
 '''),
 ]
