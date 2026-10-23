@@ -493,6 +493,7 @@ RANGE_BEG:
 	gchk_final = FALSE; gchk_nfail = 0; gchk_fail_iter = 0;	// v21: End-of-run G-check state. Reset here, i.e. once per assignment - NOT on the
 										// READ_RESTART_FILE rollback path, else a repeating failure could retry without bound.
 	jchk_nfail = 0; jchk_fail_iter = 0; jchk_file = 0; jchk_passed = FALSE; jchk_tdur = 0.0; jchk_tlast = getRealTime();	// v21: ditto for the Jacobi check
+	g3_L = 0;	// v21: g3 = FFT(3^(2^L)) depends on the modulus, so a new assignment recomputes it even at the same FFT length
 	ITERS_BETWEEN_GCHECK_UPDATES = 1000; ITERS_BETWEEN_GCHECKS = 1000000;	// v21: a p-1 assignment may have changed these (GerbiczCheckInterval); PRP uses the fixed defaults
 	// Clear out any FFT-radix or known-factor data that might remain from a just-completed run:
 	for(i = 0; i < 10; i++) { RADIX_VEC[i] = 0; }
@@ -2583,7 +2584,7 @@ READ_RESTART_FILE:
 			c_uint64_ptr[j-1] = 0ull;
 			/* v21: p-1 stage 1: apply the rest of the correction factor, u0 * 3^(H * 2^L) with H = C >> L, to d[] (see the
 			DO_GCHECK comment above); the low L bits of C already went into the squarings. 3^(2^L) is computed once per
-			run (L squarings) and kept in g3[]; g2 = g3^H is ~2*log2(H) modmuls. Every modmul runs against the private
+			assignment (L squarings) and kept in g3[]; g2 = g3^H is ~2*log2(H) modmuls. Every modmul runs against the private
 			bit array so the live exponent bits stay out of it. On exit d[] is pure-int as the PRP path expects: */
 			if(TEST_TYPE == TEST_TYPE_PM1) {
 				if(g3_L != (uint32)ITERS_BETWEEN_GCHECK_UPDATES) {
