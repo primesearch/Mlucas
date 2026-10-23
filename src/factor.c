@@ -1509,6 +1509,32 @@ exit(0);
 
 	}	/* endif(!incomplete_run) */
 
+	/* lenQ has to cover every candidate the sieve actually tries: kmax rounded up to a whole sieve interval, and at
+	least one interval when kmin and kmax round to the same boundary - the interval setup further on does both. The
+	sizing above used the unrounded kmax, or bmax, so near a word boundary (e.g. -bmax 64) the last interval's q's
+	were one word too long and silently mis-tested. Redo it from the bounds the run covers, however they were given: */
+	interval_hi = (uint64)ceil( (double)kmax / ((uint64)len << TF_CLSHIFT) );
+	if(interval_hi == kmin/((uint64)len << TF_CLSHIFT))
+		interval_hi += 1;
+	if(interval_hi > (0x7FFFFFFFFFFFFFFFull / ((uint64)len << TF_CLSHIFT))) {
+		fprintf(stderr,"kmax too large - rounded up to a whole sieve interval it must stay below 2^63. Offending p, kmax = %s, %s\n", pstring, &char_buf0[convert_uint64_base10_char(char_buf0, kmax)]);
+		ASSERT(0,"0");
+	}
+	u64_arr[lenP] = mi64_mul_scalar( p, 2*interval_hi*(len << TF_CLSHIFT), u64_arr, lenP);
+	i = lenP + (u64_arr[lenP] != 0);
+	nbits_in_q = (i<<6) - mi64_leadz(u64_arr, i);
+	if(nbits_in_q > MAX_BITS_Q) {
+		fprintf(stderr,"qmax too large - limit is %u bits. Offending p, kmax = %s, %s\n", MAX_BITS_Q, pstring, &char_buf0[convert_uint64_base10_char(char_buf0, interval_hi*(len << TF_CLSHIFT))]);
+		ASSERT(0,"0");
+	}
+	if(i != lenQ) {
+		lenQ = i;
+		bits_in_pq2 = nbits_in_p*lenQ*lenQ;
+		bits_in_pq2 = 32 - leadz32(bits_in_pq2);
+		CMASKBITS = (30 - (bits_in_pq2>>1));
+		countmask = (1ull << CMASKBITS) - 1;
+	}
+
 /*****************************************************/
 /****************** SIEVE STUFF: *********************/
 /*****************************************************/
