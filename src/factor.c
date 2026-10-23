@@ -81,6 +81,15 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 	#define YES_ASM
 #endif
 
+#ifdef QUIT_WHEN_FACTOR_FOUND
+/* Set once any thread finds a factor. Each PerPass_tfSieve() then stops at the end of its current sweep
+(once its batch of queued candidates has been tested, so none is skipped), and main() starts no further
+passes. A single-threaded run checkpoints that point, so a rerun resumes just after it; the stopped
+pass(es) are thus never recorded as complete. Written with mutex_mi64 held; read under it by the pool
+threads, and by main() only after the pool has drained: */
+static volatile int tf_quit = 0;
+#endif
+
 #ifdef MULTITHREAD
 
   #ifndef USE_PTHREAD
@@ -2275,6 +2284,9 @@ candidate factors that survive sieving.	*/
 	fprintf(stderr,"INFO: Doing %u threadpool-waves of %u pool threads each:\n",wave_max,NTHREADS);
 	for(wave = 0; wave < wave_max; wave++)
 	{
+	#ifdef QUIT_WHEN_FACTOR_FOUND
+		if(tf_quit) break;	// A factor was found in the previous wave
+	#endif
 		for(thr_id = 0; thr_id < NTHREADS; thr_id++)	// Unique (within the context of the current wave) task ID
 		{												// used for slotting thread-local accesses to shared data arrays
 			i = wave*NTHREADS + thr_id;
@@ -2481,10 +2493,20 @@ candidate factors that survive sieving.	*/
 		return 0;
 	#endif
 	/***********/
+	#ifdef QUIT_WHEN_FACTOR_FOUND
+		if(tf_quit) break;
+	#endif
 	}	/* end of pass loop	*/
 
   #endif	// MULTITHREAD ?
 
+  #ifdef QUIT_WHEN_FACTOR_FOUND
+	if(tf_quit) {
+		const char *msg = "INFO: Stopped early on finding a factor (QUIT_WHEN_FACTOR_FOUND), so the range below was not fully searched. Rerun to continue from the savefile.\n";
+		fprintf(stderr,"%s",msg);
+		fp = mlucas_fopen(OFILE,"a");	fprintf(fp,"%s",msg);	fclose(fp); fp = 0x0;
+	}
+  #endif
 /*...all done.	*/
   #ifdef FACTOR_STANDALONE
 	if(!restart)
@@ -3939,11 +3961,7 @@ MFACTOR_HELP:
 										fprintf(fp,"%s", cbuf);
 										fclose(fp); fp = 0x0;
 									#ifdef QUIT_WHEN_FACTOR_FOUND
-									  #ifdef MULTITHREAD
-										return;
-									  #else
-										return 0;
-									  #endif
+										tf_quit = 1;	// Not a return: that would leave mutex_mi64 locked, and the rest of the run going
 									#endif
 									}	// end(L-loop)
 								#ifdef MULTITHREAD
@@ -4051,12 +4069,26 @@ MFACTOR_HELP:
 			}	/* endif(q_index >= 0) */
 		#endif	/* end #if(TRYQ > 1) */
 
+	#ifdef QUIT_WHEN_FACTOR_FOUND
+		// Stop at the end of this sweep if a factor has been found, unless candidates are still queued:
+	  #ifdef MULTITHREAD
+		pthread_mutex_lock(&mutex_mi64);
+	  #endif
+		const int quit_now = tf_quit && (q_index < 0);
+	  #ifdef MULTITHREAD
+		pthread_mutex_unlock(&mutex_mi64);
+	  #endif
+	#endif
 	/******************* MOVE CHKPT STUFF TO FACTOR-MAIN?? ***********************/
 	// Checkpointing only supported for single-threaded runs:
 	if(NTHREADS == 1) {
 	#if !FAC_DEBUG
 		// Every 1024th pass, write the checkpoint file, with format as described previously:
-		if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi)) {
+		if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi)
+		#ifdef QUIT_WHEN_FACTOR_FOUND
+			|| quit_now	// ...and where the run stops, so a rerun resumes from there
+		#endif
+		) {
 			i = write_savefile(RESTARTFILE, pstring, pass, k, count);	// Only overwrite passnow, know and count fields of savefile
 			ASSERT(!i,"There were errors writing the savefile ... aborting");
 		}	/* Successfully wrote restart file. */
@@ -4166,6 +4198,9 @@ MFACTOR_HELP:
 //		exit(0);
 		#ifdef MULTITHREAD
 		  }
+		#endif
+		#ifdef QUIT_WHEN_FACTOR_FOUND
+			if(quit_now) break;
 		#endif
 			continue;
 		} /* end of sweep loop	*/
