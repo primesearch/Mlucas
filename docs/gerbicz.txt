@@ -240,8 +240,10 @@ Two things the PRP check never meets, because there the multiply-by-base bits ar
 	  from scratch; it is kept as an array and multiplied in rather than folded into the exponent.
 
 Only L-aligned points can be checked, so the last check of stage 1 is at the largest multiple of L not past its
-end (Mlucas's end-of-run check), and the fewer than L iterations after it are covered by the Jacobi check of the
-stage 1 final residue instead.
+end (Mlucas's end-of-run check), and the fewer than L iterations after it are not arithmetic-checked, as with the
+PRP check. The Jacobi check of the stage 1 final residue does not cover them: squaring maps every residue to a
+quadratic residue, so a residue corrupted at one iteration has the expected symbol from the next one on, and that
+check only guards the conversion and savefile path.
 
 bc sketch (L = 4 for readability; N any odd modulus). u0 is the epoch's starting residue and the low nb bits of e
 are the exponent bits still to be consumed, MSB first. From scratch: u0 = a, e = E, nb = length2(E)-1 (E's leading
