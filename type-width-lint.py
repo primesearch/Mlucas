@@ -34,7 +34,8 @@ a dead exemption.
 
 Caveats: x86 AT&T syntax only; access width comes from the mnemonic suffix; operands whose
 expression is not a plain identifier declared in the same file cannot be type-resolved and are
-skipped rather than guessed at.
+skipped rather than guessed at. '#if 0' regions are skipped; other preprocessor conditionals
+are not evaluated, so every branch is scanned.
 """
 import argparse, bisect, collections, glob, os, re, sys, tempfile
 
@@ -68,7 +69,7 @@ def asm_blocks(path):
     ': "cc","memory");' ends it, and a '(' in a comment or in the asm text itself does not
     count. Comments are blanked out of the returned text."""
     raw = open(path, errors='replace').read()
-    text = strip_c(raw, keep_strings=True)
+    text = strip_c(skip_if0(raw), keep_strings=True)
     out, pos = [], 0
     while True:
         m = ASM_KW.search(text, pos)
@@ -98,6 +99,30 @@ def asm_blocks(path):
 
 def asm_text(block):
     return ' '.join(re.findall(r'"((?:[^"\\]|\\.)*)"', block))
+
+
+def skip_if0(text):
+    """Blank out every '#if 0' region - up to its matching #endif, or to an #else or #elif
+    that makes the rest live - keeping the newlines. That text is never compiled, and in this
+    tree it holds notes and code fragments that are not even well-formed C."""
+    lines = text.split('\n')
+    depth = 0
+    for i, line in enumerate(lines):
+        d = re.match(r'\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)', line)
+        if not depth:
+            if d and d.group(1) == 'if' and re.match(r'\s*0\b', d.group(2)):
+                depth = 1
+                lines[i] = ''
+            continue
+        if d and d.group(1) in ('if', 'ifdef', 'ifndef'):
+            depth += 1
+        elif d and d.group(1) == 'endif':
+            depth -= 1
+        elif d and depth == 1:
+            depth = 0
+            continue
+        lines[i] = ''
+    return '\n'.join(lines)
 
 
 def strip_c(text, keep_strings=False):
@@ -187,7 +212,7 @@ def file_decls(text):
     (line, ident, typename, size, filescope), filescope meaning outside any braces and any
     parameter list; ends lists the lines that start with '}' in column 0, which in this tree is
     how a function ends."""
-    stripped = strip_c(text)
+    stripped = strip_c(skip_if0(text))
     raw, pos, depth = [], 0, 0
     for m in re.finditer(r'[;{}]', stripped + ';'):
         parse_decls(stripped[pos:m.start()], pos, depth == 0, raw)
@@ -536,6 +561,24 @@ void g(void *p) {
 		"movl 0x8(%%rsi),%%edx	\\n\\t"
 		:: [__x] "m" (p) : "cc","memory");
 }
+'''),
+    # '#if 0' text is never compiled: a mixed-width asm fragment in it (here inside a nested
+    # conditional) is not a finding. The #else branch is live, and its B mismatch is.
+    ('if0.c', '#if 0 regions are skipped, up to the matching #endif or #else',
+     ['B src/if0.c %[__p] p uint64 8 4'], '''
+#if 0
+Notes, not code:
+#ifdef X
+	__asm__ ("movq 0x8(%%rsi),%%r12	\\n\\t"
+		"movl 0x8(%%rsi),%%edx	\\n\\t"
+#endif
+#else
+void f(void) {
+	uint64 p;
+	__asm__ ("movl %[__p],%%eax	\\n\\t"
+		:: [__p] "m" (p) : "cc","rax");
+}
+#endif
 '''),
 ]
 
