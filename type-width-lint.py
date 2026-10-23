@@ -311,34 +311,76 @@ BASELINE_HEADER = """\
 # same finding in the same file is still caught. The lint fails if a key is found in more
 # blocks than its count.
 #
-# The 'A' entries in twopmodq96.c are deliberate: the asm reads those uint96 d1 slots 8 bytes
-# wide, which also touches the struct padding, and that is safe only because the local store is
-# zeroed at allocation. Do not add to this list without the same guarantee.
+# Every entry needs a comment above it saying why it is safe; a comment covers the entries
+# below it, up to the next comment. --write-baseline keeps this header and those comments,
+# updates the counts, drops entries that no longer reproduce - and a comment whose entries
+# are all gone - and appends new entries at the end, with no comment, for you to justify.
 #
 # Regenerate with:
 #     python3 type-width-lint.py --write-baseline
 """
 
 
-def load_baseline(path):
-    """Return {key: count}. A line with no leading count allows one block."""
-    out = collections.Counter()
+def parse_entry(line):
+    """'<count> <key>' -> (key, count). A line with no leading count allows one block."""
+    m = re.match(r'(\d+)\s+(\S.*)$', line)
+    return (m.group(2), int(m.group(1))) if m else (line, 1)
+
+
+def read_baseline(path):
+    """Return (header, groups). The header is the file's leading comment lines up to the first
+    blank line; each group is (comment lines, [(key, count)]): a run of comment lines and the
+    entries below it, up to the next comment."""
     if not os.path.exists(path):
-        return out
-    for line in open(path):
+        return [], []
+    lines = open(path).read().split('\n')
+    header, i = [], 0
+    while i < len(lines) and lines[i].startswith('#'):
+        i += 1
+    if i < len(lines) and not lines[i].strip():
+        header, lines = lines[:i], lines[i:]
+    groups = []
+    for line in lines:
         line = line.strip()
-        if line and not line.startswith('#'):
-            m = re.match(r'(\d+)\s+(\S.*)$', line)
-            out[m.group(2) if m else line] += int(m.group(1)) if m else 1
+        if line.startswith('#'):
+            if not groups or groups[-1][1]:
+                groups.append(([], []))
+            groups[-1][0].append(line)
+        elif line:
+            if not groups:
+                groups.append(([], []))
+            groups[-1][1].append(parse_entry(line))
+    return header, groups
+
+
+def load_baseline(path):
+    """Return {key: count}."""
+    out = collections.Counter()
+    for _, entries in read_baseline(path)[1]:
+        for key, count in entries:
+            out[key] += count
     return out
 
 
 def write_baseline(path, findings):
+    """Rewrite the baseline from findings, keeping its header and each entry's comment.
+    Returns (keys added, keys dropped)."""
     counts = collections.Counter(k for k, _ in findings)
+    header, groups = read_baseline(path)
+    out, placed, dropped = (header or BASELINE_HEADER.rstrip('\n').split('\n')) + [''], set(), []
+    for comment, entries in groups:
+        kept = sorted({k for k, _ in entries if counts[k] and k not in placed})
+        dropped += [k for k, _ in entries if not counts[k]]
+        if entries and not kept:
+            continue
+        out += comment + [f"{counts[k]} {k}" for k in kept] + ['']
+        placed.update(kept)
+    added = sorted(set(counts) - placed)
+    if added:
+        out += [f"{counts[k]} {k}" for k in added] + ['']
     with open(path, 'w') as f:
-        f.write(BASELINE_HEADER)
-        for key in sorted(counts):
-            f.write(f"{counts[key]} {key}\n")
+        f.write('\n'.join(out).rstrip('\n') + '\n')
+    return added, dropped
 
 
 def compare(findings, baseline):
@@ -525,6 +567,22 @@ def self_test():
             print(f"  {'ok  ' if passed else 'FAIL'} - a baseline count of {count} "
                   f"{'does not cover' if want_over else 'covers'} a finding in two blocks")
             ok &= passed
+
+        # --write-baseline keeps the header and each surviving entry's comment, drops an entry
+        # that no longer reproduces along with a comment left with no entries, and appends a
+        # new finding uncommented.
+        open(bl, 'w').write("# header\n\n# why A is safe\n1 " + key + "\n\n"
+                            "# why the fixed one was safe\n1 B src/gone.c %[__p] p uint64 8 4\n")
+        write_baseline(bl, mine + [('B src/new.c %[__q] q uint64 8 4', '')])
+        want = ("# header\n\n# why A is safe\n2 " + key + "\n\n"
+                "1 B src/new.c %[__q] q uint64 8 4\n")
+        got = open(bl).read()
+        passed = got == want
+        print(f"  {'ok  ' if passed else 'FAIL'} - --write-baseline keeps the header and the "
+              f"comments of entries that remain")
+        if not passed:
+            print(f"         expected {want!r}\n         got      {got!r}")
+        ok &= passed
     if not ok:
         print("\nself-test FAILED: the check does not behave as documented", file=sys.stderr)
     return 0 if ok else 1
@@ -547,8 +605,15 @@ def main():
 
     findings, nblocks, nsimd = scan(args.srcdir)
     if args.write_baseline:
-        write_baseline(args.baseline, findings)
+        added, dropped = write_baseline(args.baseline, findings)
         print(f"wrote {args.baseline} with {len({k for k, _ in findings})} entries")
+        for k in dropped:
+            print(f"  dropped, no longer found: {k}")
+        if added:
+            print(f"{len(added)} new entries were appended with no comment - add one above them "
+                  f"saying why each is safe:")
+            for k in added:
+                print(f"  {k}")
         return 0
 
     baseline = collections.Counter() if args.all else load_baseline(args.baseline)
