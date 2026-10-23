@@ -2589,12 +2589,20 @@ MME = 0;
 			100x-previous-duration guard: */
 			if(JACOBI_CHECK && (JACOBI_CHECK_HOURS == 0.0 || (getRealTime() - s2chk_tlast) >= MAX(JACOBI_CHECK_HOURS*3600.0, 100.0*s2chk_tdur))) {
 				double t0 = getRealTime();
+				int jd, jp, mism = 0;
 				convert_res_bytewise_FP((uint8*)s2chk_A, s2chk, n, p);	// s2chk = A, pure-int
 				modpow(s2chk, a, TRUE , (uint64)bigstep*bigstep, func_mod_square, p, n, scrnFlag,&tdif2);	// s2chk = A^(D^2)
 				modpow(s2chk, a, FALSE, (uint64)k*k, func_mod_square, p, n, scrnFlag,&tdif2);			// s2chk = A^((kD)^2)
 				ierr = func_mod_square(s2chk, 0x0, n, 0,1, 4ull + 1ull, p, scrnFlag,&tdif2, FALSE, 0x0);	// fwd-FFT, as [1b] does for mult[0]
 				s2chk_tdur = getRealTime() - t0; s2chk_tlast = getRealTime();
-				if(ierr || memcmp(s2chk, mult[0], nbytes) != 0) {
+				/* Compare the n data words only, not all npad: with array padding on (FFT length > 32K) nothing above
+				writes the padding slots of s2chk[], while those of mult[0] are whatever its source array held, so a
+				whole-array compare can fail on a correct ladder (seen on the second p-1 assignment in one process): */
+				for(jd = 0; jd < n && !mism; jd++) {
+					jp = jd + ( (jd >> DAT_BITS) << PAD_BITS );	// padded-array index of data word jd
+					mism = (memcmp(s2chk + jp, mult[0] + jp, sizeof(double)) != 0);
+				}
+				if(ierr || mism) {
 					snprintf(cbuf,sizeof(cbuf), "ERROR: %s stage 2 ladder check FAILED at q = %" PRIu64 " (k = %u): A^((kD)^2) recomputed from the stage 1 residue differs from the running value - every term since the last passing check is suspect. Aborting; the .s2 checkpoint is intact and a restart rebuilds the ladder.\n",PSTRING,q+bigstep,k);
 					mlucas_fprint(cbuf,pm1_standlone+1); ASSERT(0,cbuf);
 				}
