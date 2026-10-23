@@ -52,22 +52,42 @@ DECLARATOR = re.compile(r'((?:\s|\*|\b(?:const|volatile|restrict|__restrict|__re
                         r'([A-Za-z_]\w*)\s*([\[(])?')
 
 
+ASM_KW = re.compile(r'\b(?:__asm__|__asm|asm)\b(?:\s*\b(?:__volatile__|volatile|goto)\b)*\s*\(')
+
+
 def asm_blocks(path):
-    """Yield (1-based start line, block text, all lines) for each inline-asm block."""
-    lines = open(path, errors='replace').read().split('\n')
-    out, i = [], 0
-    while i < len(lines):
-        if re.search(r'\b__asm__\b|\basm\s*(volatile)?\s*\(', lines[i]):
-            start, buf = i, []
-            while i < len(lines) and i - start < 1500:
-                buf.append(lines[i])
-                if re.match(r'^\s*\)\s*;?\s*\\?\s*$', lines[i]) and len(buf) > 1:
-                    break
-                if re.search(r'\)\s*;\s*\\?\s*$', lines[i]) and len(buf) > 1 and '"' not in lines[i]:
-                    break
-                i += 1
-            out.append((start + 1, '\n'.join(buf), lines))
-        i += 1
+    """Return [(1-based start line, block text, all lines)] for each inline-asm statement.
+
+    The block runs from the asm keyword to the parenthesis that closes the statement, found by
+    counting parentheses outside comments and string literals - so a closing line such as
+    ': "cc","memory");' ends it, and a '(' in a comment or in the asm text itself does not
+    count. Comments are blanked out of the returned text."""
+    raw = open(path, errors='replace').read()
+    text = strip_c(raw, keep_strings=True)
+    out, pos = [], 0
+    while True:
+        m = ASM_KW.search(text, pos)
+        if not m:
+            break
+        i, depth = m.end(), 1
+        while i < len(text) and depth:
+            c = text[i]
+            if c in '"\'':
+                j = i + 1
+                while j < len(text) and text[j] not in (c, '\n'):
+                    j += 2 if text[j] == '\\' else 1
+                i = j
+            elif c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+            i += 1
+        line0 = text.count('\n', 0, m.start())
+        bol = text.rfind('\n', 0, m.start()) + 1
+        eol = text.find('\n', i)
+        eol = len(text) if eol < 0 else eol
+        out.append((line0 + 1, text[bol:eol], raw.split('\n')))
+        pos = i
     return out
 
 
@@ -377,6 +397,16 @@ void f(uint32 q)
 	__asm__ ("movq %[__p],%%rax	\\n\\t"
 		"movq %[__q],%%rcx	\\n\\t"
 		:: [__p] "m" (p), [__q] "m" (q) : "cc","rax","rcx");
+}
+'''),
+    # Two asm statements, each ending in a line that carries the clobber list: they are two
+    # blocks, so the 8-byte read in one and the 4-byte read in the other are not one slot.
+    ('a_two_blocks.c', 'A treats adjacent asm statements as separate blocks', [], '''
+void f(void *p) {
+	__asm__ ("movq 0x8(%%rsi),%%r12	\\n\\t"
+		:: [__x] "m" (p) : "cc", "memory");
+	__asm__ ("movl 0x8(%%rsi),%%edx	\\n\\t"
+		:: [__x] "m" (p) : "cc", "memory");
 }
 '''),
 ]
