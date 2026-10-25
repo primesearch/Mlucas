@@ -498,6 +498,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		// larger count would write past the original allocation (ASan: heap-buffer-overflow in the
 		// tdat init loop below, hit by the -s m self-test ladder at 4096K).
 		if(tdat != 0x0 && CY_THREADS > tdat_alloc) { free((void *)tdat); tdat = 0x0; }
+		pool_work_units = CY_THREADS;	// Every pass, not just on (re)allocation: CY_THREADS can also shrink with tdat kept
 		if(tdat == 0x0) {
 			tdat_alloc = CY_THREADS;
 			j = (uint32)sizeof(struct cy_thread_data_t);
@@ -519,7 +520,6 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 
 			#else
 
-				pool_work_units = CY_THREADS;
 				ASSERT(0x0 != (tpool = carry_threadpool_get(NTHREADS, MAX_THREADS)), "carry_threadpool_get failed!");
 
 			#endif
