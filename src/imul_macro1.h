@@ -4381,8 +4381,8 @@ On Alpha, this needs a total of 7 MUL instructions and 12 ALU ops.
 	/* First add [a,b] + [c,d] : since b and d <= 2^64 - 2, can add carryout of a+c sans ripple-carry check: */\
 	__a  += __c;\
 	/* Same dropped carry as in MULH128x96, and here it is far likelier: BOTH (__a,__b) and
-	(__c,__d) are full 128-bit products, so their sum overflows 128 bits for roughly half of all
-	operand pairs rather than only when __d is within 2^32 of the top. The carry has weight 2^128,
+	(__c,__d) are full 128-bit products, so their sum overflows 128 bits for about 7% of uniformly
+	random operand pairs rather than only when __d is within 2^32 of the top. The carry has weight 2^128,
 	i.e. it belongs in __w3. Add __d and the carry-in separately so the carry test is not fooled
 	when __d = 2^64-1 and there is a carry in: */\
 	__b  += __d;			__w3 += (__b < __d);\
