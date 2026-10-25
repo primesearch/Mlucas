@@ -9444,7 +9444,7 @@ double cpuset_mean_mhz(void)
 {
 #if defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
 	double sum = 0; uint32 n = 0, i, ncpu = 1;
-	char path[96]; FILE *f; unsigned long khz;
+	char path[96]; FILE *f; unsigned long khz; uint32 os_idx;
   #ifdef MULTITHREAD
 	ncpu = MAX_CORES;
   #endif
@@ -9452,7 +9452,17 @@ double cpuset_mean_mhz(void)
 	  #ifdef MULTITHREAD
 		if(!(CORE_SET[i>>6] & (1ull << (i&63)))) continue;
 	  #endif
-		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cpufreq/scaling_cur_freq", i);
+		os_idx = i;
+	  #if INCLUDE_HWLOC
+		// With hwloc affinity, CORE_SET bits are hwloc PU *logical* indices (threadpool.c binds to the PU's
+		// cpuset); sysfs cpuN is numbered by the OS index, which differs whenever SMT siblings are not adjacent:
+		if(HWLOC_AFFINITY) {
+			hwloc_obj_t obj = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, i);
+			if(!obj) continue;
+			os_idx = obj->os_index;
+		}
+	  #endif
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cpufreq/scaling_cur_freq", os_idx);
 		if(!(f = fopen(path, "r"))) continue;
 		if(fscanf(f, "%lu", &khz) == 1) { sum += khz/1000.0; n++; }
 		fclose(f);
