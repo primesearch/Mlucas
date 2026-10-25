@@ -4537,7 +4537,8 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	// self-test, so their residues were never verified at all (see #98/#123). If the user-specified
 	// exponent/index and FFT length match a reference-table entry, redirect the self-test to that entry so
 	// the residues are actually verified against the tabulated values.
-	if(selfTest && userSetExponent) {
+	// Not for p-1, whose stage 1 residue has nothing in common with the tabulated primality-test ones:
+	if(selfTest && userSetExponent && testType != TEST_TYPE_PM1) {
 		if(modType == MODULUS_TYPE_FERMAT) {
 			for(i = 0; i < numFerm; i++) {
 				if(FermVec[i].Fidx == FermVec[numFerm].Fidx && FermVec[i].fftLength == FermVec[numFerm].fftLength) {
@@ -4932,8 +4933,13 @@ TIMING_TEST_LOOP:
 			++radix_set;
 		}
 
+		// A command-line p-1 run is not a timing test: its residue is a stage 1 one, and its runtime covers PM1_S1_PROD_BITS
+		// iterations rather than iters, so neither belongs in the cfg file:
+		if(testType == TEST_TYPE_PM1) {
+			// Nothing to record
+		}
 		// If get no successful reference-Res64-matching results, or less than half of results @this FFT length match, skip it:
-		if(radix_best < 0 || runtime_best == 0.0 || nradix_set_succeed < (radix_set+1)/2)
+		else if(radix_best < 0 || runtime_best == 0.0 || nradix_set_succeed < (radix_set+1)/2)
 		{
 			sprintf(cbuf, "WARNING: %d of %d radix-sets at FFT length %u K passed - skipping it. PLEASE CHECK YOUR BUILD OPTIONS.\n",nradix_set_succeed,radix_set,iarg);
 			fprintf(stderr,"%s", cbuf);
