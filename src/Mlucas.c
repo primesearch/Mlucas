@@ -1837,8 +1837,16 @@ READ_RESTART_FILE:
 	} else if(KNOWN_FACTORS[0] != 0ull) {	// PRP-CF - but if ilo < (p-1) it's in the PRP-phase, handle like regular PRP run until that completes
 		ASSERT(TEST_TYPE == TEST_TYPE_PRP,"One or more known-factors in workfile entry requires a PRP= assignment type!");
 		if( ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) && (ilo >= p))
-		 || ((MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (ilo >= p-1)) )
+		 || ((MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (ilo >= p-1)) ) {
+			// Suyama_CF_PRP() below the label takes its completed-squaring count from ihi, which the loop leaves
+			// == maxiter. Skipping the loop leaves ihi at the next-checkpoint value set on savefile read instead, so
+			// hand over the savefile's count: ilo = p-1 for the Pepin residue docs/Fermat-testing.md has the user
+			// run first. (Mersenne is left alone: Mlucas never writes a PRP savefile at ilo = p, and ASSERT(ihi == p)
+			// below keeps rejecting one, rather than reading the still-shifted arrtmp[] it would hold.)
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+				ihi = ilo;
 			goto PM1_STAGE2;	// The CF-handling is a clause of the if/else beginning at this label
+		}
 	}
 
 	for(;;)
