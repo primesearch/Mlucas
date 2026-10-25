@@ -4193,6 +4193,12 @@ MFACTOR_HELP:
 		#endif
 			continue;
 		} /* end of sweep loop	*/
+	#if(TRYQ > 1)
+		// The final sweep's last survivor flushes the queue, which relies on the final sweep having one.
+		// A sievelet of bit_len bits keeps tens of thousands of survivors, but fail loudly rather than
+		// leave queued candidates untested if that ever changes:
+		ASSERT(q_index < 0, "Factor candidates left untested in a partial batch at end of pass!");
+	#endif
 
 	  #ifdef MULTITHREAD
 
