@@ -600,7 +600,7 @@ fi
 # some older or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe
 # for both instead of assuming. Prefer -flto=auto (parallel LTO codegen, see #56) over plain -flto:
 if [[ -n $CFLAGS ]]; then
-	read -ra USER_CFLAGS <<<"$CFLAGS"
+	read -ra USER_CFLAGS <<<"${CFLAGS//$'\n'/ }"	# read stops at the first newline, so make them spaces
 	C_ARGS=(-std=gnu99 "${USER_CFLAGS[@]}")
 	echo "Using CFLAGS from the environment instead of the default flags: $CFLAGS"
 else
