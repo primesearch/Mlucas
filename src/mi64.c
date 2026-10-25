@@ -6424,7 +6424,9 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint32 len)
 {
 	int retval = 0;
+#ifndef YES_ASM
 	uint64 tmp0,tmp1,tmp2,tmp3;
+#endif
 #if MI64_ISDIV_X4_DBG
 	int dbg = 0;
 #endif
@@ -6459,10 +6461,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		qinv3 = qinv3*((uint64)2 - q3*qinv3);
 	}
 
-	// The YES_ASM arm below is not a 4-modulus loop: it is the length-folded single-modulus loop of
-	// mi64_is_div_by_scalar64_u4 (lane j walks only the j-th quarter of x[], with crossed qinv pairings,
-	// and assumes len%4 == 0), so it reports false divisibility. Always use the portable C loop:
-#if 1
+#ifndef YES_ASM
 	cy0 = cy1 = cy2 = cy3 = (uint64)0;
 	for(i = 0; i < len; ++i) {
 		tmp0 = x[i] - cy0;			tmp1 = x[i] - cy1;			tmp2 = x[i] - cy2;			tmp3 = x[i] - cy3;
@@ -6477,7 +6476,11 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 
 #else
 
-	// 4-way version leaves registers RSI and RBX unused:
+	/* v21: This loop was a copy of the 4-way-folded single-divisor loop of mi64_is_div_by_scalar64_u4,
+	i.e. each divisor only ever saw its own quarter of x[] (and streams 1 and 2 used each other's qinv),
+	the loop counter was len/4 (0 for len < 4, which then ran ~2^64 passes off the end of x[]) and any
+	len%4 trailing words were skipped. Every divisor must see all len words, as in the C code above.
+	4-way version leaves registers RSI, RBX, R14 and R15 unused: */
 	__asm__ volatile (\
 		"movq	%[__x],%%r10	\n\t"\
 		"xorq	%%rdi,%%rdi		\n\t"/* Init cy0 = 0 */\
@@ -6485,22 +6488,16 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		"xorq	%%r9 ,%%r9 		\n\t"/* Init cy2 = 0 */\
 		"xorq	%%rdx,%%rdx		\n\t"/* Init cy3 = 0 */\
 
-		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
-		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
-		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
-		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
+		"movslq	%[__len],%%rcx	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...}; len != 0 asserted above */\
 	"loop4x:		\n\t"\
-		"movq	(%%r10),%%rax	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
-		"addq	$0x8 ,%%r10		\n\t	movq	(%%r11),%%r11	\n\t"/* Increment x0-ptr, load x1 */\
-		"subq	%%rdi,%%rax		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x0 - cy0, save -CF */\
-		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x1 - cy1, save -CF */\
-		"movq	(%%r15),%%r12	\n\t	leaq	(%%r15,%%r14,8),%%r13	\n\t"/* load x2,&x3 */
-		"addq	$0x8 ,%%r15		\n\t	movq	(%%r13),%%r13	\n\t"/* Increment x2-ptr, load x3 */\
-		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x2 - cy2, save -CF */\
-		"subq	%%rdx,%%r13		\n\t	sbbq	%%rdx,%%rdx		\n\t"/* tmp3 = x3 - cy3, save -CF */\
-		"imulq	%[__qinv0],%%rax \n\t	imulq	%[__qinv2],%%r11 	\n\t"/* tmp0,1 *= qinv */\
-		"imulq	%[__qinv1],%%r12 \n\t	imulq	%[__qinv3],%%r13 	\n\t"/* tmp2,3 *= qinv */\
+		"movq	(%%r10),%%rax	\n\t	addq	$0x8 ,%%r10		\n\t"/* load x[i], increment x-ptr */\
+		"movq	%%rax,%%r11		\n\t	movq	%%rax,%%r12		\n\t	movq	%%rax,%%r13	\n\t"/* copy x[i] to all 4 streams */\
+		"subq	%%rdi,%%rax		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x[i] - cy0, save -CF */\
+		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x[i] - cy1, save -CF */\
+		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x[i] - cy2, save -CF */\
+		"subq	%%rdx,%%r13		\n\t	sbbq	%%rdx,%%rdx		\n\t"/* tmp3 = x[i] - cy3, save -CF */\
+		"imulq	%[__qinv0],%%rax \n\t	imulq	%[__qinv1],%%r11 	\n\t"/* tmp0,1 *= qinv0,1 */\
+		"imulq	%[__qinv2],%%r12 \n\t	imulq	%[__qinv3],%%r13 	\n\t"/* tmp2,3 *= qinv2,3 */\
 		"subq	%%rdi,%%rax		\n\t	subq	%%r8 ,%%r11		\n\t"/* tmp0,1 = tmp0,1 * qinv + CF */\
 		"subq	%%r9 ,%%r12		\n\t	subq	%%rdx,%%r13		\n\t"/* tmp2,3 = tmp2,3 * qinv + CF */\
 		"								mulq	%[__q0]	\n\t	movq	%%rdx,%%rdi	\n\t"/* cy0 = MULH64(q,tmp0), then move cy0 out of rdx in prep for cy1 computation */\
@@ -6527,7 +6524,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	 ,[__cy2] "m" (cy2)	\
 	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
-	: "cc","memory","rax","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
+	: "cc","memory","rax","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13"	/* Clobbered registers */\
 	);
 #endif
 
