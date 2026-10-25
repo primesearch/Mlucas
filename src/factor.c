@@ -1487,7 +1487,8 @@ exit(0);
 		if(!kmax) {
 			ASSERT(bmax <= (nbits_in_p+65), "Specified bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
 			kmax = given_b_get_k(bmax, two_p, lenQ);
-			ASSERT(kmax > 0, "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
+			// A bmax below lg(2p) gives k = 0. If a completed previous run already went past it, the check below says so:
+			ASSERT(kmax > 0 || (restart && bmax <= bmax_file), "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
 		}
 		/* A run that continues a completed one starts at that run's kmax (see the restart code above). If the new
 		upper bound is no higher, the previous run already covered everything asked for: say so and stop, leaving
