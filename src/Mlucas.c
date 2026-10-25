@@ -2853,8 +2853,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	the q-file survives, ierr is still 1 from the failed primary, and RESTARTFILE[0] is no longer 'q' - so
 	neither exit condition holds, the loop increment sets 'q' again, and we spin on that state forever.
 	Track which pass we are on separately instead. ierr keeps its previous lifetime deliberately: it is
-	ernstMain()'s return code, so resetting it per pass would change what callers see. */
-	int on_secondary_savefile = 0;
+	ernstMain()'s return code, so resetting it per pass would change what callers see.
+	If the primary was bad and the good secondary could not be renamed into its place, the secondary is the only
+	good savefile left, so keep_secondary_savefile tells the cleanup after the loop not to delete it. */
+	int on_secondary_savefile = 0, keep_secondary_savefile = 0;
 	for(ierr = 0; ; ) {	// Start with the p-savefile, increment to q-savefile on looping
 		if(restart_file_valid(RESTARTFILE, p, (uint8 *)arrtmp, (uint8 *)e_uint64_ptr)) {
 			// If end of a regular (non-s2-continuation) p-1 run and primary good, rename it from [p|f][expo] ==> [p|f][expo].s1;
@@ -2863,14 +2865,16 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				if(rename(RESTARTFILE, g_cstr)) {
 					snprintf(cbuf,sizeof(cbuf),"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
 					mlucas_fprint(cbuf,1);
+					keep_secondary_savefile = on_secondary_savefile;
 				}
 			} else if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
 				// If primary was missing/corrupt, i.e. we're on the secondary, rename secondary to primary-name
 				if(RESTARTFILE[0] == 'q') {
 					RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 					if(rename(g_cstr, RESTARTFILE)) {
-						snprintf(cbuf,sizeof(cbuf),"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,g_cstr);
+						snprintf(cbuf,sizeof(cbuf),"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... keeping it as %s.\n",g_cstr,RESTARTFILE,g_cstr);
 						mlucas_fprint(cbuf,1);
+						keep_secondary_savefile = 1;
 					}
 				} else if(remove(g_cstr))	// ...otherwise delete the secondary
 					fprintf(stderr, "Unable to delete secondary restart file %s.\n",g_cstr);
@@ -2882,9 +2886,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			break;
 		on_secondary_savefile = 1;	RESTARTFILE[0] = 'q';
 	}
-	// If completion of LL/PRP run, or secondary was not used as a backup for p-1 stage 1 savefile rename, delete it now:
+	// If completion of LL/PRP run, or secondary was not used as a backup for p-1 stage 1 savefile rename, delete it now,
+	// unless it is the only good savefile left:
 	RESTARTFILE[0] = 'q';
-	if(remove(RESTARTFILE))
+	if(!keep_secondary_savefile && remove(RESTARTFILE))
 		fprintf(stderr, "Unable to delete secondary restart file %s\n",RESTARTFILE);
 
 	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
