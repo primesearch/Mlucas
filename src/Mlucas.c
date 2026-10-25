@@ -695,9 +695,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// numeric fields never contain one, strchr() locates it directly. Finding it up front keeps a
 			// comma embedded in "factor1,factor2,..." from being mistaken for a numeric-field separator below.
 			// num_end marks the end of the numeric region: the ',' that introduces the factors list (so that
-			// separating comma is itself excluded), or the end of the line if there is no factors list:
-			kf_start = strchr(cptr, '\"');
-			num_end = kf_start ? kf_start-1 : cptr + strlen(cptr);
+			// separating comma is itself excluded; any whitespace between it and the '"' is skipped), or the
+			// end of the line if there is no factors list:
+			if((kf_start = strchr(cptr, '\"')) != 0x0) {
+				for(num_end = kf_start; num_end > cptr && isspace((unsigned char)num_end[-1]); --num_end) {}
+				if(num_end > cptr && num_end[-1] == ',') --num_end;
+			} else
+				num_end = cptr + strlen(cptr);
 			// Count the optional numeric fields between [k,b,n,c] and any known-factors list - PrimeNet's
 			// abbreviated PRP format allows exactly 0, 2 (how_far_factored,tests_saved), or 4 of these
 			// (adding base,residue_type), never 1 or 3. Each field is comma-introduced and lies before num_end:
@@ -845,9 +849,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			// Locate any trailing known-factors list (always introduced by a double-quote) before parsing the
 			// optional TF_BITS,B2_start fields, so a comma embedded in "factor1,factor2,..." can never be
 			// mistaken for one of their separators. num_end marks the end of the numeric region (the ',' that
-			// introduces the factors list, itself excluded), or the end of the line if there is no such list:
-			kf_start = strchr(cptr, '\"');
-			num_end = kf_start ? kf_start-1 : cptr + strlen(cptr);
+			// introduces the factors list, itself excluded, with any whitespace before the '"' skipped), or the
+			// end of the line if there is no such list:
+			if((kf_start = strchr(cptr, '\"')) != 0x0) {
+				for(num_end = kf_start; num_end > cptr && isspace((unsigned char)num_end[-1]); --num_end) {}
+				if(num_end > cptr && num_end[-1] == ',') --num_end;
+			} else
+				num_end = cptr + strlen(cptr);
 			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present.
 			// Either (or both) may be absent even when a known-factors list follows directly after B1,B2 - the num_end bound keeps that list's ',' out:
 			if((char_addr = strchr(cptr, ',')) != 0x0 && char_addr < num_end) {
