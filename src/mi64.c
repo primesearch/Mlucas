@@ -628,7 +628,8 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	if(!nshift) {
 		if(x != y) {
 			i = MIN(len, output_len);
-			mi64_set_eq(y, x, i);				// Set y = x...
+			if(i)	// output_len == 0 is legal for len == 1 (fudge-factor case), and mi64_set_eq asserts a nonzero length
+				mi64_set_eq(y, x, i);			// Set y = x...
 			if(output_len > len)
 				mi64_clear(y+len, output_len - len);// ...and 0 any excess high limbs in y.
 				// (Note the guard: the old unguarded form passed a huge unsigned count if
