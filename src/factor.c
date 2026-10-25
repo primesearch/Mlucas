@@ -4678,8 +4678,8 @@ static void tf_report_factor(const char*fname, const char*ofile, uint64 k, const
 	const char *c;
 	int ok;
 	if(rpt[0]) {
-		fsave = mlucas_fopen(fname,"r+");	// Never "a", as in tf_add_reported_factor()
-		ok = fsave && !fseek(fsave, 0L, SEEK_END) && fprintf(fsave,"pending k = %" PRIu64 ": ", k) > 0;
+		fsave = tf_open_savefile_append(fname);
+		ok = fsave && fprintf(fsave,"pending k = %" PRIu64 ": ", k) > 0;
 		for(c = rpt; ok && *c; c++) {
 			if(*c == '\\')     ok = (fputs("\\\\", fsave) >= 0);
 			else if(*c == '\n') ok = (fputs("\\n", fsave) >= 0);
