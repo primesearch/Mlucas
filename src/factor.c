@@ -1133,7 +1133,7 @@ exit(0);
 		findex = (uint32)itmp64;
 		nbits_in_p = findex+1;
 		lenP = (nbits_in_p + 63)>>6;
-		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
+		p     = (uint64 *)CALLOC( ((uint32)MAX_BITS_P + 64)>>6, sizeof(uint64));	// findex = MAX_BITS_P is allowed, and 2^findex has MAX_BITS_P+1 bits
 		p[0] = 1;	mi64_shl(p,p,findex,lenP);	// p = (uint64)1 << findex;
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
