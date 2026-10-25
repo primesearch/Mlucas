@@ -4611,7 +4611,34 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 	Line 12+:	One line "factor k = {k}" per factor the run has reported so far (none if it has found none).
 				Optional, so a savefile without these lines, e.g. one written by an older build, still
 				reads; read_savefile() itself stops at line 11, and tf_read_reported_factors() reads these.
+				A line starting with '#' is a cut-short append that a later session closed off (see
+				tf_open_savefile_append()), and is ignored.
 */
+
+/* Open savefile fname to append a line to it, positioned at its end. If the file does not end in a newline, its last
+line is the tail of an append that was cut short, which tf_read_reported_factors() skips; the next append would join
+onto it and be misread along with it ("factor k = 12" + "factor k = 999\n" reads as k = 12). Merely ending the tail
+would make it a line that reads, here as a k that was never reported, so first overwrite its first character with a
+'#', which no reader matches, then end it. The file is small, and read forward, as fseek() in a text-mode stream may
+only go to a position ftell() has returned. Returns 0x0 on any failure: */
+static FILE* tf_open_savefile_append(const char*fname)
+{
+	long tail = 0;
+	int c, last = '\n';
+	FILE *fsave = mlucas_fopen(fname,"r+");	// Never "a": see tf_add_reported_factor()
+	if(!fsave) return 0x0;
+	while((c = getc(fsave)) != EOF) {
+		if((last = c) == '\n' && (tail = ftell(fsave)) < 0) break;	// Start of the next line
+	}
+	if(ferror(fsave) || tail < 0
+	|| (last != '\n' && (fseek(fsave, tail, SEEK_SET) || putc('#', fsave) == EOF))
+	|| fseek(fsave, 0L, SEEK_END)	// Also the repositioning C requires between a read or write and a write
+	|| (last != '\n' && putc('\n', fsave) == EOF)) {
+		fclose(fsave);
+		return 0x0;
+	}
+	return fsave;
+}
 
 /* Add k to the run's list of reported factors (tf_fac_k), and if fname is given, append it to that savefile.
 The savefile always exists by the time factors are reported; opening it "r+" (not "a") ensures this can't
@@ -4626,8 +4653,8 @@ static void tf_add_reported_factor(const char*fname, uint64 k)
 	}
 	tf_fac_k[tf_nfac++] = k;
 	if(!fname) return;
-	fsave = mlucas_fopen(fname,"r+");
-	if(!fsave || fseek(fsave, 0L, SEEK_END) || fprintf(fsave,"factor k = %" PRIu64 "\n", k) <= 0) {
+	fsave = tf_open_savefile_append(fname);
+	if(!fsave || fprintf(fsave,"factor k = %" PRIu64 "\n", k) <= 0) {
 		fprintf(stderr,"WARN: Unable to add factor k = %" PRIu64 " to savefile %s; a resumed run may report it again.\n", k, fname);
 	}
 	if(fsave) fclose(fsave);
@@ -4636,7 +4663,8 @@ static void tf_add_reported_factor(const char*fname, uint64 k)
 #ifdef FACTOR_STANDALONE
 /* Read the factors the run has reported so far from lines 12 and up of savefile fname (see the format above)
 into tf_fac_k, and mark them as reported by an earlier session. A line without its newline is the tail of an
-append that was cut short, whose factor was nonetheless reported, so the worst case is a repeat report: */
+append that was cut short, whose factor was nonetheless reported, so the worst case is a repeat report. (If this
+session appends to the savefile, tf_open_savefile_append() first marks that tail with a '#', so it stays unread.) */
 static uint32 tf_read_reported_factors(const char*fname)
 {
 	char line[STR_MAX_LEN];
