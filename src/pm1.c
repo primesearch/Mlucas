@@ -350,14 +350,15 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 	strcpy(savefile, RESTARTFILE);
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s1_prod");
-	/* (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product exists. read_pm1_s1_prod()
-	adopts the savefile's B1 if it differs from the current run's, and allocates PM1_S1_PRODUCT to fit, so it must be
-	called *before* we size the buffer from B1 below. Rationale: pm1_set_bounds() auto-sizes B1 from available RAM (a
-	low-memory run bumps B1 up ~25% to run a deeper Stage 1), so a restart under a different memory budget can pick a
-	different B1 than the Stage 1 already in progress. The in-progress powering (and the residue restart-file's iteration
-	count) belong to the B1 recorded in this savefile, and a partial powering to one B1 is not interchangeable with any
-	other, so we resume that exact Stage 1 rather than silently recomputing at a different B1. To instead start a fresh
-	run at a different B1, delete this exponent's p-1 savefiles first. */
+	/* (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product exists. If a P-1 run is in
+	progress, read_pm1_s1_prod() adopts the savefile's B1 if it differs from the current run's, and it allocates
+	PM1_S1_PRODUCT to fit, so it must be called *before* we size the buffer from B1 below. Rationale: pm1_set_bounds()
+	auto-sizes B1 from available RAM (a low-memory run bumps B1 up ~25% to run a deeper Stage 1), so a restart under a
+	different memory budget can pick a different B1 than the Stage 1 already in progress. The in-progress powering (and
+	the residue restart-file's iteration count) belong to the B1 recorded in this savefile, and a partial powering to
+	one B1 is not interchangeable with any other, so we resume that exact Stage 1 rather than silently recomputing at a
+	different B1. To instead start a fresh run at a different B1, delete this exponent's p-1 savefiles first. (If no
+	run is in progress, a savefile at another B1 is left over from an earlier run, and is ignored and overwritten.) */
 	len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, &PM1_S1_PRODUCT, &PM1_S1_PROD_RES64);
   #endif
 	// Estimated #bits in the product, from the (possibly-just-adopted) B1; also the from-scratch alloc size below:
@@ -479,13 +480,57 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 	return len;
 }
 
+#ifndef PM1_STANDALONE
+/* Returns 1 if a P-1 residue savefile which this run will resume from exists for the current modulus and holds a
+nonzero iteration count: for a Stage 2 continuation run (B2_start > B1, as in the assignment parsing), the
+[p|f][expo].s1 file left by the completed Stage 1; otherwise [p|f][expo] or q[expo], for a Stage 1 (or the Stage 2
+which follows it) in progress. Only then does the B1 recorded in the '.s1_prod' product-savefile describe work we are
+resuming; otherwise that file is left over from an earlier, completed run. */
+static int pm1_run_in_progress(void)
+{
+	char fname[STR_MAX_LEN];
+	uint64 nsquares;
+	int i,j,c;
+	FILE*fp;
+	for(i = (B2_start > B1) ? 2 : 0; i < ((B2_start > B1) ? 3 : 2); i++) {
+		strcpy(fname, RESTARTFILE);
+		if(i == 2) strcat(fname, ".s1");
+		fname[0] = (i == 1) ? 'q' : ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+		if(!(fp = mlucas_fopen(fname, "rb"))) continue;
+		nsquares = 0ull;	// Savefile starts with TEST_TYPE and MODULUS_TYPE bytes, then the 8-byte nsquares field:
+		if(fgetc(fp) == TEST_TYPE_PM1 && fgetc(fp) == (int)MODULUS_TYPE) {
+			for(j = 0; j < 64; j += 8) {
+				if((c = fgetc(fp)) == EOF) { nsquares = 0ull; break; }
+				nsquares += (uint64)c << j;
+			}
+		}
+		fclose(fp);
+		if(nsquares) return 1;
+	}
+	return 0;
+}
+
+/* Called when the B1 recorded in the product-savefile cannot be established (file missing, or a foreign/corrupt
+header). For a fresh run that is harmless - we recompute at the current B1 - but if a run is in progress, nothing
+else on disk records the B1 it was started with, and resuming its partial powering with the product for any other B1
+silently yields a wrong Stage 1 residue. So in that case refuse to continue: */
+static void pm1_s1_prod_b1_unknown(const char*fname)
+{
+	if(!pm1_run_in_progress()) return;
+	snprintf(cbuf, sizeof(cbuf), "ERROR: A P-1 run for %s is in progress, but the B1 it was started with cannot be read from its product-savefile %s.\n"
+		"Resuming at the current B1 = %u silently gives a wrong Stage 1 residue if that differs from the original B1.\n"
+		"Restore that file, or delete this exponent's P-1 savefiles to start a fresh run.\n", PSTRING, fname, B1);
+	mlucas_fprint(cbuf,1);	ASSERT(0, "P-1 restart B1 unknown: see preceding message.");
+}
+#endif
+
 // Returns 1 on successful read, 0 otherwise:
 int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uint64*sum64)
 {
 	const char func[] = "read_pm1_s1_prod";
 	int retval = 0;
 	uint8 c;
-	uint32 i,j,b1 = 0,nbytes,nlimbs;
+	uint32 i,j,b1 = 0,nbytes,nlimbs,nbits_ok;
 	uint64 itmp64 = 0ull,isum64 = 0ull;
 	(void)p;	// No longer used here; kept so the callers and prototype need not change
 	ASSERT(arr != 0x0, "Null arr pointer!");
@@ -497,42 +542,59 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uin
 	FILE*fptr = mlucas_fopen(fname, "rb");
 	if(!fptr) {
 		fprintf(stderr,"INFO: precomputed p-1 stage 1 primes-product file %s not found...computing from scratch.\n",fname);
+		pm1_s1_prod_b1_unknown(fname);
 		goto PM1_S1P_READ_RETURN;
 	} else
 		fprintf(stderr,"INFO: precomputed p-1 stage 1 primes-product file %s found...reading...\n",fname);
 
 	if(!test_types_compatible((i = fgetc(fptr)), TEST_TYPE)) {
-		sprintf(cbuf, "ERROR: %s: TEST_TYPE[%u] mismatches one[%u] read from savefile!\n",func,TEST_TYPE,i);
+		snprintf(cbuf, sizeof(cbuf), "ERROR: %s: TEST_TYPE[%u] mismatches one[%u] read from savefile!\n",func,TEST_TYPE,i);
+		mlucas_fprint(cbuf,pm1_standlone+1);	pm1_s1_prod_b1_unknown(fname);
 		goto PM1_S1P_READ_RETURN;
 	}
 	if((i = fgetc(fptr)) != MODULUS_TYPE) {
-		sprintf(cbuf, "ERROR: %s: MODULUS_TYPE[%u] mismatches one[%u] read from savefile!\n",func,MODULUS_TYPE,i);
+		snprintf(cbuf, sizeof(cbuf), "ERROR: %s: MODULUS_TYPE[%u] mismatches one[%u] read from savefile!\n",func,MODULUS_TYPE,i);
+		mlucas_fprint(cbuf,pm1_standlone+1);	pm1_s1_prod_b1_unknown(fname);
 		goto PM1_S1P_READ_RETURN;
 	}
-	// compare b1 of savefile data vs global B1 presumed to have been set by caller:
+	// Read b1 of savefile data, and the bitlength of the precomputed/bit-reversed product:
  	for(j = 0; j < 32; j += 8) {
 		i = fgetc(fptr);	b1 += (uint64)i << j;
 	}
-	if(B1 != b1) {
-		/* The savefile's Stage 1 was run to a different B1 than the current run's (pm1_set_bounds() auto-sizes B1 from
-		available RAM, so a restart under a different memory budget can pick a different B1). A partial powering to one
-		B1 is not interchangeable with any other, so adopt the savefile's B1 and resume that exact Stage 1 rather than
-		recomputing at a different B1. Only adopt a sane value; an out-of-range b1 (or the type-tag mismatches above)
-		means a truncated/foreign file, so bail and recompute at the current B1. */
-		if(b1 >= PM1_B1_MIN && b1 <= PM1_B1_MAX) {
-			snprintf(cbuf, sizeof(cbuf), "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
-			mlucas_fprint(cbuf,pm1_standlone+1);
-			if(B2_start) B2_start = b1;	// keep the Stage 2 start-bound tracking the adopted Stage 1 bound (Stage 2 begins where Stage 1 ends)
-			B1 = b1;
-		} else {
-			snprintf(cbuf, sizeof(cbuf), "INFO: %s: savefile B1 [%u] is out of range; treating as corrupt/foreign and recomputing.\n",func,b1);
-			goto PM1_S1P_READ_RETURN;
-		}
-	}
-	// Read bitlength of precomputed/bit-reversed product:
 	*nbits = 0;
  	for(j = 0; j < 32; j += 8) {
 		i = fgetc(fptr);	*nbits += i << j;
+	}
+	/* Neither header field is covered by the checksum, which sums only the product limbs, so cross-check them: for
+	b1 >= 10^4 the Stage 1 prime-powers product for bound b1 has between 1.433*b1 and 1.451*b1 bits (checked exactly
+	for all b1 up to 2*10^7), plus at most 66 bits for the 4*p seed, so require 1.4*b1 <= nbits <= 1.5*b1 + 128. This
+	rejects a corrupt B1 (unless it is off by less than ~5%) or bitlength field, and bounds the allocation below: */
+	nbits_ok = (b1 >= PM1_B1_MIN && b1 <= PM1_B1_MAX && 10*(uint64)*nbits >= 14*(uint64)b1 && (uint64)*nbits <= 3*(uint64)b1/2 + 128);
+	if(B1 != b1) {
+		/* The savefile's Stage 1 was run to a different B1 than the current run's. If no P-1 run is in progress for
+		this modulus, the file is left over from an earlier one (e.g. a completed run, followed by a fresh one to a new
+		B1): the current B1 stands, and recomputing the product at it overwrites this file. Otherwise the in-progress
+		powering belongs to the savefile's B1 (pm1_set_bounds() auto-sizes B1 from available RAM, so a restart under a
+		different memory budget can pick a different B1), and a partial powering to one B1 is not interchangeable with
+		any other, so adopt the savefile's B1 and resume that exact Stage 1 - provided its header is plausible: */
+		if(!pm1_run_in_progress()) {
+			snprintf(cbuf, sizeof(cbuf), "INFO: %s: savefile B1 [%u] differs from current-run B1 [%u], and no P-1 run is in progress; recomputing at the current B1.\n",func,b1,B1);
+			mlucas_fprint(cbuf,pm1_standlone+1);	*nbits = 0;
+			goto PM1_S1P_READ_RETURN;
+		} else if(!nbits_ok) {
+			snprintf(cbuf, sizeof(cbuf), "INFO: %s: savefile header [B1 = %u, product bitlength = %u] is implausible; treating as corrupt.\n",func,b1,*nbits);
+			mlucas_fprint(cbuf,pm1_standlone+1);	*nbits = 0;
+			pm1_s1_prod_b1_unknown(fname);	// Does not return, since a run is in progress
+			goto PM1_S1P_READ_RETURN;
+		}
+		snprintf(cbuf, sizeof(cbuf), "INFO: %s: current-run B1 [%u] differs from the Stage 1 savefile's B1 [%u]; adopting the savefile's B1 to safely resume that Stage 1 to completion.\n",func,B1,b1);
+		mlucas_fprint(cbuf,pm1_standlone+1);
+		if(B2_start == B1) B2_start = b1;	// Only re-track a Stage 2 start which pm1_check_bounds() defaulted to B1; keep an explicit one
+		B1 = b1;
+	} else if(!nbits_ok) {	// B1 matches the current run's, so only the bitlength field is bad; recompute the product at this B1:
+		snprintf(cbuf, sizeof(cbuf), "INFO: %s: savefile product bitlength [%u] is implausible for B1 = %u; recomputing.\n",func,*nbits,B1);
+		mlucas_fprint(cbuf,pm1_standlone+1);	*nbits = 0;
+		goto PM1_S1P_READ_RETURN;
 	}
 
 	// Set the number of product bytes, (re)allocate the target array to fit (its size follows the just-read - and
@@ -556,7 +618,8 @@ int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 **arr, uin
 	}
 	for(i = 0; i < nlimbs; i++) { itmp64 += (*arr)[i]; }
 	if(itmp64 != isum64) {
-		sprintf(cbuf, "INFO: %s: Computed checksum[%" PRIX64 "] mismatches one[%" PRIX64 "] appended to savefile data.\n",func,itmp64,isum64);
+		snprintf(cbuf, sizeof(cbuf), "INFO: %s: Computed checksum[%" PRIX64 "] mismatches one[%" PRIX64 "] appended to savefile data.\n",func,itmp64,isum64);
+		mlucas_fprint(cbuf,pm1_standlone+1);
 		*sum64 = 0ull;
 		goto PM1_S1P_READ_RETURN;
 	} else {

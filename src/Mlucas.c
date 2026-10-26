@@ -1831,12 +1831,13 @@ READ_RESTART_FILE:
 	if(TEST_TYPE == TEST_TYPE_PM1 && ilo >= maxiter) {
 		// For a genuinely-completed Stage 1 we expect ilo == maxiter == PM1_S1_PROD_BITS. If instead
 		// ilo *exceeds* the current-B1 product length, the savefile was produced with a larger B1 (e.g. a low-memory
-		// run bumps B1 up ~25%) and its '.s1_prod' product-savefile is missing, so compute_pm1_s1_product() could not
-		// recover/adopt the original B1. Do NOT proceed to Stage 2 - a partial powering to the larger B1 is not a
-		// completed Stage 1 at this B1, and treating it as such silently loses factors. Fail with actionable guidance.
+		// run bumps B1 up ~25%, or a Stage 2 continuation assignment gives a smaller B1 than its .s1 file was run to) and
+		// compute_pm1_s1_product() could not recover/adopt the original B1. Do NOT proceed to Stage 2 - a partial powering
+		// to the larger B1 is not a completed Stage 1 at this B1, and treating it as such silently loses factors. Fail with
+		// actionable guidance.
 		if(ilo != maxiter || ilo != PM1_S1_PROD_BITS) {
 			snprintf(cbuf,sizeof(cbuf), "ERROR: %s P-1 restart-file Stage 1 iteration count [%u] exceeds the Stage 1 prime-powers-product length [%u] for the current B1 = %u.\n"
-				"The savefile was written with a larger B1 and its '.s1_prod' product-savefile is missing, so the original B1 cannot be recovered automatically.\n"
+				"The savefile was written with a larger B1, which could not be recovered automatically from its '.s1_prod' product-savefile.\n"
 				"Re-run with the original (larger) '-b1 <N>', or delete this exponent's P-1 savefiles to start a fresh run.\n", PSTRING, ilo, PM1_S1_PROD_BITS, B1);
 			mlucas_fprint(cbuf,1);	ASSERT(0, "P-1 Stage 1 restart B1-mismatch: see preceding message.");
 		}
@@ -5342,8 +5343,8 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 			ASSERT(nsquares <= 0xFFFFFFFFull, "P-1 stage 1 restart: savefile nsquares value out of bounds!");
 			// nsquares >= ~1.5*B1 means the savefile's in-progress Stage 1 was run to a larger B1 than
 			// the current run's. compute_pm1_s1_product() normally recovers that B1 from the '.s1_prod' product-savefile
-			// and adopts it before we get here; if we still land here, that file is missing/unreadable, so the original
-			// B1 cannot be recovered. Fail with actionable guidance rather than the bare bounds-assert (a partial powering
+			// and adopts it before we get here (or refuses to continue if it cannot); if we still land here, the original
+			// B1 could not be recovered. Fail with actionable guidance rather than the bare bounds-assert (a partial powering
 			// to the larger B1 is not a completed - nor a valid partial - Stage 1 at the smaller B1: proceeding loses factors).
 			if(nsquares >= 1.5*(double)B1) {
 				snprintf(cbuf,sizeof(cbuf), "ERROR: %s: P-1 Stage 1 restart-file iteration count [%" PRIu64 "] is too large for the current B1 = %u.\n"
