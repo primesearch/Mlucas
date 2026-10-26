@@ -42,11 +42,18 @@ expect_grep()   { local f=$1 pat=$2 what=$3; if grep -q -- "$pat" "$f"; then ok 
 expect_nogrep() { local f=$1 pat=$2 what=$3; if grep -q -- "$pat" "$f"; then bad "$what (unexpected: $(grep -m1 -- "$pat" "$f"))"; else ok "$what"; fi; }
 expect_count()  { local f=$1 pat=$2 min=$3 what=$4; local n; n=$(grep -c -- "$pat" "$f"); if (( n >= min )); then ok "$what ($n)"; else bad "$what: $n < $min"; fi; }
 
+# Copy the cfg (if any) into a run directory, keeping only the first entry for each FFT length. Every
+# '-s' self-test appends to mlucas.cfg, so a cfg written by '-s tt' and then '-prp -s tt' - which is
+# what the CI job does - has two entries for each of those lengths, and a production run asserts on
+# that ("Multiple cfg-file entries for FFT length ...") before doing any work.
+copy_cfg() {	# copy_cfg <dir>
+	[[ -n $CFG && -f $CFG ]] && awk 'NR == 1 || !seen[$1]++' "$CFG" > "$1/mlucas.cfg"
+}
 setup() {	# setup <dir> [<binary>]
 	local d=$WORK/$1 bin=${2:-$MLUCAS}
 	rm -rf "$d"; mkdir -p "$d"
 	ln -s "$bin" "$d/Mlucas"
-	[[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+	copy_cfg "$d"
 	printf 'Pminus1=1,2,%s,-1,%s,%s\n' "$P" "$B1" "$B1" > "$d/worktodo.txt"
 	printf 'CheckInterval = 10000\n' > "$d/mlucas.ini"
 	echo "$d"
@@ -72,7 +79,7 @@ echo "== p-1 stage 1 Gerbicz / Jacobi checks: end-to-end tests (work dir $WORK)"
 
 # ---------------------------------------------------------------------------------------------
 echo "-- P0: GerbiczCheckInterval = 10000 (block L = 100) on a short stage 1 (B1 = 20000, 28866 iterations)"
-d=$WORK/p0; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+d=$WORK/p0; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; copy_cfg "$d"
 printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
 run "$d"; S=$d/p$P.stat
 expect_grep "$S" "p-1 stage 1 Gerbicz check every 10000 iterations (block L = 100, from GerbiczCheckInterval)" "interval taken from mlucas.ini"
@@ -81,7 +88,7 @@ expect_grep "$S" "At iteration 20000, shift = 0: Gerbicz check passed" "check at
 expect_grep "$S" "At iteration 28800, shift = 0: Gerbicz check passed" "end-of-run check at the last block boundary passed"
 expect_nogrep "$S" "Gerbicz check iteration" "no failures"
 expect_grep "$S" "Stage 1 final residue passed the Jacobi check (.*overlapped with the GCD)" "final Jacobi check ran on its own thread alongside the GCD"
-d=$WORK/p0b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+d=$WORK/p0b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; copy_cfg "$d"
 printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 12345\n' > "$d/mlucas.ini"
 run "$d"; S=$d/p$P.stat
 expect_grep "$S" "WARN: GerbiczCheckInterval = 12345 is not usable with CheckInterval = 1000: .*(e.g. 10000, 40000, 250000, 1000000)" "unusable value rejected with the admissible list"
@@ -89,7 +96,7 @@ expect_grep "$S" "Gerbicz check every 1000000 iterations (block L = 1000, automa
 
 # ---------------------------------------------------------------------------------------------
 echo "-- P0c: LowMem = 2: no Gerbicz arrays, so stage 1 runs with no arithmetic check and says so; Jacobi integrity checks still run"
-d=$WORK/p0c; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+d=$WORK/p0c; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; copy_cfg "$d"
 printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nLowMem = 2\n' > "$d/mlucas.ini"
 run "$d"; S=$d/p$P.stat
 expect_grep "$S" "p-1 stage 1 will run with NO arithmetic error check" "the one-time warning"
@@ -100,7 +107,7 @@ expect_grep "$S" "GCD" "stage 1 completed to the GCD"
 if [[ ! -f $d/p$P.G ]]; then ok "no .G file without the check"; else bad ".G written without a check"; fi
 
 echo "-- P0d: Fermat number F16 = 2^65536+1, stage 1 with GerbiczCheckInterval = 10000: the same checks on the Fermat-mod path"
-d=$WORK/p0d; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+d=$WORK/p0d; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS" "$d/Mlucas"; copy_cfg "$d"
 FCFG=${JACOBI_TEST_FERMAT_CFG:-$(dirname "${CFG:-.}")/fermat.cfg}	# Fermat runs need fermat.cfg (produced by config-fermat.sh)
 if [[ ! -f $FCFG ]]; then
 	skip "P0d: no fermat.cfg at $FCFG (run config-fermat.sh, or point JACOBI_TEST_FERMAT_CFG at one)"
@@ -210,7 +217,7 @@ if [[ -n $MLUCAS_FI ]]; then
 	echo "-- P3b: a primary savefile written from a corrupt residue (consistent triplet) is refused by the Jacobi read check"
 	p3b_setup() {	# short stage 1: B1 = 20000, 28866 iterations
 		local d=$WORK/$1
-		rm -rf "$d"; mkdir -p "$d"; ln -s "$2" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+		rm -rf "$d"; mkdir -p "$d"; ln -s "$2" "$d/Mlucas"; copy_cfg "$d"
 		printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
 		echo "$d"
 	}
@@ -253,7 +260,7 @@ fi
 # ---------------------------------------------------------------------------------------------
 if [[ -n $MLUCAS_FI ]]; then
 	echo "-- P4b: a reproducible stage 1 fault: the Gerbicz retry is bounded (rollback to .G three times, then abort)"
-	d=$WORK/p4b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS_FI" "$d/Mlucas"; [[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+	d=$WORK/p4b; rm -rf "$d"; mkdir -p "$d"; ln -s "$MLUCAS_FI" "$d/Mlucas"; copy_cfg "$d"
 	printf 'Pminus1=1,2,%s,-1,20000,20000\n' "$P" > "$d/worktodo.txt"; printf 'CheckInterval = 1000\nGerbiczCheckInterval = 10000\n' > "$d/mlucas.ini"
 	run "$d" MLUCAS_FAULT_ITER=15000 MLUCAS_FAULT_WORD=0 MLUCAS_FAULT_REPEAT=1; S=$d/p$P.stat
 	expect_count "$S" "FAULT INJECTION: added 1.0 to residue digit 0 at iteration 15000" 4 "injection re-fired on every retry"
@@ -270,7 +277,7 @@ setup2() {	# setup2 <dir> [<binary>]
 	local d=$WORK/$1 bin=${2:-$MLUCAS}
 	rm -rf "$d"; mkdir -p "$d"
 	ln -s "$bin" "$d/Mlucas"
-	[[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+	copy_cfg "$d"
 	printf 'Pminus1=1,2,%s,-1,20000,2000000\n' "$P" > "$d/worktodo.txt"
 	printf 'CheckInterval = 10000\nJacobiCheckHours = 0\n' > "$d/mlucas.ini"
 	echo "$d"
