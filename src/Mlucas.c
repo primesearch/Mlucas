@@ -5061,9 +5061,10 @@ entries whose count matches the current run, so a .cfg file may legitimately hol
 (FFT length, thread count) - hence only an entry with a matching count is replaced. An entry with no
 thread-count field is replaced unconditionally: it is exactly what this run is re-timing.
 
-Writes via a scratch file next to the target and rename()s over it, so an interrupted rewrite cannot
-truncate the .cfg file. A failure at any step, including a read or write error part-way through, leaves
-the original untouched.
+Writes via a scratch file next to the target and mlucas_rename()s over it, so an interrupted rewrite
+cannot truncate the .cfg file. (Not a bare rename(): the Windows CRT one refuses to replace an existing
+file, so there every drop would fail.) A failure at any step, including a read or write error part-way
+through, leaves the original untouched.
 
 Returns TRUE if the caller may append its entry: there was nothing to drop, or the drop succeeded.
 Returns FALSE if an entry the reader would count may still be in the file - appending then would
@@ -5071,18 +5072,17 @@ recreate exactly the duplicate this function exists to prevent, so the caller mu
 */
 int cfgDropStaleEntry(uint32 kblocks)
 {
-	char cfg_path[2*STR_MAX_LEN+1], tmp_path[2*STR_MAX_LEN+8], line[STR_MAX_LEN];
+	char tmp_name[STR_MAX_LEN], line[STR_MAX_LEN];
 	FILE *fp, *ft;
 	char *nt_addr;
 	uint32 i, nt, ndrop = 0;
 	int first = TRUE, rd_err, wr_err;
 
-	snprintf(cfg_path, sizeof(cfg_path), "%s%s"    , MLUCAS_PATH, CONFIGFILE);
-	snprintf(tmp_path, sizeof(tmp_path), "%s%s.new", MLUCAS_PATH, CONFIGFILE);
-	if(!(fp = fopen(cfg_path, "r")))	// No .cfg file yet - nothing to drop
+	snprintf(tmp_name, sizeof(tmp_name), "%s.new", CONFIGFILE);	// All names MLUCAS_PATH-relative
+	if(!(fp = mlucas_fopen(CONFIGFILE, "r")))	// No .cfg file yet - nothing to drop
 		return TRUE;
 	/* NULL if the directory is read-only; scan the file anyway, to learn whether anything needed dropping: */
-	ft = fopen(tmp_path, "w");
+	ft = mlucas_fopen(tmp_name, "w");
 	while(fgets(line, sizeof(line), fp)) {
 		if(first) {	// Line 1 is the program version, not an entry - and would parse as a length
 			first = FALSE;	if(ft) fputs(line, ft);	continue;
@@ -5111,11 +5111,11 @@ int cfgDropStaleEntry(uint32 kblocks)
 	if(fclose(ft))
 		wr_err = TRUE;
 	if(!rd_err && !ndrop) {	// Nothing to replace
-		remove(tmp_path);	return TRUE;
+		mlucas_remove(tmp_name);	return TRUE;
 	}
-	if(!rd_err && !wr_err && !rename(tmp_path, cfg_path))
+	if(!rd_err && !wr_err && !mlucas_rename(tmp_name, CONFIGFILE))
 		return TRUE;
-	remove(tmp_path);
+	mlucas_remove(tmp_name);
 	return FALSE;
 }
 
