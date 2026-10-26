@@ -5300,7 +5300,6 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
-	mi64_clear(pow,4); mi64_clear(rem,4);
 	ASSERT(arr1 != 0x0, "Null arr1 pointer!");
 	if(!file_valid(fp)) {
 		sprintf(cbuf, "%s: File pointer invalid for read!\n",func);	ASSERT(0, cbuf);
@@ -5402,6 +5401,9 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	if(TEST_TYPE == TEST_TYPE_PRP) {
 		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT((itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
 		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
+			// rem[] and pow[] get only the low j limbs written, but the checks below look at all 4 limbs, so clear
+			// both for each factor; otherwise a longer factor earlier in the list leaves its high limbs behind:
+			mi64_clear(pow,4); mi64_clear(rem,4);
 			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
 			sprintf(g_cstr,"Computing %" PRIu64 "-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] ); mlucas_fprint(g_cstr,1);
 			mi64_div(avec,KNOWN_FACTORS+i, len,j, 0x0,rem);	// R (mod p) returned in rem[]
