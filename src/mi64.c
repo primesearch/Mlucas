@@ -4117,8 +4117,15 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		// Do a final Montmul-by-1 to remove the excess *R (mod q); hi = 0 here simplifies things:
 		mi64_mul_vector_lo_half( c,ninv,lo,wlen);
 		mi64_mul_vector_hi_half(lo,n   ,lo,wlen);
-		// (hi-lo)+q = q-lo+hi = q-lo:
-		i64 = mi64_sub(n,lo, c,len);	ASSERT(!i64, "Unxpected borrow!");
+		// (hi-lo)+q = q-lo+hi = q-lo. Only the low wlen limbs of lo are valid; if q has leading zero limbs
+		// (wlen < len) the limbs above them hold leftovers of the last squaring, so stop the subtract at
+		// wlen and zero the rest of c[]:
+		if(wlen < len) {
+			i64 = mi64_sub(n,lo, c,wlen);	mi64_clear(c+wlen, len-wlen);
+		} else {
+			i64 = mi64_sub(n,lo, c,len);
+		}
+		ASSERT(!i64, "Unexpected borrow!");
 	#if MI64_PRP_DBG
 	  if(dbg) printf("retval = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, len, 0)]);
 	#endif
