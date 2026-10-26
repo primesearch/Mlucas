@@ -2074,6 +2074,7 @@ if(iter < ihi) {
 //	*tdiff += difftime(clock2 , clock1);
 	clock2 = getRealTime();
 	*tdiff += clock2 - clock1;
+#endif
 #ifdef PHASE_TIMING
 	{	// After an interrupt-exit iter = last completed iteration (decremented above); on normal completion iter = ihi+1:
 		int iend = MIN(iter, ihi), ndone = iend - ilo;
@@ -2082,7 +2083,6 @@ if(iter < ihi) {
 			fprintf(stderr,"%s: PHASE_TIMING iters %u-%u: fft-phase %.4f ms/iter, carry-phase %.4f ms/iter, total %.4f ms/iter\n",
 				func, ilo+1, iend, 1000*pt_fft/ndone, 1000*pt_cy/ndone, 1000*pt_tot/ndone);
 	}
-#endif
 #endif
 
 #if DBG_THREADS
