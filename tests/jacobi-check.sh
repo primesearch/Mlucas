@@ -97,7 +97,8 @@ expect_grep  "$S" "M86243 is a known MERSENNE PRIME" "correct verdict"
 expect_count "$S" "Jacobi check passed" 87 "a pass logged at every checkpoint plus the final residue"
 expect_nogrep "$S" "FAILED" "no failure on a clean run"
 expect_grep  "$S" "At iteration 86241, shift = [0-9]*: Jacobi check passed" "final residue checked before the verdict"
-if [[ -f $d/p86243.J && -f $d/p86243.J1 ]]; then ok ".J and .J1 written"; else bad ".J/.J1 missing"; fi
+# .J/.J1 are written during the run (T4 relies on .J being there after an interrupt) and deleted with q at the end:
+if [[ -f $d/p86243.J || -f $d/p86243.J1 ]]; then bad ".J/.J1 left behind after completion"; else ok ".J and .J1 removed at completion"; fi
 if [[ -f $d/q86243 ]]; then bad "q86243 left behind after completion"; else ok "q86243 removed at completion"; fi
 
 # ---------------------------------------------------------------------------------------------
@@ -137,20 +138,44 @@ echo "-- T4: corrupted savefile is refused on read and the chain falls through (
 d=$(setup t4 216091 10000)
 run_until_iter_then_interrupt "$d" 216091 30000
 S=$d/p216091.stat
+if [[ -f $d/p216091.J1 ]]; then ok ".J1 written by the third checkpoint"; else bad ".J1 missing after three checked checkpoints"; fi
 if [[ -f $d/p216091 && -f $d/q216091 && -f $d/p216091.J ]]; then
 	# Damage p and q identically in the residue body, which breaks their checksum triplet; .J is
 	# intact and must be the file the run resumes from. Seek to the middle of the file rather than a
 	# fixed byte: the header length is not the same for every build, and a fixed small offset can land
 	# in it, where the damage does not break the residue checksum and the file is accepted.
+	# Flip the byte rather than storing a fixed 0xff: if the byte already *is* 0xff the write is a
+	# no-op, the file is not damaged at all, and all three checks below then fail together with no
+	# hint as to why. The residue body is effectively random and varies with the per-run shift, so
+	# that is a ~1-in-256 flake, which is exactly the kind that wastes an afternoon later.
 	for f in p216091 q216091; do
 		sz=$(wc -c < "$d/$f")
-		printf '\xff' | dd of="$d/$f" bs=1 seek=$((sz / 2)) conv=notrunc status=none
+		off=$(( sz / 2 ))
+		old=$(dd if="$d/$f" bs=1 skip="$off" count=1 status=none | od -An -tu1 | tr -d ' ')
+		new=$(( old ^ 0xff ))
+		# %b so the format string stays literal: the byte value goes through as an argument.
+		printf '%b' "$(printf '\\x%02x' "$new")" | dd of="$d/$f" bs=1 seek="$off" conv=notrunc status=none
+		got=$(dd if="$d/$f" bs=1 skip="$off" count=1 status=none | od -An -tu1 | tr -d ' ')
+		if [[ $got == "$new" ]]; then
+			ok "damaged $f at byte $off ($old -> $new)"
+		else
+			bad "could not damage $f at byte $off (wanted $new, file still has $got)"
+		fi
 	done
 	run "$d"
+	t4_fail_before=$FAIL
 	expect_grep "$S" "read_ppm1_savefiles Failed on savefile p216091" "damaged primary rejected"
 	expect_grep "$S" "read_ppm1_savefiles Failed on savefile q216091" "damaged secondary rejected"
 	expect_grep "$S" "Restart file p216091.J (iteration [0-9]*) passed the Jacobi check" "resumed from the last Jacobi-passed checkpoint"
 	expect_grep "$S" "M216091 is a known MERSENNE PRIME" "correct verdict after falling through the chain"
+	# If any of those missed, show what the run actually logged. Without this the CI output says only
+	# "pattern not found" and the run directory is gone, which makes the failure uninvestigable.
+	if (( FAIL > t4_fail_before )); then
+		echo "  --- T4 diagnostic: savefiles present after the damaged run ---"
+		find "$d" -maxdepth 1 -type f -printf '%10s %p\n' | sed 's/^/      /'
+		echo "  --- T4 diagnostic: last 40 lines of $(basename "$S") ---"
+		tail -40 "$S" | sed 's/^/      /'
+	fi
 else
 	bad "expected p/q/.J savefiles after the interrupt"
 fi

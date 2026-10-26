@@ -29,6 +29,7 @@ Sections:
 [13]: *** DON'Ts ***
 [14]: General troubleshooting
 	[14a]: How to safely interrupt a running instance
+	[14b]: Jacobi residue check log messages
 
 ===============================================================================
 
@@ -694,7 +695,8 @@ checked checkpoint, passed that check and fails every later one - the retry from
 at the same iteration and the rollback moves on to .J1; on a failed check Mlucas rolls back through
 the chain p -> q -> .J -> .J1 -> from scratch, Jacobi-checking each file as it is read. At a
 332-million-bit exponent each savefile is 41.5 MB, so an LL run's p, q, .J and .J1 files
-together total roughly 166 MB.
+together total roughly 166 MB. When the test completes, .J and .J1 are deleted along with q; only
+the p savefile is kept, as described above.
 
 o Savefiles append a 4-byte Jacobi-check-failure count after the existing roundoff- and
 Gerbicz-error counts. Older Mlucas versions and third-party savefile readers ignore trailing
@@ -801,7 +803,7 @@ file. What each means and what, if anything, to do about it:
 	means the residue itself has been corrupted in a way rollback cannot clear. Treat it
 	like the 5-consecutive-failures case below.
 
-	"Jacobi check at iteration N failed %u times in a row, the last after restarting from
+	"Jacobi check at iteration N failed 5 times in a row, the last after restarting from
 	scratch - ... Please check this machine for hardware errors."
 	Five consecutive Jacobi-check failures, the last one from a fresh restart, means the
 	corruption is not being cleared by rolling back savefiles, so it is not transient. Stop
