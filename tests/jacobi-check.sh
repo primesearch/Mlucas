@@ -35,12 +35,19 @@ expect_grep()   { local f=$1 pat=$2 what=$3; if grep -q -- "$pat" "$f"; then ok 
 expect_nogrep() { local f=$1 pat=$2 what=$3; if grep -q -- "$pat" "$f"; then bad "$what (unexpected: $(grep -m1 -- "$pat" "$f"))"; else ok "$what"; fi; }
 expect_count()  { local f=$1 pat=$2 min=$3 what=$4; local n; n=$(grep -c -- "$pat" "$f"); if (( n >= min )); then ok "$what ($n)"; else bad "$what: $n < $min"; fi; }
 
+# Copy the cfg (if any) into a run directory, keeping only the first entry for each FFT length. Every
+# '-s' self-test appends to mlucas.cfg, so a cfg written by '-s tt' and then '-prp -s tt' - which is
+# what the CI job does - has two entries for each of those lengths, and a production run asserts on
+# that ("Multiple cfg-file entries for FFT length ...") before doing any work.
+copy_cfg() {	# copy_cfg <dir>
+	[[ -n $CFG && -f $CFG ]] && awk 'NR == 1 || !seen[$1]++' "$CFG" > "$1/mlucas.cfg"
+}
 # Fresh run directory with the binary, cfg (if any) and the mlucas.ini options the tests rely on.
 setup() {	# setup <dir> <exponent> <CheckInterval> [<binary>]
 	local d=$WORK/$1 p=$2 ci=$3 bin=${4:-$MLUCAS}
 	rm -rf "$d"; mkdir -p "$d"
 	ln -s "$bin" "$d/Mlucas"
-	[[ -n $CFG && -f $CFG ]] && cp "$CFG" "$d/mlucas.cfg"
+	copy_cfg "$d"
 	printf 'Test=%s\n' "$p" > "$d/worktodo.txt"
 	printf 'CheckInterval = %s\nJacobiCheckHours = 0\n' "$ci" > "$d/mlucas.ini"
 	echo "$d"
