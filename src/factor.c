@@ -4690,9 +4690,12 @@ static void tf_report_factor(const char*fname, const char*ofile, uint64 k, const
 		if(fsave && fclose(fsave)) ok = 0;
 		if(!ok)
 			fprintf(stderr,"WARN: Unable to add pending factor k = %" PRIu64 " to savefile %s; if the run stops before the factor is recorded, a resumed run will report it again.\n", k, fname);
+		/* If the report did not reach results.txt (e.g. a full disk, which may only show at fclose), stop before the
+		"factor" line: the "pending" line then has no match, so a resumed run writes the report: */
 		fres = mlucas_fopen(ofile,"a");	ASSERT(fres != 0x0,"0");
-		fprintf(fres,"%s", rpt);
-		fclose(fres);
+		ok = (fprintf(fres,"%s", rpt) >= 0);
+		if(fclose(fres)) ok = 0;
+		ASSERT(ok, "Unable to write a factor report to the results file; resume the run to complete it.");
 	}
 	tf_add_reported_factor(fname, k);
 }
@@ -4730,6 +4733,7 @@ static uint32 tf_read_reported_factors(const char*fname, const char*ofile)
 {
 	char line[STR_MAX_LEN*8], *c, *r, **pend_rpt = 0x0;	// A pending line holds an escaped report of up to sizeof(cbuf) chars
 	uint32 curr_line = 0, i, j, npend = 0;
+	int ok;
 	uint64 k, *pend_k = 0x0;
 	FILE *fsave = mlucas_fopen(fname,"r");
 	if(fsave) {
@@ -4767,9 +4771,11 @@ static uint32 tf_read_reported_factors(const char*fname, const char*ofile)
 			} else {
 				fprintf(stderr,"INFO: The previous session stopped while reporting factor k = %" PRIu64 ", before writing it to %s; writing it now:\n", pend_k[i], ofile);
 				fprintf(stderr,"%s", pend_rpt[i]);
+				// As in tf_report_factor(), stop with the factor still pending if the write fails:
 				fsave = mlucas_fopen(ofile,"a");	ASSERT(fsave != 0x0,"0");
-				fprintf(fsave,"%s", pend_rpt[i]);
-				fclose(fsave);
+				ok = (fprintf(fsave,"%s", pend_rpt[i]) >= 0);
+				if(fclose(fsave)) ok = 0;
+				ASSERT(ok, "Unable to write a factor report to the results file; resume the run to complete it.");
 			}
 			tf_add_reported_factor(fname, pend_k[i]);
 		}
