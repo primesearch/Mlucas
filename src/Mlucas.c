@@ -2482,7 +2482,7 @@ READ_RESTART_FILE:
 		if(TEST_TYPE == TEST_TYPE_PM1) {
 			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6; arrtmp[j-1] = 0ull;
 			convert_res_FP_bytewise(a,(uint8 *)arrtmp,n,p,0x0,0x0,0x0);
-			arrtmp[0] -= 1;	// S1 GCD needs residue-1
+			mi64_sub_scalar(arrtmp,1ull, arrtmp,j);	// S1 GCD needs residue-1; borrow across limbs, since the low one can be 0
 			gcd(1,p,arrtmp,0x0,j,gcd_str);
 		}
 		/*exit(EXIT_SUCCESS);*/
