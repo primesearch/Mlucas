@@ -463,9 +463,12 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 		cy = mi64_mul_scalar(accum, mult, accum, len);	++*nmul;
 		/* Bound the growth here, where the write happens. The caller sizes accum[] from an
 		estimate of the product length, and used to check that estimate only *after* this
-		function returned - by which point an under-estimate has already been written past. */
-		ASSERT(len < accum_alloc, "S1 prime-powers product exceeds the accumulator allocation!");
-		accum[len] = cy; len += (cy != 0ull);
+		function returned - by which point an under-estimate has already been written past.
+		A zero carry adds no limb, so only a nonzero one needs room: */
+		if(cy != 0ull) {
+			ASSERT(len < accum_alloc, "S1 prime-powers product exceeds the accumulator allocation!");
+			accum[len++] = cy;
+		}
 	}
 #ifdef PM1_DEBUG
 	fprintf(stderr,"\n");
