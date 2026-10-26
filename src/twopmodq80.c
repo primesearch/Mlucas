@@ -3960,7 +3960,7 @@ if(~pshift != p+78) {
 			static uint64 ihalf = 0x3FDfffffffffffffull;	/* Bitfield storing 0.5*(1-epsilon) in IEEE64 format */
 			/* Integer stuff: */
 			uint96 q4,q5,q6,q7;
-			static uint64 *sm_ptr, *ptr64;
+			static uint64 *sm_ptr;	// ptr64 dropped: the q/ONE96 writes below are type-correct now
 			static uint96 *ONE96_PTR
 				,*qptr4,*qinv4,*qhalf4,*x4,*lo4,*hi4
 				,*qptr5,*qinv5,*qhalf5,*x5,*lo5,*hi5
@@ -4049,7 +4049,7 @@ if(~pshift != p+78) {
 				qhalf4 = (uint96*)(sm_ptr + 0x20);	qhalf5 = (uint96*)(sm_ptr + 0x22);	qhalf6 = (uint96*)(sm_ptr + 0x24);	qhalf7 = (uint96*)(sm_ptr + 0x26);	/* 0x380 */
 				hi4    = (uint96*)(sm_ptr + 0x28);	hi5    = (uint96*)(sm_ptr + 0x2a);	hi6    = (uint96*)(sm_ptr + 0x2c);	hi7    = (uint96*)(sm_ptr + 0x2e);	/* 0x3c0 */
 				ONE96_PTR = (uint96*)(sm_ptr + 0x30);
-				ptr64 = (uint64*)ONE96_PTR;	*ptr64++ = ONE96.d0;	*ptr64-- = ONE96.d1;
+				ONE96_PTR->d0 = ONE96.d0;	ONE96_PTR->d1 = ONE96.d1;
 			}	/* first_entry */
 
 			ASSERT((p >> 63) == 0, "p must be < 2^63!");
@@ -4088,11 +4088,10 @@ if(~pshift != p+78) {
 			q32_2 = (uint32)q2.d0;
 			q32_3 = (uint32)q3.d0;
 
-			ptr64 = (uint64*)qptr4;
-			*ptr64++ = q4.d0;	*ptr64++ = q4.d1;		q32_4 = (uint32)q4.d0;
-			*ptr64++ = q5.d0;	*ptr64++ = q5.d1;		q32_5 = (uint32)q5.d0;
-			*ptr64++ = q6.d0;	*ptr64++ = q6.d1;		q32_6 = (uint32)q6.d0;
-			*ptr64++ = q7.d0;	*ptr64++ = q7.d1;		q32_7 = (uint32)q7.d0;
+			qptr4->d0 = q4.d0;	qptr4->d1 = q4.d1;		q32_4 = (uint32)q4.d0;
+			qptr5->d0 = q5.d0;	qptr5->d1 = q5.d1;		q32_5 = (uint32)q5.d0;
+			qptr6->d0 = q6.d0;	qptr6->d1 = q6.d1;		q32_6 = (uint32)q6.d0;
+			qptr7->d0 = q7.d0;	qptr7->d1 = q7.d1;		q32_7 = (uint32)q7.d0;
 
 			/* Convert q0-3 to floating form: */
 			CVT_UINT78_3WORD_DOUBLE(q0 ,*fq0,*fq1,*fq2);
