@@ -1486,7 +1486,9 @@ exit(0);
 		/* Compute kmax if not already set: */
 		if(!kmax) {
 			ASSERT(bmax <= (nbits_in_p+65), "Specified bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
-			kmax = given_b_get_k(bmax, two_p, lenQ);
+			// Pass the length of 2p (nbits_in_p+1 bits), not lenQ: that was sized from bmax just above, so for a
+			// bmax below lg(2p) it drops 2p's high words and the multiword k = 2^bmax/(2p) comes out nonzero and wrong:
+			kmax = given_b_get_k(bmax, two_p, (nbits_in_p+64)>>6);
 			// A bmax below lg(2p) gives k = 0. If a completed previous run already went past it, the check below says so:
 			ASSERT(kmax > 0 || (restart && bmax <= bmax_file), "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
 		}
@@ -1500,7 +1502,7 @@ exit(0);
 		if(kmin || bmin) {
 			if(kmin == 0ull) {	/* Lower Bound given in log2rithmic form */
 				ASSERT(bmin <= bmax, "bmin >= bmax!");
-				kmin = given_b_get_k(bmin, two_p, lenQ);
+				kmin = given_b_get_k(bmin, two_p, (nbits_in_p+64)>>6);
 			} else {
 				ASSERT(kmin <= kmax, "kmin >= kmax!");
 			#ifdef P1WORD
@@ -1515,7 +1517,7 @@ exit(0);
 		}
 		if(kmax || bmax) {
 			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
-				kmax = given_b_get_k(bmax, two_p, lenQ);
+				kmax = given_b_get_k(bmax, two_p, (nbits_in_p+64)>>6);
  			} else {
 			#ifdef P1WORD
 				fqhi = kmax*twop_float + 1.0;
