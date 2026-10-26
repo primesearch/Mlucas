@@ -1097,8 +1097,9 @@ jobs:
     - name: Install
       if: ${{ matrix.args == '--m32' }}
       run: |
+        sudo dpkg --add-architecture i386
         sudo apt-get update -y
-        sudo apt-get install -y gcc-multilib
+        sudo apt-get install -y gcc-multilib libgmp-dev:i386
     - name: Check
       run: |
         gcc --version
