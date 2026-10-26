@@ -486,10 +486,12 @@ jobs:
             bash -e -o pipefail -- makemake.sh use_hwloc nosimd
             (cd obj_nosimd; make clean)
         fi
+        # Mfactor builds the native SIMD mode too, except on ARM, where it builds NOSIMD for the same reason.
+        if [[ $HOSTTYPE == aarch64 ]]; then mode=nosimd; else mode=; fi
         for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
+            bash -e -o pipefail -- makemake.sh mfac $word $mode
+            (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
         done
         cd obj
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
@@ -499,7 +501,7 @@ jobs:
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -1049,21 +1051,21 @@ jobs:
       shell: bash
       run: |
         set -x
-        # Build the runner's native SIMD mode (AVX2 or AVX-512) under the sanitizers, as the Linux ASan
-        # job does: in the NOSIMD build '-s m' took about 70 of the job's 150 minutes.
+        # Build the runner's native SIMD mode (AVX2 or AVX-512) under the sanitizers, for both Mlucas and
+        # Mfactor, as the Linux ASan job does: in the NOSIMD build '-s m' took about 70 of the job's 150 minutes.
         bash -e -o pipefail -- makemake.sh use_hwloc
         (cd obj; make clean)
         for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
+            bash -e -o pipefail -- makemake.sh mfac $word
+            (cd obj_mfac${word:+_$word}; make clean)
         done
         cd obj
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            (cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - uses: actions/upload-artifact@v7
       if: always()
