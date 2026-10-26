@@ -621,8 +621,9 @@ fi
 # always set before they are read: mainly the aj1p*/a1p* temporaries in the radix16/32 dyadic- and
 # wrapper-square loops, where it cannot see that the fwd_fft_only tests on either side of a goto agree.
 # Newer GCC and Clang see through these, so keep the warning for them and turn it off only for old GCC.
+# This is one of the default warning flags, so a CFLAGS from the environment replaces it like the rest.
 # The preprocessor does the version test, since Clang also defines __GNUC__ (as 4):
-if printf '#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5\n#error\n#endif\n' | "${CC:-gcc}" -E -x c - >/dev/null 2>&1; then
+if [[ -z $CFLAGS ]] && printf '#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5\n#error\n#endif\n' | "${CC:-gcc}" -E -x c - >/dev/null 2>&1; then
 	C_ARGS+=(-Wno-maybe-uninitialized)
 fi
 
