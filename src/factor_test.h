@@ -526,6 +526,15 @@ int test_fac()
 	printf	("Base-3 PRP test of M4423 passed: Time =%s\n",get_time_str(tdiff));
 	free((void*)p);	free((void*)q);	p = q = 0x0;
 
+// Base-3 PRP test of a 1-limb modulus passed zero-padded to 2 limbs, as factor.c does for a factor < 2^64
+// when -bmax > 64. The prime is the k = 480 factor of M(1099511631697); 7 times it must test composite:
+	{
+		uint64 qpad[2] = {1055531166429121ull, 0ull};
+		ASSERT(mi64_pprimeF(qpad, 3, 2) == 1, "Base-3 PRP test of zero-padded 1-limb prime failed!");
+		qpad[0] *= 7;
+		ASSERT(mi64_pprimeF(qpad, 3, 2) == 0, "Base-3 PRP test of zero-padded 1-limb composite failed!");
+	}
+
 // Base-3 PRP test of the Mersenne cofactor M7331/458072843161:
 #if 0
 	j = convert_base10_char_uint64("7331");
