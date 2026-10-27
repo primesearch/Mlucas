@@ -5445,8 +5445,9 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 				exp[0] = ui256.d0; exp[1] = ui256.d1; exp[2] = ui256.d2; exp[3] = ui256.d3;
 			} else
 				ASSERT(0, "Only known-factors < 2^256 supported!");
-			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
+			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[].
+			// mi64_scalar_modpow_lr needs the base < q, which a one-limb known factor need not exceed:
+			mi64_scalar_modpow_lr((j == 1) ? PRP_BASE % KNOWN_FACTORS[i] : PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
 			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
 				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
