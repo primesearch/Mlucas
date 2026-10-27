@@ -1375,6 +1375,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		fprintf(stderr, "ERROR: length %d K overflows N = 1024*K.\n",kblocks);
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
+	// The cofactor-PRP step at the end of a PRP-CF run (Suyama_CF_PRP) seeds a fresh powering with the PRP base at
+	// the then-current FFT length, and asserts base < 2^ceil(p/n) for that - but only after the full PRP test. Check
+	// it here instead, before any iterations are spent, and again whenever we come back here for a larger FFT length,
+	// which lowers the limit. The PRP test itself has the same limit, but only when it starts; see the seeding below:
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRP && KNOWN_FACTORS[0] != 0ull && PRP_BASE >= (1u << (uint32)ceil(1.0*p/n))) {
+		fprintf(stderr, "ERROR: PRP-CF test of %s with base %u at FFT length %u K: the base must be < 2^%u at this FFT length.\n",PSTRING,PRP_BASE,kblocks,(uint32)ceil(1.0*p/n));
+		return ERR_EXPONENT_ILLEGAL;
+	}
 
 	/* If specified FFT length smaller than default for this exponent [only an issue for user-specified FFT length],
 	print a warning if the p/pmax ratio > 1 to an acceptably small degree; error out if the ratio is unreasonably > 1:
@@ -1657,6 +1665,14 @@ READ_RESTART_FILE:
 	ASSERT(TEST_TYPE <= TEST_TYPE_MAX,"Given TEST_TYPE not supported!");
 	if(ilo == 0)
 	{
+		// A Mersenne PRP test seeds the residue with the PRP base, and the first squaring of that seed is only known to
+		// be exact if the base fits in one FFT word: much larger bases can give a wrong residue that the Gerbicz check
+		// cannot see, since it only checks the squarings that follow. Only the FFT length the seed is squared at matters,
+		// so a restart at a larger FFT length is not checked again:
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRP && PRP_BASE >= (1u << (uint32)ceil(1.0*p/n))) {
+			fprintf(stderr, "ERROR: PRP test of %s with base %u at FFT length %u K: the base must be < 2^%u at this FFT length.\n",PSTRING,PRP_BASE,kblocks,(uint32)ceil(1.0*p/n));
+			return ERR_EXPONENT_ILLEGAL;
+		}
 		memset(a, 0, npad*sizeof(double));
 		if(b) memset(b, 0, npad*sizeof(double));
 		if(c) memset(c, 0, npad*sizeof(double));
@@ -2494,6 +2510,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				2. Compute mi" such that m".mi" == 1 (mod b^2)
 				3. Solve for k = -r".mi" (mod b^2) .
 			*/
+			uint64 kprod[2];	// 128-bit r".mi" product in [3]
 			j = (p+63)>>6;	itmp64 = PRP_BASE*(uint64)PRP_BASE;
 			// Init vector to hold m = 2^p-1:
 			d_uint64_ptr[j-1] = (1ull<<(p&63)) - 1ull;	for(i = 0; i < (j-1); i++) { d_uint64_ptr[i] = -1ull; }
@@ -2516,7 +2533,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		  #else
 			MUL_LOHI64(rmodb,i1, i2, i3);
 		  #endif
-			i2 %= itmp64;	ASSERT(i3 == 0ull, "K-multiplier needs 64-bit reduction (mod b^2)!");
+			// r" and mi" are both < b^2, so for b >= 2^16 their product needs up to 128 bits - reduce all of it:
+			kprod[0] = i2; kprod[1] = i3;
+			mi64_div(kprod, &itmp64, 2,1, 0x0,&i2);
 			if(i2) i2 = itmp64 - i2;	// if(k) k = -r".mi" (mod b^2) = b^2 - r".mi" .
 			// i2 contains the needed multiplier k. Since ensuing quotient computation needs separate arrays
 			// for dividend and quotient, stash output of mi64_mul_scalar_add_vec2 in c[] and ensuing quotient back in arrtmp[]:
