@@ -6335,7 +6335,7 @@ void generate_JSON_report(
 	char *p_cstr)	// p_cstr, takes the formatted output line; the preceding const-ones are inputs for that:
 {
 	int i,j,k;
-	char ttype[11] = "\0", aid[33] = "\0";	// [test-type needs 11th | aid needs 33rd] char for \0
+	char ttype[16] = "\0", aid[33] = "\0";	// [test-type "PRP-4294967295" needs 15th | aid needs 33rd] char for \0
 	const char prp_status[2] = {'C','P'};
 	const char *pm1_status[2] = {"NF","F"};
 	const char *false_or_true[2] = {"false","true"};
@@ -6385,14 +6385,14 @@ void generate_JSON_report(
 				strcat( cbuf, "," );
 		}
 		strcat( cbuf, "]");
-		snprintf(ttype,10,"PRP-%u",PRP_BASE);
+		snprintf(ttype,sizeof(ttype),"PRP-%u",PRP_BASE);
 		if(*aid) {
 			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
 			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {	// Only support type-1 PRP tests, so hardcode that subfield:
-		snprintf(ttype,10,"PRP-%u",PRP_BASE);
+		snprintf(ttype,sizeof(ttype),"PRP-%u",PRP_BASE);
 		if(*aid) {
 			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
