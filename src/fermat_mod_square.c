@@ -1613,7 +1613,7 @@ if(iter < ihi) {
 		int iend = MIN(iter, ihi), ndone = iend - ilo;
 		pt_tot = getRealTime() - pt_tot;
 		if(ndone > 0)
-			fprintf(stderr,"%s: PHASE_TIMING iters %u-%u: fft-phase %.4f ms/iter, carry-phase %.4f ms/iter, total %.4f ms/iter\n",
+			fprintf(stderr,"%s: PHASE_TIMING iters %d-%d: fft-phase %.4f ms/iter, carry-phase %.4f ms/iter, total %.4f ms/iter\n",
 				func, ilo+1, iend, 1000*pt_fft/ndone, 1000*pt_cy/ndone, 1000*pt_tot/ndone);
 	}
 #endif
