@@ -626,6 +626,14 @@ integer hardware multiply where available. (Speeding things by replacing the O(n
 school" multiply with a subquadratic one is a possible future enhancement.) For a given
 stage 1 bound B1, the s1_prod file will be roughly 0.2*B1 bytes in size.
 
+o When Mlucas picks the p-1 bounds itself (a Pfactor= assignment, or a Test=, DoubleCheck= or
+PRP= assignment that still needs p-1), and the memory allowed by -maxalloc, or the buffer count
+set via -pm1_s2_nbuf, gives fewer than the 24 buffers stage 2 needs, it skips stage 2 and instead
+runs a deeper stage 1, with B1 raised by 25% and rounded up to a multiple of 100000. A partly-done
+stage 1 for one B1 cannot be continued with a different B1, since the two use different
+prime-power products, so avoid changing -maxalloc, -pm1_s2_nbuf or -b1 while a p-1 stage 1 is in
+progress.
+
 ======================
 
 [13]: *** DON'Ts ***
