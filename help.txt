@@ -446,7 +446,8 @@ checks, at every stage 2 checkpoint, are the two inputs every later term is buil
 	- the A^((kD)^2) ladder value is recomputed from the stage 1 residue and must match the
 	  running value exactly ("Stage 2 ladder check passed at q = Q (k = K, T sec)"). This costs
 	  about 130 modular multiplications, so it runs on the JacobiCheckHours clock (section [11];
-	  default every 12 hours, 0 = at every checkpoint) with the same overhead guard;
+	  default every 12 hours, 0 = at every checkpoint) with the same overhead guard, and
+	  JacobiCheck = 0 turns it off;
 	- the precomputed A^(b^2) table entries, which never change during stage 2, are checksummed
 	  after they are built, and a rotating 1/16 of them is re-verified at every checkpoint (all
 	  of them when JacobiCheckHours = 0);
@@ -633,8 +634,11 @@ described in section [4] (default 1; the check is unavailable, and this setting 
 effect, on a build without GMP >= 5.1). JacobiCheckHours = N sets how often, in wall-clock
 hours, the check additionally runs at checkpoints (default 12; fractional values are
 allowed; 0 checks at every checkpoint, mainly useful for testing).
-JacobiCheck also controls the P-1 integrity checks of section [9c], and JacobiCheckHours also
-paces the stage 2 ladder check there.
+In P-1 (section [9c]), JacobiCheck = 0 also disables the Jacobi checks of stage 1 restart files
+and of the final stage 1 residue, and the stage 2 ladder check; it does not affect the stage 1
+Gerbicz check or the stage 2 table and accumulator checks. On a build without GMP >= 5.1 these
+three P-1 checks are off as well. JacobiCheckHours also paces the stage 2 ladder check, and
+sets how much of the stage 2 table is re-verified at each checkpoint.
 
 o GERBICZ CHECK INTERVAL FOR P-1: GerbiczCheckInterval = N sets how many stage 1 iterations lie
 between Gerbicz checks in P-1 (section [9c]); PRP tests keep their fixed 10^6. N must be L^2 for
