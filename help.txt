@@ -244,7 +244,7 @@ caught by a later one. This is therefore a cheap, weak check that catches about 
 corruption events; how often it runs sets how much work is lost when one is caught, not the
 odds of catching it. It does not certify a result - a reported LL result still needs an
 independent double-check. A symbol of
-0 should not occur for a prime exponent; it means the residue shares a factor with the
+0 should not occur for a prime exponent; it means s - 2 shares a factor with the
 modulus, i.e. a corruption that no rollback would clear, so Mlucas stops rather than retry.
 The check requires GMP 5.1 or later; a build without a suitable GMP prints a one-time warning
 and runs without it. See sections [11], [12] and [14] for the mlucas.ini controls, savefiles
@@ -640,9 +640,16 @@ Gerbicz check or the stage 2 table and accumulator checks. On a build without GM
 three P-1 checks are off as well. JacobiCheckHours also paces the stage 2 ladder check, and
 sets how much of the stage 2 table is re-verified at each checkpoint.
 
+JacobiCheckHours is given in hours rather than iterations because the Jacobi check's cost is
+scalar GMP work that does not scale with the per-iteration FFT the way iteration counts do, so
+a fixed iteration interval would impose wildly different overhead on different hardware. Hours
+bound how long a corrupted residue can survive undetected, while the built-in rule of never
+re-checking sooner than 100x the previous check's duration bounds the overhead to near 1%
+regardless of machine speed.
+
 o GERBICZ CHECK INTERVAL FOR P-1: GerbiczCheckInterval = N sets how many stage 1 iterations lie
 between Gerbicz checks in P-1 (section [9c]); PRP tests keep their fixed 10^6. N must be L^2 for
-a block length L that divides CheckInterval and whose square CheckInterval divides (e.g. with
+a block length L such that L divides CheckInterval and CheckInterval divides L^2 (e.g. with
 CheckInterval = 10000: 10000, 40000, 160000, 250000, 1000000, ...); an unusable value is
 reported together with the admissible ones and the automatic choice is used instead. The
 automatic choice is the smallest admissible L >= 100 whose L^2 iterations take at least about
@@ -651,13 +658,6 @@ it only ever shortens the interval, on slow or very large runs. Overhead is abou
 the interval, so the setting trades rollback exposure against that. Because the >4-thread
 CheckInterval default of 100000 admits only L = 1000, P-1 uses CheckInterval = 10000 unless you
 set CheckInterval yourself.
-
-The interval is given in hours rather than iterations because the check's cost is scalar GMP
-work that does not scale with the per-iteration FFT the way iteration counts do, so a fixed
-iteration interval would impose wildly different overhead on different hardware. Hours bound
-how long a corrupted residue can survive undetected, while the built-in rule of never
-re-checking sooner than 100x the previous check's duration bounds the overhead to near 1%
-regardless of machine speed.
 
 ======================
 
@@ -800,7 +800,7 @@ file. What each means and what, if anything, to do about it:
 	through the p -> q -> .J -> .J1 -> scratch chain to find a good one. No action needed
 	unless this recurs often, in which case see the 5-consecutive-failures entry below.
 
-	"Jacobi check at iteration N failed with symbol 0: the residue shares a factor with the
+	"Jacobi check at iteration N failed with symbol 0: residue - 2 shares a factor with the
 	modulus, which cannot happen for a correct LL residue of a prime exponent. Aborting
 	rather than retrying; ... please check this machine for hardware errors."
 	Exponents are checked for primality when the worktodo entry is read, so a symbol of 0

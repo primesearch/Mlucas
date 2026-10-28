@@ -2501,7 +2501,7 @@ READ_RESTART_FILE:
 					a genuine LL residue this has probability ~1/q per iteration over the factors q of M(p) - i.e. it does not
 					happen. A residue that lands on it is corrupt in a way no rollback is likely to clear, so stop rather than
 					retry, and say what was seen: */
-					snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u failed with symbol 0: the residue shares a factor with the modulus, which cannot happen for a correct LL residue of a prime exponent. Aborting rather than retrying; %s savefiles left in place - please check this machine for hardware errors.\n",ihi,PSTRING);
+					snprintf(cbuf,sizeof(cbuf), "Jacobi check at iteration %u failed with symbol 0: residue - 2 shares a factor with the modulus, which cannot happen for a correct LL residue of a prime exponent. Aborting rather than retrying; %s savefiles left in place - please check this machine for hardware errors.\n",ihi,PSTRING);
 					mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
 				} else {
 					NERR_JACOBI++; jchk_nfail++; jchk_fail_iter = ihi;
