@@ -294,7 +294,8 @@ without needing to know which modulus type it's dealing with.
 
 **Checkpoints:** `write_ppm1_savefiles()` / `read_ppm1_savefiles()`
 (both in `Mlucas.c`) persist the residue array, iteration count,
-Res64/Selfridge-Hurwitz checksums, and — for PRP runs — the second
+Res64/Selfridge-Hurwitz checksums, and — for runs using the Gerbicz check
+(Mersenne PRP, and Fermat Pépin unless `LowMem = 2`) — the second
 Gerbicz-checkproduct array and its own checksum triplet, every
 `ITERS_BETWEEN_CHECKPOINTS` iterations.
 
@@ -463,7 +464,11 @@ pair (in `Mlucas.c`), written every `ITERS_BETWEEN_CHECKPOINTS`
 iterations. The default is thread-count dependent — 10000 for <= 4 threads and
 100000 for more (`Mlucas.c`, around the `Setting ITERS_BETWEEN_CHECKPOINTS`
 message) — and is overridable via `CheckInterval=` in `mlucas.ini`
-(`help.txt` §11), which rejects values below 1000. The on-disk format is documented in a long
+(`help.txt` §11). A `CheckInterval` that is not a whole number, or lies
+outside 1000..1000000, is ignored with a message and the default kept. Runs
+that use the Gerbicz check (Mersenne PRP, and Fermat Pépin unless
+`LowMem = 2`) further need it to be a multiple of 1000 that divides
+1000000, or they assertion-exit when the test starts. The on-disk format is documented in a long
 comment immediately preceding these functions (search
 `"Set of functions to Read/Write full-length residue data"` in `Mlucas.c`)
 that traces back to Richard Crandall's original 1998 F24 "Pepin residue
@@ -476,7 +481,8 @@ the shift count is stored and re-applied separately rather than baked into
 the stored residue); the `Res64`/`Res35m1`/`Res36m1` checksums (re-verified
 on read); the FFT length in use at
 write time (lets a restart detect an earlier ROE-triggered auto-escalation
-to a larger FFT length); and, for PRP runs only, a *second* residue array
+to a larger FFT length); and, whenever the Gerbicz check is on (`DO_GCHECK`:
+Mersenne PRP, and Fermat Pépin unless `LowMem = 2`), a *second* residue array
 holding the current Gerbicz checkproduct plus its own checksum triplet, so
 a Gerbicz-check failure (§3) can roll back to exactly the last point both
 arrays were known-consistent, plus two small cumulative-error counters
