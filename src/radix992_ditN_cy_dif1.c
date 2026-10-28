@@ -350,7 +350,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Vars needed in scalar mode only:
 	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int bjmodn[RADIX];
-	int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop
+	static int p0123[4];	// Needed by the rotated-residue carry injection in the main carry loop; set only under first_entry, so must persist across calls
 	double temp,frac,
 		cy_r[RADIX],cy_i[RADIX];
 
