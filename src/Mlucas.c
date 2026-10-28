@@ -1196,6 +1196,16 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			fprintf(stderr, "PRP-test requires base > 1 and not a power of 2!\n");
 			return ERR_EXPONENT_ILLEGAL;
 		}
+		// ...and coprime to M(p): converting the final residue to b^(N-1) needs the inverse of M(p) (mod b^2), which
+		// otherwise does not exist, and the run would abort in modinv64 after the full test. gcd(b,M(p)) = gcd(b,M(p) mod b),
+		// and 2^p (mod b) != 0 since b is not a power of 2:
+		if(TEST_TYPE == TEST_TYPE_PRP) {
+			uint64 g = gcd64((uint64)PRP_BASE, twopmmodq64(p,(uint64)PRP_BASE) - 1ull);
+			if(g != 1ull) {
+				fprintf(stderr, "PRP-test base %u is not coprime to M%" PRIu64 ": their GCD is %" PRIu64 ", which divides M%" PRIu64 ".\n",PRP_BASE,p,g,p);
+				return ERR_EXPONENT_ILLEGAL;
+			}
+		}
 
 		TRANSFORM_TYPE = REAL_WRAPPER;
 		snprintf(PSTRING,sizeof(PSTRING), "M%s", ESTRING);
