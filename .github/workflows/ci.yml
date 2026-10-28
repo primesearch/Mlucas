@@ -244,9 +244,7 @@ jobs:
             done
         done
     # The single-threaded build keeps only one core busy, but these tests are independent of each other,
-    # so they run as three concurrent steps. '-s m' is the longest of them on x86. On ARM, config-fermat.sh
-    # runs from the slower NOSIMD build (below), where F15-F28 together would outlast '-s m', so the top
-    # Fermat number, about half of config-fermat.sh's time, gets a step of its own.
+    # so they run as three concurrent steps.
     # Each runs in its own directory under selftest/, so their cfg files and logs do not collide.
     # On ARM the native build is ASIMD, whose trial-factoring routines are stubs - twopmodq80.c's
     # "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so config-fermat.sh and the Mfactor
@@ -261,11 +259,11 @@ jobs:
           cd selftest/m
           ln -sf ../../obj/Mlucas .
           time ./Mlucas -s m |& tee -a test.log
-      - name: LL and PRP self-tests tt/t/s, Mfactor, Fermat F15-F27
+      - name: LL and PRP self-tests tt/t/s, Mfactor
         run: |
           set -x -o pipefail
-          if [[ $HOSTTYPE == aarch64 ]]; then fermat=obj_NOSIMD; mode=NOSIMD; else fermat=obj; mode=; fi
-          mkdir -p selftest/small selftest/fermat-rest
+          if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
+          mkdir -p selftest/small
           cd selftest/small
           ln -sf ../../obj/Mlucas .
           for s in tt t s; do time ./Mlucas -s $s |& tee -a test.log; done
@@ -273,22 +271,14 @@ jobs:
           for word in '' {{1..4},n}word; do
               (cd "../../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
           done
-          # config-fermat.sh runs ./Mlucas over Fermat numbers MIN..MAX; the next step does MAX.
-          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' ../../config-fermat.sh)
-          cd ../fermat-rest
-          ln -sf "../../$fermat/Mlucas" .
-          sed "s/^MAX=.*/MAX=$((max - 1))/" ../../config-fermat.sh > config-fermat.sh
-          bash -e -o pipefail -- config-fermat.sh
-      - name: Fermat F28
+      - name: Fermat self-tests F15-F28
         run: |
           set -x -o pipefail
           if [[ $HOSTTYPE == aarch64 ]]; then fermat=obj_NOSIMD; else fermat=obj; fi
-          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' config-fermat.sh)
-          mkdir -p selftest/fermat-top
-          cd selftest/fermat-top
+          mkdir -p selftest/fermat
+          cd selftest/fermat
           ln -sf "../../$fermat/Mlucas" .
-          sed "s/^MIN=.*/MIN=$max/" ../../config-fermat.sh > config-fermat.sh
-          bash -e -o pipefail -- config-fermat.sh
+          bash -e -o pipefail -- ../../config-fermat.sh
     - name: Test
       run: |
         set -x -o pipefail
@@ -754,9 +744,7 @@ jobs:
             done
         done
     # The single-threaded build keeps only one core busy, but these tests are independent of each other,
-    # so they run as three concurrent steps. '-s m' is the longest of them on x86. On ARM, config-fermat.sh
-    # runs from the slower NOSIMD build (below), where F15-F28 together would outlast '-s m', so the top
-    # Fermat number, about half of config-fermat.sh's time, gets a step of its own.
+    # so they run as three concurrent steps.
     # Each runs in its own directory under selftest/, so their cfg files and logs do not collide.
     # On ARM the native build is ASIMD, whose trial-factoring routines are stubs - twopmodq80.c's
     # "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so config-fermat.sh and the Mfactor
@@ -771,11 +759,11 @@ jobs:
           cd selftest/m
           ln -sf ../../obj/Mlucas .
           time ./Mlucas -s m 2>&1 | tee -a test.log
-      - name: LL and PRP self-tests tt/t/s, Mfactor, Fermat F15-F27
+      - name: LL and PRP self-tests tt/t/s, Mfactor
         run: |
           set -x -o pipefail
-          if [[ $HOSTTYPE == arm64 ]]; then fermat=obj_NOSIMD; mode=NOSIMD; else fermat=obj; mode=; fi
-          mkdir -p selftest/small selftest/fermat-rest
+          if [[ $HOSTTYPE == arm64 ]]; then mode=NOSIMD; else mode=; fi
+          mkdir -p selftest/small
           cd selftest/small
           ln -sf ../../obj/Mlucas .
           for s in tt t s; do time ./Mlucas -s $s 2>&1 | tee -a test.log; done
@@ -783,22 +771,14 @@ jobs:
           for word in '' {{1..4},n}word; do
               (cd "../../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
           done
-          # config-fermat.sh runs ./Mlucas over Fermat numbers MIN..MAX; the next step does MAX.
-          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' ../../config-fermat.sh)
-          cd ../fermat-rest
-          ln -sf "../../$fermat/Mlucas" .
-          sed "s/^MAX=.*/MAX=$((max - 1))/" ../../config-fermat.sh > config-fermat.sh
-          bash -e -o pipefail -- config-fermat.sh
-      - name: Fermat F28
+      - name: Fermat self-tests F15-F28
         run: |
           set -x -o pipefail
           if [[ $HOSTTYPE == arm64 ]]; then fermat=obj_NOSIMD; else fermat=obj; fi
-          max=$(sed -n 's/^MAX=\([0-9]*\)$/\1/p' config-fermat.sh)
-          mkdir -p selftest/fermat-top
-          cd selftest/fermat-top
+          mkdir -p selftest/fermat
+          cd selftest/fermat
           ln -sf "../../$fermat/Mlucas" .
-          sed "s/^MIN=.*/MIN=$max/" ../../config-fermat.sh > config-fermat.sh
-          bash -e -o pipefail -- config-fermat.sh
+          bash -e -o pipefail -- ../../config-fermat.sh
     - uses: actions/upload-artifact@v7
       if: always()
       with:
