@@ -1751,6 +1751,10 @@ for(outer=0; outer <= 1; outer++)
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
+			col = _col[ithread];
+			co2 = _co2[ithread];
+			co3 = _co3[ithread];
+
 			for(l = 0; l < RADIX; l++) {
 				bjmodn[l] = _bjmodn[l][ithread];
 			}
