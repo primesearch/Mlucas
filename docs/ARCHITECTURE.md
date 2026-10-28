@@ -289,8 +289,8 @@ without needing to know which modulus type it's dealing with.
   cofactor-PRP* test, which is implemented and is a different thing.)
   See `help.txt` §9 for the operational `-maxalloc`/`-pm1_s2_nbuf`
   stage-2-memory flags and the `Pminus1=...,B2_start[,known_factors]`
-  stage-2-continuation assignment syntax. Big-integer GCD/modexp needed
-  here comes from `mi64.c` (§5).
+  stage-2-continuation assignment syntax. The stage 1 prime-powers product
+  is accumulated with `mi64.c`; the GCD itself is GMP's (§5 has the split).
 
 **Checkpoints:** `write_ppm1_savefiles()` / `read_ppm1_savefiles()`
 (both in `Mlucas.c`) persist the residue array, iteration count,
