@@ -5399,42 +5399,6 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	but my mi64_div routine gives the correct remainder 3398198221728141144755902061331087657421092620571, which clearly differs from 3^pow%f result.
 	(Also added CRT routine to nt_utils.txt, which takes the 3 remainders mod the known prime factors and confirms the DIV result.)
 	*/
-	if(TEST_TYPE == TEST_TYPE_PRP) {
-		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT((itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
-		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
-			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
-			sprintf(g_cstr,"Computing %" PRIu64 "-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] ); mlucas_fprint(g_cstr,1);
-			mi64_div(avec,KNOWN_FACTORS+i, len,j, 0x0,rem);	// R (mod p) returned in rem[]
-			k = mi64_getlen(rem,4);	// j = number of nonzero limbs in remainder
-			sprintf(g_cstr,"\tA: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, rem, k, 0)] ); mlucas_fprint(g_cstr,1);
-			if(j == 1) {
-				exp[0] = twopmmodq64(nsquares,KNOWN_FACTORS[i]-1);	// pow' = 2^nsquares (mod p-1)
-			} else if(j == 2) {
-				vi128.d0 = nsquares; vi128.d1 = 0ull;
-				ui128.d0 = KNOWN_FACTORS[i]-1; ui128.d1 = KNOWN_FACTORS[i+1];
-				ui128 = twopmmodq128(vi128,ui128);	// pow' = 2^nsquares (mod p-1)
-				exp[0] = ui128.d0; exp[1] = ui128.d1;
-			} else if(j == 3) {
-				vi192.d0 = nsquares; vi192.d1 = vi192.d2 = 0ull;
-				ui192.d0 = KNOWN_FACTORS[i]-1; ui192.d1 = KNOWN_FACTORS[i+1]; ui192.d2 = KNOWN_FACTORS[i+2];
-				ui192 = twopmmodq192(vi192,ui192);	// pow' = 2^nsquares (mod p-1)
-				exp[0] = ui192.d0; exp[1] = ui192.d1; exp[2] = ui192.d2;
-			} else if(j == 4) {
-				vi256.d0 = nsquares; vi256.d1 = vi256.d2 = vi256.d3 = 0ull;
-				ui256.d0 = KNOWN_FACTORS[i]-1; ui256.d1 = KNOWN_FACTORS[i+1]; ui256.d2 = KNOWN_FACTORS[i+2]; ui256.d3 = KNOWN_FACTORS[i+3];
-				ui256 = twopmmodq256(vi256,ui256);	// pow' = 2^nsquares (mod p-1)
-				exp[0] = ui256.d0; exp[1] = ui256.d1; exp[2] = ui256.d2; exp[3] = ui256.d3;
-			} else
-				ASSERT(0, "Only known-factors < 2^256 supported!");
-			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
-			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
-			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
-				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
-				ASSERT(0, cbuf);
-			}
-		}
-	}
 #if 0
 /* Above pow' = 2^(2^30 - 1) (mod p-1) = 433448099512320 = 2^35.3.5.29^2 example:
 My 2^-p (mod q) code needs q odd ... we note q = (p-1) = 2^32.103.1447 = 2^32.149041, so first try positive-power version:
@@ -5481,6 +5445,46 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 		i = fgetc(fp);	GCHECK_SHIFT += (uint64)i << (8*j);
 	}
   }
+
+	// Known-factor check of the residue, as described above. This must come after the read of the PRP base from the
+	// savefile: if the user changed the base in the worktodo entry, the run continues with the base it was started with
+	// (see the "differs from value" handling in the caller), and that is the base the residue was computed with:
+	if(TEST_TYPE == TEST_TYPE_PRP) {
+		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT((itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
+		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
+			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
+			sprintf(g_cstr,"Computing %" PRIu64 "-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] ); mlucas_fprint(g_cstr,1);
+			mi64_div(avec,KNOWN_FACTORS+i, len,j, 0x0,rem);	// R (mod p) returned in rem[]
+			k = mi64_getlen(rem,4);	// j = number of nonzero limbs in remainder
+			sprintf(g_cstr,"\tA: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, rem, k, 0)] ); mlucas_fprint(g_cstr,1);
+			if(j == 1) {
+				exp[0] = twopmmodq64(nsquares,KNOWN_FACTORS[i]-1);	// pow' = 2^nsquares (mod p-1)
+			} else if(j == 2) {
+				vi128.d0 = nsquares; vi128.d1 = 0ull;
+				ui128.d0 = KNOWN_FACTORS[i]-1; ui128.d1 = KNOWN_FACTORS[i+1];
+				ui128 = twopmmodq128(vi128,ui128);	// pow' = 2^nsquares (mod p-1)
+				exp[0] = ui128.d0; exp[1] = ui128.d1;
+			} else if(j == 3) {
+				vi192.d0 = nsquares; vi192.d1 = vi192.d2 = 0ull;
+				ui192.d0 = KNOWN_FACTORS[i]-1; ui192.d1 = KNOWN_FACTORS[i+1]; ui192.d2 = KNOWN_FACTORS[i+2];
+				ui192 = twopmmodq192(vi192,ui192);	// pow' = 2^nsquares (mod p-1)
+				exp[0] = ui192.d0; exp[1] = ui192.d1; exp[2] = ui192.d2;
+			} else if(j == 4) {
+				vi256.d0 = nsquares; vi256.d1 = vi256.d2 = vi256.d3 = 0ull;
+				ui256.d0 = KNOWN_FACTORS[i]-1; ui256.d1 = KNOWN_FACTORS[i+1]; ui256.d2 = KNOWN_FACTORS[i+2]; ui256.d3 = KNOWN_FACTORS[i+3];
+				ui256 = twopmmodq256(vi256,ui256);	// pow' = 2^nsquares (mod p-1)
+				exp[0] = ui256.d0; exp[1] = ui256.d1; exp[2] = ui256.d2; exp[3] = ui256.d3;
+			} else
+				ASSERT(0, "Only known-factors < 2^256 supported!");
+			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
+			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
+			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
+			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
+				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
+				ASSERT(0, cbuf);
+			}
+		}
+	}
 
   // v20: Read cumulative #errs for ROE >= 0.4375 (>= for LL, > for PRP) and Gerbicz-check for the test in question.
   // If it's a restart from a v19 run, emit a warning and simply start these from their main()-init values of 0:
