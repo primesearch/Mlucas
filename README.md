@@ -79,7 +79,7 @@ Dependencies:
 
 Use `which <tool>` (e.g. `which gcc`, `which gdb`) to check whether a given piece is already installed; most Linux distributions and macOS releases already include Make and a C compiler. `gdb` is a nice-to-have if you ever need to debug a crash (see [Common Build Issues](#common-build-issues-and-workarounds)).
 
-GMP is used to take the GCDs that extract factors from P-1 residues; build without it (`no_gmp`, see [Build](#build)) and P-1 factoring still runs, but won't identify factors it finds. hwloc is recommended starting with v21: it lets Mlucas resolve physical-core/thread topology itself via the new `-core` flag, removing the need to know your CPU vendor's logical-core numbering scheme (see [Basic build self-test](#basic-build-self-test)).
+GMP is used to take the GCDs that extract factors from P-1 residues; build without it (`no_gmp`, see [Build](#build)) and P-1 factoring still runs, but won't identify factors it finds. hwloc is recommended starting with v21: it lets Mlucas resolve physical-core/thread topology itself via the new `-core` flag, removing the need to know how your OS numbers logical cores (see [Basic build self-test](#basic-build-self-test)).
 
 ## Windows Users
 
@@ -162,12 +162,12 @@ By default `makemake.sh` auto-detects the highest SIMD mode your build host supp
 
 Each explicit SIMD mode gets its own object directory (the binary itself is still just named `Mlucas`), e.g. `bash makemake.sh avx2` builds `obj_avx2/Mlucas`; letting the script auto-detect (a plain `bash makemake.sh`) builds `obj/Mlucas`. This lets you keep binaries for multiple SIMD modes side by side without them overwriting each other.
 
-To build with Clang or another GCC-compatible compiler instead of the default GCC, run `export CC=<compiler>` (e.g. `export CC=clang`) before invoking `makemake.sh`. To switch compilers on an already-built tree without a full rebuild, run `make clean` inside the `obj` directory, then `CC=<compiler> make -j "$(nproc)"`.
+To build with Clang or another GCC-compatible compiler instead of the default GCC, run `export CC=<compiler>` (e.g. `export CC=clang`) before invoking `makemake.sh`. To switch compilers on an already-built tree, run `make clean` inside that build's object directory (`obj`, `obj_avx2`, etc.), then `CC=<compiler> make -j <N>` there, where `<N>` is your CPU count (`nproc` on Linux, `sysctl -n hw.ncpu` on macOS).
 
 ### Common Build Issues and Workarounds
 
 * **Where to look first:** if `makemake.sh` reports errors, check the `build.log` file it writes inside the object directory (`obj`, `obj_avx2`, etc.) for the (case-insensitive) string "error", e.g. `grep -i -C 3 'error' build.log`.
-* **Debug symbols:** builds include `-g` by default so that a crash can be diagnosed with `gdb -ex=r ./Mlucas` (gives you the file, line number and stack trace). If you want a smaller binary afterward, run `strip -g Mlucas`.
+* **Debug symbols:** builds include `-g` by default so that a crash can be diagnosed with `gdb -ex=r ./Mlucas` from the object directory (gives you the file, line number and stack trace). If you want a smaller binary afterward, run `strip -g Mlucas`.
 * **`cc: command not found` (some WSL installs):** `export CC=gcc` before retrying `bash makemake.sh`.
 * **ARM/Apple Silicon SIMD detection:** `makemake.sh` probes for `-march=native`/`-mcpu=native` support before relying on it in the ASIMD fallback path, so most Clang-on-Arm toolchains are now handled automatically. If you still hit a runtime segfault or an "unsupported architecture" compiler error on an unusual ARM target, pass the closest matching mode explicitly (`bash makemake.sh asimd` or `bash makemake.sh nosimd`), or add an explicit `-march=<version>` for your CPU to your compiler flags. If `makemake.sh` fails to detect the correct SIMD mode at all, please report it — see below.
 * **Rebuilding after a source update:** run `make clean` in the relevant `obj*` directory (or `rm -f obj*/*.o` from the top-level directory) before re-running `makemake.sh`, since Make does not always detect stale header-file dependents. Parallel builds are fast, so a full rebuild is usually the safe and quick choice. Rerun your self-tests (see [Basic build self-test](#basic-build-self-test)) after any rebuild, especially after upgrading to a new Mlucas version.
@@ -176,23 +176,26 @@ For help with build problems or general usage questions, please post to the [Mlu
 
 ## Basic build self-test
 
-Once you have a linked binary, try a quick spot-check at a small FFT length:
+Once you have a linked binary, change into its object directory (`cd obj`, or `cd obj_avx2` etc. if you built with an explicit SIMD mode) and try a quick spot-check at a small FFT length. The `./Mlucas` commands from here down to the multi-instance example under [Performance tuning](#performance-tuning) are run from there, so `mlucas.cfg` ends up next to the binary:
+
 ```
 ./Mlucas -fft 192 -iters 100 -radset 0
 ```
+
 Look for a line reading `INFO: System has [X] available processor cores.` — this is the number of *logical* (virtual) cores; if it's double your physical core count, your CPU supports hyperthreading (or SMT). This particular test case has an internally-tabulated 100-iteration reference residue, so a mismatch means something is wrong with the build (compiler miscompilation, hardware issue, etc.) and will produce a loud error message.
 
 If that works, retry multithreaded:
+
 ```
 ./Mlucas -fft 192 -iters 100 -radset 0 -cpu 0:1
 ```
 
 ### Setting thread count and CPU affinity
 
-Mlucas offers three mutually-exclusive ways to pick thread count and affinity:
+Mlucas offers two mutually-exclusive ways to pick thread count and affinity:
 
 * **`-core {lo:hi[:threads_per_core]}`** — *recommended if you built with `use_hwloc`.* hwloc resolves physical cores and their hardware threads for you, so `-core` behaves identically regardless of CPU vendor. `-core 0:3` runs one thread on each of physical cores 0 through 3; `-core 0:0:4` runs 4 threads on physical core 0 alone (handy for e.g. a Knights Corner-style core with 4 hardware threads).
-* **`-cpu {lo[:hi[:incr]]}[,{lo[:hi[:incr]]},...]`** — the traditional, portable option, and still required if you did not build with hwloc support. It sets affinity to *logical* core indices directly, so the mapping from physical cores to logical-core numbers differs by vendor: on Intel, physical core *n* out of *N* total maps to logical cores *n* and *n+N* when hyperthreaded, so `-cpu 0:1` runs one thread on each of physical cores 0 and 1; on AMD, physical core *n*'s two hardware threads are the adjacent pair *2n*,*2n+1*, so the same-looking `-cpu 0:1` instead means "both threads of physical core 0 alone" — the AMD equivalent of "one thread on each of physical cores 0 and 1" is the stride-2 range `-cpu 0:3:2`. See [Performance tuning](#performance-tuning) for worked examples and vendor-specific benchmarking recipes.
+* **`-cpu {lo[:hi[:incr]]}[,{lo[:hi[:incr]]},...]`** — the traditional, portable option, and still required if you did not build with hwloc support. It passes *logical* CPU indices straight to the operating system, and how those map to physical cores on a hyperthreaded/SMT CPU depends on the OS and firmware, not the CPU vendor. Linux usually numbers the two threads of physical core *n* out of *N* as *n* and *n+N*, so `-cpu 0:1` runs one thread on each of physical cores 0 and 1; Windows (and FreeBSD, and some Linux systems) number them as the adjacent pair *2n*,*2n+1*, so the same `-cpu 0:1` means both threads of physical core 0, and one thread on each of physical cores 0 and 1 is the stride-2 range `-cpu 0:3:2`. Check your machine's layout (on Linux, `lscpu -e`) before choosing ranges. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for worked examples and benchmarking recipes for each layout.
 For a complete option reference (all self-test tiers, P-1 flags, `mlucas.ini` options, etc.), see [help.txt](help.txt).
 
 ## Performance tuning
@@ -200,20 +203,26 @@ For a complete option reference (all self-test tiers, P-1 flags, `mlucas.ini` op
 After a successful basic self-test, run one of the following self-test tiers to build a `mlucas.cfg` file of optimal per-FFT-length radix sets and timings for your hardware. Run these under unloaded or constant-load conditions for the most reliable data:
 
 ```
-./Mlucas -s m [-core or -cpu flags] > test.log 2>&1
+./Mlucas -s m -cpu 0:3 > test.log 2>&1
 ```
-`-s m` ("medium") covers the FFT-length range most GIMPS assignments currently fall into and is the tier ordinary users are recommended to run — how long it takes depends on your thread/iteration count, but it's usually well under an hour on modern systems (often under 15 minutes). Other tiers — `-s t`(iny), `-s s`(mall), `-s l`(arge), `-s a`(ll), `-s h`(uge), `-s e`(gregious) — cover progressively larger FFT-length ranges; see [help.txt](help.txt) section `[1]` for exact ranges and expected runtimes.
 
-Once `mlucas.cfg` exists, Mlucas reads it at startup to pick the best radix set for whatever exponent it's assigned. If you plan to run multiple simultaneous instances (recommended on 4+ core systems, generally 2-4 physical cores per instance), copy `mlucas.cfg` into one run directory per instance, and give each instance a disjoint `-core`/`-cpu` range and its own `worktodo.txt`/`results.txt`. A minimal example on a hwloc build with an 8-physical-core CPU, running two 4-core instances:
+Replace `-cpu 0:3` with the `-core` or `-cpu` range you intend to run with (see above), since the timings in `mlucas.cfg` depend on the thread count and placement used to measure them. `-s m` ("medium") covers the FFT-length range most GIMPS assignments currently fall into and is the tier ordinary users are recommended to run — how long it takes depends on your thread/iteration count, but it's usually well under an hour on modern systems (often under 15 minutes). Other tiers — `-s t`(iny), `-s s`(mall), `-s l`(arge), `-s a`(ll), `-s h`(uge), `-s e`(gregious) — cover progressively larger FFT-length ranges; see [help.txt](help.txt) section `[1]` for exact ranges and expected runtimes.
+
+Once `mlucas.cfg` exists, Mlucas reads it at startup to pick the best radix set for whatever exponent it's assigned. If you plan to run multiple simultaneous instances (recommended on 4+ core systems, generally 2-4 physical cores per instance), copy `mlucas.cfg` into one run directory per instance, and give each instance a disjoint `-core`/`-cpu` range and its own `worktodo.txt`/`results.txt`. A minimal example on a hwloc build with an 8-physical-core CPU, running two 4-core instances, from the top-level `Mlucas` directory (`cd ..` from `obj`):
+
 ```
 mkdir run0 run1
-ln -s obj/mlucas.cfg run0/ run1/
-cd run0 && nohup ../obj/Mlucas -maxalloc 50 -core 0:3 &
-cd ../run1 && nohup ../obj/Mlucas -maxalloc 50 -core 4:7 &
+ln -s ../obj/mlucas.cfg run0/
+ln -s ../obj/mlucas.cfg run1/
+(cd run0 && nohup ../obj/Mlucas -maxalloc 50 -core 0:3 &)
+(cd run1 && nohup ../obj/Mlucas -maxalloc 50 -core 4:7 &)
 ```
+
+Each launch is in its own `( ... )` subshell so that its `cd` does not carry over to the next line. Substitute your object directory for `obj` if it differs.
+
 `-maxalloc {+int}` caps the percentage of free system RAM a given instance's P-1 stage 2 may use (default 90%, 50% on macOS); when running several instances concurrently, lower this so their stage 2 memory needs don't collide.
 
-Without hwloc, the correct `-cpu` ranges for hyperthreaded/SMT systems differ between Intel and AMD, and hybrid (big.LITTLE-style) and Apple Silicon systems need their own topology-specific reasoning. [docs/PERFORMANCE.md](docs/PERFORMANCE.md) has a full set of worked `-cpu` examples for those cases, plus a template for a `jobs.sh` boot-time launch script.
+Without hwloc, the correct `-cpu` ranges for hyperthreaded/SMT systems depend on how your OS numbers the hardware threads, and hybrid (big.LITTLE-style) and Apple Silicon systems need their own topology-specific reasoning. [docs/PERFORMANCE.md](docs/PERFORMANCE.md) has a full set of worked `-cpu` examples for those cases, plus multi-instance launch examples.
 
 ## Getting exponents from PrimeNet
 
@@ -233,8 +242,6 @@ Pminus1=[aid,]1,2,{exponent},-1,{B1},{B2}[,{TF bits}][,{B2 start}][,"{known fact
 Pfactor=[aid,]1,2,{exponent},-1,{TF bits},{LL/PRP tests saved if factor found}
 ```
 The `1,2,{exponent},-1` fields are `k,b,n,c` specifying the modulus `k*b^n+c`; `-1` is for a Mersenne number (`2^exponent - 1`) — a P-1 (`Pminus1=`/`Pfactor=`) assignment against a Fermat number instead uses `c = +1`. `{aid}` (the assignment ID) is optional for all work types and may be given as `n/a` (case-insensitive) if omitted. When an LL/PRP assignment still needs P-1 work, Mlucas automatically splits it into a `Pminus1=`/`Pfactor=` assignment followed by the original, running P-1 first. Note that as of April 2021 the server no longer hands out first-time LL assignments (requests are converted to LL double-checks) — PRP with Gerbicz error-checking has superseded first-time LL testing. You can also LL-test an arbitrary prime exponent not obtained from the server by putting the bare number on its own line in `worktodo.txt`, or construct your own PRP assignment (`PRP=n/a,1,2,{exponent},-1,{TF bits},0`) for the same purpose with hardware-error detection.
-
-Please verify these formats against what Mlucas, Prime95/MPrime and the PrimeNet server itself actually accept before relying on them.
 
 </details>
 
@@ -261,12 +268,12 @@ Mlucas writes savefiles ("checkpoints") at regular intervals — every 10,000 it
 * P-1 stage 2 uses a single `p{exponent}.s2` savefile, plus a `p{exponent}.s1_prod` file caching the precomputed stage 1 prime-powers product (useful for restarting large-B1 runs without recomputing it).
 * LL/PRP runs also snapshot a persistent savefile every 10M iterations (`.10M`, `.20M`, ...), allowing a partial rerun of a suspect range without restarting from scratch.
 
-**Interrupting a run safely:** Mlucas listens for `SIGINT` (Ctrl-C) and `SIGTERM` (the default `kill` signal) and, for LL, PRP, and P-1 stage 1 work, will finish the current iteration, write savefiles, and exit cleanly. P-1 stage 2's state is more complex and does *not* currently have a clean-exit path — interrupting stage 2 loses any work since the last stage 2 savefile write. `killall -STOP Mlucas` / `killall -CONT Mlucas` will suspend/resume all running instances without losing anything. As a last resort for an unresponsive instance, `kill -9 {pid}` terminates immediately (and loses any not-yet-checkpointed work).
+**Interrupting a run safely:** Mlucas listens for `SIGINT` (Ctrl-C) and `SIGTERM` (the default `kill` signal) and, for LL, PRP, and P-1 stage 1 work from `worktodo.txt`, will finish the current iteration, write savefiles, and exit cleanly. One narrow exception: once every million iterations a PRP test (and a Fermat Pépin test) spends 1000 extra squarings updating its Gerbicz checkproduct for the error check, and an interrupt during that update exits at once without writing, losing the work since the last savefile. P-1 stage 2's state is more complex and does *not* currently have a clean-exit path — interrupting stage 2 loses any work since the last stage 2 savefile write. `killall -STOP Mlucas` / `killall -CONT Mlucas` will suspend/resume all running instances without losing anything. As a last resort for an unresponsive instance, `kill -9 {pid}` terminates immediately (and loses any not-yet-checkpointed work).
 
 ## Further documentation
 
 * [help.txt](help.txt) — the full command-line option reference (self-test tiers, P-1 flags, `mlucas.ini` options, savefile internals, and more).
-* [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — worked `-cpu`/`-core` examples for hyperthreaded Intel/AMD, ARM, hybrid, and Apple Silicon systems, plus multi-instance launch-script templates.
+* [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — worked `-cpu`/`-core` examples for hyperthreaded/SMT, ARM, hybrid, and Apple Silicon systems, plus multi-instance launch examples.
 * [docs/Fermat-testing.md](docs/Fermat-testing.md) — testing Fermat numbers with Mlucas.
 * [docs/ANDROID.md](docs/ANDROID.md) — running Mlucas on a cluster of Android phones.
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how Mlucas's FFT/DWT-based modular squaring works internally (the algorithmic Q&A formerly on Ernst's README webpage).
