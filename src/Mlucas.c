@@ -2768,7 +2768,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 								// reads the stage 2 residue from the .s2 savefile, so jumping straight to the GCD from here
 								// would hand it the stage 1 residue, and gcd(3^E1 (mod N),N) == 1 always, i.e. any factor
 								// found by the completed stage 2 would be reported as "no factor" and the .s2 savefile
-								// holding it then deleted. pm1_stage2() handles the (savefile q >= B2) case itself, taking
+								// holding it then deleted. pm1_stage2() handles a completed-stage-2 checkpoint itself, taking
 								// the same early-return-to-GCD path but with the stage 2 residue properly read in first.
 								// Must reset B2_start = B1, since stage 2 code expects that to properly (re)init relocation-params:
 								B2_start = B1;

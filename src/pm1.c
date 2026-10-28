@@ -1789,8 +1789,11 @@ MME = 0;
 			}
 			mlucas_fprint(cbuf,pm1_standlone+1);
 			restart = TRUE;
-			if(qlo >= B2) {	// qlo >= S2 upper limit - nothing to do but proceed to gcd
-				snprintf(cbuf,sizeof(cbuf), "INFO: %s savefile q[%" PRIu64 "] >= B2[%" PRIu64 "] ... stage 2 for this interval is complete; proceeding to GCD of the stage 2 residue.\n",func,qlo,B2);
+			// The stage 2 loop runs not to B2 but to qhi = B2 + m*bigstep (see below), to process the primes just below
+			// B2 still pending in the pairing window, and its periodic checkpoints can land anywhere in [B2,qhi). Only
+			// a checkpoint at or past qhi is from a completed stage 2; any earlier one takes the restart path below:
+			if(qlo >= B2 + (uint64)m*bigstep) {	// qlo >= S2 loop upper limit - nothing to do but proceed to gcd
+				snprintf(cbuf,sizeof(cbuf), "INFO: %s savefile q[%" PRIu64 "] >= B2 + M*D[%" PRIu64 "] ... stage 2 for this interval is complete; proceeding to GCD of the stage 2 residue.\n",func,qlo,B2 + (uint64)m*bigstep);
 				mlucas_fprint(cbuf,pm1_standlone+1);
 				// k is used as a scratch variable by the MULTITHREAD setup code above, so (re)zero the
 				// bigstep-block counters to make the ensuing "#blocks/#modmul" summary print accurate:
@@ -2559,7 +2562,7 @@ S2_RETURN:
 #endif
 	// (k - k0) = #bigstep-blocks (passes thru above loop) used in stage 2; np + ns + 2*(k - k0) = #modmul:
 	nmodmul = np + ns + 2*(k - k0);	// This is actually redundant, but just to spell it out
-	// Note the (2*np+ns) guard: on the 'savefile q >= B2, nothing left to do' early-return above we never
+	// Note the (2*np+ns) guard: on the 'savefile q >= B2 + M*D, nothing left to do' early-return above we never
 	// entered the bigstep loop, so np = ns = 0 and the %-paired figure would otherwise print as nan:
 	snprintf(cbuf,sizeof(cbuf),"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,(2*np+ns) ? 100.0*2*np/(2*np+ns) : 0.0,k-k0,nmodmul);
 	mlucas_fprint(cbuf,pm1_standlone+1);
