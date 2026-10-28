@@ -2,7 +2,7 @@
 
 This page expands on the [Performance tuning](../README.md#performance-tuning) section of the main README with worked `-cpu`/`-core` examples for various CPU topologies, and multi-instance launch examples.
 
-Linux users: the [Mlucas install script](https://github.com/tdulcet/Distributed-Computing-Scripts#mlucas) automates everything on this page for you — it benchmarks instance/thread-count combinations and writes a `jobs.sh` launch script for the fastest one it finds, so most Linux users won't need to work through the manual steps below at all.
+Linux users: the [Mlucas install script](https://github.com/tdulcet/Distributed-Computing-Scripts#mlucas) does this tuning for you the hwloc way — it builds with `use_hwloc`, benchmarks instance/thread-count combinations using `-core`, and writes a `jobs.sh` launch script for the fastest one it finds, so most Linux users won't need to work through the manual steps below at all. It does not cover the `-cpu` (non-hwloc) material on this page, which it has no need for.
 
 If you built with `use_hwloc` (see [Build](../README.md#build)), skip straight to [Using `-core`](#using--core) — it removes the logical-numbering reasoning below entirely. The rest of this page is for builds without hwloc, or for understanding what `-core` is doing for you under the hood.
 

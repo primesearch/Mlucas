@@ -101,13 +101,13 @@ For the do-it-yourselfers, the manual build and tune flow follows below.
 
 1. Verify that the dependencies above are installed. On Debian and Ubuntu, run: `sudo apt update` and `sudo apt install build-essential libgmp-dev libhwloc-dev`.
 2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-3. To download AutoPrimeNet, run: `wget -nv https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`.
+3. To download AutoPrimeNet, run: `wget -nv https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`. It needs Python 3 and the Requests library; if `python3 --version` fails, install them with `sudo apt install python3 python3-requests`.
 
 #### macOS
 
 1. Verify that the dependencies above are installed. Run: `brew install gmp hwloc`.
 2. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `curl -fLO https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-3. To download AutoPrimeNet, run: `curl -sSfLO https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`.
+3. To download AutoPrimeNet, run: `curl -sSfLO https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`. It needs Python 3: check with `python3 --version`, and if it is missing, run `brew install python`. AutoPrimeNet offers to install the Requests library on first run if it is not already installed.
 
 #### Windows
 
@@ -116,7 +116,7 @@ Native Windows builds are experimental. For now, Windows users should use the [W
 1. Download and install [MSYS2](https://www.msys2.org/).
 2. Verify that the dependencies above are installed. With the MINGW64 environment, run: `pacman -S mingw-w64-x86_64-gmp mingw-w64-x86_64-hwloc`.
 3. If one has git installed, just run: `git clone https://github.com/primesearch/Mlucas.git`. Otherwise, download the latest archive: `wget https://github.com/primesearch/Mlucas/archive/main.tar.gz` and then decompress the files: `tar -xzvf main.tar.gz`.
-4. To download AutoPrimeNet, run: `wget -nv https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`.
+4. To download AutoPrimeNet, run: `wget -nv https://raw.github.com/tdulcet/AutoPrimeNet/main/autoprimenet.py`. It needs Python 3 and the Requests library: `pacman -S mingw-w64-x86_64-python mingw-w64-x86_64-python-requests`.
 
 ### Installing GMP and hwloc
 
@@ -167,7 +167,7 @@ To build with Clang or another GCC-compatible compiler instead of the default GC
 ### Common Build Issues and Workarounds
 
 * **Where to look first:** if `makemake.sh` reports errors, check the `build.log` file it writes inside the object directory (`obj`, `obj_avx2`, etc.) for the (case-insensitive) string "error", e.g. `grep -i -C 3 'error' build.log`.
-* **Debug symbols:** builds include `-g` by default so that a crash can be diagnosed with `gdb -ex=r ./Mlucas` from the object directory (gives you the file, line number and stack trace). If you want a smaller binary afterward, run `strip -g Mlucas`.
+* **Debug symbols:** builds include `-g` by default so that a crash can be diagnosed with `gdb -ex=r -ex=bt ./Mlucas` from the object directory (`-ex=bt` prints the stack trace, with file and line numbers, once the program stops). If you want a smaller binary afterward, run `strip -g Mlucas`.
 * **`cc: command not found` (some WSL installs):** `export CC=gcc` before retrying `bash makemake.sh`.
 * **ARM/Apple Silicon SIMD detection:** `makemake.sh` probes for `-march=native`/`-mcpu=native` support before relying on it in the ASIMD fallback path, so most Clang-on-Arm toolchains are now handled automatically. If you still hit a runtime segfault or an "unsupported architecture" compiler error on an unusual ARM target, pass the closest matching mode explicitly (`bash makemake.sh asimd` or `bash makemake.sh nosimd`), or add an explicit `-march=<version>` for your CPU to your compiler flags. If `makemake.sh` fails to detect the correct SIMD mode at all, please report it — see below.
 * **Rebuilding after a source update:** run `make clean` in the relevant `obj*` directory (or `rm -f obj*/*.o` from the top-level directory) before re-running `makemake.sh`, since Make does not always detect stale header-file dependents. Parallel builds are fast, so a full rebuild is usually the safe and quick choice. Rerun your self-tests (see [Basic build self-test](#basic-build-self-test)) after any rebuild, especially after upgrading to a new Mlucas version.
