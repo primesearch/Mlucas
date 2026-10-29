@@ -4452,6 +4452,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		}
 	}	/* end of command-line-argument processing while() loop */
 
+#ifdef MULTITHREAD
+	// Say what the selected logical CPUs are in physical terms (cores, threads per core) and what the
+	// cache sizes are, and warn if SMT siblings were selected without -core asking for that: what
+	// '-cpu 0:3' means depends on the OS's and vendor's logical-CPU numbering, and scaling reports
+	// are not comparable without this.
+	if(cpu || nthread || core) report_cpu_topology(core);
+#endif
+
 	// Nov 2020: Sanity-check any p-1 bounds:
 	if(testType == TEST_TYPE_PM1) {
 		ASSERT((modType == MODULUS_TYPE_MERSENNE || modType == MODULUS_TYPE_FERMAT) && userSetExponent, "P-1 in command-line mode requires a Mersenne or Fermat-number modulus to be specified via '-m [int]' or '-f [int]'.");

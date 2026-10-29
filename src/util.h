@@ -215,6 +215,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
   #endif
 	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
+	void	report_cpu_topology(int user_chose_smt);
 
 #endif	// MULTITHREAD ?
 
