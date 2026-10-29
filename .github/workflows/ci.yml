@@ -605,8 +605,9 @@ jobs:
       run: |
         set -x -o pipefail
         # Build the SIMD modes under the sanitizers: AVX2 and AVX-512 on x86, and ASIMD on ARM.
-        # This is the only job that builds the hand-tuned SIMD asm under a sanitizer. Issue #12, a
-        # SEGV in radix48_dit_pass1 during 'Mlucas -s m', was reported by ASan on an ARM runner.
+        # This and the Windows ASan job are the only ones that build the hand-tuned SIMD asm under a
+        # sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during 'Mlucas -s m', was reported by ASan
+        # on an ARM runner.
         # (The macOS ASan job stays on NOSIMD, see PR #71: there the SIMD asm fails to assemble
         # under -Og, "invalid CFI advance_loc expression".)
         # On x86 both explicit modes are built rather than the native one: the test jobs run on
@@ -625,12 +626,14 @@ jobs:
                 (cd obj_$mode; make clean)
             done
         fi
-        # Mfactor builds the native SIMD mode too, except on ARM, where it builds NOSIMD for the same reason.
-        if [[ $HOSTTYPE == aarch64 ]]; then mode=nosimd; else mode=; fi
-        for word in '' {{1..4},n}word; do
-            echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word $mode
-            (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
+        # Mfactor builds the same SIMD modes, except on ARM, where it builds NOSIMD for the same reason.
+        if [[ $HOSTTYPE == aarch64 ]]; then MF_MODES=( nosimd ); else MF_MODES=( avx2 avx512 ); fi
+        for mode in "${MF_MODES[@]}"; do
+            for word in '' {{1..4},n}word; do
+                echo -e "\nMfactor $word $mode\n"
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
+                (cd obj_mfac${word:+_$word}_$mode; make clean)
+            done
         done
     - name: Upload build logs
       uses: actions/upload-artifact@v7
@@ -643,18 +646,20 @@ jobs:
       run: |
         set -x
         if [[ $HOSTTYPE == aarch64 ]]; then
-            TEST_DIRS=( obj obj_nosimd )
+            TEST_DIRS=( obj obj_nosimd ); MF_MODES=( nosimd )
         else
-            TEST_DIRS=( obj_avx2 obj_avx512 )
+            TEST_DIRS=( obj_avx2 obj_avx512 ); MF_MODES=( avx2 avx512 )
         fi
         for d in "${TEST_DIRS[@]}"; do
             mkdir -p "stage/$d"
             cp -p "$d/Mlucas" "stage/$d/"
         done
-        for word in '' {{1..4},n}word; do
-            d="obj_mfac${word:+_$word}_nosimd"
-            mkdir -p "stage/$d"
-            cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+        for mode in "${MF_MODES[@]}"; do
+            for word in '' {{1..4},n}word; do
+                d="obj_mfac${word:+_$word}_$mode"
+                mkdir -p "stage/$d"
+                cp -p "$d/Mfactor${word:+_$word}" "stage/$d/"
+            done
         done
     - name: Upload build
       uses: actions/upload-artifact@v7
@@ -692,7 +697,7 @@ jobs:
       with:
         name: asan-linux-build_${{ matrix.os }}_${{ matrix.cc }}
     - name: Restore executable bits
-      run: chmod +x obj*/Mlucas obj_mfac*_nosimd/Mfactor*
+      run: chmod +x obj*/Mlucas obj_mfac*/Mfactor*
     - name: Detect CPU
       run: |
         # Same probe as the Linux test job: the best ISA this runner supports.
@@ -725,14 +730,6 @@ jobs:
     - name: Script
       run: |
         set -x -o pipefail
-        if [[ $PART == mfactor ]]; then
-            # Mfactor runs from the NOSIMD builds on every runner, so once is enough, and
-            # before the ISA check below, which only concerns the Mlucas builds:
-            for word in '' {{1..4},n}word; do
-                (cd "obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-            done
-            exit 0
-        fi
         # Which builds to test: on ARM, the native ASIMD build. On x86, the AVX2 build always, and
         # the AVX-512 build as well when this runner has AVX-512 - most runners do not, and there
         # the AVX-512 binary would only die on an illegal instruction.
@@ -764,6 +761,14 @@ jobs:
                         cd ../obj_nosimd
                     fi
                     bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
+                    ;;
+                mfactor)
+                    # Mfactor runs in the same SIMD mode as this Mlucas build, except on ARM, where the
+                    # build job made NOSIMD only:
+                    if [[ $TEST_DIR == obj ]]; then mf=nosimd; else mf=${TEST_DIR#obj_}; fi
+                    for word in '' {{1..4},n}word; do
+                        (cd "../obj_mfac${word:+_$word}_$mf" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                    done
                     ;;
                 *)
                     echo "::error::Unknown test part '$PART'."; exit 1
@@ -1100,7 +1105,9 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        part: [selftest-short, selftest-m, prp, fermat, mfactor]
+        # No selftest-m part, as in the TSan jobs: in this NOSIMD build '-s m' took about 45 minutes,
+        # and the Linux and Windows ASan jobs run it in their SIMD builds.
+        part: [selftest-short, prp, fermat, mfactor]
       fail-fast: false
     env:
       PART: ${{ matrix.part }}
@@ -1125,9 +1132,6 @@ jobs:
         case "$PART" in
             selftest-short)
                 for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
-                ;;
-            selftest-m)
-                time ./Mlucas -s m -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
                 ;;
             prp)
                 for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
@@ -1400,14 +1404,18 @@ jobs:
       shell: bash
       run: |
         set -x
-        # Build the runner's native SIMD mode (AVX2 or AVX-512) under the sanitizers, for both Mlucas and
-        # Mfactor, as the Linux ASan job does: in the NOSIMD build '-s m' took about 70 of the job's 150 minutes.
-        bash -e -o pipefail -- makemake.sh use_hwloc
-        (cd obj; make clean)
-        for word in '' {{1..4},n}word; do
-            echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word
-            (cd obj_mfac${word:+_$word}; make clean)
+        # Build the SIMD modes (AVX2 and AVX-512) under the sanitizers, for both Mlucas and Mfactor, as
+        # the Linux ASan job does: in the NOSIMD build '-s m' took about 70 of the job's 150 minutes.
+        # Both explicit modes rather than the native one, since the test jobs run on other runners,
+        # which may or may not have AVX-512; each runs the builds its own runner supports.
+        for mode in avx2 avx512; do
+            bash -e -o pipefail -- makemake.sh use_hwloc $mode
+            (cd obj_$mode; make clean)
+            for word in '' {{1..4},n}word; do
+                echo -e "\nMfactor $word $mode\n"
+                bash -e -o pipefail -- makemake.sh mfac $word $mode
+                (cd obj_mfac${word:+_$word}_$mode; make clean)
+            done
         done
     - name: Upload build logs
       uses: actions/upload-artifact@v7
@@ -1420,12 +1428,14 @@ jobs:
       shell: bash
       run: |
         set -x
-        mkdir -p stage/obj_nosimd
-        cp -p obj_nosimd/Mlucas.exe stage/obj_nosimd/
-        for word in '' {{1..4},n}word; do
-            d="obj_mfac${word:+_$word}_nosimd"
-            mkdir -p "stage/$d"
-            cp -p "$d/Mfactor${word:+_$word}.exe" "stage/$d/"
+        for mode in avx2 avx512; do
+            mkdir -p stage/obj_$mode
+            cp -p obj_$mode/Mlucas.exe stage/obj_$mode/
+            for word in '' {{1..4},n}word; do
+                d="obj_mfac${word:+_$word}_$mode"
+                mkdir -p "stage/$d"
+                cp -p "$d/Mfactor${word:+_$word}.exe" "stage/$d/"
+            done
         done
     - name: Upload build
       uses: actions/upload-artifact@v7
@@ -1464,7 +1474,28 @@ jobs:
         name: asan-windows-build
     - name: Restore executable bits
       shell: bash
-      run: chmod +x obj_nosimd/Mlucas.exe obj_mfac*_nosimd/Mfactor*.exe
+      run: chmod +x obj*/Mlucas.exe obj_mfac*/Mfactor*.exe
+    - name: Detect CPU
+      shell: bash
+      run: |
+        # Same probe as the Linux test jobs: the best ISA this runner supports.
+        cat > isa_probe.c <<'EOF'
+        #include <stdio.h>
+
+        int main(void)
+        {
+            __builtin_cpu_init();
+            if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd"))
+                puts("AVX512");
+            else if (__builtin_cpu_supports("avx2"))
+                puts("AVX2");
+            else
+                puts("other");
+            return 0;
+        }
+        EOF
+        clang -O2 -o isa_probe isa_probe.c
+        echo "TEST_ISA=$(./isa_probe)" >> "$GITHUB_ENV"
     - name: Before script
       shell: bash
       run: |
@@ -1473,29 +1504,40 @@ jobs:
       shell: bash
       run: |
         set -x -o pipefail
-        cd obj_nosimd
-        case "$PART" in
-            selftest-short)
-                for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-                ;;
-            selftest-m)
-                time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
-                ;;
-            prp)
-                for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
-                ;;
-            fermat)
-                bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
-                ;;
-            mfactor)
-                for word in '' {{1..4},n}word; do
-                    (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
-                done
-                ;;
-            *)
-                echo "::error::Unknown test part '$PART'."; exit 1
-                ;;
+        # Which builds to test: AVX2 always, and AVX-512 as well when this runner has it - on one
+        # without, the AVX-512 binaries would only die on an illegal instruction.
+        case "$TEST_ISA" in
+            AVX512) TEST_DIRS=(obj_avx2 obj_avx512) ;;
+            AVX2) TEST_DIRS=(obj_avx2) ;;
+            *) echo "::error::This runner supports neither AVX2 nor AVX-512, and only those builds are staged."; exit 1 ;;
         esac
+        echo "::notice::This runner supports $TEST_ISA; testing ${TEST_DIRS[*]}."
+        for TEST_DIR in "${TEST_DIRS[@]}"; do
+            pushd "$TEST_DIR"
+            case "$PART" in
+                selftest-short)
+                    for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+                    ;;
+                selftest-m)
+                    time ./Mlucas -s m -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log
+                    ;;
+                prp)
+                    for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+                    ;;
+                fermat)
+                    bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
+                    ;;
+                mfactor)
+                    for word in '' {{1..4},n}word; do
+                        (cd "../obj_mfac${word:+_$word}_${TEST_DIR#obj_}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+                    done
+                    ;;
+                *)
+                    echo "::error::Unknown test part '$PART'."; exit 1
+                    ;;
+            esac
+            popd
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
