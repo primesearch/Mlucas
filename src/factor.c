@@ -3259,7 +3259,7 @@ MFACTOR_HELP:
 			"	movl	%[__bit_len] ,%%edx 			\n\t"\
 			"	vpbroadcastd	%%edx,%%zmm30			\n\t"/* bit_len x 16, shared across cols */\
 			"movl	%[__nprime] ,%%esi 	\n\t"/* ASM loop control structured as for(j = nprime-m; j != 0; j -= 32){...} */\
-			"loop_bitclear_short:		\n\t"/* loop begin */\
+			"0:						\n\t"/* loop begin */\
 				/* Each additional column to the right has zmm indices (except for data shared across cols, as noted) += 4, k-indices += 2: */\
 				"	vmovups	(%%rbx),%%zmm0					\n\t	vmovups	0x40(%%rbx),%%zmm4				\n\t"/* next 16 startvals */\
 				"	vpcmpd	$1,%%zmm30,%%zmm0,%%k1			\n\t	vpcmpd	$1,%%zmm30,%%zmm4,%%k3			\n\t"/* startval < bit_len ? If true, the current prime hits a bit in the sievelet. */\
@@ -3277,13 +3277,13 @@ MFACTOR_HELP:
 				"	vmovups	%%zmm0,(%%rbx)					\n\t	vmovups	%%zmm4,0x40(%%rbx)				\n\t"/* write startvals */\
 			"addq	$0x80,%%rax 	\n\t	addq	$0x80,%%rbx 	\n\t"\
 			"subq	$32,%%rsi		\n\t"\
-			"jnz loop_bitclear_short	\n\t"/* loop end; continue is via jump-back if rdi != 0 */\
+			"jnz 0b	\n\t"/* loop end; continue is via jump-back if rdi != 0 */\
 			:	: [__psmall] "m" (psmall)	/* No outputs; All inputs from memory addresses here */\
 				 ,[__startval] "m" (startval)	\
 				 ,[__bit_map] "m" (bit_map2)	\
 				 ,[__bit_len] "m" (bit_len)	\
 				 ,[__m] "m" (m)	\
-				 ,[__nprime] "nprime" (nprime-m)	\
+				 ,[__nprime] "r" (nprime-m)	\
 				: "cc","memory","k1","k2","k3","k4","cl","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm30","xmm31"	/* Clobbered registers */\
 			);
 		/*	}	*/
