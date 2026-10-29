@@ -1153,7 +1153,11 @@ exit(0);
 		nbits_in_p = (lenP<<6) - mi64_leadz(p, lenP);
 	}
 
-	// Allocate the other modulus-dependent vectors:
+	// Allocate the other modulus-dependent vectors. The qmax computation below writes word lenP of u64_arr, and p
+	// can already fill all MAX_BITS_Q words (e.g. -f 100 in a P2WORD build), so allocate at least lenP+1 words.
+	// lenQ is reset to the actual factor-candidate length right after, so only the allocated sizes change here:
+	if(lenQ < lenP+1)
+		lenQ = lenP+1;
 	two_p   = (uint64 *)CALLOC(lenQ, sizeof(uint64));
 	p2NC    = (uint64 *)CALLOC(lenQ, sizeof(uint64));
 	q       = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
