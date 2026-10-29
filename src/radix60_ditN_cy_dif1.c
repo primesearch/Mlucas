@@ -228,8 +228,9 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const int nexec_long[] = {0}, nexec_med[] = {0}, nexec_short[] = {0}, nexec_hiacc[] = {0};
   #elif defined(USE_AVX)
 	// For nfold > 4,  RADIX/4 not divisible by 2^nfold, so use a more-general inner-loop scheme which can handle that:
+	// The carry loop runs 2^nfold subchains, so each nexec array needs exactly 2^nfold entries summing to RADIX/4 = 15:
 	int nfold = USE_SHORT_CY_CHAIN + 0;
-	const int nexec_long[] = {15}, nexec_med[] = {8,7}, nexec_short[] = {5,5,5}, nexec_hiacc[] = {3,3,3,3,3};
+	const int nexec_long[] = {15}, nexec_med[] = {8,7}, nexec_short[] = {4,4,4,3}, nexec_hiacc[] = {2,2,2,2,2,2,2,1};
   #endif
 	// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
@@ -2634,8 +2635,9 @@ void radix60_dit_pass1(double a[], int n)
 		const int nexec_long[] = {0}, nexec_med[] = {0}, nexec_short[] = {0}, nexec_hiacc[] = {0};
 	  #elif defined(USE_AVX)
 		// For nfold > 4,  RADIX/4 not divisible by 2^nfold, so use a more-general inner-loop scheme which can handle that:
+		// The carry loop runs 2^nfold subchains, so each nexec array needs exactly 2^nfold entries summing to RADIX/4 = 15:
 		int nfold = USE_SHORT_CY_CHAIN + 0;
-		const int nexec_long[] = {15}, nexec_med[] = {8,7}, nexec_short[] = {5,5,5}, nexec_hiacc[] = {3,3,3,3,3};
+		const int nexec_long[] = {15}, nexec_med[] = {8,7}, nexec_short[] = {4,4,4,3}, nexec_hiacc[] = {2,2,2,2,2,2,2,1};
 	  #endif
 		// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
