@@ -347,12 +347,13 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		mlucas_fprint(cbuf,pm1_standlone+1);	ASSERT(0,cbuf);
 	}
 
-	// (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product for this p and B1 exists:
+	// (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product for this p and B1 exists.
+	// Not for a command-line (INTERACT) run, which keeps no savefiles; its first call here also comes before RESTARTFILE is set:
   #ifndef PM1_STANDALONE
 	strcpy(savefile, RESTARTFILE);
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s1_prod");
-	if((len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, PM1_S1_PRODUCT, &PM1_S1_PROD_RES64)) != 0) {
+	if(!INTERACT && (len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, PM1_S1_PRODUCT, &PM1_S1_PROD_RES64)) != 0) {
 		sprintf(cbuf, "INFO: Successfully read precomputed/bit-reversed Stage 1 prime-powers product savefile for this modulus and B1 = %u.\n",B1);
 		mlucas_fprint(cbuf,pm1_standlone+1);
 	} else {	// Compute product from scratch:
@@ -392,7 +393,7 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 		for(i = 0; i < len; i++) { PM1_S1_PROD_RES64 += PM1_S1_PRODUCT[i]; }
   #ifndef PM1_STANDALONE
 		// Write result to savefile:
-		if(!write_pm1_s1_prod(savefile, p, PM1_S1_PROD_BITS, PM1_S1_PRODUCT, PM1_S1_PROD_RES64)) {
+		if(!INTERACT && !write_pm1_s1_prod(savefile, p, PM1_S1_PROD_BITS, PM1_S1_PRODUCT, PM1_S1_PROD_RES64)) {
 			snprintf(cbuf, sizeof(cbuf),"WARN: Unable to write precomputed/bit-reversed Stage 1 prime-powers product to savefile %s.\n",savefile);
 			mlucas_fprint(cbuf,pm1_standlone+1);
 		}
