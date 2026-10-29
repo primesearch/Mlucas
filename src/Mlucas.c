@@ -1622,7 +1622,19 @@ READ_RESTART_FILE:
 		else /* if(!fp) */
 		{
 			/* If we're on the primary restart file, set up for secondary: */
-			if(ierr == ERR_GERBICZ_CHECK || s2_continuation) {	// Secondary savefile only exists for regular checkpoint files
+			if(ierr == ERR_GERBICZ_CHECK) {
+				/* The last-good-Gerbicz-check savefile is only written once a check has passed, so it is absent after a
+				failure of the run's first check: restart from scratch, as the failure message promises. NERR_GCHECK is
+				reset only per assignment, so with no .G file it counts this run's failures; a failure which recurs on
+				every retry is not transient, so stop loudly rather than loop (worktodo entry and savefiles are kept): */
+				if(NERR_GCHECK > 3) {
+					snprintf(cbuf,sizeof(cbuf), "ERROR: %u Gerbicz-check failures and no last-good-Gerbicz-check savefile %s; restarting from scratch has not cleared the error. Please check this machine for hardware errors.\n",NERR_GCHECK,g_cstr);
+					mlucas_fprint(cbuf,1); ASSERT(0,cbuf);
+				}
+				snprintf(cbuf,sizeof(cbuf), "INFO: Last-good-Gerbicz-check savefile %s not found...restarting run from scratch.\n",g_cstr);
+				mlucas_fprint(cbuf,1);
+				ierr = 0; restart = FALSE;
+			} else if(s2_continuation) {	// Secondary savefile only exists for regular checkpoint files
 				snprintf(cbuf,sizeof(cbuf), "INFO: Needed restart file %s not found...moving on to next assignment in %s.\n",g_cstr,WORKFILE);
 				mlucas_fprint(cbuf,1);
 				goto GET_NEXT_ASSIGNMENT;
@@ -1634,9 +1646,6 @@ READ_RESTART_FILE:
 			} else {
 				sprintf(cbuf, "INFO: no restart file found...starting run from scratch.\n");
 				mlucas_fprint(cbuf,1);
-				if(ierr == ERR_GERBICZ_CHECK) {
-					ierr = 0; restart = FALSE;
-				}
 			}
 		}	/* endif(fp) */
 	}	/* endif(!INTERACT)	*/
