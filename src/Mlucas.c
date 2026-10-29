@@ -3489,8 +3489,12 @@ uint32 Suyama_CF_PRP(uint64 p, uint64 *Res64, uint32 nfac, double a[], double b[
 	// Now that have F stored in BASE_MULTIPLIER_BITS array, do powmod to get B = base^(F-1) (mod N):
 	BASE_MULTIPLIER_BITS[0] -= 1ull;	// F-1; no chance of a borrow here
 	for(i = 0; i < npad; i++) { b[i] = 0; }	// Zero the elements of the floating-point array b[]
-	/****** Note: For Fermat *cofactor* PRP check we use a PRP assignment (not Pepin-test, though we need that residue as our
-	input), meaning that PRP_BASE = 3, not the speecial value 2 it has for residue-shift purposes in Pepin test mode: ******/
+	/****** Note: For Fermat *cofactor* PRP check the base is 3, but PRP_BASE may still hold the special value 2 it has for
+	residue-shift purposes in Pepin test mode: a PRP-CF run restarted from an interim Pepin savefile adopts that file's base,
+	and must keep it through the squaring phase, since the carry step multiplies by PRP_BASE wherever the random-shift bits
+	are set. The modpow below uses PRP_BASE as both the seed and that carry multiplier, so set it here. (With 2 we would
+	compute 2^(F-1), which is identically 1: 2 has order 2^(m+1) mod Fm, and every factor of Fm is 1 mod 2^(m+2).) ******/
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) PRP_BASE = 3;
 	b[0] = PRP_BASE;	ASSERT(PRP_BASE < (1 << (uint32)ceil(1.0*p/n)), "PRP_BASE out of range!");
 	ilo = 0;	ihi = fbits-1;	// LR modpow; init b[0] = PRP_BASE takes cares of leftmots bit
 	RES_SHIFT = 0ull;	// Zero the residue-shift so as to not have to play games with where-to-inject-the-initial-seed
