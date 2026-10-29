@@ -633,7 +633,7 @@ o JACOBI RESIDUE CHECK: Set JacobiCheck = 0 in mlucas.ini to disable the LL resi
 described in section [4] (default 1; the check is unavailable, and this setting has no
 effect, on a build without GMP >= 5.1). JacobiCheckHours = N sets how often, in wall-clock
 hours, the check additionally runs at checkpoints (default 12; fractional values are
-allowed; 0 checks at every checkpoint, mainly useful for testing).
+allowed; 0 checks at every eligible checkpoint, mainly useful for testing).
 In P-1 (section [9c]), JacobiCheck = 0 also disables the Jacobi checks of stage 1 restart files
 and of the final stage 1 residue, and the stage 2 ladder check; it does not affect the stage 1
 Gerbicz check or the stage 2 table and accumulator checks. On a build without GMP >= 5.1 these
@@ -642,10 +642,12 @@ sets how much of the stage 2 table is re-verified at each checkpoint.
 
 JacobiCheckHours is given in hours rather than iterations because the Jacobi check's cost is
 scalar GMP work that does not scale with the per-iteration FFT the way iteration counts do, so
-a fixed iteration interval would impose wildly different overhead on different hardware. Hours
-bound how long a corrupted residue can survive undetected, while the built-in rule of never
-re-checking sooner than 100x the previous check's duration bounds the overhead to near 1%
-regardless of machine speed.
+a fixed iteration interval would impose wildly different overhead on different hardware. For a
+positive value, the hours bound how long a corrupted residue can survive undetected, while the
+built-in rule of never re-checking sooner than 100x the previous check's duration bounds the
+overhead to near 1% regardless of machine speed. JacobiCheckHours = 0 skips that rule too, so
+the LL check and the stage 2 ladder check run at every eligible checkpoint and the 1% bound
+does not apply.
 
 o GERBICZ CHECK INTERVAL FOR P-1: GerbiczCheckInterval = N sets how many stage 1 iterations lie
 between Gerbicz checks in P-1 (section [9c]); PRP tests keep their fixed 10^6. N must be L^2 for
