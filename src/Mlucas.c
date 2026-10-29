@@ -5296,7 +5296,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	uint8 arr2[], uint64 *i1   , uint64 *i2     , uint64 *i3     )
 {
 	const char func[] = "read_ppm1_savefiles";
-	uint32 i,j,k,len,nbytes = 0,nerr;
+	uint32 i,j,k,len,nbytes = 0,nerr,ttype;
 	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
@@ -5307,7 +5307,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	}
 	fprintf(stderr, " INFO: restart file %s found...reading...\n",fname);
 	/* t: */
-	i = fgetc(fp);
+	i = fgetc(fp);	ttype = i;	// The savefile's own test type, which for Fermat moduli may differ from TEST_TYPE
 	if(!test_types_compatible(i, TEST_TYPE)) {
 		sprintf(cbuf, "%s: TEST_TYPE != fgetc(fp)\n",func);
 		return 0;
@@ -5418,6 +5418,11 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	}
 	if(i == EOF) {
 		*kblocks = 0;
+		// A PRP savefile which ends here lacks the Gerbicz-check data a PRP restart needs, so it is a truncated one. Fail the
+		// read so the caller tries the secondary, rather than resume with the worktodo-entry PRP base (see the check below):
+		if(ttype == TEST_TYPE_PRP) {
+			sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks in PRP savefile ... savefile is truncated.\n",func); return 0;
+		}
 		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
 	}
 	/* May 2018: 8 bytes for circular-shift to apply to the (unshifted) residue read from the file: */
@@ -5427,6 +5432,9 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	}
 	if(i == EOF) {
 		RES_SHIFT = 0ull;
+		if(ttype == TEST_TYPE_PRP) {	// As above
+			sprintf(cbuf,"%s: Hit EOF in read of residue-shift in PRP savefile ... savefile is truncated.\n",func); return 0;
+		}
 		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
 	}
 
@@ -5450,6 +5458,9 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	// savefile: if the user changed the base in the worktodo entry, the run continues with the base it was started with
 	// (see the "differs from value" handling in the caller), and that is the base the residue was computed with:
 	if(TEST_TYPE == TEST_TYPE_PRP) {
+		// A Fermat-mod residue is always a power of 3: PRP-CF requires base 3 for these, and a Pepin-test savefile, which a
+		// PRP-CF run may restart from, holds PRP_BASE = 2 (the random-shift offset) in all but its final write:
+		uint32 kf_base = (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ? 3 : PRP_BASE;
 		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT((itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
 		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
 			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
@@ -5477,10 +5488,10 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 			} else
 				ASSERT(0, "Only known-factors < 2^256 supported!");
 			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
+			mi64_scalar_modpow_lr(kf_base, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
 			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
-				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
+				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", kf_base); mlucas_fprint(cbuf,0);
 				ASSERT(0, cbuf);
 			}
 		}
