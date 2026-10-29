@@ -423,7 +423,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			nradices_radix0 = 2;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		*/
-		/* Leading radices 5,6,9,10,11,12,13,18,20,22,24,25,26 are commented out below: their carry
+		/* Leading radices 5,6,9,10,11,12,13,18,20,22,24,25,26,36 are commented out below: their carry
 		routines have no Fermat-mod branch, so the dispatch switch further down calls them without the
 		rn0/rn1 Fermat trig tables and a run that reached one crashed. The default arm now rejects them
 		with the "radix N not available for Fermat-mod transform" message it already prints. Automatic
@@ -498,9 +498,11 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		case 32:
 //			nradices_radix0 = 5;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		/*
 		case 36:
 //			nradices_radix0 = 4;
 			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		*/
 		case 56:
 //			nradices_radix0 = 4;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -561,9 +563,13 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			// This arm names the leading radix the switch just failed to match, i.e. radix0 - it used to
 			// print RADIX_VEC[i], whose i is left over from an earlier loop, so a rejected radix0 of 18
 			// was reported as "radix 16". Only visible now that the arm is reachable in practice:
-			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",radix0);
-			fprintf(stderr,"%s", cbuf);
-			ASSERT(0,cbuf);
+			// Skip the radix set rather than abort, as the carry routines do for a leading radix they cannot run
+			// (e.g. radix60 in an AVX-512 build), so a self-test over all radix sets of a length moves on to the next set.
+			// Force the init block to re-run on the next call, since this one returned before completing it:
+			sprintf(cbuf,"radix %d not available for Fermat-mod transform; Skipping this leading radix.",radix0);
+			WARN(HERE, cbuf, "", 1);
+			first_entry = TRUE;
+			return(ERR_RADIX0_UNAVAILABLE);
 		}
 
 		for(i = 1; i < NRADICES; i++)
