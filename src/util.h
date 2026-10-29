@@ -205,6 +205,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
 #ifdef MULTITHREAD
 
 	int		get_num_cores(void);
+	int		get_avail_cores(uint64 avail[], int nword);
 	int		test_pthreads(int ncpu, int verbose);
 	void* 	ex_loop(void* data);
 	void*	PrintHello(void *threadid);
@@ -215,6 +216,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
   #endif
 	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
+	void	setDefaultAffinity(uint32 ncore);
 
 #endif	// MULTITHREAD ?
 
