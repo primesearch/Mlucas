@@ -60,6 +60,20 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
+		// v21: inject the LL residue-shift target carry when the main loop reaches the target word
+		// (replaces the old unconditional '_cy_r[0][0] = -2' seed in the caller); fires exactly once:
+		if(target_idx == j) {
+			const int p0123[4] = {0,p1,p2,p3};
+			l = target_set&1;	target_set >>= 1;	// low bit of target_set selects Re or Im part
+			// The Im part of a complex datum sits RE_IM_STRIDE doubles above its Re part (that is what
+			// j2 = j1 + RE_IM_STRIDE means in this loop), so the Re/Im selector scales by RE_IM_STRIDE.
+			// It is 1 in a scalar build, which is why '+ l' was right there and nowhere else: radix-63 is
+			// dispatched in SIMD builds too - the avx2 radix table offers {63,16,16,32} at 1008K - and
+			// there '+ l' lands on the next SIMD lane's real part instead of this datum's imaginary part.
+			a[j1 + p[target_set & ~3] + p0123[target_set&3] + l*RE_IM_STRIDE] += target_cy*(n>>1);
+			target_idx = -1;
+		}
+
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
 		n_minus_silp1 = n-si[l+1];
