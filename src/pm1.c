@@ -1047,13 +1047,14 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		}
 
 		if(STREQ(stFlag, "-bigstep")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	bigstep = atoi(stFlag);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	bigstep = (uint32)strtoul (stFlag,0x0,10);
 		} else if(STREQ(stFlag, "-b1")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B1 = atoi(stFlag);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B1      = (uint32)strtoul (stFlag,0x0,10);
 		} else if(STREQ(stFlag, "-b2")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B2 = atoi(stFlag);
+			// B2 is a uint64 - Stage 2 bounds are explicitly allowed to exceed 2^32, so atoi() truncated it:
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B2      =         strtoull(stFlag,0x0,10);
 		} else if(STREQ(stFlag, "-m")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	m = atoi(stFlag);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	m       = (uint32)strtoul (stFlag,0x0,10);
 		} else {
 			fprintf(stderr, "*** ERROR: Unrecognized flag %s.\n", stFlag);	return 1;
 		}
