@@ -592,30 +592,38 @@ if [[ -x $TARGET ]]; then
 	exit 1
 fi
 
-# -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on some older
-# or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe for both
-# instead of assuming. NB the generated Makefile emits "CFLAGS =", not "CFLAGS ?=", so exporting CFLAGS
-# before invoking this script has NO effect - a build that needs different flags entirely (the sanitizer
-# CI jobs) has to rewrite the generated "CFLAGS =" line, which is what those jobs now do. Prefer
-# -flto=auto (parallel LTO codegen, see #56) over plain -flto when supported:
-C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
-if try_flag -fdiagnostics-color; then
-	C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
-fi
-if try_lto -flto=auto; then
-	C_ARGS+=(-flto=auto)
-elif try_lto -flto; then
-	C_ARGS+=(-flto)
+# A non-empty CFLAGS in the environment replaces the default optimization, debug, warning and LTO flags below,
+# e.g. CFLAGS='-Wall -g -Og -fsanitize=address,undefined' for a sanitizer build. -std=gnu99 is always
+# kept, as the code needs it, and the SIMD-mode flags (-DUSE_AVX2 -mavx2 etc.) are added separately, so
+# they still apply. CPPFLAGS and LDFLAGS from the environment are appended to, as before.
+# Otherwise: -fdiagnostics-color needs GCC >= 4.9 (or a recent-enough Clang); -flto is broken/absent on
+# some older or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe
+# for both instead of assuming. Prefer -flto=auto (parallel LTO codegen, see #56) over plain -flto:
+if [[ -n $CFLAGS ]]; then
+	read -ra USER_CFLAGS <<<"${CFLAGS//$'\n'/ }"	# read stops at the first newline, so make them spaces
+	C_ARGS=(-std=gnu99 "${USER_CFLAGS[@]}")
+	echo "Using CFLAGS from the environment instead of the default flags: $CFLAGS"
 else
-	echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+	C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
+	if try_flag -fdiagnostics-color; then
+		C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
+	fi
+	if try_lto -flto=auto; then
+		C_ARGS+=(-flto=auto)
+	elif try_lto -flto; then
+		C_ARGS+=(-flto)
+	else
+		echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+	fi
 fi
 
 # GCC before 5 (Ubuntu 14.04 and CentOS 7 ship 4.8) reports -Wmaybe-uninitialized for variables that are
 # always set before they are read: mainly the aj1p*/a1p* temporaries in the radix16/32 dyadic- and
 # wrapper-square loops, where it cannot see that the fwd_fft_only tests on either side of a goto agree.
 # Newer GCC and Clang see through these, so keep the warning for them and turn it off only for old GCC.
+# This is one of the default warning flags, so a CFLAGS from the environment replaces it like the rest.
 # The preprocessor does the version test, since Clang also defines __GNUC__ (as 4):
-if printf '#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5\n#error\n#endif\n' | "${CC:-gcc}" -E -x c - >/dev/null 2>&1; then
+if [[ -z $CFLAGS ]] && printf '#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5\n#error\n#endif\n' | "${CC:-gcc}" -E -x c - >/dev/null 2>&1; then
 	C_ARGS+=(-Wno-maybe-uninitialized)
 fi
 
