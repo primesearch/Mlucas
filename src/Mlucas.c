@@ -5296,7 +5296,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	uint8 arr2[], uint64 *i1   , uint64 *i2     , uint64 *i3     )
 {
 	const char func[] = "read_ppm1_savefiles";
-	uint32 i,j,k,len,nbytes = 0,nerr,ttype;
+	uint32 i,j,k,len,nbytes = 0,nerr,ttype,legacy = FALSE;
 	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
@@ -5423,7 +5423,9 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 		if(ttype == TEST_TYPE_PRP) {
 			sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks in PRP savefile ... savefile is truncated.\n",func); return 0;
 		}
-		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
+		// A pre-v18 Pepin-test savefile, which a Fermat PRP-CF run may restart from, still gets the known-factor check:
+		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf);
+		legacy = TRUE; goto KNOWN_FACTOR_CHECK;
 	}
 	/* May 2018: 8 bytes for circular-shift to apply to the (unshifted) residue read from the file: */
 	i = 0; RES_SHIFT = 0ull;
@@ -5435,7 +5437,8 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 		if(ttype == TEST_TYPE_PRP) {	// As above
 			sprintf(cbuf,"%s: Hit EOF in read of residue-shift in PRP savefile ... savefile is truncated.\n",func); return 0;
 		}
-		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
+		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf);
+		legacy = TRUE; goto KNOWN_FACTOR_CHECK;	// As above
 	}
 
   // v19: For PRP-tests, also read a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]:
@@ -5454,6 +5457,7 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 	}
   }
 
+KNOWN_FACTOR_CHECK:
 	// Known-factor check of the residue, as described above. This must come after the read of the PRP base from the
 	// savefile: if the user changed the base in the worktodo entry, the run continues with the base it was started with
 	// (see the "differs from value" handling in the caller), and that is the base the residue was computed with:
@@ -5496,6 +5500,8 @@ Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
 			}
 		}
 	}
+
+	if(legacy) return 1;	// Pre-v18 savefile: no further fields
 
   // v20: Read cumulative #errs for ROE >= 0.4375 (>= for LL, > for PRP) and Gerbicz-check for the test in question.
   // If it's a restart from a v19 run, emit a warning and simply start these from their main()-init values of 0:
