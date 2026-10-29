@@ -491,8 +491,8 @@ jobs:
       run: |
         set -x -o pipefail
         # Build the runner's native SIMD mode under the sanitizers: AVX2 or AVX-512 on x86,
-        # depending on the runner, and ASIMD on ARM. This is the only job that builds the
-        # hand-tuned SIMD asm under a sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during
+        # depending on the runner, and ASIMD on ARM. This and the Windows ASan job are the only ones
+        # that build the hand-tuned SIMD asm under a sanitizer. Issue #12, a SEGV in radix48_dit_pass1 during
         # 'Mlucas -s m', was reported by ASan on an ARM runner. (The macOS ASan job stays on
         # NOSIMD, see PR #71: there the SIMD asm fails to assemble under -Og, "invalid CFI
         # advance_loc expression".)
@@ -504,10 +504,12 @@ jobs:
             bash -e -o pipefail -- makemake.sh use_hwloc nosimd
             (cd obj_nosimd; make clean)
         fi
+        # Mfactor builds the native SIMD mode too, except on ARM, where it builds NOSIMD for the same reason.
+        if [[ $HOSTTYPE == aarch64 ]]; then mode=nosimd; else mode=; fi
         for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
+            bash -e -o pipefail -- makemake.sh mfac $word $mode
+            (cd obj_mfac${word:+_$word}${mode:+_$mode}; make clean)
         done
         cd obj
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
@@ -517,7 +519,7 @@ jobs:
         fi
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - uses: actions/upload-artifact@v7
       if: always()
@@ -819,7 +821,9 @@ jobs:
             (cd obj_mfac${word:+_$word}_nosimd; make clean)
         done
         cd obj_nosimd
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        # Ladder stops at 's', as in the TSan jobs: in this NOSIMD build '-s m' took about 45 of the job's
+        # 95 minutes, and the Linux and Windows ASan jobs run it in their SIMD builds.
+        for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))"
         for word in '' {{1..4},n}word; do
@@ -1083,19 +1087,21 @@ jobs:
       shell: bash
       run: |
         set -x
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        (cd obj_nosimd; make clean)
+        # Build the runner's native SIMD mode (AVX2 or AVX-512) under the sanitizers, for both Mlucas and
+        # Mfactor, as the Linux ASan job does: in the NOSIMD build '-s m' took about 70 of the job's 150 minutes.
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        (cd obj; make clean)
         for word in '' {{1..4},n}word; do
             echo -e "\nMfactor $word\n"
-            bash -e -o pipefail -- makemake.sh mfac $word nosimd
-            (cd obj_mfac${word:+_$word}_nosimd; make clean)
+            bash -e -o pipefail -- makemake.sh mfac $word
+            (cd obj_mfac${word:+_$word}; make clean)
         done
-        cd obj_nosimd
+        cd obj
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))"
         for word in '' {{1..4},n}word; do
-            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
+            (cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
     - uses: actions/upload-artifact@v7
       if: always()

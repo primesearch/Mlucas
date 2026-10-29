@@ -2548,6 +2548,9 @@ candidate factors that survive sieving.	*/
 	free((void *)q);
 	free((void *)q2);
 	free((void *)u64_arr);
+  #if defined(USE_AVX512) && !defined(USE_IMCI512)
+	free((void *)psmall);
+  #endif
   #ifdef MULTITHREAD
 	free((void *)tdat); tdat = 0x0;
   #endif
