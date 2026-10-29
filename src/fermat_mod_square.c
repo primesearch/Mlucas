@@ -1347,8 +1347,18 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	fprintf(stderr,"%s: NTHREADS = %3d\n",func,NTHREADS);
   #endif
 
+#ifdef PHASE_TIMING
+	// Wall time of the two phases of an iteration, accumulated over this ilo..ihi block: the FFT phase
+	// (passes 2..S, dyadic square, inverse passes, i.e. the threadpool dispatch + drain) and the carry
+	// phase (radix0 DIT + carry + radix0 DIF, the radixN_ditN_cy_dif1 call). Whatever is left of the
+	// per-iteration time is bookkeeping. Developer instrumentation: build with -DPHASE_TIMING.
+	double pt_fft = 0.0, pt_cy = 0.0, pt0 = 0.0, pt_tot = getRealTime();	// pt_tot excludes the one-time setup above
+#endif
 for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 {
+#ifdef PHASE_TIMING
+	pt0 = getRealTime();
+#endif
 
 /*...perform the FFT-based squaring:
 	Do last S-1 of S forward decimation-in-frequency transform passes.	*/
@@ -1392,6 +1402,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	if(fwd_fft == 1)
 		return 0;	// Skip carry step [and preceding inverse-FFT] in this case
 
+#ifdef PHASE_TIMING
+	pt_fft += getRealTime() - pt0;
+#endif
 	// Update RES_SHIFT via mod-doubling, *** BUT ONLY IF IT'S AN AUTOSQUARE ***:
 	if(update_shift) {
 		/* Update RES_SHIFT via mod-doubling-and-add-random-bit. If initial RES_SHIFT = 0 the 'random' bit array = 0, so RES_SHIFT remains 0:
@@ -1414,6 +1427,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	}
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
 
+#ifdef PHASE_TIMING
+	pt0 = getRealTime();	// Exclude the update_shift bookkeeping above from both phases
+#endif
 	fracmax = 0.0;
 //printf("Exit(0) from %s\n",func); exit(0);
 	switch(radix0)
@@ -1496,6 +1512,9 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
 	}
 
+#ifdef PHASE_TIMING
+	pt_cy += getRealTime() - pt0;
+#endif
 	// v19: Nonzero exit carries used to be fatal, added retry-from-last-savefile handling for these
 	if(ierr)
 		return(ierr);
@@ -1588,6 +1607,15 @@ if(iter < ihi) {
 //	*tdiff += difftime(clock2 , clock1);
 	clock2 = getRealTime();
 	*tdiff += clock2 - clock1;
+#endif
+#ifdef PHASE_TIMING
+	{	// After an interrupt-exit iter = last completed iteration (decremented above); on normal completion iter = ihi+1:
+		int iend = MIN(iter, ihi), ndone = iend - ilo;
+		pt_tot = getRealTime() - pt_tot;
+		if(ndone > 0)
+			fprintf(stderr,"%s: PHASE_TIMING iters %d-%d: fft-phase %.4f ms/iter, carry-phase %.4f ms/iter, total %.4f ms/iter\n",
+				func, ilo+1, iend, 1000*pt_fft/ndone, 1000*pt_cy/ndone, 1000*pt_tot/ndone);
+	}
 #endif
 
 #if DBG_THREADS
