@@ -649,6 +649,17 @@ jobs:
         st=0
         time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
         (( st == 0 || st == 2 ))
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux_${{ matrix.cc }}_tsan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   GCC-analyzer:
     name: GCC analyzer
@@ -1001,6 +1012,17 @@ jobs:
         st=0
         time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
         (( st == 0 || st == 2 ))
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: macos_tsan_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+          obj*/config-fermat.log
+          obj*/fermat.cfg
+        if-no-files-found: warn
 
   FreeBSD:
     name: Mlucas FreeBSD
