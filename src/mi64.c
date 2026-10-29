@@ -334,7 +334,7 @@ uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	if(nwshift >= len) {
 		// If nwshift == len, save low word in lo64...
 		if(nwshift == len) {
-			lo64 = x[0];
+			lo64 = x[0] << rembits;
 		}
 		// ... because after this next line, we can only distinguish between (nwhsift < len) and (nwshift >= len):
 		nwshift = len;
@@ -619,7 +619,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	But user has specified output_len = 16, meaning they want at most 1024 bits of x[], so only copy that many and exit.
 	So allow output_len to be 1 limb smaller than 17 as a fudge factor to handle arbitrary in-word copy-bit boundaries:
 	*/
-	ASSERT(output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
+	ASSERT(nwshift >= len || output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) {
@@ -632,7 +632,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	if(nwshift >= len) {
 		// If nwshift == len, save high word in hi64...
 		if(nwshift == len) {
-			hi64 = x[len-1];
+			hi64 = x[len-1] >> rembits;
 		}
 		// ... because after this next line, we can only distinguish between (nwshift < len) and (nwshift >= len):
 		nwshift = len;
@@ -643,6 +643,8 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	if(nwshift && (nwshift < len)) {
 		hi64 = x[nwshift-1];
 	}
+	if(!nwshift && rembits)	// 0 < nshift < 64: the off-shifted bits are the low (rembits) bits of x[0]
+		hi64 = x[0] << (64-rembits);
 	if(!rembits) {	// Whole-word shift:
 		for(i = 0; i < len-nwshift; i++) {
 			y[i] = x[i+nwshift];
@@ -1750,7 +1752,7 @@ __device__
 #endif
 void mi64_set_bit(uint64 x[], uint32 bit, uint32 len, uint32 val)
 {
-	if(!len || (val > 2) || (bit > (len<<6))) return;
+	if(!len || (val > 1) || (bit >= (len<<6))) return;
 	// First zero the target bit:
 	uint32 s = (bit & 63), word = bit>>6;
 	uint64 mask = ~(1ull << s);
@@ -1766,7 +1768,7 @@ __device__
 #endif
 void mi64_flip_bit(uint64 x[], uint32 bit, uint32 len)
 {
-	if(!len || bit > (len<<6)) return;
+	if(!len || bit >= (len<<6)) return;
 	uint64 mask = 1ull << (bit & 63);
 	x[bit>>6] ^= mask;
 }
@@ -6448,9 +6450,8 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	uint32 nshift0,nshift1,nshift2,nshift3;
 	uint64 qinv0,qinv1,qinv2,qinv3,cy0,cy1,cy2,cy3;
 
-	ASSERT((len == 0), "0 length!");
+	ASSERT((len != 0), "0 length!");	// v21: condition was inverted (== 0), aborting on every legitimate call
 	trailx = trailz64(x[0]);
-	ASSERT(trailx < 64, "0 low word!");
 
 	/* q must be odd for Montgomery-style modmul to work, so first shift off any low 0s: */
 	nshift0 = trailz64(q0);
@@ -6462,7 +6463,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	q1 >>= nshift1;
 	q2 >>= nshift2;
 	q3 >>= nshift3;
-	ASSERT(q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
+	ASSERT(q0 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
 	ASSERT(q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
@@ -6491,7 +6492,11 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 
 #else
 
-	// 4-way version leaves registers RSI and RBX unused:
+	/* v21: This loop was a copy of the 4-way-folded single-divisor loop of mi64_is_div_by_scalar64_u4,
+	i.e. each divisor only ever saw its own quarter of x[] (and streams 1 and 2 used each other's qinv),
+	the loop counter was len/4 (0 for len < 4, which then ran ~2^64 passes off the end of x[]) and any
+	len%4 trailing words were skipped. Every divisor must see all len words, as in the C code above.
+	4-way version leaves registers RSI, RBX, R14 and R15 unused: */
 	__asm__ volatile (\
 		"movq	%[__x],%%r10	\n\t"\
 		"xorq	%%rdi,%%rdi		\n\t"/* Init cy0 = 0 */\
@@ -6499,22 +6504,16 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		"xorq	%%r9 ,%%r9 		\n\t"/* Init cy2 = 0 */\
 		"xorq	%%rdx,%%rdx		\n\t"/* Init cy3 = 0 */\
 
-		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
-		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
-		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
-		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
+		"movslq	%[__len],%%rcx	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...}; len != 0 asserted above */\
 	"loop4x:		\n\t"\
-		"movq	(%%r10),%%rax	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
-		"addq	$0x8 ,%%r10		\n\t	movq	(%%r11),%%r11	\n\t"/* Increment x0-ptr, load x1 */\
-		"subq	%%rdi,%%rax		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x0 - cy0, save -CF */\
-		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x1 - cy1, save -CF */\
-		"movq	(%%r15),%%r12	\n\t	leaq	(%%r15,%%r14,8),%%r13	\n\t"/* load x2,&x3 */
-		"addq	$0x8 ,%%r15		\n\t	movq	(%%r13),%%r13	\n\t"/* Increment x2-ptr, load x3 */\
-		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x2 - cy2, save -CF */\
-		"subq	%%rdx,%%r13		\n\t	sbbq	%%rdx,%%rdx		\n\t"/* tmp3 = x3 - cy3, save -CF */\
-		"imulq	%[__qinv0],%%rax \n\t	imulq	%[__qinv2],%%r11 	\n\t"/* tmp0,1 *= qinv */\
-		"imulq	%[__qinv1],%%r12 \n\t	imulq	%[__qinv3],%%r13 	\n\t"/* tmp2,3 *= qinv */\
+		"movq	(%%r10),%%rax	\n\t	addq	$0x8 ,%%r10		\n\t"/* load x[i], increment x-ptr */\
+		"movq	%%rax,%%r11		\n\t	movq	%%rax,%%r12		\n\t	movq	%%rax,%%r13	\n\t"/* copy x[i] to all 4 streams */\
+		"subq	%%rdi,%%rax		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x[i] - cy0, save -CF */\
+		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x[i] - cy1, save -CF */\
+		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x[i] - cy2, save -CF */\
+		"subq	%%rdx,%%r13		\n\t	sbbq	%%rdx,%%rdx		\n\t"/* tmp3 = x[i] - cy3, save -CF */\
+		"imulq	%[__qinv0],%%rax \n\t	imulq	%[__qinv1],%%r11 	\n\t"/* tmp0,1 *= qinv0,1 */\
+		"imulq	%[__qinv2],%%r12 \n\t	imulq	%[__qinv3],%%r13 	\n\t"/* tmp2,3 *= qinv2,3 */\
 		"subq	%%rdi,%%rax		\n\t	subq	%%r8 ,%%r11		\n\t"/* tmp0,1 = tmp0,1 * qinv + CF */\
 		"subq	%%r9 ,%%r12		\n\t	subq	%%rdx,%%r13		\n\t"/* tmp2,3 = tmp2,3 * qinv + CF */\
 		"								mulq	%[__q0]	\n\t	movq	%%rdx,%%rdi	\n\t"/* cy0 = MULH64(q,tmp0), then move cy0 out of rdx in prep for cy1 computation */\
@@ -6541,7 +6540,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 	 ,[__cy2] "m" (cy2)	\
 	 ,[__cy3] "m" (cy3)	\
 	 ,[__len] "m" (len)	\
-	: "cc","memory","rax","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
+	: "cc","memory","rax","rcx","rdx","rdi","r8","r9","r10","r11","r12","r13"	/* Clobbered registers */\
 	);
 #endif
 
@@ -7256,10 +7255,10 @@ See similar behavior for 4-way-split version of the algorithm.
 		"movq	%[__qinv],%%rbx		\n\t"\
 		"movslq	%[__len2],%%rcx		\n\t"/* ASM loop structured as for(j = len2-1; j != 0; --j){...} */\
 		"leaq	(%%r10,%%rcx,8),%%r11	\n\t"/* x + len2 */\
+		"movq	(%%r10),%%rax		\n\t	movq	(%%r11),%%r12	\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i],x[j] - before the jz, which the len2 == 1 case takes */\
 		"subq	$1,%%rcx	\n\t"\
 	/* Jan 2021: Changed jump labels loop2c -> 42 and loop2c_b0 -> 43 and corr. jumps to 42b,43f to fix Clang-9 compile error: */\
 	"jz 43f 	\n\t"/* check rsi == 0 ? here and if so, don't exec the loop. */
-		"movq	(%%r10),%%rax		\n\t	movq	(%%r11),%%r12	\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i],x[j] */\
 	"42:		\n\t"\
 		"movq	%%rcx,%%r15			\n\t"/* Move loop counter out of CL... */\
 		"movslq	%[__n],%%rcx		\n\t"/* ...and move shift count in. */\
@@ -8415,7 +8414,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 {
 	ASSERT(p != 0x0, "Null p-array pointer!");
 	ASSERT(q != 0x0, "Null q-array pointer!");
-	uint32 pow2, FERMAT = mi64_isPow2(p,len,&pow2)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+	uint32 pow2, FERMAT = mi64_isPow2(p,len_p,&pow2)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
   #if MI64_POW_DBG
 	uint32 dbg = FERMAT && pow2 == 256;//STREQ(&s0[convert_mi64_base10_char(s0, q, len, 0)], "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127");
   #endif
