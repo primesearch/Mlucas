@@ -3698,24 +3698,30 @@ struct testMers MersVec[numTest+1] =
 	{  1792,  34228133ull, { {0x9FC8394655E0334Eull,  1603847275ull, 51947401644ull}, {0x1128E4676929F8C8ull, 33342766910ull, 55912489998ull}, {0xE697B18729853BEEull, 25335158858ull, 63783469524ull} } },
 	{  1920,  36617407ull, { {0xB7FA68741ABA807Aull,  2831791183ull, 44591522415ull}, {0x0F635E0B2DC95F81ull, 24912661453ull, 45929081959ull}, {0x2B5BCFC6BA94177Aull,  7824653065ull, 62951001255ull} } },
 	/* 1984K is deliberately absent, and cannot be added as things stand.
-	Rows in this band use 99% of pmax_rec (see the "Cut to 99% of pmax_rec" clamp in the
-	-fft handling below); 1984K cannot run anywhere near that. Measured with gcc-13 AVX-2,
-	10000 iterations, the sole radix set 1984K offers (992,32,32):
+	The stored rows in this band are 99% of the non-FMA pmax_rec (see the "Cut to 99% of pmax_rec"
+	clamp in the -fft handling below, which applies the same fraction to whichever estimate
+	given_N_get_maxP() is using); 1984K cannot run anywhere near that. The percentages below are
+	of the active AVX-2/FMA pmax_rec, which is about 0.5% higher than the non-FMA one, so the
+	existing 1920K and 2048K rows are 98.5% of it. Measured with gcc-13 AVX-2, 10000 iterations,
+	the sole radix set 1984K offers (992,32,32):
 
 	    p = 38011873  (0.9900 x pmax_rec)  ERR_ROUNDOFF
 	    p = 37627913  (0.9800)             passes 100 iters, ERR_ROUNDOFF by 10000
 	    p = 37435949  (0.9750)             maxerr 0.402, clean
 	    p = 36860011  (0.9600)             maxerr 0.297, clean
 
-	Its neighbour 1920K holds its own 0.99 exponent at maxerr 0.297, so 1984K needs roughly
-	3% less exponent to reach the same roundoff. That is a property of the length, not of the
+	Its neighbour 1920K holds its own row (98.5% of pmax_rec) at maxerr 0.297, so 1984K needs
+	roughly 2.5% less exponent to reach the same roundoff. That is a property of the length, not of the
 	test: it reproduces at 1, 4 and 8 threads, and with the radix992 fixes applied.
 
-	A row here would therefore have to sit near 0.96-0.975, making it the only sub-0.99 entry
-	among the 136 rows the table has today and quietly encoding the shortfall as if it were normal. The honest
+	A row here would therefore have to sit near 0.96-0.975 of the active pmax_rec, i.e. 1-2.5%
+	below its neighbours, and quietly encode the shortfall as if it were normal. Against the
+	non-FMA pmax_rec it would be the only entry below 0.99 among the 136 rows the table has
+	today; against the AVX-2/FMA one it would join 40 rows already below 0.99 (1920K and 2048K
+	among them) but still sit lowest. The honest
 	reading is that given_N_get_maxP() is over-optimistic for this length, or that radix992
 	loses more accuracy than its peers; either way the fix belongs there, after which this row
-	can be generated at 0.99 like every other.
+	can be generated at the same fraction as its neighbours.
 
 	1984K also has exactly one radix set, so there is no second set to fall back to when the
 	first is rejected - a marginal row here fails the whole length rather than degrading. */
