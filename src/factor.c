@@ -2502,7 +2502,11 @@ candidate factors that survive sieving.	*/
 
   #ifdef QUIT_WHEN_FACTOR_FOUND
 	if(tf_quit) {
-		const char *msg = "INFO: Stopped early on finding a factor (QUIT_WHEN_FACTOR_FOUND), so the range below was not fully searched. Rerun to continue from the savefile.\n";
+		// Only single-threaded runs write a savefile during the pass (see the checkpoint block in PerPass_tfSieve()),
+		// so only they can continue from where they stopped; a threaded rerun restarts from the last saved position:
+		const char *msg = (NTHREADS == 1)
+			? "INFO: Stopped early on finding a factor (QUIT_WHEN_FACTOR_FOUND), so the range below was not fully searched. Rerun to continue from the savefile.\n"
+			: "INFO: Stopped early on finding a factor (QUIT_WHEN_FACTOR_FOUND), so the range below was not fully searched. Threaded runs do not checkpoint within a pass, so a rerun restarts from the last saved position and can stop at the same factor.\n";
 		fprintf(stderr,"%s",msg);
 		fp = mlucas_fopen(OFILE,"a");	fprintf(fp,"%s",msg);	fclose(fp); fp = 0x0;
 	}
