@@ -535,6 +535,43 @@ int test_fac()
 		ASSERT(mi64_pprimeF(qpad, 3, 2) == 0, "Base-3 PRP test of zero-padded 1-limb composite failed!");
 	}
 
+// Direct test of mi64_scalar_modpow_lr with a 1-limb modulus near 2^64, so that a*q needs 2 limbs and the powering
+// has to work in a local 2-limb array rather than in the 1-limb output c[]. c[] is followed by a guard limb, which
+// must be left alone, and the result is checked against a 128-bit square-and-multiply reference:
+#ifdef __SIZEOF_INT128__
+	{
+		const uint64 mods[3] = {0xFFFFFFFFFFFFFFC5ull,	// 2^64-59, the largest prime < 2^64
+								0xFFFFFFFFFFFFFFFFull,	// 2^64-1 (composite)
+								0x8000000000000001ull};	// 2^63+1 (composite); 2*q is just over 2^64
+		const uint64 bases[3] = {2ull, 3ull, 7ull};
+		const uint64 guard = 0xA5A5A5A5A5A5A5A5ull;
+		uint32 im, ia, ie;
+		for(im = 0; im < 3; im++) {
+			const uint64 qm = mods[im];
+			const uint64 exps[6] = {1ull, 2ull, 3ull, 0xDEADBEEFCAFEF00Dull, qm-1, 0xFFFFFFFFFFFFFFFFull};
+			for(ia = 0; ia < 3; ia++) {
+				for(ie = 0; ie < 6; ie++) {
+					uint64 cvec[2] = {0ull, guard}, ref;
+					unsigned __int128 r = 1, bs = bases[ia] % qm;
+					int bit;
+					for(bit = 63; bit >= 0; bit--) {
+						r = (r*r) % qm;
+						if((exps[ie] >> bit) & 1) r = (r*bs) % qm;
+					}
+					ref = (uint64)r;
+					mi64_scalar_modpow_lr(bases[ia], exps+ie, &qm, 1, cvec);
+					if(cvec[0] != ref || cvec[1] != guard)
+						fprintf(stderr,"mi64_scalar_modpow_lr 1-limb test: %" PRIu64 "^%" PRIu64 " (mod %" PRIu64 ") gave %" PRIX64 ", guard limb %" PRIX64 "; expected %" PRIX64 ", guard %" PRIX64 "\n",
+							bases[ia], exps[ie], qm, cvec[0], cvec[1], ref, guard);
+					ASSERT(cvec[0] == ref, "mi64_scalar_modpow_lr: wrong result for a 1-limb modulus near 2^64!");
+					ASSERT(cvec[1] == guard, "mi64_scalar_modpow_lr: wrote past the 1-limb output array!");
+				}
+			}
+		}
+		printf("mi64_scalar_modpow_lr test with 1-limb moduli near 2^64 passed.\n");
+	}
+#endif
+
 // Base-3 PRP test of the Mersenne cofactor M7331/458072843161:
 #if 0
 	j = convert_base10_char_uint64("7331");
