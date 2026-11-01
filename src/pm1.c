@@ -46,6 +46,13 @@ Then to run, e.g.
 	char cbuf[STR_MAX_LEN*2];
 	uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
 	double MME;
+	// Parse a uint32-valued command-line arg at full width, so a value >= 2^32 is rejected rather than wrapped mod 2^32
+	// (a narrowing (uint32)strtoul turned e.g. -m 4294967297 into m = 1). Returns 0 on overflow, 1 on success:
+	static int parse_u32_arg(const char *s, uint32 *out) {
+		const unsigned long long v = strtoull(s,0x0,10);
+		if(v > 0xFFFFFFFFull) return 0;
+		*out = (uint32)v;	return 1;
+	}
 #else
 	uint32 pm1_standlone = 0;
 #endif
@@ -1047,14 +1054,23 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		}
 
 		if(STREQ(stFlag, "-bigstep")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	bigstep = (uint32)strtoul (stFlag,0x0,10);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			if(!parse_u32_arg(stFlag, &bigstep)) {
+				fprintf(stderr, "*** ERROR: -bigstep arg must be at most 4294967295; user entered %s.\n", stFlag);	return 1;
+			}
 		} else if(STREQ(stFlag, "-b1")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B1      = (uint32)strtoul (stFlag,0x0,10);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			if(!parse_u32_arg(stFlag, &B1)) {
+				fprintf(stderr, "*** ERROR: -b1 arg must be at most 4294967295; user entered %s.\n", stFlag);	return 1;
+			}
 		} else if(STREQ(stFlag, "-b2")) {
 			// B2 is a uint64 - Stage 2 bounds are explicitly allowed to exceed 2^32, so atoi() truncated it:
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B2      =         strtoull(stFlag,0x0,10);
 		} else if(STREQ(stFlag, "-m")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	m       = (uint32)strtoul (stFlag,0x0,10);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			if(!parse_u32_arg(stFlag, &m)) {
+				fprintf(stderr, "*** ERROR: -m arg must be at most 4294967295; user entered %s.\n", stFlag);	return 1;
+			}
 		} else {
 			fprintf(stderr, "*** ERROR: Unrecognized flag %s.\n", stFlag);	return 1;
 		}
