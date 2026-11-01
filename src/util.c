@@ -9488,6 +9488,14 @@ exit(0);
 		if(!pGetLogicalProcessorInformationEx) return -1;
 		win_cpu_to_group(cpu, &cgroup, &cproc);
 		if(cproc >= 8*sizeof(KAFFINITY)) return -1;
+		/* A 32-bit (WOW64) process on a machine with more than 64 processors gets folded masks from
+		   GetLogicalProcessorInformationEx: the masks for processors 32-63 of a group come back as
+		   duplicates of those for 0-31, so the lookup below could place a CPU on the wrong core. Treat
+		   membership as unknown for any group with more than 32 processors in that configuration (more
+		   than 64 processors implies more than one group). 64-bit builds, and groups of at most 32 CPUs,
+		   are unaffected. */
+		if(sizeof(KAFFINITY) < 8 && pGetActiveProcessorGroupCount && pGetActiveProcessorCount
+		   && pGetActiveProcessorGroupCount() > 1 && pGetActiveProcessorCount(cgroup) > 32) return -1;
 		pGetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
 		if(len == 0) return -1;
 		char *buf = malloc(len); if(!buf) return -1;
@@ -9510,9 +9518,14 @@ exit(0);
 	#endif
 	}
 	
-	/* Fill L2_CACHE_BYTES (per-core L2) and L3_CACHE_BYTES; leave 0 where unknown. */
-	static void detect_cache_sizes(void)
+	/* Fill L2_CACHE_BYTES (per-core L2) and L3_CACHE_BYTES; leave 0 where unknown. On Linux the
+	   sizes are read from the first selected CPU (the lowest set in CORE_SET, or CPU 0 if none) rather
+	   than always from CPU 0, since on hybrid parts the L2 size differs between core types; the CPU
+	   used is returned so the report can name it, or -1 if the sizes were not taken from a particular
+	   CPU (hwloc: first L2/L3 object; Windows: first cache record). */
+	static int detect_cache_sizes(void)
 	{
+	  int sample_cpu = -1;
 	#if INCLUDE_HWLOC
 		hwloc_obj_t o;
 	  #if HWLOC_API_VERSION >= 0x00020000
@@ -9530,16 +9543,21 @@ exit(0);
 		}
 	  #endif
 	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
-		/* /sys/devices/system/cpu/cpu0/cache/indexN/{level,type,size}; size is like "256K" or "16384K" */
+		/* /sys/devices/system/cpu/cpuN/cache/indexM/{level,type,size}; size is like "256K" or "16384K" */
+		uint32 cpu = 0, w, b;
+		for(w = 0; w < MAX_CORES>>6; w++) {	// First selected CPU, else CPU 0
+			if(CORE_SET[w]) { for(b = 0; b < 64 && !(CORE_SET[w] & (1ull << b)); b++) ; cpu = (w << 6) + b; break; }
+		}
+		sample_cpu = (int)cpu;
 		for(int i = 0; i < 8; i++) {
 			char path[128], type[32] = ""; int level = 0; unsigned long sz = 0; char unit = 0; FILE *f;
-			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/level", i);
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cache/index%d/level", cpu, i);
 			if(!(f = fopen(path, "r"))) break;
 			if(fscanf(f, "%d", &level) != 1) level = 0;
 			fclose(f);
-			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/type", i);
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cache/index%d/type", cpu, i);
 			if((f = fopen(path, "r"))) { if(fscanf(f, "%31s", type) != 1) type[0] = 0; fclose(f); }
-			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/size", i);
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cache/index%d/size", cpu, i);
 			if((f = fopen(path, "r"))) { if(fscanf(f, "%lu%c", &sz, &unit) < 1) sz = 0; fclose(f); }
 			if(unit == 'K') sz <<= 10; else if(unit == 'M') sz <<= 20;
 			if(strcmp(type, "Instruction") == 0) continue;
@@ -9547,7 +9565,7 @@ exit(0);
 		}
 	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 		DWORD len = 0;
-		if(!pGetLogicalProcessorInformationEx) return;	// Windows 7 and later only; leave the sizes 0 = unknown
+		if(!pGetLogicalProcessorInformationEx) return -1;	// Windows 7 and later only; leave the sizes 0 = unknown
 		pGetLogicalProcessorInformationEx(RelationCache, NULL, &len);
 		if(len) {
 			char *buf = malloc(len);
@@ -9564,6 +9582,7 @@ exit(0);
 			free(buf);
 		}
 	#endif
+		return sample_cpu;
 	}
 	
 	/* Call once after CORE_SET/NTHREADS are final. `user_chose_smt` = TRUE when the set came from
@@ -9575,7 +9594,7 @@ exit(0);
 	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 		win7_procgroup_init();	// Idempotent; resolves the topology and processor-group entry points if not already done
 	#endif
-		detect_cache_sizes();
+		int cache_cpu = detect_cache_sizes();
 		for(i = 0; i < MAX_CORES; i++) {
 			word = i >> 6; bit = i & 63;
 			if(!(CORE_SET[word] & (1ull << bit))) continue;
@@ -9600,9 +9619,13 @@ exit(0);
 				                "      explicitly, e.g. '-cpu 0:6:2'.\n");
 			}
 		}
-		if(L2_CACHE_BYTES || L3_CACHE_BYTES)
-			fprintf(stderr, "INFO: cache: L2 = %llu KB per core, L3 = %llu KB.\n",
+		if(L2_CACHE_BYTES || L3_CACHE_BYTES) {
+			char src[64];
+			if(cache_cpu >= 0) snprintf(src, sizeof(src), "as seen by CPU %d", cache_cpu);
+			else snprintf(src, sizeof(src), "one sample, not necessarily the selected CPUs");
+			fprintf(stderr, "INFO: cache (%s): L2 = %llu KB per core, L3 = %llu KB.\n", src,
 				(unsigned long long)(L2_CACHE_BYTES >> 10), (unsigned long long)(L3_CACHE_BYTES >> 10));
+		}
 	}
 	
 
