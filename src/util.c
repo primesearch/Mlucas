@@ -30,9 +30,16 @@ linux/types.h has supplied __s64/__u32, and the build dies with "unknown type na
 Ubuntu 20.04 and earlier hit this; newer glibc happens to tolerate it. */
 #if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 	#include <direct.h>
+	#include <io.h>
+	#include <fcntl.h>
+	#include <process.h>
+	#include <sys/types.h>
+	#include <sys/stat.h>	// _S_IREAD, _S_IWRITE
 #else
 	#include <sys/types.h>
 	#include <sys/stat.h>
+	#include <fcntl.h>
+	#include <unistd.h>
 #endif
 #ifdef TEST_SIMD
 	#include "dft_macro.h"
@@ -9635,6 +9642,21 @@ are included at the top of this file - see the note there for why they cannot li
 	#define MKDIR(p)	mkdir((p), 0777)
 #endif
 #define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
+/* The probe name gets "_<pid>_<attempt>" appended, so that it is unique to this call. 32 bytes is room
+for that and the NUL with any pid that fits in a long: */
+#define MKDIR_P_PROBE_SUFFIX_MAX	32
+/* The longest path set_mlucas_path() accepts is STR_MAX_LEN characters; the buffer needs room for that,
+a possible added '/', the probe name with its suffix, and the NUL: */
+#define MKDIR_P_BUFSIZE	(STR_MAX_LEN + 1 + sizeof(MKDIR_P_PROBE) + MKDIR_P_PROBE_SUFFIX_MAX)
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#define MKDIR_P_GETPID()	((long)_getpid())
+	#define MKDIR_P_CREATE(p)	_open((p), _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE)
+	#define MKDIR_P_CLOSE(fd)	_close(fd)
+#else
+	#define MKDIR_P_GETPID()	((long)getpid())
+	#define MKDIR_P_CREATE(p)	open((p), O_CREAT | O_EXCL | O_WRONLY, 0600)
+	#define MKDIR_P_CLOSE(fd)	close(fd)
+#endif
 
 /* Emulate `mkdir -p path'
    The command either makes directory `path' and all its parent directories
@@ -9644,15 +9666,18 @@ are included at the top of this file - see the note there for why they cannot li
    Return 1 if the directory does not exist or is not writable  */
 int mkdir_p(char *path)
 {
-	char tmp[STR_MAX_LEN + 1];
+	char tmp[MKDIR_P_BUFSIZE];
 	char *p;
-	size_t len;
-	FILE *fp;
+	size_t len, dirlen;
+	int attempt;
 
-	snprintf(tmp, sizeof(tmp), "%s", path);
-	len = strlen(tmp);
-	if (len == 0)
+	/* The longest path set_mlucas_path() accepts is STR_MAX_LEN characters, and tmp has room for all
+	of it plus the probe name. That is the only length limit; anything longer is rejected here
+	rather than silently truncated: */
+	len = strlen(path);
+	if (len == 0 || len > STR_MAX_LEN)
 		return 1;
+	memcpy(tmp, path, len + 1);
 
 	/* Create each parent component in turn, then the leaf. This used to shell out - 'mkdir ...
 	2> /dev/null' per component via system(), a 'printf' popen() to undo the shell-quoting, and
@@ -9677,20 +9702,28 @@ int mkdir_p(char *path)
 	}
 	(void)MKDIR(tmp);
 
-	/* Confirm the directory exists and is writable by creating and removing a file in it: */
-	if (len + sizeof(MKDIR_P_PROBE) + 1 > sizeof(tmp))
-		return 1;
+	/* Confirm the directory exists and is writable by creating and removing a file in it. The probe
+	is created exclusively, under a name unique to this call: opening a fixed name for append would
+	succeed on a leftover, writable probe file even in a directory we cannot write to, and removing
+	it would then delete a file this call did not create. If the name is somehow taken (a pid reused
+	after a crash, say), try the next suffix rather than trust or delete it: */
 	if (tmp[len - 1] != '/' && tmp[len - 1] != '\\')
-		strcat(tmp, "/");
-	strcat(tmp, MKDIR_P_PROBE);
-
-	fp = fopen(tmp, "a");
-	if (fp == NULL)
-		return 1;
-	fclose(fp);
-	/* A leftover probe file is harmless, so a failed remove() is not worth aborting the run over: */
-	(void)remove(tmp);
-	return 0;
+		tmp[len++] = '/';
+	dirlen = len;
+	for (attempt = 0; attempt < 16; ++attempt) {
+		int fd;
+		snprintf(tmp + dirlen, sizeof(tmp) - dirlen, "%s_%ld_%d", MKDIR_P_PROBE, MKDIR_P_GETPID(), attempt);
+		fd = MKDIR_P_CREATE(tmp);
+		if (fd < 0) {
+			if (errno == EEXIST)
+				continue;
+			return 1;
+		}
+		MKDIR_P_CLOSE(fd);
+		/* We created it, so we remove it; if that fails the directory is not usable as a work area: */
+		return remove(tmp) != 0;
+	}
+	return 1;
 }
 
 /* Double-quote all single-quotes in the string
