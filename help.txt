@@ -177,7 +177,7 @@ Options - again note the user can override the default iteration count based on 
  -s large	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, covering
  -s l		FFT lengths 16M to 60M.
 
- -s all		Runs 100 or 1000--iteration self-tests of all the above FFT lengths.
+ -s all		Runs 100 or 1000-iteration self-tests of all the above FFT lengths.
  -s a		Note this covers teensy through large only, not huge or egregious.
 
  -s xl		[The 'h' form is short for 'huge'.] Runs 100 or 1000-iteration self-tests on a set
@@ -660,8 +660,14 @@ o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation, Mlucas exits 
 message. What to do depends on what was being allocated:
 	- If the failure happens while allocating the FFT data for the run itself, the options -maxalloc and
 	-pm1_s2_nbuf will not help, since they do not limit that allocation: free up system RAM, or use a
-	machine with more RAM. (A smaller FFT length via -fftlen is an option only for self-tests and other
-	runs where you choose the length; for a production exponent the length is set by its size.)
+	machine with more RAM. (A smaller FFT length via -fftlen is an option for self-tests and other runs
+	where you choose the length. For a production Mersenne run, i.e. without -iters, -fftlen is accepted
+	at a length smaller than the default only if it is the supported length immediately below the default
+	length for the worktodo.ini exponent, and that exponent is less than 5% above that smaller length's
+	recommended maximum exponent; any shorter length is rejected as much too small, so a production run
+	cannot go further down than that one step. Note that such a run is above the recommended maximum
+	for its length, so it is more prone to roundoff errors, and on a roundoff error the program switches
+	to the next-larger length, which may need the memory this was meant to save.)
 	- If the failure happens in p-1 stage 2 (e.g. -maxalloc, or -pm1_s2_nbuf, set too high for the RAM
 	actually available), lower -maxalloc or use fewer stage 2 buffers via -pm1_s2_nbuf (at least 24 are
 	needed), or free up system RAM. These two options only set how many residue-sized buffers p-1 stage 2
