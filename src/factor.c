@@ -600,7 +600,7 @@ int main(int argc, char *argv[])
 	/* Make these large enough to hold the max. p,q supported by the software (currently,
 	256 bits) then use as many of the subfields as needed, depending on the values of P,QWORDS.
 	*/
-	uint32	findex = 0, nbits_in_p = 0, nbits_in_q = 0, lenP = 0, lenQ = 0, bits_in_pq2 = 0;
+	uint32	findex = 0, nbits_in_p = 0, nbits_in_q = 0, lenP = 0, lenQ = 0, lenQ_alloc = 0, bits_in_pq2 = 0;
 	double fbits_in_2p = 0;
 	uint64	*factor_ptmp = 0x0, *factor_k = 0x0;	/* Use this array to store the factor k's (assumed < 2^64) of any factors found. */
 	uint64	*p = 0x0, *two_p = 0x0, *p2NC = 0x0, *q = 0x0, *q2 = 0x0, *k_to_try = 0x0;
@@ -1155,14 +1155,15 @@ exit(0);
 
 	// Allocate the other modulus-dependent vectors. The qmax computation below writes word lenP of u64_arr, and p
 	// can already fill all MAX_BITS_Q words (e.g. -f 100 in a P2WORD build), so allocate at least lenP+1 words.
-	// lenQ is reset to the actual factor-candidate length right after, so only the allocated sizes change here:
-	if(lenQ < lenP+1)
-		lenQ = lenP+1;
-	two_p   = (uint64 *)CALLOC(lenQ, sizeof(uint64));
-	p2NC    = (uint64 *)CALLOC(lenQ, sizeof(uint64));
-	q       = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
-	q2      = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
-	u64_arr = (uint64 *)CALLOC(lenQ * NTHREADS, sizeof(uint64));
+	// lenQ is reset to the actual factor-candidate length right after, and that can be as small as lenP, but the
+	// factor-recovery code writes word lenP of each thread's q (and q2) too, so the per-thread offsets below use the
+	// allocation length lenQ_alloc, not lenQ: with a stride of lenQ, word lenP of thread t's q would be word 0 of thread t+1's:
+	lenQ_alloc = MAX(lenQ, lenP+1);
+	two_p   = (uint64 *)CALLOC(lenQ_alloc, sizeof(uint64));
+	p2NC    = (uint64 *)CALLOC(lenQ_alloc, sizeof(uint64));
+	q       = (uint64 *)CALLOC(lenQ_alloc * NTHREADS, sizeof(uint64));
+	q2      = (uint64 *)CALLOC(lenQ_alloc * NTHREADS, sizeof(uint64));
+	u64_arr = (uint64 *)CALLOC(lenQ_alloc * NTHREADS, sizeof(uint64));
 
 	// Now use the just-allocated vector storage to compute how many words are really needed for qmax.
 	// Since the sieving always proceeds in full passes through the bit-cleared sieve, the actual kmax used
@@ -2332,9 +2333,9 @@ candidate factors that survive sieving.	*/
 			targ->pstring = pstring;
 			targ->p     = p;
 			targ->two_p = two_p;
-			targ->q       = q       + lenQ * thr_id;
-			targ->q2      = q2      + lenQ * thr_id;
-			targ->u64_arr = u64_arr + lenQ * thr_id;
+			targ->q       = q       + lenQ_alloc * thr_id;
+			targ->q2      = q2      + lenQ_alloc * thr_id;
+			targ->u64_arr = u64_arr + lenQ_alloc * thr_id;
 			targ->lenP = lenP;
 			targ->lenQ = lenQ;
 			targ->kdeep = kdeep;
