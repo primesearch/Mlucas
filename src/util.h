@@ -216,6 +216,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
   #endif
 	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
+	void	warnCoreSetOutsideAffinityMask(void);
 	void	setDefaultAffinity(uint32 ncore);
 
 #endif	// MULTITHREAD ?

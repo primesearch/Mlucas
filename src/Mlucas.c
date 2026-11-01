@@ -4374,6 +4374,8 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				fprintf(stderr,"ERROR: NTHREADS [ = %d] must not exceed those of available logical cores = 0-%d!\n",NTHREADS,MAX_THREADS-1);
 				exit(EXIT_FAILURE);
 			}
+			// parseAffinityTriplet() only fills in CORE_SET, so make the same inherited-mask check as for -cpu:
+			warnCoreSetOutsideAffinityMask();
 			core = TRUE;
 		#endif
 		}

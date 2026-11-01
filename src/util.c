@@ -9095,7 +9095,10 @@ exit(0);
 
 	Fills avail[0:nword-1], a bitmap indexed exactly as the global CORE_SET is, and returns the number
 	of permitted CPUs. A return value of 0 (avail[] all-zero) means the mask could not be determined,
-	and must be treated by callers as "no information", *not* as "no CPUs".
+	and must be treated by callers as "no information", *not* as "no CPUs". A negative return value
+	(hwloc builds only) means the mask is known but none of its CPUs can be named in the hwloc topology
+	that threadpool.c binds through; avail[] is all-zero then too, and callers must NOT fall back to the
+	legacy 0:ncore-1 core set, which can lie anywhere, including outside the mask.
 	*/
 	int get_avail_cores(uint64 avail[], int nword)
 	{
@@ -9128,8 +9131,23 @@ exit(0);
 					lmap[obj->logical_index>>6] |= 1ull<<(obj->logical_index&63);	++nl;
 				}
 			}
-			// Only adopt the translated map if every permitted CPU mapped to a PU in the loaded topology:
-			if(nl == nset) { for(i = 0; i < nword; i++) { avail[i] = lmap[i]; } }
+			/* avail[] must never be left in OS indices here: the callers and threadpool.c read it as
+			hwloc logical-PU indices, so a half-translated or untranslated map would pin workers to the
+			wrong CPUs. A permitted CPU which the loaded topology has no PU for (a topology restricted
+			or loaded from XML, say) cannot be bound to through hwloc at all, so it is simply not
+			offered; the translated map is then the complete set of CPUs which are both permitted and
+			bindable, and every bit in it lies inside the inherited mask. If nothing at all maps, there
+			is no safe set to offer: return -1 rather than 0, since 0 means "no information" and sends
+			setDefaultAffinity() to the legacy 0:ncore-1 set, which can lie outside the mask: */
+			if(nl < nset) {
+				static int warned = FALSE;
+				if(!warned) {
+					warned = TRUE;
+					fprintf(stderr,"WARN: %d of the %d CPUs in the inherited CPU-affinity mask are not in the hwloc topology and cannot be used for thread binding.\n",nset-nl,nset);
+				}
+			}
+			for(i = 0; i < nword; i++) { avail[i] = lmap[i]; }
+			nset = nl ? nl : -1;
 		}
 	  #endif
 	#endif
@@ -9474,6 +9492,31 @@ exit(0);
 	}
 
 	/******************/
+	/* Warn about any core in the global CORE_SET lying outside the CPU-affinity mask this process inherited
+	(taskset, numactl, systemd 'CPUAffinity=', SLURM, container cpuset). An explicit user-specified core
+		set still wins - overriding the inherited placement is the documented point of the -cpu flag - but
+		the resulting per-worker sched_setaffinity() will then either widen the process's mask back out,
+		silently defeating the operator's placement, or (under a cgroup cpuset) fail with EINVAL and leave
+		that worker unpinned. Neither outcome is otherwise apparent from the run's output:
+		*/
+	void warnCoreSetOutsideAffinityMask(void)
+	{
+		uint32 i, word, bit, nc;
+		uint64 avail[MAX_CORES>>6];
+		if(get_avail_cores(avail,MAX_CORES>>6) > 0) {
+			nc = 0;
+			for(i = 0; i < MAX_CORES; i++) {
+				word = i>>6; bit = i & 63;
+				if((CORE_SET[word] & (1ull<<bit)) && !(avail[word] & (1ull<<bit))) {
+					if(!nc++) { fprintf(stderr,"WARN: Specified core set includes logical CPUs outside this process's inherited CPU-affinity mask: "); }
+					fprintf(stderr,"%u.",i);
+				}
+			}
+			if(nc) { fprintf(stderr,"\n      Pinning threads there overrides the externally-imposed affinity, or fails outright under a cgroup cpuset.\n"); }
+		}
+	}
+
+	/******************/
 	// Parse a single core-affinity-triplet substring and set the corresponding bits in the global CORE_SET bitmap:
 	void parseAffinityString(char*istr)
 	{
@@ -9513,25 +9556,7 @@ exit(0);
 			fprintf(stderr,"ERROR: %d cores in user-specified core set have index exceeding those of available logical cores = 0-%d!\n",core_count_oflow,MAX_THREADS-1);
 			exit(EXIT_FAILURE);
 		}
-		/* Lastly, warn about any specified core lying outside the CPU-affinity mask this process inherited
-		(taskset, numactl, systemd 'CPUAffinity=', SLURM, container cpuset). An explicit user-specified core
-		set still wins - overriding the inherited placement is the documented point of the -cpu flag - but
-		the resulting per-worker sched_setaffinity() will then either widen the process's mask back out,
-		silently defeating the operator's placement, or (under a cgroup cpuset) fail with EINVAL and leave
-		that worker unpinned. Neither outcome is otherwise apparent from the run's output:
-		*/
-		uint64 avail[MAX_CORES>>6];
-		if(get_avail_cores(avail,MAX_CORES>>6) > 0) {
-			nc = 0;
-			for(i = 0; i < MAX_CORES; i++) {
-				word = i>>6; bit = i & 63;
-				if((CORE_SET[word] & (1ull<<bit)) && !(avail[word] & (1ull<<bit))) {
-					if(!nc++) { fprintf(stderr,"WARN: Specified core set includes logical CPUs outside this process's inherited CPU-affinity mask: "); }
-					fprintf(stderr,"%u.",i);
-				}
-			}
-			if(nc) { fprintf(stderr,"\n      Pinning threads there overrides the externally-imposed affinity, or fails outright under a cgroup cpuset.\n"); }
-		}
+		warnCoreSetOutsideAffinityMask();
 	}
 
 	/******************/
@@ -9555,6 +9580,12 @@ exit(0);
 		int use_mask = (navail > 0);
 		uint32 nc = 0;
 		ASSERT((int)ncore > 0, "#threads must be > 0!");
+		if(navail < 0) {
+			// Mask known, but none of its CPUs can be bound to via the hwloc topology: do not fall back to
+			// [0:ncore-1], which may lie wholly outside the mask. The user can still name cores explicitly:
+			fprintf(stderr,"ERROR: None of the CPUs permitted by this process's inherited CPU-affinity mask is in the hwloc topology ... use the -cpu flag to specify a core set explicitly.\n");
+			exit(EXIT_FAILURE);
+		}
 		if(use_mask && ncore > (uint32)navail) {
 			if(navail < MAX_THREADS) {
 				// Oversubscribing an externally-restricted mask needs its own diagnostic, since the generic
