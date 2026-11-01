@@ -356,7 +356,7 @@ Options - again note the user can override the default iteration count based on 
 	lines of Linux 'top' output to check this), or if on a system whose amount of RAM allows
 	only a modest number of stage 2 buffers (less than 100, say), the default allows a buffer
 	count which is just below the next-larger allowable one. The buffer counts usable by Mlucas
-	(as of this writing, v20.x.y) are multiples of 24 and of 40; if you consult the table titled
+	(as of this writing, v21.0.2) are multiples of 24 and of 40; if you consult the table titled
 	"With small-prime relocation" inside the long comment block preceding the pm1_bigstep_size()
 	function in the pm1.c source file, you will see that the '%modmul' numbers (measured relative
 	to stage 2 run with the minimum 24-buffers and without small-prime relocation, which was a
@@ -430,9 +430,9 @@ will only exit if a new factor (one not appearing in the known_factors list) is 
 
 [10]: Setting threadcount and CPU core affinity:
 
-Note: As of this writing (v20.x.y) setting core affinity is not effective when running
-on Windows Subsystem for Linux (WSL), presumably due to virtualization. Processes
-will core-hop, negatively impacting efficiency. Also, on WSL, core count is limited
+Note: As of v20.x.y (not rechecked for v21), setting core affinity was not effective
+when running on Windows Subsystem for Linux (WSL), presumably due to virtualization.
+Processes will core-hop, negatively impacting efficiency. Also, on WSL, core count is limited
 to 64 due to MS Windows' "processor group" construct. Effectively though, it is less;
 in actuality on a 68-core & x4 HT Xeon Phi 7250 for example, a running Mlucas instance
 and the WSL session in which it runs will occupy at most 16 cores x their 4 hyperthreads,
@@ -656,10 +656,16 @@ mersenneforum.org thread specific to the release you are using in the mersennefo
 Mlucas subforum at https://www.mersenneforum.org/forumdisplay.php?f=118.
 If you don't find anything, make a post describing your problem.
 
-o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation (e.g. -maxalloc set too high for the
-actual available RAM, or too little free RAM for the requested FFT length or p-1 stage 2 buffer count),
-Mlucas exits with a clear out-of-memory message. If you see this, lower -maxalloc, use fewer p-1 stage 2
-buffers (via -pm1_s2_nbuf), or free up system RAM.
+o OUT-OF-MEMORY: if the system cannot satisfy a memory allocation, Mlucas exits with a clear out-of-memory
+message. What to do depends on what was being allocated:
+	- If the failure happens while allocating the FFT data for the run itself, the options -maxalloc and
+	-pm1_s2_nbuf will not help, since they do not limit that allocation: free up system RAM, or use a
+	machine with more RAM. (A smaller FFT length via -fftlen is an option only for self-tests and other
+	runs where you choose the length; for a production exponent the length is set by its size.)
+	- If the failure happens in p-1 stage 2 (e.g. -maxalloc, or -pm1_s2_nbuf, set too high for the RAM
+	actually available), lower -maxalloc or use fewer stage 2 buffers via -pm1_s2_nbuf (at least 24 are
+	needed), or free up system RAM. These two options only set how many residue-sized buffers p-1 stage 2
+	may use, and are mutually exclusive.
 
 [14a]: How to safely interrupt a running instance:
 
@@ -700,4 +706,4 @@ INT and TERM.
 
 ======================
 
-Last updated: 28 Nov 2021
+Last updated: 31 Oct 2026
