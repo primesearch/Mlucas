@@ -1528,15 +1528,6 @@ READ_RESTART_FILE:
 												(uint8 *)arrtmp      , &Res64,&Res35m1,&Res36m1,	// Primality-test residue
 												(uint8 *)e_uint64_ptr, &i1   ,&i2     ,&i3     );// v19: G-check residue
 			fclose(fp); fp = 0x0;
-			// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so the nsquares field in savefiles is r/w
-			// as a uint64. ilo is a uint32, so a value that does not fit must be an explicit error: truncating
-			// it silently resumes from the wrong iteration, which then drives the stage-1-complete test and
-			// PM1_GCHECK_EPOCH_START. read_ppm1_savefiles() range-checks this only on its primality-test branch:
-			if(itmp64 > 0xFFFFFFFFull) {
-				snprintf(cbuf,sizeof(cbuf), "*** ERROR: Savefile %s has iteration count %" PRIu64 ", which exceeds the uint32 range this code path supports.\n", g_cstr, itmp64);
-				ASSERT(0,cbuf);
-			}
-			ilo = (uint32)itmp64;
 			if(!i) {
 				/* First print any error message that may have been issued during the above function call: */
 				if(strstr(cbuf, "read_ppm1_savefiles"))
@@ -1555,6 +1546,17 @@ READ_RESTART_FILE:
 					mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 				}
 			}
+			// read_ppm1_savefiles() writes *ilo (itmp64) only once it has parsed the nsquares field, so itmp64 is meaningless after a failed read.
+			// Hence this check and the narrowing to ilo come after the if(!i) fallback above, i.e. only for a savefile that was read successfully:
+			// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so the nsquares field in savefiles is r/w
+			// as a uint64. ilo is a uint32, so a value that does not fit must be an explicit error: truncating
+			// it silently resumes from the wrong iteration, which then drives the stage-1-complete test and
+			// PM1_GCHECK_EPOCH_START. read_ppm1_savefiles() range-checks this only on its primality-test branch:
+			if(itmp64 > 0xFFFFFFFFull) {
+				snprintf(cbuf,sizeof(cbuf), "*** ERROR: Savefile %s has iteration count %" PRIu64 ", which exceeds the uint32 range this code path supports.\n", g_cstr, itmp64);
+				ASSERT(0,cbuf);
+			}
+			ilo = (uint32)itmp64;
 			// If user attempts to restart run with different PRP base than it was started with, ignore the new value and continue with the initial one:
 			if(TEST_TYPE == TEST_TYPE_PRP && dum != PRP_BASE) {
 				fprintf(stderr,"INFO: User-specified PRP-test base %u differs from value of %u read from savefile %s ... using the latter.\n",dum,PRP_BASE,g_cstr);
