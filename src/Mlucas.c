@@ -3712,7 +3712,7 @@ struct testMers MersVec[numTest+1] =
 	test: it reproduces at 1, 4 and 8 threads, and with the radix992 fixes applied.
 
 	A row here would therefore have to sit near 0.96-0.975, making it the only sub-0.99 entry
-	in a 136-row table and quietly encoding the shortfall as if it were normal. The honest
+	among the 136 rows the table has today and quietly encoding the shortfall as if it were normal. The honest
 	reading is that given_N_get_maxP() is over-optimistic for this length, or that radix992
 	loses more accuracy than its peers; either way the fix belongs there, after which this row
 	can be generated at 0.99 like every other.
