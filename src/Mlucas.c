@@ -2933,9 +2933,11 @@ GET_NEXT_ASSIGNMENT:
 				fputs(g_in_line, fq);	++i;
 				continue;
 			}
-			// Look for m in this assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format.
-			// A line not matching the completed exponent is an unrelated (e.g. user-inserted) assignment - preserve it:
-			if(!strstr(g_in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP)) ) {
+			// Match the exponent field of this assignment (for F[m], that is m or, in KBNC format, 2^m) - not a substring
+			// of the line, which could just as well be part of an assignment ID or of a longer exponent. A line which does
+			// not match is an unrelated (e.g. user-inserted) assignment - preserve it. When the just-completed run is the
+			// p-1 half of a PRP assignment being split in two (split_curr_assignment), the line to find is still the PRP one:
+			if(!workline_is_current_assignment(g_in_line, TEST_TYPE == TEST_TYPE_PM1 && !split_curr_assignment)) {
 				fputs(g_in_line, fq);	++i;
 				continue;
 			}
@@ -6208,6 +6210,76 @@ int	is_hex_string(const char *s, int len)
 
 /*********************/
 
+/* Does workfile line 'line' hold the assignment which has just been completed, i.e. the one whose exponent is ESTRING
+(the Mersenne exponent p, or for a Fermat number the index m)? The match is on the exponent *field* of the assignment,
+not on a substring of the line: a 32-hex Primenet assignment ID, a longer exponent, a TF-depth or any other field which
+merely contains the same digits must not match.
+
+The line is parsed as [Modulus,]Keyword=[AID,]fields...  where AID is an optional 32-hex-char assignment ID or "n/a".
+Assignments given as k,b,n,c (PRP, Pminus1, Pfactor) carry the exponent as the 3rd field, n = p for a Mersenne modulus
+and n = 2^m for a Fermat modulus; all others (Test, DoubleCheck, Factor, ...) carry it as the 1st field, as p or m.
+
+A p-1 assignment and a primality/PRP assignment for the same exponent are different assignments: the line is accepted
+only if it is a Pminus1/Pfactor one exactly when pm1_expected is TRUE. (Callers pass TEST_TYPE == TEST_TYPE_PM1, except
+when the current run is the p-1 half of a PRP assignment which is just being split in two, in which case the line to
+find is still the PRP one.) */
+int	workline_is_current_assignment(const char *line, int pm1_expected)
+{
+	const char *cp = line, *eq, *fld_start;
+	char kw[64], *endp;
+	size_t len;
+	int i, is_pm1, is_kbnc;
+	uint64 expo, fld;
+	ASSERT(line != 0x0, "Null ptr to workline_is_current_assignment()");
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	if(!isalpha((unsigned char)*cp) || (eq = strchr(cp,'=')) == 0x0)
+		return FALSE;
+	// Assignment type is determined by the keyword part of the line, i.e. the part left of the '=':
+	len = eq - cp;	if(len >= sizeof(kw)) len = sizeof(kw)-1;
+	memcpy(kw, cp, len);	kw[len] = '\0';
+	is_pm1 = (stristr(kw,"pminus1") != 0x0 || stristr(kw,"pfactor") != 0x0);
+	if(is_pm1 != (pm1_expected != 0))
+		return FALSE;
+	is_kbnc = (is_pm1 || strstr(kw,"PRP") != 0x0);
+	cp = eq + 1;
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	// Skip the optional assignment ID, which must be followed by a comma:
+	if(is_hex_string(cp,32)) {
+		cp += 32;
+	} else if(STREQN_NOCASE(cp,"n/a",3)) {
+		cp += 3;
+	} else {
+		cp = 0x0;
+	}
+	if(cp) {
+		while(isspace((unsigned char)*cp)) { ++cp; }
+		if(*cp != ',') return FALSE;
+		++cp;
+	} else {
+		cp = eq + 1;
+	}
+	// Seek to the exponent field, which is the 3rd one in the k,b,n,c form, the 1st otherwise:
+	for(i = (is_kbnc ? 2 : 0); i > 0; --i) {
+		if((cp = strchr(cp,',')) == 0x0) return FALSE;
+		++cp;
+	}
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	fld_start = cp;
+	fld = strtoull(fld_start, &endp, 10);
+	if(endp == fld_start)	// No digits
+		return FALSE;
+	while(isspace((unsigned char)*endp)) { ++endp; }
+	if(*endp != ',' && *endp != '\0')	// The field must end here, not run on into more digits or other characters
+		return FALSE;
+	expo = strtoull(ESTRING, 0x0, 10);
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && is_kbnc) {
+		return (expo < 64 && fld == (1ull << expo));
+	}
+	return (fld == expo);
+}
+
+/*********************/
+
 /* In assignment lines in which the first four [decimal-numeric] values following the '=' are expected to contain ints
 k,b,n,c of types [uint32,uint32,uint64, int32] which specify a modulus M = k*b^n+c, parse and sanity-check same.
 
@@ -6339,7 +6411,7 @@ void generate_JSON_report(
 		// v20.1.1: consider only lines whose leading non-WS char is alphabetic; find the one matching the exponent:
 		while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
 			char_addr = g_in_line; while(isspace((unsigned char)*char_addr)) { ++char_addr; }
-			if( isalpha((unsigned char)*char_addr) && (strstr(g_in_line, ESTRING) || (MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP))) )
+			if(workline_is_current_assignment(g_in_line, TEST_TYPE == TEST_TYPE_PM1))
 				break;	// Found the just-completed assignment
 			char_addr = 0x0;	// Not a match - keep looking (char_addr stays 0x0 if we exit the loop empty-handed)
 		}
