@@ -91,6 +91,8 @@ jobs:
         # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # Explicit -shift sweeps (a few seconds), with no -cpu so that the script can spread the runs over all the CPUs
+        time bash -e -o pipefail -- ../check-shifted-seed.sh ./Mlucas |& tee -a test.log
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
