@@ -4786,6 +4786,13 @@ TIMING_TEST_LOOP:
 				new_data = TRUE;
 				new_res.sh0 = new_res.sh1 = new_res.sh2 = 0ull;
 			}
+		} else {
+			// No reference residue exists for this iteration count, so treat it as new data: the radix
+			// sets are then held to the cross-radix-set consensus below. Otherwise every radix set that
+			// runs error-free would be counted as having passed without its residue ever being compared
+			// with any other, and the fastest could be written to the .cfg file whatever it computed:
+			new_data = TRUE;
+			new_res.sh0 = new_res.sh1 = new_res.sh2 = 0ull;
 		}
 
 		/* Init best-radix-set, best-runtime and #radix-sets-which-succeeded for this FFT length: */
