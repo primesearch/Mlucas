@@ -800,14 +800,18 @@ p[exponent].s1 and the deletion of p[exponent].s2 when a p-1 run completes; the 
 secondary savefile q[exponent] to p[exponent], and the deletion of q[exponent], when a p-1, LL or
 PRP run completes; the every-10-million-iterations savefile archiving rename; and, after each
 completed assignment, the removal of the old workfile and of WINI.TMP and the rename of WINI.TMP
-to the workfile name. With a non-empty MLUCAS_PATH the renames fail with an error message and
-the removals do nothing in the MLUCAS_PATH directory, so the savefiles there are left under
-their old names; and a file of the same name in the current directory, such as a stray
-worktodo.txt, is deleted. The workfile itself is still updated, since after the failed rename
-the program falls back to copying WINI.TMP into it line by line, but WINI.TMP is left behind
-in the MLUCAS_PATH directory. Until this is fixed, the safe course (for an absolute MLUCAS_PATH)
-is to start each instance from inside the directory MLUCAS_PATH names, so that the bare and the
-prefixed names coincide.
+to the workfile name. With a non-empty MLUCAS_PATH the files these calls are meant for live in
+the MLUCAS_PATH directory, but the calls look in the current directory. Usually no such file
+exists there, so the renames fail with an error message and the removals do nothing, leaving
+the savefiles in the MLUCAS_PATH directory under their old names. If a file of the same name
+does exist in the current directory, though, the call acts on that file instead: a removal
+deletes it (a stray worktodo.txt, say), and a rename renames it. In the usual case the workfile
+itself is still updated, since after the failed rename the program falls back to copying
+WINI.TMP into it line by line, but WINI.TMP is left behind in the MLUCAS_PATH directory; if a
+WINI.TMP exists in the current directory the rename succeeds there instead, and the workfile in
+the MLUCAS_PATH directory is not updated at all. Until this is fixed, the safe course (for an
+absolute MLUCAS_PATH) is to start each instance from inside the directory MLUCAS_PATH names, so
+that the bare and the prefixed names coincide.
 
 o FILES: In the names below, {exponent} is the Mersenne exponent p. For Fermat-number work the
 leading 'p' becomes an 'f' and {exponent} is replaced by the Fermat index m, e.g. the logfile for
