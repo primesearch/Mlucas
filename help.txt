@@ -75,9 +75,13 @@ Supported command-line arguments:
 
 	-h		Refers the user to this help.txt file for the full command-line options
 			listing, and exits. (The program version and the URL of the online README
-			page are printed at startup irrespective of which flags are given.) Any
-			unrecognized or malformed command-line flag produces the same referral,
-			after first naming the offending flag.
+			page are printed at startup irrespective of which flags are given.) The same
+			referral follows an error message when a command-line argument does not begin
+			with '-', when a flag is not recognized, when the argument to -s is not one
+			of the supported ones, or when there is no workfile and no exponent or FFT
+			length was given on the command line. Not every malformed value is caught this
+			way: in particular, a flag whose value is missing (e.g. -b1 as the very last
+			argument) is not reliably diagnosed, so always supply the value.
 
 ======================
 
@@ -430,8 +434,10 @@ already been given, since an assignment cannot be both a p-1 run and a PRP test.
 
  -b2_start {+int}
 	Lower end of the stage 2 prime interval, for stage 2 continuation runs; defaults to B1.
-	Must satisfy B2_start <= B2, and B1 must not exceed B2. A value greater than B1 is what
-	marks the run as a stage 2 continuation; see section [9b].
+	Must satisfy B2_start <= B2, and B1 must not exceed B2. A value greater than B1 marks the
+	run as a stage 2 continuation (one which starts from the p[exp].s1 savefile) only in a
+	Pminus1= workfile assignment; on the command line this flag merely sets B2_start. To run a
+	stage 2 continuation, use the workfile form described in section [9b].
 
 ======================
 
@@ -729,8 +735,8 @@ Mersenne number M(p) that is 1,2,p,-1, and for the Fermat number F(m) it is 1,2,
 		Probable-primality test; PRPDC is the double-check form, and parses identically. With
 		only the k,b,n,c fields present, the base defaults to 3 and the residue type to 1.
 		Only residue types 1 and 5 are accepted. The optional trailing list of already-known
-		factors - comma-separated and bookended with "", exactly as for Pminus1= - requests a
-		Suyama cofactor-PRP test (section [7a]) and requires residue type 5.
+		factors - comma-separated and bookended with "", in the same format as for Pminus1= -
+		requests a Suyama cofactor-PRP test (section [7a]) and requires residue type 5.
 			The tests_saved field is the number of primality tests which would be saved were
 		p-1 factoring to turn up a factor; it must lie in [0,2] and may be fractional. If it is
 		nonzero, the program reads the assignment as "p-1 factoring is still wanted here": it
@@ -738,18 +744,26 @@ Mersenne number M(p) that is 1,2,p,-1, and for the Fermat number F(m) it is 1,2,
 		in the workfile, and rewrites this line's tests_saved field to 0, so that the p-1 run is
 		done first and the PRP test follows it.
 
-	Pminus1={aid,}k,b,n,c,B1,B2[,TF_BITS[,B2_start]][,"f1,f2,..."]
-		P-1 factoring to the stated stage bounds. The trailing fields are optional but ordered,
-		i.e. a B2_start field is only looked for if a TF_BITS field precedes it; a known-factors
-		list may however follow B2 directly, since it is recognized by its leading double-quote.
-		A B2_start greater than B1 is what marks the run as a stage 2 continuation - see section
-		[9b] for how to set one of those up, and for what the known-factors list does.
+	Pminus1={aid,}k,b,n,c,B1,B2[,TF_BITS[,B2_start[,"f1,f2,..."]]]
+		P-1 factoring to the stated stage bounds. The trailing fields are optional but ordered:
+		a B2_start field is only looked for if a TF_BITS field precedes it, and the known-factors
+		list (comma-separated and bookended with "") is only reliably recognized if both TF_BITS
+		and B2_start precede it. If you have no use for the earlier fields, fill them with 0; a
+		B2_start of 0 means "unset" and defaults to B1. Do not put the list directly after B2 or
+		after TF_BITS: directly after B2 it is accepted only if it holds a single factor (with
+		two or more, the second factor is read as B2_start), and directly after TF_BITS it is
+		silently ignored. A B2_start greater than B1 is what marks the run as a stage 2
+		continuation - see section [9b] for how to set one of those up, and for what the
+		known-factors list does.
 
 	Pfactor={aid,}k,b,n,c,TF_BITS,tests_saved
-		P-1 factoring with the stage bounds chosen by the program, from the how-far-factored
-		depth TF_BITS and the tests_saved value (again constrained to [0,2]). The bounds actually
-		used are recorded in the run logfile. This is the p-1 assignment type the PrimeNet server
-		normally issues.
+		P-1 factoring with the stage bounds chosen by the program. TF_BITS and tests_saved must
+		be present (tests_saved is checked to lie in [0,2]), but neither affects the bounds:
+		B1 is derived from the exponent (about p/128, rounded up to a multiple of 100000, and at
+		least 100000), and B2 from the number of stage 2 buffers the available RAM allows (see
+		-maxalloc and -pm1_s2_nbuf); if fewer than 24 buffers fit, no stage 2 is run and B1 is
+		raised by 25%. The bounds actually used are recorded in the run logfile. This is the
+		p-1 assignment type the PrimeNet server normally issues.
 
 Trial-factoring (Factor=) and ECM assignment types are not supported by current builds, and lines
 specifying them are skipped as unrecognized.
@@ -759,9 +773,9 @@ specifying them are skipped as unrecognized.
 [16]: Files read and written by the program, and where they live:
 
 o FILE LOCATION: By default, Mlucas reads and writes all of the files below in the directory it
-was started in. Every one of those accesses goes through a single wrapper function which prepends
-the string MLUCAS_PATH to the filename, so setting that prefix relocates the whole set at once.
-It can be set in either of two ways:
+was started in. Every file open goes through a single wrapper function which prepends the string
+MLUCAS_PATH to the filename, so setting that prefix relocates where the files are created, read
+and appended to. It can be set in either of two ways:
 
 	o At run time, via an environment variable of the same name, MLUCAS_PATH.
 	o At build time, by compiling with -DMLUCAS_DEFAULT_PATH='"..."'.
@@ -778,6 +792,22 @@ Note that MLUCAS_PATH is a plain string prefix rather than a directory setting a
 why the trailing slash is required rather than merely conventional. Distribution packages of
 Mlucas are commonly built with a default of "$HOME/.mlucas.d/"; a build straight from these
 sources defaults to the empty string, i.e. to the current working directory.
+
+CAVEAT: the prefix is not yet applied everywhere. The deletes and renames which tidy up when a
+test or an assignment completes use the bare filename, i.e. they act on the current directory
+rather than on MLUCAS_PATH. These are: the renaming of the p-1 stage 1 savefile p[exponent] to
+p[exponent].s1 and the deletion of p[exponent].s2 when a p-1 run completes; the renaming of a
+secondary savefile q[exponent] to p[exponent], and the deletion of q[exponent], when a p-1, LL or
+PRP run completes; the every-10-million-iterations savefile archiving rename; and, after each
+completed assignment, the removal of the old workfile and of WINI.TMP and the rename of WINI.TMP
+to the workfile name. With a non-empty MLUCAS_PATH the renames fail with an error message and
+the removals do nothing in the MLUCAS_PATH directory, so the savefiles there are left under
+their old names; and a file of the same name in the current directory, such as a stray
+worktodo.txt, is deleted. The workfile itself is still updated, since after the failed rename
+the program falls back to copying WINI.TMP into it line by line, but WINI.TMP is left behind
+in the MLUCAS_PATH directory. Until this is fixed, the safe course (for an absolute MLUCAS_PATH)
+is to start each instance from inside the directory MLUCAS_PATH names, so that the bare and the
+prefixed names coincide.
 
 o FILES: In the names below, {exponent} is the Mersenne exponent p. For Fermat-number work the
 leading 'p' becomes an 'f' and {exponent} is replaced by the Fermat index m, e.g. the logfile for
