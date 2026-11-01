@@ -1196,6 +1196,16 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			fprintf(stderr, "PRP-test requires base > 1 and not a power of 2!\n");
 			return ERR_EXPONENT_ILLEGAL;
 		}
+		// ...and coprime to M(p): converting the final residue to b^(N-1) needs the inverse of M(p) (mod b^2), which
+		// otherwise does not exist, and the run would abort in modinv64 after the full test. gcd(b,M(p)) = gcd(b,M(p) mod b),
+		// and 2^p (mod b) != 0 since b is not a power of 2:
+		if(TEST_TYPE == TEST_TYPE_PRP) {
+			uint64 g = gcd64((uint64)PRP_BASE, twopmmodq64(p,(uint64)PRP_BASE) - 1ull);
+			if(g != 1ull) {
+				fprintf(stderr, "PRP-test base %u is not coprime to M%" PRIu64 ": their GCD is %" PRIu64 ", which divides M%" PRIu64 ".\n",PRP_BASE,p,g,p);
+				return ERR_EXPONENT_ILLEGAL;
+			}
+		}
 
 		TRANSFORM_TYPE = REAL_WRAPPER;
 		snprintf(PSTRING,sizeof(PSTRING), "M%s", ESTRING);
@@ -1374,6 +1384,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	if(kblocks != (n>>10)) {
 		fprintf(stderr, "ERROR: length %d K overflows N = 1024*K.\n",kblocks);
 		return ERR_FFTLENGTH_ILLEGAL;
+	}
+	// The cofactor-PRP step at the end of a PRP-CF run (Suyama_CF_PRP) seeds a fresh powering with the PRP base at
+	// the then-current FFT length, and asserts base < 2^ceil(p/n) for that - but only after the full PRP test. Check
+	// it here instead, before any iterations are spent, and again whenever we come back here for a larger FFT length,
+	// which lowers the limit. The PRP test itself has the same limit, but only when it starts; see the seeding below:
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRP && KNOWN_FACTORS[0] != 0ull && PRP_BASE >= (1u << (uint32)ceil(1.0*p/n))) {
+		fprintf(stderr, "ERROR: PRP-CF test of %s with base %u at FFT length %u K: the base must be < 2^%u at this FFT length.\n",PSTRING,PRP_BASE,kblocks,(uint32)ceil(1.0*p/n));
+		return ERR_EXPONENT_ILLEGAL;
 	}
 
 	/* If specified FFT length smaller than default for this exponent [only an issue for user-specified FFT length],
@@ -1657,6 +1675,14 @@ READ_RESTART_FILE:
 	ASSERT(TEST_TYPE <= TEST_TYPE_MAX,"Given TEST_TYPE not supported!");
 	if(ilo == 0)
 	{
+		// A Mersenne PRP test seeds the residue with the PRP base, and the first squaring of that seed is only known to
+		// be exact if the base fits in one FFT word: much larger bases can give a wrong residue that the Gerbicz check
+		// cannot see, since it only checks the squarings that follow. Only the FFT length the seed is squared at matters,
+		// so a restart at a larger FFT length is not checked again:
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRP && PRP_BASE >= (1u << (uint32)ceil(1.0*p/n))) {
+			fprintf(stderr, "ERROR: PRP test of %s with base %u at FFT length %u K: the base must be < 2^%u at this FFT length.\n",PSTRING,PRP_BASE,kblocks,(uint32)ceil(1.0*p/n));
+			return ERR_EXPONENT_ILLEGAL;
+		}
 		memset(a, 0, npad*sizeof(double));
 		if(b) memset(b, 0, npad*sizeof(double));
 		if(c) memset(c, 0, npad*sizeof(double));
@@ -2494,6 +2520,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				2. Compute mi" such that m".mi" == 1 (mod b^2)
 				3. Solve for k = -r".mi" (mod b^2) .
 			*/
+			uint64 kprod[2];	// 128-bit r".mi" product in [3]
 			j = (p+63)>>6;	itmp64 = PRP_BASE*(uint64)PRP_BASE;
 			// Init vector to hold m = 2^p-1:
 			d_uint64_ptr[j-1] = (1ull<<(p&63)) - 1ull;	for(i = 0; i < (j-1); i++) { d_uint64_ptr[i] = -1ull; }
@@ -2516,7 +2543,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		  #else
 			MUL_LOHI64(rmodb,i1, i2, i3);
 		  #endif
-			i2 %= itmp64;	ASSERT(i3 == 0ull, "K-multiplier needs 64-bit reduction (mod b^2)!");
+			// r" and mi" are both < b^2, so for b >= 2^16 their product needs up to 128 bits - reduce all of it:
+			kprod[0] = i2; kprod[1] = i3;
+			mi64_div(kprod, &itmp64, 2,1, 0x0,&i2);
 			if(i2) i2 = itmp64 - i2;	// if(k) k = -r".mi" (mod b^2) = b^2 - r".mi" .
 			// i2 contains the needed multiplier k. Since ensuing quotient computation needs separate arrays
 			// for dividend and quotient, stash output of mi64_mul_scalar_add_vec2 in c[] and ensuing quotient back in arrtmp[]:
@@ -5426,8 +5455,9 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 				exp[0] = ui256.d0; exp[1] = ui256.d1; exp[2] = ui256.d2; exp[3] = ui256.d3;
 			} else
 				ASSERT(0, "Only known-factors < 2^256 supported!");
-			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
+			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[].
+			// mi64_scalar_modpow_lr needs the base < q, which a one-limb known factor need not exceed:
+			mi64_scalar_modpow_lr((j == 1) ? PRP_BASE % KNOWN_FACTORS[i] : PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
 			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
 				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
@@ -6316,7 +6346,7 @@ void generate_JSON_report(
 	char *p_cstr)	// p_cstr, takes the formatted output line; the preceding const-ones are inputs for that:
 {
 	int i,j,k;
-	char ttype[11] = "\0", aid[33] = "\0";	// [test-type needs 11th | aid needs 33rd] char for \0
+	char ttype[16] = "\0", aid[33] = "\0";	// [test-type "PRP-4294967295" needs 15th | aid needs 33rd] char for \0
 	const char prp_status[2] = {'C','P'};
 	const char *pm1_status[2] = {"NF","F"};
 	const char *false_or_true[2] = {"false","true"};
@@ -6366,14 +6396,14 @@ void generate_JSON_report(
 				strcat( cbuf, "," );
 		}
 		strcat( cbuf, "]");
-		snprintf(ttype,10,"PRP-%u",PRP_BASE);
+		snprintf(ttype,sizeof(ttype),"PRP-%u",PRP_BASE);
 		if(*aid) {
 			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
 			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"known-factors\":%s, \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":5, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,cbuf,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {	// Only support type-1 PRP tests, so hardcode that subfield:
-		snprintf(ttype,10,"PRP-%u",PRP_BASE);
+		snprintf(ttype,sizeof(ttype),"PRP-%u",PRP_BASE);
 		if(*aid) {
 			snprintf(p_cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%" PRIu64 ", \"worktype\":\"%s\", \"res64\":\"%016" PRIX64 "\", \"residue-type\":1, \"res2048\":\"%s\", \"fft-length\":%u, \"shift-count\":%" PRIu64 ", \"error-code\":\"%08X\", \"errors\":{\"Roundoff\":%u, \"gerbicz\":%u}, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,Res2048,n,RES_SHIFT,error_code,NERR_ROE,NERR_GCHECK,VERSION,timebuffer,aid);
 		} else {
