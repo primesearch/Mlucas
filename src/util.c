@@ -40,6 +40,7 @@
 PFN_SetThreadGroupAffinity		pSetThreadGroupAffinity			= NULL;
 PFN_GetActiveProcessorCount		pGetActiveProcessorCount		= NULL;
 PFN_GetActiveProcessorGroupCount	pGetActiveProcessorGroupCount	= NULL;
+PFN_GetLogicalProcessorInformationEx	pGetLogicalProcessorInformationEx	= NULL;
 
 void win7_procgroup_init(void)
 {
@@ -48,6 +49,33 @@ void win7_procgroup_init(void)
 	pSetThreadGroupAffinity			= (PFN_SetThreadGroupAffinity     )(void*)GetProcAddress(k32,"SetThreadGroupAffinity");
 	pGetActiveProcessorCount		= (PFN_GetActiveProcessorCount    )(void*)GetProcAddress(k32,"GetActiveProcessorCount");
 	pGetActiveProcessorGroupCount	= (PFN_GetActiveProcessorGroupCount)(void*)GetProcAddress(k32,"GetActiveProcessorGroupCount");
+	pGetLogicalProcessorInformationEx	= (PFN_GetLogicalProcessorInformationEx)(void*)GetProcAddress(k32,"GetLogicalProcessorInformationEx");
+}
+
+void win_flat_cpu_to_group(uint32 cpu, const DWORD *group_size, WORD group_count, WORD *group, DWORD *proc)
+{
+	DWORD p = (DWORD)cpu;
+	WORD g;
+	for(g = 0; g < group_count; ++g) {
+		if(p < group_size[g]) break;
+		p -= group_size[g];
+	}
+	*group = g;	*proc = p;
+}
+
+int win_cpu_to_group(uint32 cpu, WORD *group, DWORD *proc)
+{
+	DWORD size[64];
+	WORD g, count;
+	if(!pGetActiveProcessorCount || !pGetActiveProcessorGroupCount) {
+		*group = 0;	*proc = (DWORD)cpu;
+		return 0;
+	}
+	count = pGetActiveProcessorGroupCount();
+	if(count > 64) count = 64;	// Windows has at most 20 groups
+	for(g = 0; g < count; ++g) { size[g] = pGetActiveProcessorCount(g); }
+	win_flat_cpu_to_group(cpu, size, count, group, proc);
+	return 1;
 }
 #endif
 
@@ -9452,18 +9480,24 @@ exit(0);
 		return (core < 0) ? -1 : ((pkg & 0x7fff) << 16) | (core & 0xffff);
 	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 		/* Enumerate RelationProcessorCore records; the k-th record is core k; a CPU belongs to it if
-		   its (group, bit) is in the record's GroupMask array. */
-		DWORD len = 0; int key = -1, k = 0;
-		GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
+		   its (group, bit) is in the record's GroupMask array. The flat index `cpu` is the one CORE_SET
+		   and threadpool.c use, so split it into (group, in-group processor) exactly as threadpool.c
+		   does - groups need not be 64 CPUs, so cpu>>6 is not the group number in general. The API
+		   is Windows 7 and later and is resolved at run time: without it, report topology as unknown. */
+		DWORD len = 0, cproc; WORD cgroup; int key = -1, k = 0;
+		if(!pGetLogicalProcessorInformationEx) return -1;
+		win_cpu_to_group(cpu, &cgroup, &cproc);
+		if(cproc >= 8*sizeof(KAFFINITY)) return -1;
+		pGetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
 		if(len == 0) return -1;
 		char *buf = malloc(len); if(!buf) return -1;
-		if(GetLogicalProcessorInformationEx(RelationProcessorCore, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+		if(pGetLogicalProcessorInformationEx(RelationProcessorCore, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
 			char *p = buf;
 			while(p < buf + len) {
 				SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
 				for(WORD g = 0; g < rec->Processor.GroupCount; g++) {
 					GROUP_AFFINITY *ga = &rec->Processor.GroupMask[g];
-					if(ga->Group == (WORD)(cpu >> 6) && (ga->Mask & ((KAFFINITY)1 << (cpu & 63)))) { key = k; break; }
+					if(ga->Group == cgroup && (ga->Mask & ((KAFFINITY)1 << cproc))) { key = k; break; }
 				}
 				if(key >= 0) break;
 				p += rec->Size; k++;
@@ -9513,10 +9547,11 @@ exit(0);
 		}
 	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
 		DWORD len = 0;
-		GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
+		if(!pGetLogicalProcessorInformationEx) return;	// Windows 7 and later only; leave the sizes 0 = unknown
+		pGetLogicalProcessorInformationEx(RelationCache, NULL, &len);
 		if(len) {
 			char *buf = malloc(len);
-			if(buf && GetLogicalProcessorInformationEx(RelationCache, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+			if(buf && pGetLogicalProcessorInformationEx(RelationCache, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
 				for(char *p = buf; p < buf + len; ) {
 					SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
 					if(rec->Cache.Type != CacheInstruction) {
@@ -9537,6 +9572,9 @@ exit(0);
 	{
 		uint32 i, word, bit, nsel = 0, nunknown = 0, ncores = 0, maxper = 0;
 		int keys[MAX_CORES]; uint32 cnt[MAX_CORES];
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		win7_procgroup_init();	// Idempotent; resolves the topology and processor-group entry points if not already done
+	#endif
 		detect_cache_sizes();
 		for(i = 0; i < MAX_CORES; i++) {
 			word = i >> 6; bit = i & 63;

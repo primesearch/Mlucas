@@ -420,20 +420,12 @@ me at: heber.tomer@gmail.com
 		}
 
 		if(pSetThreadGroupAffinity && pGetActiveProcessorGroupCount && pGetActiveProcessorCount) {
-			// Windows 7 / Server 2008 R2 and later: walk the processor groups to turn the flat logical-core
-			// index i into a (group, in-group processor) pair, since groups need not all be the same size.
-			DWORD proc = (DWORD)i;
-			const WORD group_count = pGetActiveProcessorGroupCount();
+			// Windows 7 / Server 2008 R2 and later: turn the flat logical-core index i into a (group,
+			// in-group processor) pair, since groups need not all be the same size. The same mapping is
+			// used by the CPU-topology report in util.c, which must agree with where threads really go:
 			WORD group;
-
-			for (group = 0; group < group_count; ++group) {
-				const DWORD count = pGetActiveProcessorCount(group);
-
-				if (proc < count) {
-					break;
-				}
-				proc -= count;
-			}
+			DWORD proc;
+			win_cpu_to_group((uint32)i, &group, &proc);
 
 		  #if THREAD_POOL_DEBUG
 			printf("Setting affinity of worker thread id %u to logical core %d (group %u, processor %u)\n", my_id, i, (unsigned)group, (unsigned)proc);
