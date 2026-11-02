@@ -9505,6 +9505,10 @@ void set_mlucas_path(void)
 	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
 	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
+	/* Declared here, uninitialized, and assigned below: a goto to out_err_check must not jump over
+	   an initialized declaration, which is an error in C++ and so in the CUDA build, where nvcc
+	   compiles this file as C++: */
+	size_t len, bufsize;
 	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
 		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
@@ -9523,7 +9527,7 @@ void set_mlucas_path(void)
 	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
 	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
 	   backslash, since both are directory separators on Windows).  */
-	size_t len = strlen(MLUCAS_PATH);
+	len = strlen(MLUCAS_PATH);
 	if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
 		goto out_err_check;
 	if (len > STR_MAX_LEN) {
@@ -9543,7 +9547,7 @@ void set_mlucas_path(void)
 	char *expanded_str;
 	int  tmp;
 	FILE *pipe_ptr;
-	size_t bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
+	bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
 	mlucas_path = (char*)malloc(bufsize);
 	if (mlucas_path == NULL) {
 		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
