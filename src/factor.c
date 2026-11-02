@@ -2715,7 +2715,7 @@ MFACTOR_HELP:
 	#endif
 		//int itmp;
 		uint32 bit,bit_hi,curr_p,i,ihi,j,l,m;
-		uint64 count = 0ull, k = 0ull, sweep, res;
+		uint64 count = 0ull, count_last = 0ull, k = 0ull, sweep, res;
 		int32 q_index = -1;
 	#if ((TRYQ == 1 && !defined(NWORD) && !defined(P4WORD) && !defined(P3WORD) && !defined(P2WORD) && !defined(USE_FMADD) && !defined(USE_FLOAT)) \
 		 || (TRYQ == 4 && !defined(P3WORD) && ((defined(P2WORD) && USE_128x96 >= 1) \
@@ -3362,6 +3362,24 @@ MFACTOR_HELP:
 			printf("%u [%6.2f%%] survived; count = %" PRIu64 "\n",m,100.*(float)m/bit_len,count);
 		#endif
 
+			/* Candidates reach the modpow code only in full batches of TRYQ, so without a flush the
+			last (count % TRYQ) survivors of each pass would be queued and never tested, although count
+			(and hence the "Performed N trial divides" total) includes them. On the pass's final sweep,
+			precompute the count value of its last surviving candidate, so that candidate can close out
+			a padded batch below. Only the first bit_len bits of the sievelet are candidates.
+			Do the same on every sweep that ends in one of the periodic checkpoints written below: a
+			resumed run starts at the sweep after the checkpoint, so anything still queued when it was
+			written would never be tested. The condition must match the checkpoint's own: */
+			if(sweep + 1 == interval_hi || (NTHREADS == 1 && ((sweep + 1) %(1024/lenQ + 1)) == 0)) {
+				count_last = count;
+				for(i = 0; i < ihi; i++) {
+					res = bit_map2[i];
+					if((bit_len - (i<<6)) < 64)
+						res &= (1ull << (bit_len - (i<<6))) - 1;
+					count_last += popcount64(res);
+				}
+			}
+
 			bit_hi = 64;
 			for(i = 0; i < ihi; i++)	/* K loops over 64-bit registers. Don't assume bit_len a multiple of 64.	*/
 			{
@@ -3387,7 +3405,9 @@ MFACTOR_HELP:
 
 					if((bit_map2[i] >> bit) & 1)
 					{
-						q_index = count++ & TRYQM1;	/* Post-increment count, so this will work. */
+						++count;
+						++q_index;	/* Next free slot of the queue, which is empty (-1) after each tested batch. Not count & TRYQM1:
+									a padded batch (see below) can close out mid-pass, leaving count out of step with the batches. */
 
 						/* Every so often (every [2^32 / (nearest power of 2 to lenP*lenQ^2)] q's seems a good interval)
 						do some factor-candidate sanity checks.
@@ -3503,6 +3523,14 @@ MFACTOR_HELP:
 					#else
 
 						k_to_try[q_index] = k;
+						// Last candidate of the pass (or of a checkpointed sweep) with the batch not yet full: pad it with copies of this k
+						// and test it now. The factor-reporting loop below skips the copies.
+						if(count == count_last && q_index < (int32)TRYQM1) {
+							for(j = q_index+1; j <= TRYQM1; j++) {
+								k_to_try[j] = k;
+							}
+							q_index = TRYQM1;
+						}
 
 						if(q_index == TRYQM1)
 						{
@@ -3859,7 +3887,8 @@ MFACTOR_HELP:
 							/* Print any factors that were found in the current batch: */
 							for(l = 0; l < TRYQ; l++)
 							{
-								if((res >> l) & 1)	/* If Lth bit = 1, Lth candidate of the inputs is a factor */
+								// If Lth bit = 1, Lth candidate of the inputs is a factor - unless it is a padding copy of its predecessor:
+								if(((res >> l) & 1) && !(l && k_to_try[l] == k_to_try[l-1]))
 								{
 									// k = 0 yields the trivial "factor" q = 2.k.p+1 = 1, which divides everything. It can
 									// be sieved when the lower factor-bound admits it (e.g. -bmin 0 => kmin 0); skip it, since
@@ -4172,6 +4201,12 @@ MFACTOR_HELP:
 		#endif
 			continue;
 		} /* end of sweep loop	*/
+	#if(TRYQ > 1)
+		// The final sweep's last survivor flushes the queue, which relies on the final sweep having one.
+		// A sievelet of bit_len bits keeps tens of thousands of survivors, but fail loudly rather than
+		// leave queued candidates untested if that ever changes:
+		ASSERT(q_index < 0, "Factor candidates left untested in a partial batch at end of pass!");
+	#endif
 
 	  #ifdef MULTITHREAD
 
