@@ -2003,10 +2003,8 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		switch(radix_set) {
 		case 0 :
 			numrad = 4; rvec[0]= 992; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
-		case 1 :
-			numrad = 4; rvec[0]= 992; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			*nradices = 2;	return ERR_RADIXSET_UNAVAILABLE;
+			*nradices = 1;	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 32256 :
 		switch(radix_set) {
@@ -2156,19 +2154,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		case 3 :
 			numrad = 5; rvec[0] =128; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; rvec[0] =128; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
+			numrad = 5; rvec[0] = 64; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 5 :
-			numrad = 5; rvec[0] = 64; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
-		case 6 :
-			numrad = 5; rvec[0] = 64; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
-		case 7 :
 			numrad = 5; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
-		case 8 :
+		case 6 :
 			numrad = 6; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
-		case 9 :
+		case 7 :
 			numrad = 6; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 32; break;
 		default :
-			*nradices = 10;	return ERR_RADIXSET_UNAVAILABLE;
+			*nradices = 8;	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 73728 :				/* 72M = 73728K */
 		switch(radix_set) {
