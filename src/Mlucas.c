@@ -5299,6 +5299,9 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	uint32 i,j,k,len,nbytes = 0,nerr;
 	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
+	// Local buffer for the known-factor-check messages: the callers pass the global g_cstr as fname, and
+	// still need the savefile name in it after we return, to fall back to the secondary or rename/delete it:
+	char kf_msg[STR_MAX_LEN];
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 	mi64_clear(pow,4); mi64_clear(rem,4);
 	ASSERT(arr1 != 0x0, "Null arr1 pointer!");
@@ -5403,10 +5406,10 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT((itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
 		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
 			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
-			sprintf(g_cstr,"Computing %" PRIu64 "-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] ); mlucas_fprint(g_cstr,1);
+			snprintf(kf_msg,sizeof(kf_msg),"Computing %" PRIu64 "-squaring residue R (mod known prime q = %s)\n",nsquares,&cbuf[convert_mi64_base10_char(cbuf, KNOWN_FACTORS+i, j, 0)] ); mlucas_fprint(kf_msg,1);
 			mi64_div(avec,KNOWN_FACTORS+i, len,j, 0x0,rem);	// R (mod p) returned in rem[]
 			k = mi64_getlen(rem,4);	// j = number of nonzero limbs in remainder
-			sprintf(g_cstr,"\tA: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, rem, k, 0)] ); mlucas_fprint(g_cstr,1);
+			snprintf(kf_msg,sizeof(kf_msg),"\tA: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, rem, k, 0)] ); mlucas_fprint(kf_msg,1);
 			if(j == 1) {
 				exp[0] = twopmmodq64(nsquares,KNOWN_FACTORS[i]-1);	// pow' = 2^nsquares (mod p-1)
 			} else if(j == 2) {
@@ -5428,7 +5431,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 				ASSERT(0, "Only known-factors < 2^256 supported!");
 			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
 			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
-			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
+			snprintf(kf_msg,sizeof(kf_msg),"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(kf_msg,1);
 			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
 				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
 				ASSERT(0, cbuf);
