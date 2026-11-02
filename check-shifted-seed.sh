@@ -90,8 +90,8 @@ cleanup() {
 	local pids
 	mapfile -t pids < <(jobs -p)
 	if [[ ${#pids[@]} -gt 0 ]]; then
-		kill -- "${pids[@]}" 2>/dev/null
-		wait 2>/dev/null
+		kill -- "${pids[@]}" 2>/dev/null || true
+		wait 2>/dev/null || true
 	fi
 	rm -rf -- "$TMPDIR_ROOT"
 }
@@ -111,7 +111,9 @@ run_one() {
 	dir=$(mktemp -d -p "$TMPDIR_ROOT")
 	output=$(cd -- "$dir" && "${LAUNCHER[@]}" "$MLUCAS" "$@" -iters "$ITERS" "${ARGS[@]}" -shift "$shift_count" 2>&1) || status=$?
 	rm -rf -- "$dir"
-	problems=$(grep -i 'assert\|error\|warn' <<<"$output" | head -n 2 | tr '\n' ' ')
+	# grep exits 1 when it finds nothing, which is the normal case. Under 'bash -e -o pipefail', as CI runs this script,
+	# that would end the function here, before the residue is checked, so a clean run has to be allowed to match nothing:
+	problems=$(grep -i 'assert\|error\|warn' <<<"$output" | head -n 2 | tr '\n' ' ') || true
 	if [[ $status -ne 0 ]]; then
 		echo "$name, -shift $shift_count: Mlucas exited with status $status: $problems" >"$TMPDIR_ROOT/fail.$index"
 	elif [[ -n $problems ]]; then
@@ -155,7 +157,7 @@ check_case() {
 	fi
 	for ((shift_count = start; shift_count <= end; ++shift_count)); do
 		while [[ $(jobs -r | wc -l) -ge $JOBS ]]; do
-			wait -n
+			wait -n || true	# A finished job's own status is not an error here: failures are recorded in files
 		done
 		RUNS=$((RUNS + 1))
 		run_one "$(printf '%05d' "$RUNS")" "$name" "$label" "$expected" "$shift_count" "$@" &
