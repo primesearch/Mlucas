@@ -12,6 +12,10 @@ on:
       - 'docs/**'
       - 'LICENSE'
       - 'help.txt'
+      - 'src/**/*.c.txt'
+      - '.coderabbit.yaml'
+      - '.gitignore'
+      - '.github/dependabot.yml'
   schedule:
     - cron: '0 0 1 * *'
 
