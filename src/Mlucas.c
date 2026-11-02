@@ -2935,9 +2935,10 @@ GET_NEXT_ASSIGNMENT:
 			}
 			// Match the exponent field of this assignment (for F[m], that is m or, in KBNC format, 2^m) - not a substring
 			// of the line, which could just as well be part of an assignment ID or of a longer exponent. A line which does
-			// not match is an unrelated (e.g. user-inserted) assignment - preserve it. When the just-completed run is the
-			// p-1 half of a PRP assignment being split in two (split_curr_assignment), the line to find is still the PRP one:
-			if(!workline_is_current_assignment(g_in_line, TEST_TYPE == TEST_TYPE_PM1 && !split_curr_assignment)) {
+			// not match is an unrelated (e.g. user-inserted) assignment - preserve it - and so is one of a different kind (PRP, LL,
+			// p-1) for the same exponent. When the just-completed run is the p-1 half of a PRP or LL assignment being split in
+			// two (split_curr_assignment), the line to find is still the PRP or LL one, whose edited copy is in g_cstr:
+			if(!workline_is_current_assignment(g_in_line, split_curr_assignment ? workline_test_type(g_cstr) : TEST_TYPE)) {
 				fputs(g_in_line, fq);	++i;
 				continue;
 			}
@@ -6210,37 +6211,67 @@ int	is_hex_string(const char *s, int len)
 
 /*********************/
 
+/* Which kind of assignment does workfile line 'line' hold? The answer is one of the TEST_TYPE_ values - TEST_TYPE_PRIMALITY
+(Test, DoubleCheck), TEST_TYPE_PRP (PRP, PRPDC), TEST_TYPE_PM1 (Pminus1, Pfactor), TEST_TYPE_TF (Factor), TEST_TYPE_ECM - read
+from the keyword part of the line, i.e. the part left of the first '=' (so "Fermat,Test=..." is a primality test), or 0 if the
+line is not an assignment line or its keyword is not one of those. */
+int	workline_test_type(const char *line)
+{
+	const char *cp = line, *eq;
+	char kw[64];
+	size_t len;
+	ASSERT(line != 0x0, "Null ptr to workline_test_type()");
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	if(!isalpha((unsigned char)*cp) || (eq = strchr(cp,'=')) == 0x0)
+		return 0;
+	len = eq - cp;	if(len >= sizeof(kw)) len = sizeof(kw)-1;
+	memcpy(kw, cp, len);	kw[len] = '\0';
+	// Check for p-1 first, since "Pfactor" contains "factor" - and keep the case rules of the assignment reader above:
+	if(stristr(kw,"pminus1") != 0x0 || stristr(kw,"pfactor") != 0x0)
+		return TEST_TYPE_PM1;
+	if(strstr(kw,"PRP") != 0x0)
+		return TEST_TYPE_PRP;
+	if(strstr(kw,"Test") != 0x0 || strstr(kw,"DoubleCheck") != 0x0)
+		return TEST_TYPE_PRIMALITY;
+	if(strstr(kw,"Factor") != 0x0)
+		return TEST_TYPE_TF;
+	if(strstr(kw,"ECM") != 0x0)
+		return TEST_TYPE_ECM;
+	return 0;
+}
+
+/*********************/
+
 /* Does workfile line 'line' hold the assignment which has just been completed, i.e. the one whose exponent is ESTRING
-(the Mersenne exponent p, or for a Fermat number the index m)? The match is on the exponent *field* of the assignment,
-not on a substring of the line: a 32-hex Primenet assignment ID, a longer exponent, a TF-depth or any other field which
-merely contains the same digits must not match.
+(the Mersenne exponent p, or for a Fermat number the index m) and whose kind is 'test_type'? The match is on the exponent
+*field* of the assignment, not on a substring of the line: a 32-hex Primenet assignment ID, a longer exponent, a TF-depth
+or any other field which merely contains the same digits must not match.
 
 The line is parsed as [Modulus,]Keyword=[AID,]fields...  where AID is an optional 32-hex-char assignment ID or "n/a".
 Assignments given as k,b,n,c (PRP, Pminus1, Pfactor) carry the exponent as the 3rd field, n = p for a Mersenne modulus
 and n = 2^m for a Fermat modulus; all others (Test, DoubleCheck, Factor, ...) carry it as the 1st field, as p or m.
 
-A p-1 assignment and a primality/PRP assignment for the same exponent are different assignments: the line is accepted
-only if it is a Pminus1/Pfactor one exactly when pm1_expected is TRUE. (Callers pass TEST_TYPE == TEST_TYPE_PM1, except
-when the current run is the p-1 half of a PRP assignment which is just being split in two, in which case the line to
-find is still the PRP one.) */
-int	workline_is_current_assignment(const char *line, int pm1_expected)
+Assignments of different kinds for the same exponent are different assignments, e.g. a PRP and an LL test, or a p-1 and a
+primality test: the line is accepted only if workline_test_type() says it is of the kind the caller asks for. (A trial-
+factoring run is the one exception, since it finishes off a Test or DoubleCheck line just as it does a Factor one.) Callers
+pass TEST_TYPE, except when the current run is the p-1 half of a PRP or LL assignment which is just being split in two, in
+which case the line to find is still the PRP or LL one, whose kind they get from workline_test_type() of the edited copy
+of that line. */
+int	workline_is_current_assignment(const char *line, int test_type)
 {
 	const char *cp = line, *eq, *fld_start;
-	char kw[64], *endp;
-	size_t len;
-	int i, is_pm1, is_kbnc;
+	char *endp;
+	int i, linetype, is_kbnc;
 	uint64 expo, fld;
 	ASSERT(line != 0x0, "Null ptr to workline_is_current_assignment()");
 	while(isspace((unsigned char)*cp)) { ++cp; }
 	if(!isalpha((unsigned char)*cp) || (eq = strchr(cp,'=')) == 0x0)
 		return FALSE;
 	// Assignment type is determined by the keyword part of the line, i.e. the part left of the '=':
-	len = eq - cp;	if(len >= sizeof(kw)) len = sizeof(kw)-1;
-	memcpy(kw, cp, len);	kw[len] = '\0';
-	is_pm1 = (stristr(kw,"pminus1") != 0x0 || stristr(kw,"pfactor") != 0x0);
-	if(is_pm1 != (pm1_expected != 0))
+	linetype = workline_test_type(line);
+	if(linetype != test_type && !(test_type == TEST_TYPE_TF && linetype == TEST_TYPE_PRIMALITY))
 		return FALSE;
-	is_kbnc = (is_pm1 || strstr(kw,"PRP") != 0x0);
+	is_kbnc = (linetype == TEST_TYPE_PM1 || linetype == TEST_TYPE_PRP);
 	cp = eq + 1;
 	while(isspace((unsigned char)*cp)) { ++cp; }
 	// Skip the optional assignment ID, which must be followed by a comma:
@@ -6411,7 +6442,7 @@ void generate_JSON_report(
 		// v20.1.1: consider only lines whose leading non-WS char is alphabetic; find the one matching the exponent:
 		while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
 			char_addr = g_in_line; while(isspace((unsigned char)*char_addr)) { ++char_addr; }
-			if(workline_is_current_assignment(g_in_line, TEST_TYPE == TEST_TYPE_PM1))
+			if(workline_is_current_assignment(g_in_line, TEST_TYPE))
 				break;	// Found the just-completed assignment
 			char_addr = 0x0;	// Not a match - keep looking (char_addr stays 0x0 if we exit the loop empty-handed)
 		}
