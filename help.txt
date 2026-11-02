@@ -421,7 +421,7 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
  -nthread {int}
 	For multithread-enabled builds, run with this many threads.
 	If the user does not specify a thread count, the default is to run single-threaded
-	with that thread's affinity set to logical core 0.
+	with that thread's affinity set to the first logical core available to the process.
 
 	AFFINITY: The code will attempt to set the affinity of the resulting threads
 	0:n-1 to the same-indexed processor cores - whether this means distinct physical
@@ -429,6 +429,16 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	but AMD does not. For this reason as of v17 this option is deprecated in favor of
 	the -cpu flag, whose usage is detailed below, with the online README page providing
 	guidance for the core-numbering schemes of popular CPU vendors.
+
+	EXTERNALLY-IMPOSED AFFINITY: On Linux, "available" above means "within the CPU-affinity
+	mask this process inherited". If the process was launched under a restricted mask - via
+	taskset, numactl, systemd 'CPUAffinity=', a batch scheduler such as SLURM, or a container
+	cpuset - then -nthread n uses the first n logical cores of *that* mask rather than cores
+	0:n-1, so that several instances pinned to disjoint core groups do not all pile onto the
+	same low-numbered cores. With an unrestricted mask this is exactly cores 0:n-1, as before.
+	An explicit -cpu/-core core set always wins, but naming a core outside the inherited mask
+	now draws a warning, since pinning a thread there overrides the operator's placement (and
+	fails outright under a cgroup cpuset).
 
 	If n exceeds the available number of logical processor cores (call it #cpu), the
 	program will halt with an error message.
@@ -447,8 +457,17 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	The CPU set encoded by the integer-triplet argument to -cpu corresponds to the
 	values of the integer loop index i in the C-loop for(i = lo; i <= hi; i += incr),
 	excluding the loop-exit value of i. Thus '-cpu 0:3' and '-cpu 0:3:1' are both
-	exactly equivalent to '-nthread 4', whereas '-cpu 0:6:2' and '-cpu 0:7:2' both
-	specify affinity setting to logical cores 0,2,4,6, assuming said cores exist.
+	exactly equivalent to '-nthread 4' when the first 4 cores of the process's CPU-affinity
+	mask are cores 0-3 in the numbering which -cpu uses, as is always the case for an
+	unrestricted mask. That numbering is the operating system's logical-CPU numbering, except
+	in builds with hwloc support, where it is hwloc's logical-PU numbering (the inherited mask
+	is translated into it), and on a machine with hyperthreading that generally differs from the
+	OS's. If the process was launched under a restricted mask, e.g. 'taskset -c 4-7', then
+	'-nthread 4' selects the first 4 cores of that mask whereas '-cpu 0:3' still selects cores
+	0-3 in that numbering, which need not lie in the mask - hence the warning described
+	under -nthread. The two forms
+	'-cpu 0:6:2' and '-cpu 0:7:2' both specify affinity setting to logical cores 0,2,4,6,
+	assuming said cores exist.
 	Lastly, note that no whitespace is permitted within the colon-separated numeric field.
 
 	-cpu {triplet0[,triplet1,...]}	This is simply an extended version of the above affinity-
