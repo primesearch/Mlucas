@@ -134,11 +134,11 @@ Options - again note the user can override the default iteration count based on 
 
 	 - Crossing 4 threads multiplies the work by ten, because the default iteration count is
 	   100 for <= 4 threads and 1000 for more, and run time is linear in the iteration count
-	   to within a couple of percent. '-s small' takes 25 seconds on 4 cores and 165 seconds
-	   on 16 - the 16-core run is slower in wall-clock terms because it is doing ten times as
-	   much work.
+	   to within a couple of percent. '-s small' takes 25 seconds on 4 threads and 165 seconds
+	   on 16 threads - the 16-thread run is slower in wall-clock terms because it is doing ten
+	   times as much work.
 
-	 - Extra cores do not pay off proportionally, and past 4 they can cost. Normalising the
+	 - Extra threads do not pay off proportionally, and past 4 they can cost. Normalising the
 	   iteration counts so that equal work is compared, on an 8-core/16-thread x86-64 machine:
 
 	                  1 thread   4 threads   16 threads   (cost per 100 iterations)
@@ -663,7 +663,7 @@ message. What to do depends on what was being allocated:
 	machine with more RAM. (A smaller FFT length via -fftlen is an option for self-tests and other runs
 	where you choose the length. For a production Mersenne run, i.e. without -iters, -fftlen is accepted
 	at a length smaller than the default only if it is the supported length immediately below the default
-	length for the worktodo.ini exponent, and that exponent is less than 5% above that smaller length's
+	length for the worktodo.txt exponent, and that exponent is less than 5% above that smaller length's
 	recommended maximum exponent; any shorter length is rejected as much too small, so a production run
 	cannot go further down than that one step. Note that such a run is above the recommended maximum
 	for its length, so it is more prone to roundoff errors, and on a roundoff error the program switches
@@ -705,10 +705,10 @@ Once you have identified the desired process IDs:
 	to resume at some later time, you can minimize lost runtime by waiting until the current iteration
 	interval completes, i.e. until the latest savefile update occurs.
 
-For the current list of signal types which the program listens for, see the sig_handler() function near
-the top of Mlucas.c . As of this writing, the program listens for INT,TERM,HUP,ALRM,USR1 and USR2 on
-Unix-like systems (Linux, *BSD including FreeBSD, and macOS); native Windows/MinGW builds only catch
-INT and TERM.
+For the current list of signal types which the program listens for, see the mlucas_install_signal_handlers()
+function near the top of Mlucas.c , which registers sig_handler() for each of them. As of this writing, the
+program listens for INT,TERM,HUP,ALRM,USR1 and USR2 on Unix-like systems (Linux, *BSD including FreeBSD,
+and macOS); native Windows/MinGW builds only catch INT and TERM.
 
 ======================
 
