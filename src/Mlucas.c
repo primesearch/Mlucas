@@ -2642,7 +2642,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		{	// j = #limbs; clear high limb before filling arrtmp[0:j-1] with bytewise residue just to be sure:
 			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6; arrtmp[j-1] = 0ull;
 			convert_res_FP_bytewise(a,(uint8 *)arrtmp,n,p,0x0,0x0,0x0);
-			arrtmp[0] -= 1;	// S1 GCD needs residue-1
+			mi64_sub_scalar(arrtmp,1ull, arrtmp,j);	// S1 GCD needs residue-1; borrow across limbs, since the low one can be 0
 			i = gcd(1,p,arrtmp,0x0,j,gcd_str);	// 1st arg = stage just completed
 			// If factor found, gcd() will have done needed status-file-writes:
 			if(i || B2 <= B1) {	// Need to also account for the possibility of no-stage-2, in which case B2 <= B1
