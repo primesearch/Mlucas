@@ -102,7 +102,8 @@ declare -A SKIPPED
 TOLERATE_BASELINE_FAILURE=
 
 # run_one INDEX NAME RESULT_LABEL EXPECTED_RES64 SHIFT ARGS...
-# Writes a message to "$TMPDIR_ROOT/fail.INDEX" if the run is wrong.
+# Writes a message to "$TMPDIR_ROOT/fail.INDEX" if the run is wrong, and creates "$TMPDIR_ROOT/done.INDEX" once the
+# run has been checked, so that a run which dies first (mktemp failing, the worker killed) is noticed and counted.
 # RESULT_LABEL is the text before "Res64:" on the result line: empty for LL and Fermat, "PRP-3 " for PRP.
 run_one() {
 	local index=$1 name=$2 label=$3 expected=$4 shift_count=$5
@@ -131,6 +132,7 @@ run_one() {
 			echo "$name, -shift $shift_count: Res64 ${found:-not printed}, expected $expected" >"$TMPDIR_ROOT/fail.$index"
 		fi
 	fi
+	: >"$TMPDIR_ROOT/done.$index"
 }
 
 # check_case NAME RESULT_LABEL EXPECTED_RES64 SHIFT_START SHIFT_END ARGS...
@@ -195,11 +197,19 @@ wait
 
 shopt -s nullglob
 failed=("$TMPDIR_ROOT"/fail.*)
-if [[ ${#failed[@]} -ne 0 ]]; then
+finished=("$TMPDIR_ROOT"/done.[0-9]*)
+incomplete=$((RUNS - ${#finished[@]}))
+if [[ ${#failed[@]} -ne 0 || $incomplete -ne 0 ]]; then
 	for file in "${failed[@]}"; do
 		echo "FAIL: $(<"$file")" >&2
 	done
-	echo "${#failed[@]} of $RUNS shifted-seed runs FAILED." >&2
+	if [[ ${#failed[@]} -ne 0 ]]; then
+		echo "${#failed[@]} of $RUNS shifted-seed runs FAILED." >&2
+	fi
+	if [[ $incomplete -ne 0 ]]; then
+		# A worker that dies before it can compare the residue (mktemp failing, a kill) leaves no failure file
+		echo "$incomplete of $RUNS shifted-seed runs did not complete, so their residues were not checked." >&2
+	fi
 	exit 1
 fi
 echo "All $RUNS shifted-seed runs gave the expected residue in $((SECONDS - start)) s${SKIPPED[*]:+ (${#SKIPPED[@]} case skipped, see above)}."
