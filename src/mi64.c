@@ -8404,9 +8404,11 @@ The key 3-operation sequence here is as follows:
 
 Returns 1 if 2^(-p) == 1 (mod q) (which also means 2^p == 1), 0 otherwise.
 
-Sep 2015: Add code specific for Fermat-number factors: If p a power of 2 (i.e. FERMAT = true
+Sep 2015: Add code specific for Fermat-number factors: If p a power of 2 and k != 0 (i.e. FERMAT = true
 in the on-entry inits), uses the factor k (q = 2.k.p+1) for fast UMULH(q,x) in the powering loop,
 and returns 1 if 2^(-p) == -1 (mod q) (which also means 2^p == -1), 0 otherwise.
+k = 0 means q is not known to have that form - e.g. the base-2 PRP test 2^(q-1) == 1 (mod q), whose
+exponent q-1 is a power of 2 whenever q = 2^n+1 - so it always takes the generic Mersenne-style path.
 */
 #if MI64_DEBUG
 	#define MI64_POW_DBG	0	// Set nonzero to enable debug-print in the mi64 modpow functions below
@@ -8415,7 +8417,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 {
 	ASSERT(p != 0x0, "Null p-array pointer!");
 	ASSERT(q != 0x0, "Null q-array pointer!");
-	uint32 pow2, FERMAT = mi64_isPow2(p,len,&pow2)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+	uint32 pow2 = 0, FERMAT = (k != 0ull && mi64_isPow2(p,len_p,&pow2))<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
   #if MI64_POW_DBG
 	uint32 dbg = FERMAT && pow2 == 256;//STREQ(&s0[convert_mi64_base10_char(s0, q, len, 0)], "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127");
   #endif
