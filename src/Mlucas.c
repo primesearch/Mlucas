@@ -425,6 +425,7 @@ uint32	ernstMain
 #endif
 	double tests_saved = 0.0;	// v21: make this a dfloat to allow fractional-parts
 	uint32 pm1_done = FALSE, split_curr_assignment = FALSE, s2_continuation = FALSE, s2_partial = FALSE;
+	uint32 curr_assignment_found = FALSE;	// v21: TRUE once the just-completed assignment line is located in the workfile
 	uint32 pm1_bigstep = 0, pm1_stage2_mem_multiple = 0, psmall = 0;
 /*...allocatable data arrays and associated params: */
 	static uint64 nbytes = 0, nalloc = 0, arrtmp_alloc = 0, s1p_alloc = 0;
@@ -2912,25 +2913,37 @@ GET_NEXT_ASSIGNMENT:
 			ASSERT(0,cbuf);
 		}
 
-	GET_NEXT:
-		/* Delete or suitably modify current-assignment line (line 1) of worktodo file: */
-		i = 0;	// This counter tells how many *additional* assignments exist in worktodo
-		if(!fgets(g_in_line, sizeof(g_in_line), fp)) {
-			sprintf(cbuf, "ERROR: %s file not found at end of current-assignment processing\n", WORKFILE);
-			ASSERT(0,cbuf);
-		}
-		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic;
-		char_addr = g_in_line;	j = 0;
-		while(isspace((unsigned char)g_in_line[j])) { ++j; }
-		char_addr += j;
-		if(!isalpha((unsigned char)g_in_line[j]))
-			goto GET_NEXT;
-
-		// Look for m in first eligible assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
-		if(!strstr(g_in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP)) ) {
-			snprintf(cbuf,sizeof(cbuf), "ERROR: Current exponent %s not found in line 1 of %s file - quitting.\n", ESTRING, WORKFILE);
-			ASSERT(0,cbuf);
-		} else {
+		/* Delete or suitably modify the just-completed-assignment line of the worktodo file.
+		v21: Do NOT assume the completed assignment is line 1 of the workfile - a user may have
+		inserted other assignments above it while the (possibly months-long) run was in progress. Scan the
+		workfile for the line matching the just-completed exponent, delete/modify only THAT line, and copy all
+		other lines - comment/blank lines and unrelated (e.g. user-inserted) assignments alike - verbatim, in
+		order. If no matching line is found (e.g. the user hand-edited it away mid-run), warn but do not abort:
+		the result has already been written to the results file and must never be lost to a mangled workfile. */
+		i = 0;	// This counter tells how many assignment lines remain in worktodo after the completed one is removed
+		curr_assignment_found = FALSE;
+		while(fgets(g_in_line, sizeof(g_in_line), fp)) {
+			// v20.1.1: An eligible assignment line has an alphabetic 1st non-WS char:
+			char_addr = g_in_line;	j = 0;
+			while(isspace((unsigned char)g_in_line[j])) { ++j; }
+			char_addr += j;
+			// Preserve comment/blank lines verbatim; likewise, once the completed assignment has been found and
+			// processed, preserve every subsequent line verbatim:
+			if(curr_assignment_found || !isalpha((unsigned char)g_in_line[j])) {
+				fputs(g_in_line, fq);	++i;
+				continue;
+			}
+			// Match the exponent field of this assignment (for F[m], that is m or, in KBNC format, 2^m) - not a substring
+			// of the line, which could just as well be part of an assignment ID or of a longer exponent. A line which does
+			// not match is an unrelated (e.g. user-inserted) assignment - preserve it - and so is one of a different kind (PRP, LL,
+			// p-1) for the same exponent. When the just-completed run is the p-1 half of a PRP or LL assignment being split in
+			// two (split_curr_assignment), the line to find is still the PRP or LL one, whose edited copy is in g_cstr:
+			if(!workline_is_current_assignment(g_in_line, split_curr_assignment ? workline_test_type(g_cstr) : TEST_TYPE)) {
+				fputs(g_in_line, fq);	++i;
+				continue;
+			}
+			// This is the just-completed assignment:
+			curr_assignment_found = TRUE;
 			/* If we just finished the TF or p-1 preprocessing step of an LL or PRP test,
 			update the current-assignment line to reflect that and write it out: */
 			if(strstr(g_in_line, "PRP") || strstr(g_in_line, "Test") || strstr(g_in_line, "DoubleCheck")) {
@@ -2940,15 +2953,14 @@ GET_NEXT_ASSIGNMENT:
 					char_addr = strstr(char_addr, ",");
 					ASSERT(char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "%u", TF_BITS);
-					fputs(g_in_line, fq);
+					fputs(g_in_line, fq);	++i;
 				}
 			#endif
 				// This imples TEST_TYPE == TEST_TYPE_PM1; note that this flag gets cleared on cycling back to RANGE_BEG:
 				if(split_curr_assignment) {
 					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in g_in_line: */
-					fputs(cbuf, fq);	// The Pminus1 assignment
-					fputs(g_cstr, fq);	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
-					i = 2;	// And reset remaining-assignments counter
+					fputs(cbuf, fq);	++i;	// The Pminus1 assignment
+					fputs(g_cstr, fq);	++i;	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
 				}
 			} else if(stristr(g_in_line, "pminus1")) {
 				// If current p-1 assignment found a factor and resulted from splitting of a PRP/LL assignment -
@@ -2976,17 +2988,16 @@ GET_NEXT_ASSIGNMENT:
 						{
 							/* Lose the assignment (by way of no-op) */
 						} else {
-							fputs(g_in_line, fq); i = 1;	// Copy PRP/LL assignment and reset remaining-assignments counter
+							fputs(g_in_line, fq);	++i;	// Copy PRP/LL assignment
 						}
 					}
 				}
 			}
 			/* Otherwise lose the current line (by way of no-op) */
 		}
-		/* Copy the remaining ones; */
-		while(fgets(g_in_line, sizeof(g_in_line), fp))
-		{
-			fputs(g_in_line, fq);	++i;
+		if(!curr_assignment_found) {
+			snprintf(cbuf,sizeof(cbuf), "WARNING: Just-completed exponent %s not found in %s file (edited away mid-run?) - result has been saved; leaving remaining workfile entries intact.\n", ESTRING, WORKFILE);
+			mlucas_fprint(cbuf,1);
 		}
 		fclose(fp); fp = 0x0;
 		fclose(fq); fq = 0x0;
@@ -6200,6 +6211,106 @@ int	is_hex_string(const char *s, int len)
 
 /*********************/
 
+/* Which kind of assignment does workfile line 'line' hold? The answer is one of the TEST_TYPE_ values - TEST_TYPE_PRIMALITY
+(Test, DoubleCheck), TEST_TYPE_PRP (PRP, PRPDC), TEST_TYPE_PM1 (Pminus1, Pfactor), TEST_TYPE_TF (Factor), TEST_TYPE_ECM - read
+from the keyword part of the line, i.e. the part left of the first '=' (so "Fermat,Test=..." is a primality test), or 0 if the
+line is not an assignment line or its keyword is not one of those. */
+int	workline_test_type(const char *line)
+{
+	const char *cp = line, *eq;
+	char kw[64];
+	size_t len;
+	ASSERT(line != 0x0, "Null ptr to workline_test_type()");
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	if(!isalpha((unsigned char)*cp) || (eq = strchr(cp,'=')) == 0x0)
+		return 0;
+	len = eq - cp;	if(len >= sizeof(kw)) len = sizeof(kw)-1;
+	memcpy(kw, cp, len);	kw[len] = '\0';
+	// Check for p-1 first, since "Pfactor" contains "factor" - and keep the case rules of the assignment reader above:
+	if(stristr(kw,"pminus1") != 0x0 || stristr(kw,"pfactor") != 0x0)
+		return TEST_TYPE_PM1;
+	if(strstr(kw,"PRP") != 0x0)
+		return TEST_TYPE_PRP;
+	if(strstr(kw,"Test") != 0x0 || strstr(kw,"DoubleCheck") != 0x0)
+		return TEST_TYPE_PRIMALITY;
+	if(strstr(kw,"Factor") != 0x0)
+		return TEST_TYPE_TF;
+	if(strstr(kw,"ECM") != 0x0)
+		return TEST_TYPE_ECM;
+	return 0;
+}
+
+/*********************/
+
+/* Does workfile line 'line' hold the assignment which has just been completed, i.e. the one whose exponent is ESTRING
+(the Mersenne exponent p, or for a Fermat number the index m) and whose kind is 'test_type'? The match is on the exponent
+*field* of the assignment, not on a substring of the line: a 32-hex Primenet assignment ID, a longer exponent, a TF-depth
+or any other field which merely contains the same digits must not match.
+
+The line is parsed as [Modulus,]Keyword=[AID,]fields...  where AID is an optional 32-hex-char assignment ID or "n/a".
+Assignments given as k,b,n,c (PRP, Pminus1, Pfactor) carry the exponent as the 3rd field, n = p for a Mersenne modulus
+and n = 2^m for a Fermat modulus; all others (Test, DoubleCheck, Factor, ...) carry it as the 1st field, as p or m.
+
+Assignments of different kinds for the same exponent are different assignments, e.g. a PRP and an LL test, or a p-1 and a
+primality test: the line is accepted only if workline_test_type() says it is of the kind the caller asks for. (A trial-
+factoring run is the one exception, since it finishes off a Test or DoubleCheck line just as it does a Factor one.) Callers
+pass TEST_TYPE, except when the current run is the p-1 half of a PRP or LL assignment which is just being split in two, in
+which case the line to find is still the PRP or LL one, whose kind they get from workline_test_type() of the edited copy
+of that line. */
+int	workline_is_current_assignment(const char *line, int test_type)
+{
+	const char *cp = line, *eq, *fld_start;
+	char *endp;
+	int i, linetype, is_kbnc;
+	uint64 expo, fld;
+	ASSERT(line != 0x0, "Null ptr to workline_is_current_assignment()");
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	if(!isalpha((unsigned char)*cp) || (eq = strchr(cp,'=')) == 0x0)
+		return FALSE;
+	// Assignment type is determined by the keyword part of the line, i.e. the part left of the '=':
+	linetype = workline_test_type(line);
+	if(linetype != test_type && !(test_type == TEST_TYPE_TF && linetype == TEST_TYPE_PRIMALITY))
+		return FALSE;
+	is_kbnc = (linetype == TEST_TYPE_PM1 || linetype == TEST_TYPE_PRP);
+	cp = eq + 1;
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	// Skip the optional assignment ID, which must be followed by a comma:
+	if(is_hex_string(cp,32)) {
+		cp += 32;
+	} else if(STREQN_NOCASE(cp,"n/a",3)) {
+		cp += 3;
+	} else {
+		cp = 0x0;
+	}
+	if(cp) {
+		while(isspace((unsigned char)*cp)) { ++cp; }
+		if(*cp != ',') return FALSE;
+		++cp;
+	} else {
+		cp = eq + 1;
+	}
+	// Seek to the exponent field, which is the 3rd one in the k,b,n,c form, the 1st otherwise:
+	for(i = (is_kbnc ? 2 : 0); i > 0; --i) {
+		if((cp = strchr(cp,',')) == 0x0) return FALSE;
+		++cp;
+	}
+	while(isspace((unsigned char)*cp)) { ++cp; }
+	fld_start = cp;
+	fld = strtoull(fld_start, &endp, 10);
+	if(endp == fld_start)	// No digits
+		return FALSE;
+	while(isspace((unsigned char)*endp)) { ++endp; }
+	if(*endp != ',' && *endp != '\0')	// The field must end here, not run on into more digits or other characters
+		return FALSE;
+	expo = strtoull(ESTRING, 0x0, 10);
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && is_kbnc) {
+		return (expo < 64 && fld == (1ull << expo));
+	}
+	return (fld == expo);
+}
+
+/*********************/
+
 /* In assignment lines in which the first four [decimal-numeric] values following the '=' are expected to contain ints
 k,b,n,c of types [uint32,uint32,uint64, int32] which specify a modulus M = k*b^n+c, parse and sanity-check same.
 
@@ -6320,27 +6431,35 @@ void generate_JSON_report(
 	const char prp_status[2] = {'C','P'};
 	const char *pm1_status[2] = {"NF","F"};
 	const char *false_or_true[2] = {"false","true"};
-	// Attempt to read 32-hex-char Primenet assignment ID for current assignment (first line of WORKFILE):
-	ASSERT((fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
-	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
+	// Attempt to read the 32-hex-char Primenet assignment ID for the just-completed assignment from WORKFILE.
+	// v21: The completed assignment need not be the FIRST line of the workfile - the user may have
+	// inserted other assignments above it while the (possibly months-long) run was in progress - so scan for the
+	// line matching ESTRING rather than assuming line 1. If the workfile, or a matching line, is absent (e.g. the
+	// user edited it away mid-run), proceed with an empty AID rather than aborting: the result MUST be reported
+	// to the results file regardless of the workfile's state, else a months-long computation would be lost.
 	char_addr = 0x0;
-	while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
-		char_addr = g_in_line; while(isspace((unsigned char)*char_addr)) { ++char_addr; }
-		if(isalpha((unsigned char)*char_addr)) break;
+	if((fp = mlucas_fopen(WORKFILE, "r")) != 0x0) {
+		// v20.1.1: consider only lines whose leading non-WS char is alphabetic; find the one matching the exponent:
+		while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
+			char_addr = g_in_line; while(isspace((unsigned char)*char_addr)) { ++char_addr; }
+			if(workline_is_current_assignment(g_in_line, TEST_TYPE))
+				break;	// Found the just-completed assignment
+			char_addr = 0x0;	// Not a match - keep looking (char_addr stays 0x0 if we exit the loop empty-handed)
+		}
+		fclose(fp); fp = 0x0;
 	}
-	fclose(fp); fp = 0x0;
-	ASSERT(strlen(char_addr) != 0 && isalpha((unsigned char)*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
-	if(!strstr(g_in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP)) ) {
-		snprintf(cbuf,sizeof(cbuf), "ERROR: Current exponent %s not found in %s file!\n",ESTRING,WORKFILE);
-		ASSERT(0,cbuf);
-	}
-	// Is there a Primenet-server 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
-	char_addr = strstr(g_in_line, "=");
-	if(char_addr) {
-		char_addr++;
-		while(isspace((unsigned char)*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
-			strncpy(aid,char_addr,32);
+	if(!char_addr) {
+		snprintf(cbuf,sizeof(cbuf), "WARNING: Just-completed exponent %s not found in %s file (edited away mid-run?) - reporting result without an assignment ID.\n",ESTRING,WORKFILE);
+		mlucas_fprint(cbuf,1);
+	} else {
+		// Is there a Primenet-server 32-hexit assignment ID in the matching assignment line? If so, include it in the JSON output:
+		char_addr = strstr(g_in_line, "=");
+		if(char_addr) {
+			char_addr++;
+			while(isspace((unsigned char)*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+			if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
+				strncpy(aid,char_addr,32);
+		}
 	}
 	const uint32 error_code = (MIN(NERR_ROE, 0x3F) << 8) | (MIN(NERR_GCHECK, 0xF) << 20);
 	// Write the result line. The 2 nested conditionals here are LL-or-PRP and has-AID-or-not:
