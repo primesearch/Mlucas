@@ -27,8 +27,8 @@ Feature | | Mlucas | Prime95/MPrime
 \- | Suyama | ✔️ | 
 **PRP** | Proof generation | | ✔️
 \- | Proof certification | | ✔️
-**Error Checking** | Jacobi (LL/P-1) | | LL only
-\- | Gerbicz (PRP/Pépin) | ✔️ | ✔️
+**Error Checking** | Jacobi (LL/P-1) | LL (P-1: integrity only) | LL only
+\- | Gerbicz (PRP/Pépin) | ✔️ (also P-1 stage 1) | ✔️
 **Random Shifts** | | ✔️ | ✔️
 **Interface** | CLI | ✔️ | MPrime only
 \- | GUI | | Prime95 only
@@ -106,7 +106,7 @@ This README is still in progress. For now, see the original [Mlucas README](http
 
 ## Help
 
-The [help.txt](help.txt) file includes a variety of usage information not covered in the original [README](https://mersenneforum.org/mayer/README.html), concentrating largely on the Mlucas command line options. A separate documentation page covers [Fermat numbers](docs/Fermat-testing.md).
+The [help.txt](help.txt) file includes a variety of usage information not covered in the original [README](https://mersenneforum.org/mayer/README.html), concentrating largely on the Mlucas command line options. A separate documentation page covers [Fermat numbers](docs/Fermat-testing.md). Lucas-Lehmer tests are protected by a Jacobi residue check, controlled by the `JacobiCheck` and `JacobiCheckHours` mlucas.ini options - see help.txt section [11].
 
 ## Contributing
 
