@@ -3995,7 +3995,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	*/
 	/*	static uint64 *y, *n, *zvec, *apad, *prod, *tmp;	*/
 		enum { max_dim = 4096 };	// An integer constant expression, so these are plain arrays rather than VLAs
-		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], *lo = prod,*hi = 0x0, i64;
+		uint64 n[max_dim],ninv[max_dim], prod[2*max_dim], xloc[max_dim], *lo = prod,*hi = 0x0, *x = c, i64;
 		uint32 nbits, log2_numbits, wlen,wlen2, q32,qi32;
 		int j, start_index;
 	  #if MI64_PRP_DBG
@@ -4022,6 +4022,9 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		mi64_set_eq(n, q, len); if(i64) n[wlen-1] = 0ull;	// Use carryo4t i64 rather than (wlen > len) here, since wlen may be < len
 		wlen2 = wlen + wlen;
 		hi = prod + wlen;	// Pointer to upper half of product array
+		// The powering works on wlen-limb residues, but c[] has only len limbs. If a*q overflows len limbs
+		// (wlen = len+1), work in a local array and copy the len-limb result into c[] at the end:
+		if(wlen > len) x = xloc;
 	  #if MI64_PRP_DBG
 		if(dbg) printf("Modulus q has %u limbs, a*q has %u limbs\n",mi64_getlen(q,len),wlen);
 	  #endif
@@ -4032,7 +4035,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		Find modular inverse (mod 2^nbits) of w in preparation for modular multiply.
 		w must be odd for Montgomery-style modmul to work.
 		*/
-		mi64_clear(ninv, len);	// Init ninv = 0
+		mi64_clear(ninv, wlen);	// Init ninv = 0
 		// Start with 8-bits-good inverse and compute 64-bit mod-inverse via 3 Newton iterations:
 		q32  = n[0]; qi32 = minv8[(n[0]&0xff)>>1];
 		qi32 = qi32*((uint32)2 - q32*qi32);
@@ -4067,14 +4070,14 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 		// Initialize binary powering = R*a (mod q), where R = binary radix 2^(wlen*64);
 		// at present don't care about optimizing this rarely-used function:
 		mi64_clear(prod,wlen); prod[wlen] = a;	// R*a
-		mi64_div_binary(prod, n, wlen+1,wlen, 0x0, (uint32*)&j, c);	// c = R*a (mod q)
+		mi64_div_binary(prod, n, wlen+1,wlen, 0x0, (uint32*)&j, x);	// x = R*a (mod q)
 
 		// LR modpow:
 		j = mi64_leadz(b,len); start_index = (len<<6) - j;
 	  #if MI64_PRP_DBG
 	  if(dbg) {
 		printf("base a[] = %" PRIu64 ", start_bit = %d\n",a,start_index-2);
-		printf("R*a (mod q) = %s\n",&cbuf[convert_mi64_base10_char(cbuf,c,wlen, 0)]);
+		printf("R*a (mod q) = %s\n",&cbuf[convert_mi64_base10_char(cbuf,x,wlen, 0)]);
 	  }
 	  #endif
 	  #if DO_N_MODSQUARES
@@ -4082,7 +4085,7 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 	  #else
 		for(j = start_index-2; j >= 0; j--) {
 	  #endif
-			mi64_sqr_vector(c, prod, wlen);		// x^2
+			mi64_sqr_vector(x, prod, wlen);		// x^2
 		  #if MI64_PRP_DBG
 			if(dbg) printf("j = %d: (R*x)^2 (mod q) = %s\n", j, &cbuf[convert_mi64_base10_char(cbuf,prod,wlen2, 0)]);
 		  #endif
@@ -4105,20 +4108,26 @@ uint32 mi64_pprimeF(const uint64 p[], uint64 z, uint32 len)
 			// If hi < lo, then calculate (hi-lo)+q = q-lo+hi < q; otherwise calculate hi-lo:
 			if(mi64_cmpult(hi,lo,wlen)) {
 				i64 = mi64_sub(hi,lo,lo,wlen);	ASSERT(i64, "Expected a borrow!");
-				i64 = mi64_add(n ,lo,c ,wlen);	ASSERT(i64, "Expected borrow/carry cancellation!");
+				i64 = mi64_add(n ,lo,x ,wlen);	ASSERT(i64, "Expected borrow/carry cancellation!");
 			} else {
-				i64 = mi64_sub(hi,lo,c ,wlen);	ASSERT(!i64, "Unexpected borrow!");
+				i64 = mi64_sub(hi,lo,x ,wlen);	ASSERT(!i64, "Unexpected borrow!");
 			}
 		   #if MI64_PRP_DBG
-			if(dbg) printf("(mod q) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, wlen, 0)]);
-			if(dbg && !(j & 1023)) printf("At bit %d: Res64 = %016" PRIX64 "\n",j,c[0]);
+			if(dbg) printf("(mod q) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, x, wlen, 0)]);
+			if(dbg && !(j & 1023)) printf("At bit %d: Res64 = %016" PRIX64 "\n",j,x[0]);
 		   #endif
 		}
 		// Do a final Montmul-by-1 to remove the excess *R (mod q); hi = 0 here simplifies things:
-		mi64_mul_vector_lo_half( c,ninv,lo,wlen);
+		mi64_mul_vector_lo_half( x,ninv,lo,wlen);
 		mi64_mul_vector_hi_half(lo,n   ,lo,wlen);
-		// (hi-lo)+q = q-lo+hi = q-lo:
-		i64 = mi64_sub(n,lo, c,len);	ASSERT(!i64, "Unxpected borrow!");
+		// (hi-lo)+q = q-lo+hi = q-lo. Only the low wlen limbs of lo are valid; if q has leading zero limbs
+		// (wlen < len) the limbs above them hold leftovers of the last squaring, so stop the subtract at
+		// wlen and zero the rest of c[]. If wlen > len, the result is <= q, so its top limb x[len] is 0:
+		i64 = mi64_sub(n,lo, x,wlen);	ASSERT(!i64, "Unexpected borrow!");
+		if(wlen < len)
+			mi64_clear(c+wlen, len-wlen);
+		else if(x != c)
+			mi64_set_eq(c, x, len);
 	#if MI64_PRP_DBG
 	  if(dbg) printf("retval = %s\n", &cbuf[convert_mi64_base10_char(cbuf, c, len, 0)]);
 	#endif
