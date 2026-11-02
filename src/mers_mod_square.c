@@ -248,6 +248,30 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	nchunks = radix0>>1;
 	ASSERT(TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
 
+	#ifdef USE_AVX512
+	/* radix1008 (= 63*16) and radix4032 (= 63*64) have no AVX-512 Mersenne-mod carry:
+	radix{1008,4032}_main_carry_loop.h carry the '#warning No avx-512 mers-mod carry support yet!',
+	and under USE_AVX512 + Mersenne the carry step emits no code whatsoever.
+
+	Without this check the run still fails, but further downstream and less clearly: the
+	thread-local half_arr memcheck reads '#ifdef USE_AVX', so in an AVX-512 build it probes the
+	4-lane AVX offsets +40/+56 and asserts. radix960, which does support AVX-512 Mersenne, carries
+	a no-op '#ifdef USE_AVX512' arm that silences exactly that assert. Do NOT add that arm here
+	while the carry is still missing: it would turn a loud failure into a silently wrong residue.
+
+	This check sits ahead of the first_entry logic, not inside the init block, so a rejected call leaves
+	the cached init state alone. Inside the init block it returned after first_entry had been cleared, the
+	index arrays freed and the radix set saved, so an identical repeat call (same p, n and radix set, once
+	an earlier call had completed the init at this n) skipped the init and ran on the freed tables.
+
+	Remove this check when the AVX-512 Mersenne carry is implemented, not before. */
+	if(radix0 == 1008 || radix0 == 4032)
+	{
+		sprintf(cbuf  ,"Leading radix %u has no AVX-512 Mersenne-mod carry implementation; Skipping this leading radix.\n", (uint32)radix0);
+		WARN(HERE, cbuf, "", 1); return(ERR_RADIX0_UNAVAILABLE);
+	}
+	#endif
+
 /*...initialize things upon first entry */
 
 	/*...If a new exponent, runlength or radix set, deallocate any already-allocated
