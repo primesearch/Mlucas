@@ -344,8 +344,11 @@ uint256 twopmodq256(uint256 p, uint256 q)
 	MULL256(qinv, x, qinv);
 #endif
 
-	/* Since zstart is a power of two < 2^256, use a streamlined code sequence for the first iteration: */
-	ASSERT(start_index>=2, "twopmodq256 : start_index < 2!");
+	/* Since zstart is a power of two < 2^256, use a streamlined code sequence for the first iteration.
+	pshift = p + 256 has at least 9 bits, so start_index >= 1: the leading 8 bits go into zshift, bit
+	start_index-1 is done here, and the loop below does the rest (none when start_index == 1, i.e. p < 256,
+	as twopmodq192 already does for small p). Requiring start_index >= 2 made every p < 256 abort: */
+	ASSERT(start_index>=1, "twopmodq256 : start_index < 1!");
 	j = start_index-1;
 
 	/* MULL256(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
@@ -358,7 +361,7 @@ uint256 twopmodq256(uint256 p, uint256 q)
 		if(CMPUGT256(x, qhalf)){ ADD256(x, x, x); SUB256(x, q, x); }else{ ADD256(x, x, x); }
 	}
 
-	for(j = start_index-2; j >= 0; j--)
+	for(j = (int32)start_index-2; j >= 0; j--)	// Signed, so start_index == 1 gives j = -1, not 2^32-1
 	{
 		/*...x^2 mod q is returned in x. */
 		SQR_LOHI256(x,lo,hi);
