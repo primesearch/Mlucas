@@ -5296,7 +5296,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	uint8 arr2[], uint64 *i1   , uint64 *i2     , uint64 *i3     )
 {
 	const char func[] = "read_ppm1_savefiles";
-	uint32 i,j,k,len,nbytes = 0,nerr;
+	uint32 i,j,k,len,nbytes = 0,nerr,ttype,legacy = FALSE;
 	uint64 itmp64, nsquares = 0ull, *avec = (uint64 *)arr1, exp[4],pow[4],rem[4];
 	uint128 ui128,vi128; uint192 ui192,vi192; uint256 ui256,vi256;	// Fixed-length 2/3/4-word ints for stashing results of multiword modexp.
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
@@ -5307,7 +5307,7 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	}
 	fprintf(stderr, " INFO: restart file %s found...reading...\n",fname);
 	/* t: */
-	i = fgetc(fp);
+	i = fgetc(fp);	ttype = i;	// The savefile's own test type, which for Fermat moduli may differ from TEST_TYPE
 	if(!test_types_compatible(i, TEST_TYPE)) {
 		sprintf(cbuf, "%s: TEST_TYPE != fgetc(fp)\n",func);
 		return 0;
@@ -5399,7 +5399,72 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 	but my mi64_div routine gives the correct remainder 3398198221728141144755902061331087657421092620571, which clearly differs from 3^pow%f result.
 	(Also added CRT routine to nt_utils.txt, which takes the 3 remainders mod the known prime factors and confirms the DIV result.)
 	*/
+#if 0
+/* Above pow' = 2^(2^30 - 1) (mod p-1) = 433448099512320 = 2^35.3.5.29^2 example:
+My 2^-p (mod q) code needs q odd ... we note q = (p-1) = 2^32.103.1447 = 2^32.149041, so first try positive-power version:
+q = 2^32.qodd, so compute r' = 2^(p-32) (mod qodd = 149041) = 100920 = 2^3.3.5.29^2, whence r = 2^32.r' = 433448099512320
+The inverse of r' (mod qodd) = 38455, and that is just the output of the negative-powering r'' = 2^(-(p-32)) (mod 149041).
+Thus r'.r'' = 100920.38455 == 1 (mod 149041), BUT (2^32.r').(2^32.r'') = 433448099512320.165162967367680 !== 1 (mod p-1).
+Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
+1. Compute negative-power r'' = 2^(-(p-k)) (mod qodd);
+2. Compute mod-inverse r' = (r'')^-1 (mod qodd);
+3. Then 2^k.r' = 2^p (mod q = 2^k.qodd). */
+#endif
+
+	// FFT length in K (3 bytes) - first added this in v18:
+	i = *kblocks = 0;
+	for(j = 0; j < 3 && i != EOF; j++) {
+		i = fgetc(fp);	*kblocks += (uint64)i << (8*j);
+	}
+	if(i == EOF) {
+		*kblocks = 0;
+		// A PRP savefile which ends here lacks the Gerbicz-check data a PRP restart needs, so it is a truncated one. Fail the
+		// read so the caller tries the secondary, rather than resume with the worktodo-entry PRP base (see the check below):
+		if(ttype == TEST_TYPE_PRP) {
+			sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks in PRP savefile ... savefile is truncated.\n",func); return 0;
+		}
+		// A pre-v18 Pepin-test savefile, which a Fermat PRP-CF run may restart from, still gets the known-factor check:
+		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf);
+		legacy = TRUE; goto KNOWN_FACTOR_CHECK;
+	}
+	/* May 2018: 8 bytes for circular-shift to apply to the (unshifted) residue read from the file: */
+	i = 0; RES_SHIFT = 0ull;
+	for(j = 0; j < 8 && i != EOF; j++) {
+		i = fgetc(fp);	RES_SHIFT += (uint64)i << (8*j);
+	}
+	if(i == EOF) {
+		RES_SHIFT = 0ull;
+		if(ttype == TEST_TYPE_PRP) {	// As above
+			sprintf(cbuf,"%s: Hit EOF in read of residue-shift in PRP savefile ... savefile is truncated.\n",func); return 0;
+		}
+		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf);
+		legacy = TRUE; goto KNOWN_FACTOR_CHECK;	// As above
+	}
+
+  // v19: For PRP-tests, also read a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]:
+  if(DO_GCHECK) {	// v21: Change to key off DO_GCHECK, to allow Fermat-mod Pepin-tests to use the Gerbicz check, too
+	ASSERT(arr2 != 0x0, "Null arr2 pointer!");
+	PRP_BASE = 0ull;
+	for(j = 0; j < 4; j++) {
+		i = fgetc(fp);	PRP_BASE += i << (8*j);
+	}
+	i = read_ppm1_residue(nbytes, fp, arr2, i1,i2,i3);
+	if(!i) return 0;
+	// G-check residues all need to be clshifted by residue-shift count at the ITERS_BETWEEN_GCHECK_UPDATESth PRP-test iteration:
+	GCHECK_SHIFT = 0ull;
+	for(j = 0; j < 8; j++) {
+		i = fgetc(fp);	GCHECK_SHIFT += (uint64)i << (8*j);
+	}
+  }
+
+KNOWN_FACTOR_CHECK:
+	// Known-factor check of the residue, as described above. This must come after the read of the PRP base from the
+	// savefile: if the user changed the base in the worktodo entry, the run continues with the base it was started with
+	// (see the "differs from value" handling in the caller), and that is the base the residue was computed with:
 	if(TEST_TYPE == TEST_TYPE_PRP) {
+		// A Fermat-mod residue is always a power of 3: PRP-CF requires base 3 for these, and a Pepin-test savefile, which a
+		// PRP-CF run may restart from, holds PRP_BASE = 2 (the random-shift offset) in all but its final write:
+		uint32 kf_base = (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ? 3 : PRP_BASE;
 		len = (nbytes+7)>>3; j = p&63; itmp64 = avec[len-1];	ASSERT((itmp64 >> j) == 0ull, "High limb of residue array1 does not have upper bits cleared!");
 		for(i = 0; KNOWN_FACTORS[i] != 0ull; i += 4) {
 			j = mi64_getlen(KNOWN_FACTORS+i,4);	// j = number of nonzero limbs in curr_fac (alloc 4 limbs per in KNOWN_FACTORS[])
@@ -5427,60 +5492,16 @@ int read_ppm1_savefiles(const char *fname, uint64 p, uint32 *kblocks, FILE *fp, 
 			} else
 				ASSERT(0, "Only known-factors < 2^256 supported!");
 			// Raise PRP base (usually but not always 3) to the just-computed power; result in 4-limb local-array pow[]:
-			mi64_scalar_modpow_lr(PRP_BASE, exp, KNOWN_FACTORS+i, j, pow);
+			mi64_scalar_modpow_lr(kf_base, exp, KNOWN_FACTORS+i, j, pow);
 			sprintf(g_cstr,"\tB: R == %s (mod q)\n",&cbuf[convert_mi64_base10_char(cbuf, pow, j, 0)] ); mlucas_fprint(g_cstr,1);
 			if (mi64_getlen(pow,4) != k || !mi64_cmp_eq(pow,rem,k)) {
-				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", PRP_BASE); mlucas_fprint(cbuf,0);
+				snprintf(cbuf,sizeof(cbuf),"Full-residue == %u^nsquares (mod q) check fails!", kf_base); mlucas_fprint(cbuf,0);
 				ASSERT(0, cbuf);
 			}
 		}
 	}
-#if 0
-/* Above pow' = 2^(2^30 - 1) (mod p-1) = 433448099512320 = 2^35.3.5.29^2 example:
-My 2^-p (mod q) code needs q odd ... we note q = (p-1) = 2^32.103.1447 = 2^32.149041, so first try positive-power version:
-q = 2^32.qodd, so compute r' = 2^(p-32) (mod qodd = 149041) = 100920 = 2^3.3.5.29^2, whence r = 2^32.r' = 433448099512320
-The inverse of r' (mod qodd) = 38455, and that is just the output of the negative-powering r'' = 2^(-(p-32)) (mod 149041).
-Thus r'.r'' = 100920.38455 == 1 (mod 149041), BUT (2^32.r').(2^32.r'') = 433448099512320.165162967367680 !== 1 (mod p-1).
-Thus if we use a negative-power algo, to recover 2^p (mod q = 2^k.qodd):
-1. Compute negative-power r'' = 2^(-(p-k)) (mod qodd);
-2. Compute mod-inverse r' = (r'')^-1 (mod qodd);
-3. Then 2^k.r' = 2^p (mod q = 2^k.qodd). */
-#endif
 
-	// FFT length in K (3 bytes) - first added this in v18:
-	i = *kblocks = 0;
-	for(j = 0; j < 3 && i != EOF; j++) {
-		i = fgetc(fp);	*kblocks += (uint64)i << (8*j);
-	}
-	if(i == EOF) {
-		*kblocks = 0;
-		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
-	}
-	/* May 2018: 8 bytes for circular-shift to apply to the (unshifted) residue read from the file: */
-	i = 0; RES_SHIFT = 0ull;
-	for(j = 0; j < 8 && i != EOF; j++) {
-		i = fgetc(fp);	RES_SHIFT += (uint64)i << (8*j);
-	}
-	if(i == EOF) {
-		RES_SHIFT = 0ull;
-		sprintf(cbuf,"%s: Hit EOF in read of FFT-kblocks ... assuming a pre-v18 savefile.\n",func); fprintf(stderr,"%s", cbuf); return 1;
-	}
-
-  // v19: For PRP-tests, also read a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]:
-  if(DO_GCHECK) {	// v21: Change to key off DO_GCHECK, to allow Fermat-mod Pepin-tests to use the Gerbicz check, too
-	ASSERT(arr2 != 0x0, "Null arr2 pointer!");
-	PRP_BASE = 0ull;
-	for(j = 0; j < 4; j++) {
-		i = fgetc(fp);	PRP_BASE += i << (8*j);
-	}
-	i = read_ppm1_residue(nbytes, fp, arr2, i1,i2,i3);
-	if(!i) return 0;
-	// G-check residues all need to be clshifted by residue-shift count at the ITERS_BETWEEN_GCHECK_UPDATESth PRP-test iteration:
-	GCHECK_SHIFT = 0ull;
-	for(j = 0; j < 8; j++) {
-		i = fgetc(fp);	GCHECK_SHIFT += (uint64)i << (8*j);
-	}
-  }
+	if(legacy) return 1;	// Pre-v18 savefile: no further fields
 
   // v20: Read cumulative #errs for ROE >= 0.4375 (>= for LL, > for PRP) and Gerbicz-check for the test in question.
   // If it's a restart from a v19 run, emit a warning and simply start these from their main()-init values of 0:
