@@ -458,10 +458,14 @@ numbering conventions used by the leading x86-CPU manufacturers Intel and AMD.
 	values of the integer loop index i in the C-loop for(i = lo; i <= hi; i += incr),
 	excluding the loop-exit value of i. Thus '-cpu 0:3' and '-cpu 0:3:1' are both
 	exactly equivalent to '-nthread 4' when the first 4 cores of the process's CPU-affinity
-	mask are cores 0-3, as is always the case for an unrestricted mask. If the
-	process was launched under a restricted mask, e.g. 'taskset -c 4-7', then '-nthread 4'
-	selects the first 4 cores of that mask (4-7) whereas '-cpu 0:3' still selects cores
-	0-3 - outside the mask, hence the warning described under -nthread. The two forms
+	mask are cores 0-3 in the numbering which -cpu uses, as is always the case for an
+	unrestricted mask. That numbering is the operating system's logical-CPU numbering, except
+	in builds with hwloc support, where it is hwloc's logical-PU numbering (the inherited mask
+	is translated into it), and on a machine with hyperthreading that generally differs from the
+	OS's. If the process was launched under a restricted mask, e.g. 'taskset -c 4-7', then
+	'-nthread 4' selects the first 4 cores of that mask whereas '-cpu 0:3' still selects cores
+	0-3 in that numbering, which need not lie in the mask - hence the warning described
+	under -nthread. The two forms
 	'-cpu 0:6:2' and '-cpu 0:7:2' both specify affinity setting to logical cores 0,2,4,6,
 	assuming said cores exist.
 	Lastly, note that no whitespace is permitted within the colon-separated numeric field.
