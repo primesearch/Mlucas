@@ -9608,8 +9608,13 @@ exit(0);
 		if(nunknown == nsel) {
 			fprintf(stderr, "INFO: %u logical CPUs selected; physical-core topology not available on this platform.\n", nsel);
 		} else {
-			fprintf(stderr, "INFO: %u logical CPUs selected on %u physical core%s (up to %u thread%s per core).\n",
-				nsel, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			if(nunknown == 0) {
+				fprintf(stderr, "INFO: %u logical CPUs selected on %u physical core%s (up to %u thread%s per core).\n",
+					nsel, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			} else {	// Partial topology (e.g. a 32-bit process on a machine with processor groups of more than 32 CPUs): the counts below cover only the CPUs whose core is known
+				fprintf(stderr, "INFO: %u logical CPUs selected; the core of %u of them could not be determined, so these counts are lower bounds: %u known physical core%s, up to %u thread%s per core.\n",
+					nsel, nunknown, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			}
 			if(maxper > 1 && !user_chose_smt) {
 				fprintf(stderr, "WARN: some selected logical CPUs are SMT siblings on the same physical core. Which logical\n"
 				                "      CPUs share a core is decided by firmware and varies from system to system; it is not a\n"
