@@ -236,7 +236,9 @@ uint32	extractFFTlengthFrom32Bit (uint32 n)
 	ASSERT(retval > 4, "extractFFTlengthFrom32Bit: Leading radix must be 5 or larger!");
 	/* Bits <10:13> store (number of FFT radices): */
 	nrad   = (n & 0xf)    ;	n >>= 4;
-	ASSERT(nrad >=  3, "extractFFTlengthFrom32Bit: Number of radices must be 3 or larger!");
+	/* The smallest radix sets in get_fft_radices() have 2 radices (1K sets 0 and 1, 2K set 1 = 32,32),
+	and get_preferred_fft_radix() encodes a faster 2K entry this way when asked for 1K: */
+	ASSERT(nrad >=  2, "extractFFTlengthFrom32Bit: Number of radices must be 2 or larger!");
 	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
 	for(i = 1; i < nrad; i++)	/* Already done leading radix, so start at 1, not 0 */
 	{
@@ -256,7 +258,7 @@ void	extractFFTradicesFrom32Bit(uint32 n)
 	RADIX_VEC[0] = retval;
 	/* Bits <10:13> store (number of FFT radices): */
 	nrad   = (n & 0xf)    ;	n >>= 4;
-	ASSERT(nrad >=  3, "extractFFTradicesFrom32Bit: Number of radices must be 3 or larger!");
+	ASSERT(nrad >=  2, "extractFFTradicesFrom32Bit: Number of radices must be 2 or larger!");
 	ASSERT(nrad <= 10, "extractFFTradicesFrom32Bit: Number of radices must be 10 or smaller!");
 	NRADICES = nrad;
 	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
