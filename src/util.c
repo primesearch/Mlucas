@@ -40,6 +40,7 @@
 PFN_SetThreadGroupAffinity		pSetThreadGroupAffinity			= NULL;
 PFN_GetActiveProcessorCount		pGetActiveProcessorCount		= NULL;
 PFN_GetActiveProcessorGroupCount	pGetActiveProcessorGroupCount	= NULL;
+PFN_GetLogicalProcessorInformationEx	pGetLogicalProcessorInformationEx	= NULL;
 
 void win7_procgroup_init(void)
 {
@@ -48,6 +49,33 @@ void win7_procgroup_init(void)
 	pSetThreadGroupAffinity			= (PFN_SetThreadGroupAffinity     )(void*)GetProcAddress(k32,"SetThreadGroupAffinity");
 	pGetActiveProcessorCount		= (PFN_GetActiveProcessorCount    )(void*)GetProcAddress(k32,"GetActiveProcessorCount");
 	pGetActiveProcessorGroupCount	= (PFN_GetActiveProcessorGroupCount)(void*)GetProcAddress(k32,"GetActiveProcessorGroupCount");
+	pGetLogicalProcessorInformationEx	= (PFN_GetLogicalProcessorInformationEx)(void*)GetProcAddress(k32,"GetLogicalProcessorInformationEx");
+}
+
+void win_flat_cpu_to_group(uint32 cpu, const DWORD *group_size, WORD group_count, WORD *group, DWORD *proc)
+{
+	DWORD p = (DWORD)cpu;
+	WORD g;
+	for(g = 0; g < group_count; ++g) {
+		if(p < group_size[g]) break;
+		p -= group_size[g];
+	}
+	*group = g;	*proc = p;
+}
+
+int win_cpu_to_group(uint32 cpu, WORD *group, DWORD *proc)
+{
+	DWORD size[64];
+	WORD g, count;
+	if(!pGetActiveProcessorCount || !pGetActiveProcessorGroupCount) {
+		*group = 0;	*proc = (DWORD)cpu;
+		return 0;
+	}
+	count = pGetActiveProcessorGroupCount();
+	if(count > 64) count = 64;	// Windows has at most 20 groups
+	for(g = 0; g < count; ++g) { size[g] = pGetActiveProcessorCount(g); }
+	win_flat_cpu_to_group(cpu, size, count, group, proc);
+	return 1;
 }
 #endif
 
@@ -55,6 +83,13 @@ void win7_procgroup_init(void)
 	#define USE_FMADD
 	#warning USE_FMADD local-defined!
 #endif
+/* Detected per-core L2 and (shared) L3 cache sizes, 0 = unknown; filled by report_cpu_topology()
+below. Defined here rather than in Mlucas.c because the references are in this file and Mfactor
+links util.o without Mlucas.o: with LTO the linker drops the unreferenced reads and the missing
+definition goes unnoticed, but any build without it - the sanitizer jobs at -Og, and every clang
+old enough that makemake.sh turns -flto off - fails with "undefined reference to L2_CACHE_BYTES". */
+uint64 L2_CACHE_BYTES = 0, L3_CACHE_BYTES = 0;
+
 /**********************************/
 /******* INFO, WARN ASSERT ********/
 /**********************************/
@@ -9434,6 +9469,182 @@ exit(0);
 			exit(EXIT_FAILURE);
 		}
 	}
+
+	/* Return the physical-core key of logical CPU `cpu`, or -1 if unknown. Keys are only compared
+	   for equality, so any stable encoding works: (package << 16 | core_id) on Linux, hwloc CORE
+	   logical index, Windows core ordinal. */
+	static int cpu_core_key(uint32 cpu)
+	{
+	#if INCLUDE_HWLOC
+		/* Consistent with threadpool.c, which binds worker i to HWLOC_OBJ_PU with *logical* index i: */
+		hwloc_obj_t pu = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_PU, cpu);
+		if(pu) {
+			hwloc_obj_t core = hwloc_get_ancestor_obj_by_type(hw_topology, HWLOC_OBJ_CORE, pu);
+			if(core) return (int)core->logical_index;
+		}
+		return -1;
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+		char path[128]; FILE *f; int core = -1, pkg = 0;
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/topology/core_id", cpu);
+		if((f = fopen(path, "r"))) { if(fscanf(f, "%d", &core) != 1) core = -1; fclose(f); }
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/topology/physical_package_id", cpu);
+		if((f = fopen(path, "r"))) { if(fscanf(f, "%d", &pkg) != 1) pkg = 0; fclose(f); }
+		return (core < 0) ? -1 : ((pkg & 0x7fff) << 16) | (core & 0xffff);
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		/* Enumerate RelationProcessorCore records; the k-th record is core k; a CPU belongs to it if
+		   its (group, bit) is in the record's GroupMask array. The flat index `cpu` is the one CORE_SET
+		   and threadpool.c use, so split it into (group, in-group processor) exactly as threadpool.c
+		   does - groups need not be 64 CPUs, so cpu>>6 is not the group number in general. The API
+		   is Windows 7 and later and is resolved at run time: without it, report topology as unknown. */
+		DWORD len = 0, cproc; WORD cgroup; int key = -1, k = 0;
+		if(!pGetLogicalProcessorInformationEx) return -1;
+		win_cpu_to_group(cpu, &cgroup, &cproc);
+		if(cproc >= 8*sizeof(KAFFINITY)) return -1;
+		/* A 32-bit (WOW64) process on a machine with more than 64 processors gets folded masks from
+		   GetLogicalProcessorInformationEx: the masks for processors 32-63 of a group come back as
+		   duplicates of those for 0-31, so the lookup below could place a CPU on the wrong core. Treat
+		   membership as unknown for any group with more than 32 processors in that configuration (more
+		   than 64 processors implies more than one group). 64-bit builds, and groups of at most 32 CPUs,
+		   are unaffected. */
+		if(sizeof(KAFFINITY) < 8 && pGetActiveProcessorGroupCount && pGetActiveProcessorCount
+		   && pGetActiveProcessorGroupCount() > 1 && pGetActiveProcessorCount(cgroup) > 32) return -1;
+		pGetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
+		if(len == 0) return -1;
+		char *buf = malloc(len); if(!buf) return -1;
+		if(pGetLogicalProcessorInformationEx(RelationProcessorCore, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+			char *p = buf;
+			while(p < buf + len) {
+				SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
+				for(WORD g = 0; g < rec->Processor.GroupCount; g++) {
+					GROUP_AFFINITY *ga = &rec->Processor.GroupMask[g];
+					if(ga->Group == cgroup && (ga->Mask & ((KAFFINITY)1 << cproc))) { key = k; break; }
+				}
+				if(key >= 0) break;
+				p += rec->Size; k++;
+			}
+		}
+		free(buf);
+		return key;
+	#else
+		(void)cpu; return -1;
+	#endif
+	}
+	
+	/* Fill L2_CACHE_BYTES (per-core L2) and L3_CACHE_BYTES; leave 0 where unknown. On Linux the
+	   sizes are read from the first selected CPU (the lowest set in CORE_SET, or CPU 0 if none) rather
+	   than always from CPU 0, since on hybrid parts the L2 size differs between core types; the CPU
+	   used is returned so the report can name it, or -1 if the sizes were not taken from a particular
+	   CPU (hwloc: first L2/L3 object; Windows: first cache record). */
+	static int detect_cache_sizes(void)
+	{
+	  int sample_cpu = -1;
+	#if INCLUDE_HWLOC
+		hwloc_obj_t o;
+	  #if HWLOC_API_VERSION >= 0x00020000
+		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L2CACHE, 0)) && o->attr) L2_CACHE_BYTES = o->attr->cache.size;
+		if((o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_L3CACHE, 0)) && o->attr) L3_CACHE_BYTES = o->attr->cache.size;
+	  #else
+		/* hwloc 1.x has no per-level cache object types: there is one HWLOC_OBJ_CACHE and the level
+		lives in attr->cache.depth. Walk the cache objects and pick out L2 and L3. Ubuntu 18.04 and
+		older ship hwloc 1.x, where the 2.x-only HWLOC_OBJ_L2CACHE/L3CACHE do not compile at all. */
+		int nc = hwloc_get_nbobjs_by_type(hw_topology, HWLOC_OBJ_CACHE), i;
+		for(i = 0; i < nc; i++) {
+			if(!(o = hwloc_get_obj_by_type(hw_topology, HWLOC_OBJ_CACHE, i)) || !o->attr) continue;
+			if(o->attr->cache.depth == 2 && !L2_CACHE_BYTES) L2_CACHE_BYTES = o->attr->cache.size;
+			if(o->attr->cache.depth == 3 && !L3_CACHE_BYTES) L3_CACHE_BYTES = o->attr->cache.size;
+		}
+	  #endif
+	#elif defined(OS_TYPE_LINUX) && !defined(__MINGW32__)
+		/* /sys/devices/system/cpu/cpuN/cache/indexM/{level,type,size}; size is like "256K" or "16384K" */
+		uint32 cpu = 0, w, b;
+		for(w = 0; w < MAX_CORES>>6; w++) {	// First selected CPU, else CPU 0
+			if(CORE_SET[w]) { for(b = 0; b < 64 && !(CORE_SET[w] & (1ull << b)); b++) ; cpu = (w << 6) + b; break; }
+		}
+		sample_cpu = (int)cpu;
+		for(int i = 0; i < 8; i++) {
+			char path[128], type[32] = ""; int level = 0; unsigned long sz = 0; char unit = 0; FILE *f;
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cache/index%d/level", cpu, i);
+			if(!(f = fopen(path, "r"))) break;
+			if(fscanf(f, "%d", &level) != 1) level = 0;
+			fclose(f);
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cache/index%d/type", cpu, i);
+			if((f = fopen(path, "r"))) { if(fscanf(f, "%31s", type) != 1) type[0] = 0; fclose(f); }
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cache/index%d/size", cpu, i);
+			if((f = fopen(path, "r"))) { if(fscanf(f, "%lu%c", &sz, &unit) < 1) sz = 0; fclose(f); }
+			if(unit == 'K') sz <<= 10; else if(unit == 'M') sz <<= 20;
+			if(strcmp(type, "Instruction") == 0) continue;
+			if(level == 2) L2_CACHE_BYTES = sz; else if(level == 3) L3_CACHE_BYTES = sz;
+		}
+	#elif defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		DWORD len = 0;
+		if(!pGetLogicalProcessorInformationEx) return -1;	// Windows 7 and later only; leave the sizes 0 = unknown
+		pGetLogicalProcessorInformationEx(RelationCache, NULL, &len);
+		if(len) {
+			char *buf = malloc(len);
+			if(buf && pGetLogicalProcessorInformationEx(RelationCache, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+				for(char *p = buf; p < buf + len; ) {
+					SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *rec = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)p;
+					if(rec->Cache.Type != CacheInstruction) {
+						if(rec->Cache.Level == 2 && !L2_CACHE_BYTES) L2_CACHE_BYTES = rec->Cache.CacheSize;
+						if(rec->Cache.Level == 3 && !L3_CACHE_BYTES) L3_CACHE_BYTES = rec->Cache.CacheSize;
+					}
+					p += rec->Size;
+				}
+			}
+			free(buf);
+		}
+	#endif
+		return sample_cpu;
+	}
+	
+	/* Call once after CORE_SET/NTHREADS are final. `user_chose_smt` = TRUE when the set came from
+	   '-core lo:hi:tpc' with tpc > 1, i.e. sharing cores was requested. */
+	void report_cpu_topology(int user_chose_smt)
+	{
+		uint32 i, word, bit, nsel = 0, nunknown = 0, ncores = 0, maxper = 0;
+		int keys[MAX_CORES]; uint32 cnt[MAX_CORES];
+	#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+		win7_procgroup_init();	// Idempotent; resolves the topology and processor-group entry points if not already done
+	#endif
+		int cache_cpu = detect_cache_sizes();
+		for(i = 0; i < MAX_CORES; i++) {
+			word = i >> 6; bit = i & 63;
+			if(!(CORE_SET[word] & (1ull << bit))) continue;
+			nsel++;
+			int k = cpu_core_key(i), j;
+			if(k < 0) { nunknown++; continue; }
+			for(j = 0; j < (int)ncores; j++) if(keys[j] == k) break;
+			if(j == (int)ncores) { keys[ncores] = k; cnt[ncores] = 0; ncores++; }
+			cnt[j]++; if(cnt[j] > maxper) maxper = cnt[j];
+		}
+		if(nunknown == nsel) {
+			fprintf(stderr, "INFO: %u logical CPUs selected; physical-core topology not available on this platform.\n", nsel);
+		} else {
+			if(nunknown == 0) {
+				fprintf(stderr, "INFO: %u logical CPUs selected on %u physical core%s (up to %u thread%s per core).\n",
+					nsel, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			} else {	// Partial topology (e.g. a 32-bit process on a machine with processor groups of more than 32 CPUs): the counts below cover only the CPUs whose core is known
+				fprintf(stderr, "INFO: %u logical CPUs selected; the core of %u of them could not be determined, so these counts are lower bounds: %u known physical core%s, up to %u thread%s per core.\n",
+					nsel, nunknown, ncores, ncores == 1 ? "" : "s", maxper, maxper == 1 ? "" : "s");
+			}
+			if(maxper > 1 && !user_chose_smt) {
+				fprintf(stderr, "WARN: some selected logical CPUs are SMT siblings on the same physical core. Which logical\n"
+				                "      CPUs share a core is decided by firmware and varies from system to system; it is not a\n"
+				                "      property of the CPU vendor. Siblings may be numbered adjacently (0,1) on one machine and\n"
+				                "      as i, i+ncores (0,8) on another, so '-cpu 0:3' is not always 4 distinct cores. To run one\n"
+				                "      thread per core use '-core lo:hi:1' (hwloc builds) or list one logical CPU per core\n"
+				                "      explicitly, e.g. '-cpu 0:6:2'.\n");
+			}
+		}
+		if(L2_CACHE_BYTES || L3_CACHE_BYTES) {
+			char src[64];
+			if(cache_cpu >= 0) snprintf(src, sizeof(src), "as seen by CPU %d", cache_cpu);
+			else snprintf(src, sizeof(src), "one sample, not necessarily the selected CPUs");
+			fprintf(stderr, "INFO: cache (%s): L2 = %llu KB per core, L3 = %llu KB.\n", src,
+				(unsigned long long)(L2_CACHE_BYTES >> 10), (unsigned long long)(L3_CACHE_BYTES >> 10));
+		}
+	}
+	
 
 #endif	// MULTITHREAD ?
 

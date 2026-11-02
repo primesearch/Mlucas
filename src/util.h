@@ -215,6 +215,7 @@ double	mlucas_getOptVal(const char*fname, char*optname);
   #endif
 	uint32	parseAffinityTriplet(char*istr, int hwloc_topo);
 	void	parseAffinityString(char*istr);
+	void	report_cpu_topology(int user_chose_smt);
 
 #endif	// MULTITHREAD ?
 
@@ -415,14 +416,26 @@ processor groups wherever they exist and still starts on Vista. GROUP_AFFINITY i
 typedef BOOL  (WINAPI *PFN_SetThreadGroupAffinity      )(HANDLE, const GROUP_AFFINITY*, PGROUP_AFFINITY);
 typedef DWORD (WINAPI *PFN_GetActiveProcessorCount     )(WORD);
 typedef WORD  (WINAPI *PFN_GetActiveProcessorGroupCount)(void);
+typedef BOOL  (WINAPI *PFN_GetLogicalProcessorInformationEx)(LOGICAL_PROCESSOR_RELATIONSHIP, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, PDWORD);
 
 extern PFN_SetThreadGroupAffinity		pSetThreadGroupAffinity;
 extern PFN_GetActiveProcessorCount		pGetActiveProcessorCount;
 extern PFN_GetActiveProcessorGroupCount	pGetActiveProcessorGroupCount;
+/* GetLogicalProcessorInformationEx is likewise Windows 7 and later, so it is resolved here too; the
+CPU-topology report treats a NULL pointer as "topology unavailable": */
+extern PFN_GetLogicalProcessorInformationEx	pGetLogicalProcessorInformationEx;
 
 /* Resolve the above. host_init() runs this via get_num_cores() before any worker thread exists;
 the workers only ever read the pointers, so there is no race. */
 void win7_procgroup_init(void);
+
+/* Turn a flat logical-CPU index (the numbering CORE_SET uses) into a (processor group, in-group
+processor) pair. Groups need not all be 64 CPUs: group_size[g] is the number of active processors in
+group g, and the index is split by walking the groups in order. win_flat_cpu_to_group() is the pure
+arithmetic; win_cpu_to_group() gets the group sizes from the system, and on a system without the
+processor-group API (before Windows 7) returns FALSE with group 0 and proc = cpu. */
+void win_flat_cpu_to_group(uint32 cpu, const DWORD *group_size, WORD group_count, WORD *group, DWORD *proc);
+int  win_cpu_to_group(uint32 cpu, WORD *group, DWORD *proc);
 #endif
 
 #endif	/* util_h_included */

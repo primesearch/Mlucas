@@ -362,6 +362,7 @@ extern uint32 TRANSFORM_TYPE;
 extern const char OFILE[], WORKFILE[];
 extern const char MLUCAS_INI_FILE[];
 extern char CONFIGFILE[];
+extern uint64 L2_CACHE_BYTES, L3_CACHE_BYTES;	// Detected per-core L2 and (shared) L3 sizes, 0 = unknown; set by report_cpu_topology()
 extern char STATFILE[];
 extern char RESTARTFILE[];
 extern uint64 KNOWN_FACTORS[40];	// Known prime-factors input to p-1 runs ... for now limit to 10 factors, each < 2^256
