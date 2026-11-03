@@ -46,11 +46,23 @@ Then to run, e.g.
 	char cbuf[STR_MAX_LEN*2];
 	uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
 	double MME;
-	// Parse a uint32-valued command-line arg at full width, so a value >= 2^32 is rejected rather than wrapped mod 2^32
-	// (a narrowing (uint32)strtoul turned e.g. -m 4294967297 into m = 1). Returns 0 on overflow, 1 on success:
+	// Parse an unsigned decimal command-line value of at most 'maxval', returning 1 on success and 0 on any of: no leading digit
+	// (strtoull() would accept leading whitespace and a '+' or '-' sign, and a '-' wraps the value around), trailing characters
+	// (so '8e2' is not read as 8), or a value above 'maxval' (which includes strtoull()'s ERANGE overflow). Parsing at full width,
+	// rather than narrowing a (uint32)strtoul, is what stops e.g. -m 4294967297 from wrapping to m = 1:
+	static int parse_uint_arg(const char *s, uint64 maxval, uint64 *out) {
+		char *endp;
+		unsigned long long v;
+		if(*s < '0' || *s > '9') return 0;
+		errno = 0;
+		v = strtoull(s,&endp,10);
+		if(errno == ERANGE || *endp != '\0' || v > maxval) return 0;
+		*out = (uint64)v;	return 1;
+	}
+	// Same, for a uint32-valued arg:
 	static int parse_u32_arg(const char *s, uint32 *out) {
-		const unsigned long long v = strtoull(s,0x0,10);
-		if(v > 0xFFFFFFFFull) return 0;
+		uint64 v;
+		if(!parse_uint_arg(s, 0xFFFFFFFFull, &v)) return 0;
 		*out = (uint32)v;	return 1;
 	}
 #else
@@ -1053,29 +1065,43 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 			fprintf(stderr, "*** The required command-line options are -bigstep [210|330|420|660|840] -b1 [int > 0] -b2 [int > 0] -m [int > 0]\n");	return 1;
 		}
 
+		// All four options take a value, which is a missing argument if the flag was the last one on the command line:
+		if(STREQ(stFlag, "-bigstep") || STREQ(stFlag, "-b1") || STREQ(stFlag, "-b2") || STREQ(stFlag, "-m")) {
+			if(!argv[nargs]) {
+				fprintf(stderr, "*** ERROR: option %s requires a value.\n", stFlag);	return 1;
+			}
+		}
+
 		if(STREQ(stFlag, "-bigstep")) {
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			if(!parse_u32_arg(stFlag, &bigstep)) {
-				fprintf(stderr, "*** ERROR: -bigstep arg must be at most 4294967295; user entered %s.\n", stFlag);	return 1;
+				fprintf(stderr, "*** ERROR: -bigstep arg must be an integer in [0, 4294967295]; user entered %s.\n", stFlag);	return 1;
 			}
 		} else if(STREQ(stFlag, "-b1")) {
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			if(!parse_u32_arg(stFlag, &B1)) {
-				fprintf(stderr, "*** ERROR: -b1 arg must be at most 4294967295; user entered %s.\n", stFlag);	return 1;
+				fprintf(stderr, "*** ERROR: -b1 arg must be an integer in [0, 4294967295]; user entered %s.\n", stFlag);	return 1;
 			}
 		} else if(STREQ(stFlag, "-b2")) {
 			// B2 is a uint64 - Stage 2 bounds are explicitly allowed to exceed 2^32, so atoi() truncated it:
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);	B2      =         strtoull(stFlag,0x0,10);
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			if(!parse_uint_arg(stFlag, ~0ull, &B2)) {
+				fprintf(stderr, "*** ERROR: -b2 arg must be an integer in [0, 18446744073709551615]; user entered %s.\n", stFlag);	return 1;
+			}
 		} else if(STREQ(stFlag, "-m")) {
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			if(!parse_u32_arg(stFlag, &m)) {
-				fprintf(stderr, "*** ERROR: -m arg must be at most 4294967295; user entered %s.\n", stFlag);	return 1;
+				fprintf(stderr, "*** ERROR: -m arg must be an integer in [0, 4294967295]; user entered %s.\n", stFlag);	return 1;
 			}
 		} else {
 			fprintf(stderr, "*** ERROR: Unrecognized flag %s.\n", stFlag);	return 1;
 		}
 	}
 	ASSERT(bigstep && B1 && B2 && m, "All 4 args bigstep,b1,b2,m must be set > 0!");
+	// Stage 2 runs q up to B2 + m*bigstep (see the qhi computation below), which must not wrap past 2^64, else the loop gets zero passes:
+	if(B2 > ~0ull - (uint64)m*bigstep) {
+		fprintf(stderr, "*** ERROR: -b2 %" PRIu64 " is too large: B2 + m*bigstep must be at most 18446744073709551615.\n", B2);	return 1;
+	}
 	B2_start = (uint64)B1;
   #else
 	// Check function pointer to [mers|fermat]_mod_square based on modulus type:
@@ -2128,7 +2154,7 @@ MME = 0;
 	*/
 	nerr = 0;
 	// Oct 2021: extend qhi by several times D to make sure we don't orphan any unpaired-primes just below B2:
-	qhi = (B2 + m*bigstep);
+	qhi = B2 + (uint64)m*bigstep;	// Widen before multiplying: m*bigstep in uint32 arithmetic can wrap
 	for(q = qlo; q < qhi; q += bigstep)
 	{
 		// Only start actual 0-interval and extended-window pairing when q hits q0:
