@@ -2238,6 +2238,10 @@ READ_RESTART_FILE:
 				ASSERT((itmp64>>32) == 0ull,"Shift must be < 2^32!");
 				GCHECK_SHIFT = itmp64;
 			}
+  #ifdef USE_BIG_ENDIAN
+			mi64_bswap(c_uint64_ptr, j);	// Byte stream -> native limbs for mi64_shlc
+			mi64_bswap(e_uint64_ptr, j);
+  #endif
 			mi64_shlc(c_uint64_ptr, c_uint64_ptr, (uint32)p, (uint32)GCHECK_SHIFT, j, (MODULUS_TYPE == MODULUS_TYPE_FERMAT));
 			/*** Now that have undone shift, include extra modulus bit for Fermat-mod case ***/
 			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) { c_uint64_ptr[j++] = 0ull; }
@@ -2289,6 +2293,10 @@ READ_RESTART_FILE:
 					goto READ_RESTART_FILE;
 				}
 			}
+  #ifdef USE_BIG_ENDIAN
+			mi64_bswap(c_uint64_ptr, j);
+			mi64_bswap(e_uint64_ptr, j);	// Back to byte stream
+  #endif
 		}
 
 		/* Make sure we start with primary restart file: */
@@ -5642,7 +5650,14 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	nbytes = (p + 7)/8;
 	// Apply the circular shift:
 	uint32 is_ferm = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
-	mi64_shlc((uint64 *)ui64_arr_in, (uint64 *)ui64_arr_in, p, RES_SHIFT, (p+63+is_ferm)>>6, is_ferm);
+	uint32 nlimbs = (p+63+is_ferm)>>6;
+  #ifdef USE_BIG_ENDIAN
+	mi64_bswap((uint64*)ui64_arr_in, nlimbs);	// Byte stream -> native limbs
+  #endif
+	mi64_shlc((uint64*)ui64_arr_in, (uint64*)ui64_arr_in, p, RES_SHIFT, nlimbs, is_ferm);
+  #ifdef USE_BIG_ENDIAN
+	mi64_bswap((uint64*)ui64_arr_in, nlimbs);	// Native limbs -> byte stream
+  #endif
 
 	/* Vector length a power of 2? */
 	pow2_fft = (n >> trailz32(n)) == 1;
@@ -6112,6 +6127,9 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 	must omit said high limb in residue-shift-and-sign-flip below, hence no p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT):
 	***/
 	j = (p+63)>>6;	// # of 64-bit limbs
+  #ifdef USE_BIG_ENDIAN
+	mi64_bswap(u64_ptr, j);	// Byte stream -> native limbs
+  #endif
 	if(RES_SHIFT) {
 	//	fprintf(stderr,"convert_res_FP_bytewise: removing shift = %" PRIu64 "\n",RES_SHIFT);
 		uint32 sign_flip = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
@@ -6128,6 +6146,9 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 	if(Res64  ) *Res64 = ((uint64 *)ui64_arr_out)[0];
 	if(Res35m1) *Res35m1 = mi64_div_by_scalar64((uint64 *)ui64_arr_out,two35m1,j,0x0);
 	if(Res36m1) *Res36m1 = mi64_div_by_scalar64((uint64 *)ui64_arr_out,two36m1,j,0x0);
+  #ifdef USE_BIG_ENDIAN
+	mi64_bswap(u64_ptr, j);	// Native limbs -> byte stream
+  #endif
 //	fprintf(stderr,"Res35m1,Res36m1: %" PRIu64 ",%" PRIu64 "\n",*Res35m1,*Res36m1);
 }
 

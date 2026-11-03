@@ -307,6 +307,31 @@ void	mi64_clear(uint64 x[], uint32 len)
 	}
 }
 
+
+/* Reverse the byte order of each of the [len] 64-bit limbs of x[] in place. Applying it twice restores the original.*/
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+void	mi64_bswap(uint64 x[], uint32 len)
+{
+	uint32 i;
+  #if !defined(__CUDA_ARCH__) && (defined(__GNUC__) || defined(__clang__))
+	for(i = 0; i < len; ++i) {
+		x[i] = __builtin_bswap64(x[i]);
+	}
+  #else
+	uint64 v;
+	for(i = 0; i < len; ++i) {
+		v = x[i];
+		x[i] = ((v & 0x00000000000000FFull) << 56) | ((v & 0x000000000000FF00ull) << 40)
+		     | ((v & 0x0000000000FF0000ull) << 24) | ((v & 0x00000000FF000000ull) <<  8)
+		     | ((v & 0x000000FF00000000ull) >>  8) | ((v & 0x0000FF0000000000ull) >> 24)
+		     | ((v & 0x00FF000000000000ull) >> 40) | ((v & 0xFF00000000000000ull) >> 56);
+	}
+  #endif
+}
+
+
 /*******************/
 
 /*
