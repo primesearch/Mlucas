@@ -9645,6 +9645,13 @@ are included at the top of this file - see the note there for why they cannot li
 #else
 	#define MKDIR(p)	mkdir((p), 0777)
 #endif
+/* Directory separators: only the forward slash on POSIX, where a backslash is an ordinary filename
+character (MLUCAS_PATH=/data/a\b/ names one directory 'a\b', not 'a' with a child 'b'); both on Windows: */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#define MKDIR_P_IS_SEP(c)	((c) == '/' || (c) == '\\')
+#else
+	#define MKDIR_P_IS_SEP(c)	((c) == '/')
+#endif
 #define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
 /* The probe name gets "_<pid>_<attempt>" appended, so that it is unique to this call. 32 bytes is room
 for that and the NUL with any pid that fits in a long: */
@@ -9698,7 +9705,7 @@ int mkdir_p(char *path)
 	arise: intermediate components only ever return success or EEXIST, and a genuine failure
 	such as EACCES lands on the leaf, which the probe catches anyway.  */
 	for (p = tmp + 1; *p != '\0'; ++p) {
-		if (*p == '/' || *p == '\\') {
+		if (MKDIR_P_IS_SEP(*p)) {
 			char sep = *p;	*p = '\0';
 			(void)MKDIR(tmp);
 			*p = sep;
@@ -9711,7 +9718,7 @@ int mkdir_p(char *path)
 	succeed on a leftover, writable probe file even in a directory we cannot write to, and removing
 	it would then delete a file this call did not create. If the name is somehow taken (a pid reused
 	after a crash, say), try the next suffix rather than trust or delete it: */
-	if (tmp[len - 1] != '/' && tmp[len - 1] != '\\')
+	if (!MKDIR_P_IS_SEP(tmp[len - 1]))
 		tmp[len++] = '/';
 	dirlen = len;
 	for (attempt = 0; attempt < 16; ++attempt) {
