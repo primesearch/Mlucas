@@ -1058,40 +1058,42 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #ifdef PM1_STANDALONE
 	/******** command-line-argument processing while() loop: ********/
 	uint32 nargs = 1;
+	const char *optval;
 	while(argv[nargs]) {
-		strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+		// snprintf() always terminates; strncpy() does not when the argument is STR_MAX_LEN or more characters long:
+		snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
 		if(stFlag[0] != '-') {
 			fprintf(stderr, "*** ERROR: Illegal command-line option %s\n", stFlag);
 			fprintf(stderr, "*** The required command-line options are -bigstep [210|330|420|660|840] -b1 [int > 0] -b2 [int > 0] -m [int > 0]\n");	return 1;
 		}
 
-		// All four options take a value, which is a missing argument if the flag was the last one on the command line:
+		// All four options take a value, which is a missing argument if the flag was the last one on the command line.
+		// The value is parsed from argv itself rather than from a bounded copy of it, so that an overlong one is
+		// rejected (or, with enough leading zeros, read) whole rather than cut off at the buffer size:
+		optval = argv[nargs];
 		if(STREQ(stFlag, "-bigstep") || STREQ(stFlag, "-b1") || STREQ(stFlag, "-b2") || STREQ(stFlag, "-m")) {
-			if(!argv[nargs]) {
+			if(!optval) {
 				fprintf(stderr, "*** ERROR: option %s requires a value.\n", stFlag);	return 1;
 			}
+			++nargs;
 		}
 
 		if(STREQ(stFlag, "-bigstep")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-			if(!parse_u32_arg(stFlag, &bigstep)) {
-				fprintf(stderr, "*** ERROR: -bigstep arg must be an integer in [0, 4294967295]; user entered %s.\n", stFlag);	return 1;
+			if(!parse_u32_arg(optval, &bigstep)) {
+				fprintf(stderr, "*** ERROR: -bigstep arg must be an integer in [0, 4294967295]; user entered %.100s.\n", optval);	return 1;
 			}
 		} else if(STREQ(stFlag, "-b1")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-			if(!parse_u32_arg(stFlag, &B1)) {
-				fprintf(stderr, "*** ERROR: -b1 arg must be an integer in [0, 4294967295]; user entered %s.\n", stFlag);	return 1;
+			if(!parse_u32_arg(optval, &B1)) {
+				fprintf(stderr, "*** ERROR: -b1 arg must be an integer in [0, 4294967295]; user entered %.100s.\n", optval);	return 1;
 			}
 		} else if(STREQ(stFlag, "-b2")) {
 			// B2 is a uint64 - Stage 2 bounds are explicitly allowed to exceed 2^32, so atoi() truncated it:
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-			if(!parse_uint_arg(stFlag, ~0ull, &B2)) {
-				fprintf(stderr, "*** ERROR: -b2 arg must be an integer in [0, 18446744073709551615]; user entered %s.\n", stFlag);	return 1;
+			if(!parse_uint_arg(optval, ~0ull, &B2)) {
+				fprintf(stderr, "*** ERROR: -b2 arg must be an integer in [0, 18446744073709551615]; user entered %.100s.\n", optval);	return 1;
 			}
 		} else if(STREQ(stFlag, "-m")) {
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-			if(!parse_u32_arg(stFlag, &m)) {
-				fprintf(stderr, "*** ERROR: -m arg must be an integer in [0, 4294967295]; user entered %s.\n", stFlag);	return 1;
+			if(!parse_u32_arg(optval, &m)) {
+				fprintf(stderr, "*** ERROR: -m arg must be an integer in [0, 4294967295]; user entered %.100s.\n", optval);	return 1;
 			}
 		} else {
 			fprintf(stderr, "*** ERROR: Unrecognized flag %s.\n", stFlag);	return 1;
