@@ -3710,12 +3710,14 @@ struct testMers MersVec[numTest+1] =
 	    p = 37435949  (0.9750)             maxerr 0.402, clean
 	    p = 36860011  (0.9600)             maxerr 0.297, clean
 
-	Its neighbour 1920K holds its own row (98.5% of pmax_rec) at maxerr 0.297, so 1984K needs
-	roughly 2.5% less exponent to reach the same roundoff. That is a property of the length, not of the
+	Its neighbour 1920K holds its own row (98.5% of pmax_rec) at maxerr 0.297, so 1984K needs its
+	limit about 2.5 percentage points lower, as a fraction of its own active pmax_rec (0.96 against
+	0.985), to reach the same roundoff. The exponents themselves are not comparable across lengths;
+	it is p / pmax_rec which is lower. That is a property of the length, not of the
 	test: it reproduces at 1, 4 and 8 threads, and with the radix992 fixes applied.
 
-	A row here would therefore have to sit near 0.96-0.975 of the active pmax_rec, i.e. 1-2.5%
-	below its neighbours, and quietly encode the shortfall as if it were normal. Against the
+	A row here would therefore have to sit near 0.96-0.975 of the active pmax_rec, i.e. 1-2.5
+	percentage points below its neighbours, and quietly encode the shortfall as if it were normal. Against the
 	non-FMA pmax_rec it would be the only entry below 0.99 among the 136 rows the table has
 	today; against the AVX-2/FMA one it would join 40 rows already below 0.99 (1920K and 2048K
 	among them) but still sit lowest. The honest
