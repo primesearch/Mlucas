@@ -1136,7 +1136,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	} else if(bigstep == 840) {	// 2^3.3.5.7
 		num_b = 96;	bigstep_pow2 = 3; rsize = 3; psmall = 11;
 	} else {
-		fprintf(stderr, "*** ERROR: -bigstep arg must be one of [210|330|420|660|840]; user entered %s.\n", stFlag);	return 1;
+		fprintf(stderr, "*** ERROR: -bigstep arg must be one of [210|330|420|660|840]; user entered %u.\n", bigstep);	return 1;
 	}
 	wsize = num_b>>2;	// bitmap word has 2*num_b bits and num_b>>2 bytes
 	/*
