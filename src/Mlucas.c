@@ -3717,10 +3717,12 @@ struct testMers MersVec[numTest+1] =
 	test: it reproduces at 1, 4 and 8 threads, and with the radix992 fixes applied.
 
 	A row here would therefore have to sit near 0.96-0.975 of the active pmax_rec, i.e. 1-2.5
-	percentage points below its neighbours, and quietly encode the shortfall as if it were normal. Against the
-	non-FMA pmax_rec it would be the only entry below 0.99 among the 136 rows the table has
-	today; against the AVX-2/FMA one it would join 40 rows already below 0.99 (1920K and 2048K
-	among them) but still sit lowest. The honest
+	percentage points below its neighbours, and quietly encode the shortfall as if it were normal.
+	Against the non-FMA pmax_rec every one of the 136 rows the table has today is at 0.99 or 1.00
+	(the 99% clamp rounds down, so 21 of the 0.99 rows, 1920K among them, come out a few millionths
+	short of it: 1920K is 0.98999879, the lowest is 0.98999829), so such a row would be the only
+	one meaningfully below 0.99. Against the AVX-2/FMA pmax_rec it would join 40 rows which really are
+	below 0.99 (0.9842-0.9848, 1920K and 2048K among them) but still sit lowest. The honest
 	reading is that given_N_get_maxP() is over-optimistic for this length, or that radix992
 	loses more accuracy than its peers; either way the fix belongs there, after which this row
 	can be generated at the same fraction as its neighbours.
