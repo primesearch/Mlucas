@@ -2238,10 +2238,6 @@ READ_RESTART_FILE:
 				ASSERT((itmp64>>32) == 0ull,"Shift must be < 2^32!");
 				GCHECK_SHIFT = itmp64;
 			}
-  #ifdef USE_BIG_ENDIAN
-			mi64_bswap(c_uint64_ptr, j);	// Byte stream -> native limbs for mi64_shlc
-			mi64_bswap(e_uint64_ptr, j);
-  #endif
 			mi64_shlc(c_uint64_ptr, c_uint64_ptr, (uint32)p, (uint32)GCHECK_SHIFT, j, (MODULUS_TYPE == MODULUS_TYPE_FERMAT));
 			/*** Now that have undone shift, include extra modulus bit for Fermat-mod case ***/
 			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) { c_uint64_ptr[j++] = 0ull; }
@@ -2293,10 +2289,6 @@ READ_RESTART_FILE:
 					goto READ_RESTART_FILE;
 				}
 			}
-  #ifdef USE_BIG_ENDIAN
-			mi64_bswap(c_uint64_ptr, j);
-			mi64_bswap(e_uint64_ptr, j);	// Back to byte stream
-  #endif
 		}
 
 		/* Make sure we start with primary restart file: */
@@ -5238,51 +5230,13 @@ int read_ppm1_residue(const uint32 nbytes, FILE *fp, uint8 arr_tmp[], uint64 *Re
 	*/
 	j = 8 - (nbytes&7);	// nbytes%8 = #significant bytes in high limb; j = #bytes needing zeroing at the high end of the limb
 	for(i = nbytes; i < nbytes+j; i++) arr_tmp[i] = 0;
+  #ifdef USE_BIG_ENDIAN
+	mi64_bswap((uint64*)arr_tmp, (nbytes+7)>>3);	// Byte stream -> native limbs;
+  #endif
 	itmp64 = ((uint64 *)arr_tmp)[0];
 	if(*Res64 != itmp64) {
 		sprintf(cbuf, "%s: On restart: Res64 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n"  ,func,itmp64,*Res64); return 0;
 	}
-	// For big-endian CPUs, casting byte-array to uint64 * gives byte-reversed limbs, so use a direct bitwise mod:
-  #ifdef USE_BIG_ENDIAN
-	/*
-	My original approach here was wrong - here was the reasoning, illustrated using the (mod 2^35-1) of the S-H mod pair:
-		For low 64-bit limb x0, x0 % two35m1 = x0.lo35 + x0.hi29. Now say our current 64-bit limb starts at bit B, i.e.
-		represents itmp64*2^B. That means we need to lcshift itmp64 by (B % 35) bits before doing the above 29|35 folding:
-		x = b63...b0, 64-bit, we seek x*2^64 (mod 2^35-1).
-	Here's why that doesn't work - consider the next-lowest 64-bit limb in our residue, call it x1:
-		2^64  = 2^29 (mod 2^35-1), thus we seek x*2^29 (mod 2^35-1), which in bitwise terms is
-		b63...b0[29 binary 0s] (mod 2^35-1), i.e. bits 35 thru 63+29 = 92 of b63...b0[29 binary 0s] get folded back by adding to low bits:
-									34.33.32.31.30.29.28.27.26.25.24.23.22.21.20.19.18.17.16.15.14.13.12.11.10.09.08.07.06.05.04.03.02.01.00
-			b5...b0[29 binary 0s]	 5. 4. 3. 2. 1. 0.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
-		+	b40...b6				40.39.38.37.36.35.34.33.32.31.30.29.28.27.26.25.24.23.22.21.20.19.18.17.16.15.14.13.12.11.10.09.08.07.06
-		+	b63...b41				                                       63.62.61.60.59.58.57.56.55.54.43.52.51.49.48.47.46.45.44.43.42.41
-		But the circular-shift scheme instead gives
-		[b34...b0][b63...b35], folding that on the 35-bit boundary gives
-			[b5...b0][b63...b35]
-		+	[b34...b6], i.e. bits 35-40 and 41-63 end up misaligned.
-		What we really want is to start with the current value of bmod35, 29, and do like so:
-		bmod35 = 29: (x << 29) & two35m1
-					+(x >> (35-29)) & two35m1
-					+(x >> (70-29)) & two35m1
-	*/
-	int bmod35 = 0, bmod36 = 0, rshift;
-	uint64 rmod35 = 0ull, rmod36 = 0ull, cmod64;
-	for(i = 0; i < nbytes; i += 8) {
-		// Assemble 64-bit limb from byte octet:
-		itmp64 = ((uint64)arr_tmp[i]<<56)+((uint64)arr_tmp[i+1]<<48)+((uint64)arr_tmp[i+2]<<40)+((uint64)arr_tmp[i+3]<<32)
-				+((uint64)arr_tmp[i+4]<<24)+((uint64)arr_tmp[i+5]<<16)+((uint64)arr_tmp[i+6]<<8)+(uint64)arr_tmp[i+7];
-		cmod64 = (itmp64 << bmod35) & two35m1; rshift = 35 - bmod35;
-		while(rshift < 64) { cmod64 += (itmp64 >> rshift) & two35m1; rshift += 35; }
-		rmod35 += cmod64;
-		cmod64 = (itmp64 << bmod36) & two36m1; rshift = 36 - bmod36;
-		while(rshift < 64) { cmod64 += (itmp64 >> rshift) & two36m1; rshift += 36; }
-		rmod36 += cmod64;
-		MOD_ADD64(bmod35,29,35,bmod35); MOD_ADD64(bmod36,28,36,bmod36);	// bmod35|36 += 29|28 (mod 35|36)
-	}
-	rmod35 = (rmod35 & two35m1) + (rmod35 >> 35); rmod36 = (rmod36 & two36m1) + (rmod36 >> 36);	// And do a final pair of folds to get mods
-	if(*Res35m1 != rmod35)	{ sprintf(cbuf, "%s: On restart: Res35m1 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n",func,rmod35,*Res35m1); return 0; }
-	if(*Res36m1 != rmod36)	{ sprintf(cbuf, "%s: On restart: Res36m1 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n",func,rmod36,*Res36m1); return 0; }
-  #else
 	i = (nbytes+7)>>3;	// # of 64-bit limbs
 	itmp64 = mi64_div_by_scalar64((uint64 *)arr_tmp,two35m1,i,0x0);
 	if(*Res35m1 != itmp64) {
@@ -5292,7 +5246,6 @@ int read_ppm1_residue(const uint32 nbytes, FILE *fp, uint8 arr_tmp[], uint64 *Re
 	if(*Res36m1 != itmp64) {
 		sprintf(cbuf, "%s: On restart: Res36m1 checksum error! Got %" PRIX64 ", expected %" PRIX64 "\n",func,itmp64,*Res36m1); return 0;
 	}
-  #endif
 	return 1;
 }
 
@@ -5528,8 +5481,15 @@ void write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], co
 {
 	const char func[] = "write_ppm1_residue";
 	uint32 i;
+	 #ifdef USE_BIG_ENDIAN
+	// Residue is held as native 64-bit limbs; the savefile format is a little-endian byte stream, so byte-reverse each limb for the write:
+	mi64_bswap((uint64*)arr_tmp, (nbytes+7)>>3);
+	 #endif
 	/* Write bytewise residue r... */
 	i = fwrite(arr_tmp, sizeof(char), nbytes, fp);
+	 #ifdef USE_BIG_ENDIAN
+	mi64_bswap((uint64*)arr_tmp, (nbytes+7)>>3);	// Restore native limbs for the caller
+	 #endif
 	if(i != nbytes) {
 		fclose(fp); fp = 0x0;
 		snprintf(cbuf,sizeof(cbuf),"%s: Error writing residue to restart file.\n",func);
@@ -5650,14 +5610,8 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	nbytes = (p + 7)/8;
 	// Apply the circular shift:
 	uint32 is_ferm = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
-	uint32 nlimbs = (p+63+is_ferm)>>6;
-  #ifdef USE_BIG_ENDIAN
-	mi64_bswap((uint64*)ui64_arr_in, nlimbs);	// Byte stream -> native limbs
-  #endif
-	mi64_shlc((uint64*)ui64_arr_in, (uint64*)ui64_arr_in, p, RES_SHIFT, nlimbs, is_ferm);
-  #ifdef USE_BIG_ENDIAN
-	mi64_bswap((uint64*)ui64_arr_in, nlimbs);	// Native limbs -> byte stream
-  #endif
+	mi64_shlc((uint64*)ui64_arr_in, (uint64*)ui64_arr_in, p, RES_SHIFT, (p+63+is_ferm)>>6, is_ferm);
+	const uint64*x64 = (const uint64*)ui64_arr_in;
 
 	/* Vector length a power of 2? */
 	pow2_fft = (n >> trailz32(n)) == 1;
@@ -5720,7 +5674,7 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 				curr_wd64 = 0;
 				for(k = 0; k < 8; k++)
 				{
-					curr_wd64 += (uint64)ui64_arr_in[curr_char++] << (k<<3);	/* left-shift current residue byte k*8 bits and accumulate */
+					curr_wd64 += ((x64[curr_char>>3] >> ((curr_char&7)<<3)) & 0xFFull) << (k<<3); curr_char++;
 					if(curr_char == nbytes)
 						break;
 				}
@@ -5797,7 +5751,7 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 				curr_wd64 = 0;
 				for(k = 0; k < 8; k++)
 				{
-					curr_wd64 += (uint64)ui64_arr_in[curr_char++] << (k<<3);	/* left-shift current residue byte k*8 bits and accumulate */
+					curr_wd64 += ((x64[curr_char>>3] >> ((curr_char&7)<<3)) & 0xFFull) << (k<<3); curr_char++;
 				}
 				/* ...and use the LS (bits[ii] - rbits) of the just-grabbed 64
 				to fill in the high part of the bits[ii] bits of itmp: */
@@ -6146,9 +6100,6 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 	if(Res64  ) *Res64 = ((uint64 *)ui64_arr_out)[0];
 	if(Res35m1) *Res35m1 = mi64_div_by_scalar64((uint64 *)ui64_arr_out,two35m1,j,0x0);
 	if(Res36m1) *Res36m1 = mi64_div_by_scalar64((uint64 *)ui64_arr_out,two36m1,j,0x0);
-  #ifdef USE_BIG_ENDIAN
-	mi64_bswap(u64_ptr, j);	// Native limbs -> byte stream
-  #endif
 //	fprintf(stderr,"Res35m1,Res36m1: %" PRIu64 ",%" PRIu64 "\n",*Res35m1,*Res36m1);
 }
 
