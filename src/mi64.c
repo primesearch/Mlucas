@@ -1928,10 +1928,12 @@ void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 	// Initialize the 128-bit state:
 	uint32 state[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};	// {a0,b0,c0,d0}
 	// Process the message in successive 512-bit chunks -
-	// We alias our 64-bit input vector x to a 32-bit pointer into each chunk to ease the indexing here:
-	uint32 *M;
+	// Each 64-bit input word is split into two 32-bit message words, low half first, via shifts
+	uint32 M[16];
 	for(j = 0; j < nword; j += 8) {	// for each 512-bit chunk of padded message do
-		M = (uint32*)(x + j);	// break chunk into sixteen 32-bit words M[0,...,15]
+		for(i = 0; i < 8; i++) {	// break chunk into sixteen 32-bit words M[0,...,15]
+			M[2*i] = (uint32)x[j+i];	M[2*i+1] = (uint32)(x[j+i] >> 32);
+		}
 		// Initialize hash value for this chunk:
 		uint32 A = state[0], B = state[1], C = state[2], D = state[3];	// {A,B,C,D} = {a0,b0,c0,d0}
 		// Inner loop of 4 processing rounds which modify the 128-bit state:
@@ -1959,8 +1961,8 @@ void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 	}
 	// If caller provided an md5[] arg, write state to that in 2 x uint64 form:
 	if(md5) {
-		M = (uint32*)md5;
-		for(i = 0; i < 4; i++) { M[i] = state[i]; }
+		md5[0] = ((uint64)state[1] << 32) | (uint64)state[0];
+		md5[1] = ((uint64)state[3] << 32) | (uint64)state[2];
 	}
 	// Output in char[16]-form is in little-endian:
 	sprintf(md5_str,"%u%u%u%u",state[3],state[2],state[1],state[0]);
