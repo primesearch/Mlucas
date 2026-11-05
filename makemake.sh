@@ -219,8 +219,15 @@ static_libs() {
 # a 256-bit EVEX op, i.e. one naming a ymm register but no zmm, from a list of EVEX-only mnemonics
 # (plain VEX ymm ops are AVX2 and fine). Knights Landing/Mill have no AVX512VL. If the probe fails to
 # compile, the real build of the same file fails too, with the compiler's error.
+# This is a canary for GCC bug 127459, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=127459: since GCC 14,
+# vinserti32x4 is emitted in its 256-bit EVEX form (which needs AVX512VL) with only -mavx512f or -march=knl.
+# We saw it in GCC 14.2.0, 14.4.0, 15.3.0 and 16.2.1, but not in 13.3.0 or earlier. It was fixed on trunk and on
+# the 14, 15 and 16 release branches on 2026-10-29, so it is gone from GCC 14.5, 15.4 and 16.3 onwards, but every
+# earlier 14.x, 15.x and 16.x release still has it, which is why this check stays.
+# GCC 15 and later no longer accept -march=knl, so in practice only GCC 14 reaches the probe.
+# -std=gnu99 is what the real build uses; older compilers default to gnu89, which the kernel does not compile in.
 knl_emits_vl() {
-	"${CC:-gcc}" -S -O3 -w -D_GNU_SOURCE -DUSE_THREADS -DUSE_AVX512 -DINCLUDE_GMP=0 "$@" -o - src/radix48_ditN_cy_dif1.c |
+	"${CC:-gcc}" -S -std=gnu99 -O3 -w -D_GNU_SOURCE -DUSE_THREADS -DUSE_AVX512 -DINCLUDE_GMP=0 "$@" -o - src/radix48_ditN_cy_dif1.c |
 		awk '
 			/%ymm/ && !/%zmm/ && \
 			/v(insert|extract)[fi]32x4|vpternlog[dq]|vperm[it]2[a-z]+|vpblendm[dq]|vmovdq[au](8|16|32|64)|vbroadcast[fi]32x[248]|vp(and|or|xor|andn)[dq]|vrndscale[ps][sd]|vscalef[ps][sd]|vrcp14[ps][sd]|vrsqrt14[ps][sd]|vp(compress|expand)[dq]|vgetmant[ps][sd]|vfixupimm[ps][sd]/ \
@@ -438,10 +445,10 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			ARGS+=(-march=knl)
 			# Clang 18 warns in every file that its KNL support is going away; known, and not actionable here.
 			if try_flag -Werror -Wknl-knm-isa-support-removed; then ARGS+=(-Wno-knl-knm-isa-support-removed); fi
-			# GCC 14 accepts -march=knl but still generates AVX512VL instructions (GCC bug 127459), so
-			# check the generated code.
+			# GCC 14 (before 14.5) accepts -march=knl but still generates AVX512VL instructions (GCC bug 127459,
+			# see knl_emits_vl above), so check the generated code.
 			if knl_emits_vl -mavx512f -mavx512cd -mfma -march=knl; then
-				echo "Error: ${CC:-gcc} accepts -march=knl but still generates AVX512VL instructions, which Knights Landing/Mill cannot execute. GCC 14 is known to do this. Use GCC <= 13 or Clang for this build mode." >&2
+				echo "Error: ${CC:-gcc} accepts -march=knl but still generates AVX512VL instructions, which Knights Landing/Mill cannot execute. GCC 14 releases before 14.5 are known to do this (GCC bug 127459). Use GCC <= 13 or Clang for this build mode." >&2
 				exit 1
 			fi
 			# Clang 19 and later have dropped -mavx512er and -mavx512pf. The only code they enable, in
