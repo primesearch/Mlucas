@@ -5482,13 +5482,15 @@ void write_ppm1_residue(const uint32 nbytes, FILE *fp, const uint8 arr_tmp[], co
 	const char func[] = "write_ppm1_residue";
 	uint32 i;
 	 #ifdef USE_BIG_ENDIAN
-	// Residue is held as native 64-bit limbs; the savefile format is a little-endian byte stream, so byte-reverse each limb for the write:
-	mi64_bswap((uint64*)arr_tmp, (nbytes+7)>>3);
-	 #endif
+	// Residue is held as native 64-bit limbs; the savefile format is a little-endian byte stream, so write byte i of the
+	// residue as bits 8*(i%8)...8*(i%8)+7 of limb i/8. This reads the limbs without modifying the (const) array:
+	const uint64 *x = (const uint64 *)arr_tmp;
+	for(i = 0; i < nbytes; i++) {
+		if(fputc((int)(x[i>>3] >> ((i&7)<<3)) & 0xff, fp) == EOF) break;
+	}
+	 #else
 	/* Write bytewise residue r... */
 	i = fwrite(arr_tmp, sizeof(char), nbytes, fp);
-	 #ifdef USE_BIG_ENDIAN
-	mi64_bswap((uint64*)arr_tmp, (nbytes+7)>>3);	// Restore native limbs for the caller
 	 #endif
 	if(i != nbytes) {
 		fclose(fp); fp = 0x0;
