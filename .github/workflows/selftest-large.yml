@@ -20,6 +20,8 @@ on:
   # Also run when this file changes, so a change to the workflow is checked before it next runs on
   # its own a month later.
   push:
+    branches:
+      - main
     paths:
       - .github/workflows/selftest-large.yml
   pull_request:
@@ -75,10 +77,8 @@ jobs:
         include:
           # arm64, 7 GB: 'l' only, since 'h' needs ~9 GB.
           - os: macos-latest
-            sizes: l
           # Intel, 14 GB: room for 'h' too.
           - os: macos-26-intel
-            sizes: l h
       fail-fast: false
     steps:
     - uses: actions/checkout@v7
@@ -93,7 +93,7 @@ jobs:
       run: |
         set -x -o pipefail
         cd obj
-        for s in ${{ matrix.sizes }}; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        for s in l ${{ endsWith(matrix.os, '-intel') && 'h' || '' }}; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
     - uses: actions/upload-artifact@v7
       if: always()
       with:

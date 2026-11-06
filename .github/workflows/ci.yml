@@ -183,8 +183,8 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         bash -e -o pipefail -- ../config-fermat.sh -cpu "0:$(( $(nproc --all) - 1 ))"
         for word in '' {{1..4},n}word; do
             (cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
@@ -221,7 +221,7 @@ jobs:
         $CC --version
     - name: Build
       run: |
-        set -x
+        set -x -o pipefail
         MODES=( '' NOSIMD )
         if [[ $HOSTTYPE == aarch64 ]]; then
             MODES+=( ASIMD )
@@ -274,10 +274,10 @@ jobs:
       - name: Fermat self-tests F15-F28
         run: |
           set -x -o pipefail
-          if [[ $HOSTTYPE == aarch64 ]]; then fermat=obj_NOSIMD; else fermat=obj; fi
+          if [[ $HOSTTYPE == aarch64 ]]; then mode=NOSIMD; else mode=; fi
           mkdir -p selftest/fermat
           cd selftest/fermat
-          ln -sf "../../$fermat/Mlucas" .
+          ln -sf "../../obj${mode:+_$mode}/Mlucas" .
           bash -e -o pipefail -- ../../config-fermat.sh
     - name: Test
       run: |
@@ -396,8 +396,8 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
-        for s in tt t; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))"; done
+        for s in tt t s; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        for s in tt t; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -462,10 +462,6 @@ jobs:
         name: linux_k1om_mlucas
         path: |
           obj*/build.log
-          obj*/test.log
-          obj*/mlucas.cfg
-          obj*/config-fermat.log
-          obj*/fermat.cfg
         if-no-files-found: warn
 
   Linux-KNL:
@@ -482,16 +478,14 @@ jobs:
       CC: ${{ matrix.cc }}
       # SDE 9.38 and later dropped -knl, and Intel no longer serves older builds, so 9.24.0 is hosted
       # unmodified as a release asset here; the ci-intel-sde-9.24.0 release has the licence.
-      SDE_URL: https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz
-      SDE_SHA256: 87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac
       SDE_DIR: sde-external-9.24.0-2023-07-13-lin
     steps:
     - uses: actions/checkout@v7
     - name: Install Intel SDE
       run: |
-        curl -fsSL -o sde.tar.xz "$SDE_URL"
+        wget -nv -O sde.tar.xz 'https://github.com/primesearch/Mlucas/releases/download/ci-intel-sde-9.24.0/sde-external-9.24.0-2023-07-13-lin.tar.xz'
         # Verify before unpacking: the pin is what makes a hosted binary trustworthy.
-        echo "$SDE_SHA256  sde.tar.xz" | sha256sum -c -
+        echo '87a36b821d0fb8cbcbfeffa359753445f951b225b5f4747689ae16417c4f04ac  sde.tar.xz' | sha256sum -c -
         mkdir -p "$SDE_DIR"
         tar -xf sde.tar.xz -C "$SDE_DIR" --strip-components=1
         rm -f sde.tar.xz
@@ -501,21 +495,40 @@ jobs:
         "./$SDE_DIR/sde64" --version
     - name: Build
       run: |
+        set -x -o pipefail
         bash -e -o pipefail -- makemake.sh avx512_knl
-        bash -e -o pipefail -- makemake.sh mfac avx512_knl
+        (cd obj_avx512_knl; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word avx512_knl
+            (cd obj_mfac${word:+_$word}_avx512_knl; make clean)
+        done
     - name: Self-test under emulated Knights Landing
       run: |
+        set -x -o pipefail
         # -knl makes SDE abort on any instruction outside the KNL ISA, which is what this job checks.
         # Threads help even under the emulator: '-s t' takes 810 s on one core and 351 s on four.
         cd obj_avx512_knl
-        CPUS="0:$(( $(nproc --all) - 1 ))"
         for s in tt t; do
-          "../$SDE_DIR/sde64" -knl -- ./Mlucas -s $s -cpu "$CPUS"
+          "../$SDE_DIR/sde64" -knl -- ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
         done
     - name: Mfactor self-test under emulated Knights Landing
       run: |
+        set -x -o pipefail
         cd obj_mfac_avx512_knl
-        "../$SDE_DIR/sde64" -knl -- ./Mfactor -m 521 -bmax 20
+        for word in '' {{1..4},n}word; do
+            cd "../obj_mfac${word:+_$word}_avx512_knl"
+            "../$SDE_DIR/sde64" -knl -- "./Mfactor${word:+_$word}" -m 521 -bmax 20
+        done
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: linux_knl_${{ matrix.cc }}_mlucas
+        path: |
+          obj*/build.log
+          obj*/test.log
+          obj*/mlucas.cfg
+        if-no-files-found: warn
 
   ASan-Linux:
     name: AddressSanitizer Linux
@@ -528,6 +541,7 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
     steps:
     - uses: actions/checkout@v7
     - name: Install
@@ -536,7 +550,7 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >> "$GITHUB_ENV"
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >>"$GITHUB_ENV"
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
@@ -605,15 +619,27 @@ jobs:
         sudo apt-get install -y libhwloc-dev
     - name: Before script
       run: |
-        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=thread' >> "$GITHUB_ENV"
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=thread' >>"$GITHUB_ENV"
         $CC --version
     - name: Script
       run: |
         set -x -o pipefail
-        bash -e -o pipefail -- makemake.sh use_hwloc nosimd
-        cd obj_nosimd
-        make clean
+        bash -e -o pipefail -- makemake.sh use_hwloc
+        (cd obj; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word
+            (cd obj_mfac${word:+_$word}; make clean)
+        done
+        cd obj
         time ./Mlucas -s tt -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log
+        for word in '' {{1..4},n}word; do
+            args=()
+            if [[ $word != nword ]]; then
+                args+=(-nthread "$(nproc --all)")
+            fi
+            (cd "../obj_mfac${word:+_$word}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 "${args[@]}")
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -622,8 +648,6 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
-          obj*/config-fermat.log
-          obj*/fermat.cfg
         if-no-files-found: warn
 
   GCC-analyzer:
@@ -635,7 +659,7 @@ jobs:
     - name: GCC analyzer
       run: |
         set -x -o pipefail
-        gcc -c -fdiagnostics-color -std=gnu99 -g -O3 -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
+        gcc -c -fdiagnostics-color -std=gnu99 -g -O3 -D_GNU_SOURCE -DUSE_THREADS -fanalyzer src/*.c |& tee analyzer.log
         rm -- *.o
         echo -e '## GCC analyzer\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' analyzer.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
@@ -654,7 +678,7 @@ jobs:
     - name: Clang-Tidy
       run: |
         set -x -o pipefail
-        clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -std=gnu99 -Wall -Wextra -O3 -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
+        clang-tidy --use-color -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,-misc-confusable-identifiers,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.c -- -std=gnu99 -Wall -Wextra -O3 -D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_HWLOC=1 |& tee clang-tidy.log
         echo -e '## Clang-Tidy\n```' >> $GITHUB_STEP_SUMMARY
         grep 'warning:' clang-tidy.log | sed 's/\x1B\[\([0-9]\+\(;[0-9]\+\)*\)\?[mK]//g' | awk '{ print $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
@@ -672,8 +696,8 @@ jobs:
     - name: Cppcheck
       run: |
         mkdir build
-        cppcheck --std=c99 --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build -j "$(nproc --all)" --clang .
-        cppcheck --std=c99 --enable=all -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build --clang . &> cppcheck.log
+        cppcheck --std=c99 --enable=all -D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build -j "$(nproc --all)" --clang .
+        cppcheck --std=c99 --enable=all -D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_HWLOC=1 --force --cppcheck-build-dir=build --clang . &> cppcheck.log
         echo -e '## Cppcheck\n```' >> $GITHUB_STEP_SUMMARY
         grep '\(error\|warning\|style\|performance\|portability\|information\):' cppcheck.log | awk '{ print $2, $NF }' | sort | uniq -c | sort -nr >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
@@ -780,7 +804,7 @@ jobs:
         clang --version
     - name: Build
       run: |
-        set -x
+        set -x -o pipefail
         MODES=( '' NOSIMD )
         if [[ $HOSTTYPE == arm64 ]]; then
             MODES+=( ASIMD )
@@ -828,10 +852,10 @@ jobs:
       - name: Fermat self-tests F15-F28
         run: |
           set -x -o pipefail
-          if [[ $HOSTTYPE == arm64 ]]; then fermat=obj_NOSIMD; else fermat=obj; fi
+          if [[ $HOSTTYPE == arm64 ]]; then mode=NOSIMD; else mode=; fi
           mkdir -p selftest/fermat
           cd selftest/fermat
-          ln -sf "../../$fermat/Mlucas" .
+          ln -sf "../../obj${mode:+_$mode}/Mlucas" .
           bash -e -o pipefail -- ../../config-fermat.sh
     - uses: actions/upload-artifact@v7
       if: always()
@@ -849,6 +873,8 @@ jobs:
     name: AddressSanitizer macOS
 
     runs-on: macos-latest
+    env:
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
     steps:
     - uses: actions/checkout@v7
     - name: Install
@@ -856,8 +882,8 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >> "$GITHUB_ENV"
-        sed -i '' 's/^MAX=29/MAX=28/' config-fermat.sh
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >>"$GITHUB_ENV"
+        sed -i '' 's/^MAX=29/MAX=27/' config-fermat.sh
         clang --version
     - name: Script
       run: |
@@ -904,18 +930,30 @@ jobs:
         brew install hwloc
     - name: Before script
       run: |
-        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=thread' >> "$GITHUB_ENV"
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=thread' >>"$GITHUB_ENV"
         clang --version
     - name: Script
       run: |
         set -x -o pipefail
         bash -e -o pipefail -- makemake.sh use_hwloc nosimd
+        (cd obj_nosimd; make clean)
+        for word in '' {{1..4},n}word; do
+            echo -e "\nMfactor $word\n"
+            bash -e -o pipefail -- makemake.sh mfac $word nosimd
+            (cd obj_mfac${word:+_$word}_nosimd; make clean)
+        done
         cd obj_nosimd
-        make clean
         # Use the 'tt' (tiny) self-test rather than 'm': TSan's instrumentation is slow enough that the
         # medium tier timed out (this job was previously if:false-gated "Too slow"), whereas tt still
         # exercises the multithreaded carry/threadpool paths for data-race detection in a few seconds.
         time ./Mlucas -s tt -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log
+        for word in '' {{1..4},n}word; do
+            args=()
+            if [[ $word != nword ]]; then
+                args+=(-nthread "$(sysctl -n hw.ncpu)")
+            fi
+            (cd "../obj_mfac${word:+_$word}_nosimd" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20 "${args[@]}")
+        done
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -924,8 +962,6 @@ jobs:
           obj*/build.log
           obj*/test.log
           obj*/mlucas.cfg
-          obj*/config-fermat.log
-          obj*/fermat.cfg
         if-no-files-found: warn
 
   FreeBSD:
@@ -995,8 +1031,8 @@ jobs:
             done
         done
         cd obj
-        for s in tt t s m; do time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log; done
-        for s in tt t s; do time ./Mlucas -prp -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" | tee -a test.log; done
+        for s in tt t s m; do time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        for s in tt t s; do time ./Mlucas -prp -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
         if [ "${{ matrix.arch }}" = aarch64 ]; then
             cd ../obj_NOSIMD
         fi
@@ -1116,6 +1152,7 @@ jobs:
     runs-on: windows-latest
     env:
       CC: clang
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
       PACKAGE_PREFIX: mingw-w64-clang-x86_64-
     steps:
     - uses: actions/checkout@v7
@@ -1132,7 +1169,7 @@ jobs:
     - name: Before script
       shell: bash
       run: |
-        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >> "$GITHUB_ENV"
+        echo 'CFLAGS=-Wall -Wextra -g -Og -fsanitize=address,undefined' >>"$GITHUB_ENV"
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
         $CC --version
     - name: Script
