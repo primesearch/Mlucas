@@ -203,6 +203,7 @@ DEV void	mi64_rand				(uint64 x[], uint32 len);
 DEV void	mi64_set_eq				(uint64 x[], const uint64 y[], uint32 len);
 DEV void	mi64_set_eq_scalar		(uint64 x[], const uint64   a, uint32 len);
 DEV void	mi64_clear				(uint64 x[], uint32 len);
+DEV void	mi64_bswap				(uint64 x[], uint32 len);
 
 /* bitwise shift y = (x <<|>> nbits); '..._short()' are specialized less-than-64-bit left and rightward shifts: */
 DEV void	mi64_shlc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len, uint32 sign_flip);

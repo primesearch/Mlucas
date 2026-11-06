@@ -307,6 +307,31 @@ void	mi64_clear(uint64 x[], uint32 len)
 	}
 }
 
+
+/* Reverse the byte order of each of the [len] 64-bit limbs of x[] in place. Applying it twice restores the original.*/
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+void	mi64_bswap(uint64 x[], uint32 len)
+{
+	uint32 i;
+  #if !defined(__CUDA_ARCH__) && (defined(__GNUC__) || defined(__clang__))
+	for(i = 0; i < len; ++i) {
+		x[i] = __builtin_bswap64(x[i]);
+	}
+  #else
+	uint64 v;
+	for(i = 0; i < len; ++i) {
+		v = x[i];
+		x[i] = ((v & 0x00000000000000FFull) << 56) | ((v & 0x000000000000FF00ull) << 40)
+		     | ((v & 0x0000000000FF0000ull) << 24) | ((v & 0x00000000FF000000ull) <<  8)
+		     | ((v & 0x000000FF00000000ull) >>  8) | ((v & 0x0000FF0000000000ull) >> 24)
+		     | ((v & 0x00FF000000000000ull) >> 40) | ((v & 0xFF00000000000000ull) >> 56);
+	}
+  #endif
+}
+
+
 /*******************/
 
 /*
@@ -1853,8 +1878,8 @@ o The input vector x[] has a suitable amount of 0-padding at the high end. MD5 t
 Returns:
 1. The 128-bit hash as a 16-char little-endian (LSbyte in 0-element) in the md5_str arg;
 2. [optionally, if a non-null md5[]-pointer is supplied] the hash in the low 2 words of the
-	input-arg md5[], using whatever endianness the underlying platform uses for its integer types.
-
+	input-arg md5[], as md5[0] = state[1]:state[0], md5[1] = state[3]:state[2], i.e. the same numerical
+	values on little- and big-endian platforms.
 NOTE: Declare x[] non-const to enable message-preprocessing, but restore x to its input value prior to return.
 */
 // Macro for leftrotate function - in the present case prefer this to my util.c:cshft32 utility
@@ -1863,9 +1888,6 @@ NOTE: Declare x[] non-const to enable message-preprocessing, but restore x to it
 
 #ifdef __CUDA_ARCH__
 __device__
-#endif
-#ifdef USE_BIG_ENDIAN
-	#error Need big-endian implementation of mi64_md5!
 #endif
 void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 {
@@ -1906,10 +1928,12 @@ void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 	// Initialize the 128-bit state:
 	uint32 state[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};	// {a0,b0,c0,d0}
 	// Process the message in successive 512-bit chunks -
-	// We alias our 64-bit input vector x to a 32-bit pointer into each chunk to ease the indexing here:
-	uint32 *M;
+	// Each 64-bit input word is split into two 32-bit message words, low half first, via shifts
+	uint32 M[16];
 	for(j = 0; j < nword; j += 8) {	// for each 512-bit chunk of padded message do
-		M = (uint32*)(x + j);	// break chunk into sixteen 32-bit words M[0,...,15]
+		for(i = 0; i < 8; i++) {	// break chunk into sixteen 32-bit words M[0,...,15]
+			M[2*i] = (uint32)x[j+i];	M[2*i+1] = (uint32)(x[j+i] >> 32);
+		}
 		// Initialize hash value for this chunk:
 		uint32 A = state[0], B = state[1], C = state[2], D = state[3];	// {A,B,C,D} = {a0,b0,c0,d0}
 		// Inner loop of 4 processing rounds which modify the 128-bit state:
@@ -1937,8 +1961,8 @@ void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
 	}
 	// If caller provided an md5[] arg, write state to that in 2 x uint64 form:
 	if(md5) {
-		M = (uint32*)md5;
-		for(i = 0; i < 4; i++) { M[i] = state[i]; }
+		md5[0] = ((uint64)state[1] << 32) | (uint64)state[0];
+		md5[1] = ((uint64)state[3] << 32) | (uint64)state[2];
 	}
 	// Output in char[16]-form is in little-endian:
 	sprintf(md5_str,"%u%u%u%u",state[3],state[2],state[1],state[0]);
