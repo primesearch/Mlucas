@@ -45,7 +45,7 @@ TRYQ_ARG=-DTRYQ=4
 # Optional link args
 LD_ARGS=()
 # Optional Make args
-MAKE_ARGS=()
+MAKE_ARGS=(-k)
 
 MODES=()
 GMP=1
@@ -348,7 +348,7 @@ if ((HWLOC)); then
 	fi
 fi
 
-if [[ ! $OSTYPE == darwin* ]]; then
+if [[ $OSTYPE != darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
 fi
 # librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
@@ -437,14 +437,11 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 			echo "Building for AVX-512 on Knights Landing / Knights Mill in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
 			# KNL/KNM have AVX512F and CD (plus ER and PF) but no DQ, BW or VL, so an 'avx512' build
 			# will not run on them.
-			ARGS+=(-DUSE_AVX512 -mavx512f -mavx512cd -mfma)
+			ARGS+=(-DUSE_AVX512 -march=knl -mavx512f -mavx512cd -mfma)
 			if ! try_flag -march=knl; then
 				echo "Error: ${CC:-gcc} does not support -march=knl, so it cannot target Knights Landing/Mill. GCC removed the flag in 15. Use GCC <= 13 or Clang for this build mode, or build with 'avx512' instead if you are targeting Skylake-SP or later." >&2
 				exit 1
 			fi
-			ARGS+=(-march=knl)
-			# Clang 18 warns in every file that its KNL support is going away; known, and not actionable here.
-			if try_flag -Werror -Wknl-knm-isa-support-removed; then ARGS+=(-Wno-knl-knm-isa-support-removed); fi
 			# GCC 14 (before 14.5) accepts -march=knl but still generates AVX512VL instructions (GCC bug 127459,
 			# see knl_emits_vl above), so check the generated code.
 			if knl_emits_vl -mavx512f -mavx512cd -mfma -march=knl; then
@@ -457,9 +454,11 @@ if [[ ${#MODES[*]} -eq 1 ]]; then
 				if try_flag "$knl_flag"; then
 					ARGS+=("$knl_flag")
 				else
-					echo "Warning: ${CC:-gcc} does not support $knl_flag, so building without it. The only code it enables is currently unreachable." >&2
+					echo "Warning: ${CC:-gcc} does not support $knl_flag, so building without it." >&2
 				fi
 			done
+			# Clang 18 warns in every file that its KNL support is going away; known, and not actionable here.
+			if try_flag -Werror=knl-knm-isa-support-removed; then ARGS+=(-Wno-knl-knm-isa-support-removed); fi
 			;;
 		avx512)
 			echo "Building for AVX512 SIMD in directory '${DIR}_${arg}'; the executable will be named '${TARGET}'"
@@ -645,10 +644,11 @@ fi
 # some older or misconfigured toolchains (notably some Clang-on-old-glibc and MSYS2-Clang combos) - probe
 # for both instead of assuming. Prefer -flto=auto (parallel LTO codegen, see #56) over plain -flto:
 if [[ -n $CFLAGS ]]; then
-	read -ra USER_CFLAGS <<<"${CFLAGS//$'\n'/ }"	# read stops at the first newline, so make them spaces
+	read -ra USER_CFLAGS <<<"${CFLAGS//$'\n'/ }" # read stops at the first newline, so make them spaces
 	C_ARGS=(-std=gnu99 "${USER_CFLAGS[@]}")
 	echo "Using CFLAGS from the environment instead of the default flags: $CFLAGS"
 else
+	# -Werror -Wno-error=cpp
 	C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
 	if try_flag -fdiagnostics-color; then
 		C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
