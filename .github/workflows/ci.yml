@@ -42,6 +42,11 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      # Fail the build on a strict-aliasing violation gcc can see. The level has to be 2, as -Wall's default level 3
+      # reports none of them, and -Werror=strict-aliasing has to come first: after -Wstrict-aliasing=2 it resets the level
+      # to 3, and -Werror=strict-aliasing=2 does not make the warning an error. makemake.sh appends CPPFLAGS to the
+      # compile command and keeps its default flags.
+      CPPFLAGS: ${{ matrix.cc == 'gcc' && '-Werror=strict-aliasing -Wstrict-aliasing=2' || '' }}
     steps:
     - uses: actions/checkout@v7
     - name: Install
@@ -156,6 +161,11 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      # Fail the build on a strict-aliasing violation gcc can see. The level has to be 2, as -Wall's default level 3
+      # reports none of them, and -Werror=strict-aliasing has to come first: after -Wstrict-aliasing=2 it resets the level
+      # to 3, and -Werror=strict-aliasing=2 does not make the warning an error. makemake.sh appends CPPFLAGS to the
+      # compile command and keeps its default flags.
+      CPPFLAGS: ${{ matrix.cc == 'gcc' && '-Werror=strict-aliasing -Wstrict-aliasing=2' || '' }}
     steps:
     - uses: actions/checkout@v7
     - name: Before script
@@ -163,7 +173,7 @@ jobs:
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
     - name: Script
       run: |
-        docker run --rm -i --platform "${{ endsWith(matrix.os, '-arm') && 'linux/arm/v7' || 'linux/386' }}" -v "$GITHUB_WORKSPACE:/workspace" -w /workspace -e CC=$CC debian:13 bash -s -e -o pipefail <<'EOF'
+        docker run --rm -i --platform "${{ endsWith(matrix.os, '-arm') && 'linux/arm/v7' || 'linux/386' }}" -v "$GITHUB_WORKSPACE:/workspace" -w /workspace -e CC=$CC -e CPPFLAGS debian:13 bash -s -e -o pipefail <<'EOF'
         apt-get update
         apt-get install -y build-essential libgmp-dev libhwloc-dev
         if [[ $CC == clang ]]; then
@@ -212,6 +222,11 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      # Fail the build on a strict-aliasing violation gcc can see. The level has to be 2, as -Wall's default level 3
+      # reports none of them, and -Werror=strict-aliasing has to come first: after -Wstrict-aliasing=2 it resets the level
+      # to 3, and -Werror=strict-aliasing=2 does not make the warning an error. makemake.sh appends CPPFLAGS to the
+      # compile command and keeps its default flags.
+      CPPFLAGS: ${{ matrix.cc == 'gcc' && '-Werror=strict-aliasing -Wstrict-aliasing=2' || '' }}
     steps:
     - uses: actions/checkout@v7
     - name: Before script
