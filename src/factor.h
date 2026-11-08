@@ -28,6 +28,23 @@
 
 #include "util.h"
 
+/* The twopmodq*() routines cache the exponent-dependent setup (psave, pshift, start_index, zshift, first_entry) in
+function-level variables. The factoring worker threads all call them at once, and the first call after the exponent
+changes sets psave before it has computed pshift, start_index and zshift, so a second thread arriving in that window
+sees "psave == p", skips the setup and powers with another exponent's (or zeroed) values: a wrong answer, with no
+error. Giving each thread its own copy removes the sharing, at the cost of one setup per thread per exponent. */
+#ifdef MULTITHREAD
+  #if defined(__GNUC__) || defined(__clang__)
+	#define TWOPMODQ_TLS	static __thread
+  #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+	#define TWOPMODQ_TLS	static _Thread_local
+  #else
+	#error "Multithreaded Mfactor needs thread-local storage (__thread or C11 _Thread_local) for the twopmodq*() setup cache."
+  #endif
+#else
+	#define TWOPMODQ_TLS	static
+#endif
+
 /* IMCI-512 (1st-gen Xeon Phi / Knights Corner) shares AVX-512's zmm/k register names, and platform.h
 makes USE_IMCI512 imply USE_AVX512 - but it has none of the instructions the vectorized small-primes
 sieve in factor.c needs: vprolvd, vmovups, kmovw and the register form of vpbroadcastd all fail to

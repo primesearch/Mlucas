@@ -744,8 +744,8 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 	uint64 lead7, hi64;
 	uint96 q, qhalf, qinv, x, lo;
 	uint192 prod192;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	TWOPMODQ_TLS uint64 psave = 0, pshift;
+	TWOPMODQ_TLS uint32 start_index, zshift, first_entry = TRUE;
 	double fq0, fq1, fq2;
 	double fqinv0, fqinv1, fqinv2;
 	double fx0, fx1, fx2;
@@ -3017,8 +3017,8 @@ if(~pshift != p+78) {
 			, qinv2, qhalf2, x2, lo2
 			, qinv3, qhalf3, x3, lo3;
 		uint192 prod192;
-		static uint64 psave = 0, pshift;
-		static uint32 start_index, zshift, first_entry = TRUE;
+		TWOPMODQ_TLS uint64 psave = 0, pshift;
+		TWOPMODQ_TLS uint32 start_index, zshift, first_entry = TRUE;
 		double fq0,fq1,fq2, fqinv0,fqinv1,fqinv2, fx0,fx1,fx2, flo0,flo1,flo2, fhi0,fhi1,fhi2;
 		double gq0,gq1,gq2, gqinv0,gqinv1,gqinv2, gx0,gx1,gx2, glo0,glo1,glo2, ghi0,ghi1,ghi2;
 		double hq0,hq1,hq2, hqinv0,hqinv1,hqinv2, hx0,hx1,hx2, hlo0,hlo1,hlo2, hhi0,hhi1,hhi2;
