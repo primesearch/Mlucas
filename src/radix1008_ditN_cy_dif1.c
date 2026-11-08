@@ -127,6 +127,7 @@ const int radix1008_creals_in_local_store = 0x1ca0+0x1000;	// (half_arr_offset10
 	#else
 		double *r00;
 		double *half_arr;
+		int wts_idx_incr;	// scalar mode only: the worker's copy of wts_idx_incr
 	#endif
 		uint64*sm_ptr;
 		uint32 bjmodnini;
@@ -1373,9 +1374,9 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			tdat[ithread].r00      = __r0 + ithread*cslots_in_local_store;
 			tdat[ithread].half_arr = (vec_dbl *)((intptr_t)tdat[ithread].r00 + ((intptr_t)half_arr - (intptr_t)r00));
 		#else
-			// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
+			// In scalar mode pass wts_idx_incr by value, and use this ptr to pass the base/baseinv/etc array-ptrs:
 			tdat[ithread].r00      = (double *)foo_array;
-			tdat[ithread].half_arr = (double *)&wts_idx_incr;
+			tdat[ithread].wts_idx_incr = wts_idx_incr;
 		#endif	// USE_SSE2
 		}
 
@@ -2903,8 +2904,8 @@ void radix1008_dit_pass1(double a[], int n)
 
 	#else
 
-		// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
-		wts_idx_incr = *(int *)thread_arg->half_arr;
+		// In scalar mode pass wts_idx_incr by value, and use this ptr to pass the base/baseinv/etc array-ptrs:
+		wts_idx_incr = thread_arg->wts_idx_incr;
 		base      = (double *)thread_arg->r00;
 		baseinv   = base + 2;
 		wt_arr    = base + 4;
