@@ -1735,10 +1735,11 @@ for(i=0; i < NRT; i++) {
 	if((mode_flag & 1) == 0)
 	{
 //	if(ihi<1000 && !fwd_fft)fprintf(stderr,"[ilo,ihi] = [%u,%u], Array = %#" PRIX64 ", Fwd-WT: mode_flag = %#X, a[1] = %18.10f\n",ilo,ihi,(uint64)a,mode_flag,a[1]);
-		// Mar 2017: Can skip this step if it's the start of a production test (note that any initial-residue shift
-		// in such cases is handled via single-array-word forward-DWT-weighting in the Mlucas.c shift_word() function),
-		// but need it if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
-		if(ilo || a[1]) {
+		// Always forward-weight here, including at the start of a test: the initial seed is stored unweighted
+		// (by shift_word() in Mlucas.c, or directly). Formerly this was skipped if (ilo == 0 && a[1] == 0), on the
+		// assumption that shift_word() had pre-weighted the seed, but a[1] is the padded, SIMD-permuted index 1,
+		// which for some shift values held the pre-weighted seed itself, which then got weighted a second time:
+		{
 			simodn = bimodn = 0;	// Init both = 0,but note for all but the 0-element they will satisfy simodn = (n - bimodn).
 			ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
 			for(i=0; i < n; i++)

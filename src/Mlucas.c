@@ -3110,10 +3110,12 @@ at the appropriate within-word bit offset.
 
 If first_entry == TRUE, inits the BIGWORD_BITMAP and BIGWORD_NBITS arrays and directly injects
 the carry into the residue array a[], a valid pointer to which is assumed to be supplied in the arglist.
-In this case we have cy_in != 0, and we also forward-weight the resulting shifted-carryin
-in preparation for the initial forward FFT. (This single-word init-and-fwd-weighting saves us from having
-to run through the whole-array version of same in mers_mod_square() used for fully-populated interim
-LL residues read from a savefile .)
+In this case we have cy_in != 0, and the shifted carry-in is stored as a plain integer, cy_in * 2^(bit offset),
+NOT forward-weighted: [mers|fermat]_mod_square() forward-weights (and for Fermat-mod, acyclic-twists)
+the whole residue array on entry, as it does for a fully-populated residue read from a savefile.
+(Pre-weighting the seed word here and having the mod_square routines skip their weighting when
+a[1] == 0 does not work: a[1] is the *padded, SIMD-permuted* array index 1, which for some shift
+values is the very word holding the pre-weighted seed, which then got weighted twice.)
 
 If first_entry == FALSE, uses the previously-inited BIGWORD_BITMAP and BIGWORD_NBITS arrays and
 does a fast lookup based on those. In this case whether the carry is injected into the residue array
@@ -3129,8 +3131,7 @@ step as usual.
 OTOH during e.g. self-tests we will also be calling this function at run-start for each of the various
 sets of FFT radices being tried at a given FFT length, in which case first_entry = false but we still
 want to init a single main-array element based on the properly shifted initial LL residue. In this case
-we have cy_in != 0, and we use both the fast lookup scheme and forward-weight the resulting shifted-carryin
-in preparation for the initial forward FFT.
+we have cy_in != 0, and we use the fast lookup scheme and store the (unweighted) shifted carry-in as above.
 
 Return value:
 o High 7 bytes store *unpadded* index of double-array word containing the bit of the specified shift;
@@ -3142,9 +3143,9 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 	static uint64 psave = 0ull;
 	static double bits_per_word = 0.0, words_per_bit = 0.0;
 	int pow2_fft,bimodn,curr_bit64,curr_wd64,w64,curr_wd_bits,mod64,findex,i,j,j1,j2;
-	static uint32 bw = 0,sw = 0,nwt = 0,sw_div_n,bits[2];
-	uint32 sw_idx_modn,ii;	// Aug 2021: ii needs to be unsigned for the (shift < ii) compare when shift >= 2^31
-	double cy,theta,wt_fwd,wt_cos,wt_sin;
+	static uint32 bw = 0,sw = 0,bits[2];
+	uint32 ii;	// Aug 2021: ii needs to be unsigned for the (shift < ii) compare when shift >= 2^31
+	double cy;
 	uint64 nbits, itmp64;
 	 int64 retval = -1;	// Make this signed to ease "not yet set?" check
 #ifdef USE_FGT61
@@ -3158,12 +3159,6 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 			ASSERT(TRANSFORM_TYPE == RIGHT_ANGLE,"Require TRANSFORM_TYPE == RIGHT_ANGLE");
 			findex = trailz64(p);
 			ASSERT((p >> findex) == 1,"Require (p >> findex) == 1");
-			/* For Fermat-mod, only need IBDWT weights table if it's a non-power-of-2-length transform, in which
-			case the table has {nwt = odd part of N} distinct elements. Avoid if() logic related to power-of-2-or-not
-			by initing a single DWT weight = 1.0 in the power-of-2 case and = 2^((j%nwt)/n) otherwise:
-			*/
-			nwt = (n >> trailz32(n));
-			sw_div_n = sw*nwt/n;
 		}
 		else
 			ASSERT(TRANSFORM_TYPE == REAL_WRAPPER,"Require TRANSFORM_TYPE == REAL_WRAPPER");
@@ -3236,27 +3231,13 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 	#endif
 		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		// Carry-in needs to be properly left-shifted w.r.to the residue word into which it goes;
-		// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin:
-		// Since the stdlib pow() function is expensive (~100-200 cycles), wrap this bit in an if(cy_in):
+		// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin.
+		// Store it unweighted - the forward DWT weighting (and the Fermat-mod acyclic twist) is done in the mod_square routines:
 		if(cy_in) {
 			if(TRANSFORM_TYPE == REAL_WRAPPER) {
-				// Compute wt = 2^(j*sw % n)/n:
-				sw_idx_modn = ((uint64)j*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
-				wt_fwd = pow(2.0, (double)sw_idx_modn/n);
-				a[j1] = cy_in * (double)(1ull << (shift - ii)) * wt_fwd;
-			} else {
-				j2 = j1 + RE_IM_STRIDE;
-				// Compute both the DWT weight (if n = 2^k this = 1) and the acyclic-twisting root of unity:
-				sw_idx_modn = ((uint64)(j>>1)*sw_div_n) % nwt;	// Analogous loop in fermat_mod_square increments ii += SW_DIV_N (mod nwt) for every j += 2, so need to halve j here
-				wt_fwd = pow(2.0, (double)sw_idx_modn/nwt);
-				wt_fwd *= (double)(1ull << (shift - ii));
-				theta  = j * qfdbl(QPIHALF) / n;
-				wt_cos = wt_fwd*cos(theta);	wt_sin = wt_fwd*sin(theta);
-				if(!i) {	// [Re,0] * exp((j/2)*Pi/n) = [ Re*cos, Re*sin]:
-					a[j1] =  cy_in*wt_cos;	a[j2] = cy_in*wt_sin;
-				} else {	// [0,Im] * exp((j/2)*Pi/n) = [-Im*sin, Im*cos]:
-					a[j1] = -cy_in*wt_sin;	a[j2] = cy_in*wt_cos;
-				}
+				a[j1] = cy_in * (double)(1ull << (shift - ii));
+			} else {	// Real part (i = 0) of complex datum j/2 is at a[j1], imaginary part (i = 1) at a[j1 + RE_IM_STRIDE]:
+				a[j1 + i*RE_IM_STRIDE] = cy_in * (double)(1ull << (shift - ii));
 			}
 		}
 		retval = ((uint64)j<<8) + (shift - ii);
@@ -3308,11 +3289,10 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 			#endif
 				j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 				// Carry-in needs to be properly left-shifted w.r.to the residue word into which it goes;
-				// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin:
-				if(cy) {	// Compute wt = 2^(j*sw % n)/n:
-					sw_idx_modn = ((uint64)j*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
-					wt_fwd = pow(2.0, (double)sw_idx_modn/n);
-					a[j1] = cy * (double)(1ull << (shift - (nbits - bits[ii]))) * wt_fwd;
+				// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin.
+				// Store it unweighted - mers_mod_square() does the forward DWT weighting:
+				if(cy) {
+					a[j1] = cy * (double)(1ull << (shift - (nbits - bits[ii])));
 					cy = 0.0;
 				}
 			}
@@ -3359,19 +3339,14 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 				j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 				j2 = j1 + RE_IM_STRIDE;
 				// Carry-in needs to be properly left-shifted w.r.to the residue word into which it goes;
-				// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin:
-				if(cy) {	// Compute both the DWT weight (if n = 2^k this = 1) and the acyclic-twisting root of unity:
-					sw_idx_modn = ((uint64)(j>>1)*sw_div_n) % nwt;	// Analogous loop in fermat_mod_square increments ii += SW_DIV_N (mod nwt) for every j += 2, so need to halve j here
-					wt_fwd = pow(2.0, (double)sw_idx_modn/nwt);
+				// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin.
+				// Store it unweighted and untwisted - fermat_mod_square() does the forward DWT weighting and acyclic twist:
+				if(cy) {	// Real part (i = 0) of complex datum j/2 is at a[j1], imaginary part (i = 1) at a[j2]:
 					cy *= (double)(1ull << (shift - (nbits - bits[ii])));
-					cy *= wt_fwd;
-					theta  = j * qfdbl(QPIHALF) / n;
-					wt_cos = cos(theta);	wt_sin = sin(theta);
-					if(!i) {	// [Re,0] * exp((j/2)*Pi/n) = [ Re*cos, Re*sin]:
-						a[j1] =  cy*wt_cos;	a[j2] = cy*wt_sin;
-					} else {	// [0,Im] * exp((j/2)*Pi/n) = [-Im*sin, Im*cos]:
-						a[j1] = -cy*wt_sin;	a[j2] = cy*wt_cos;
-					}
+					if(!i)
+						a[j1] = cy;
+					else
+						a[j2] = cy;
 				//	printf("shift_word(): set a[%u] = %20.12f, a[%u] = %20.12f\n",j1,a[j1],j2,a[j2]);
 					cy = 0.0;
 				}
