@@ -3140,7 +3140,7 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 {
 	static int first_entry=TRUE, nsave = 0;
 	static uint64 psave = 0ull;
-	static double bits_per_word = 0.0, words_per_bit = 0.0;
+	static double bits_per_word = 0.0;
 	int pow2_fft,bimodn,curr_bit64,curr_wd64,w64,curr_wd_bits,mod64,findex,i,j,j1,j2;
 	static uint32 bw = 0,sw = 0,nwt = 0,sw_div_n,bits[2];
 	uint32 sw_idx_modn,ii;	// Aug 2021: ii needs to be unsigned for the (shift < ii) compare when shift >= 2^31
@@ -3180,42 +3180,25 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 	// May 2018: Check that BIGWORD_BITMAP and BIGWORD_NBITS arrays have been alloc'ed and use fast lookup based on those.
 	// Timing loop on my Core2 macbook indicates this fast-lookup needs ~160 cycles @1Mdouble FFT, not horrible but slower
 	// than I'd like, likely due to cache impacts of doing random-word lookups in the resulting 128kB and 64kB BIGWORD* arrays.
-	// Also had the "adjusting..." printfs enabled during the timing tests, 0 such adjustments needed for 10^9 random-shifts:
 	if(!first_entry) {
 	//	ASSERT(BIGWORD_BITMAP != 0x0 && BIGWORD_NBITS != 0x0, "BIGWORD_BITMAP and BIGWORD_NBITS arrays not alloc'ed!");
-		// Divide [shift] by the average bits per word to get a quick estimate of which word contains the corresponding bit:
-		j = shift*words_per_bit;	w64 = j>>6; mod64 = j&63;
+		// Compute the index of the word containing bit [shift] exactly. Word j holds bits [ceil(j*p/n), ceil((j+1)*p/n)),
+		// so the word holding bit [shift] is the largest j with j*p <= shift*n, i.e. j = floor(shift*n/p). Both factors are
+		// < 2^32 (shift < p, and shifts are disabled for p+63 > 2^32; n is an int), so the product cannot overflow.
+		// This used to be a double-precision estimate j = shift*words_per_bit followed by +-1-word correction loops.
+		// Once p*n is large enough for double rounding to matter (p ~ 1e9 at 57344K and 114688K) the estimate comes out
+		// one word low for a few shifts per exponent, and the correction loops then mis-stepped both j and the bit offset,
+		// giving a wrong LL residue. The exact quotient makes the correction unnecessary:
+		itmp64 = shift*(uint64)n;	j = (int)(itmp64/p);	w64 = j>>6; mod64 = j&63;
 		// Then exactly compute the bitcount at the resulting word, by adding the BIGWORD_NBITS-array-stored exact
 		// total bitcount at the next-lower index-multiple-of-64 to the number of bits in the next (mod64) words,
 		// not including the current word, hence (64-mod64) rather than (63-mod64) as the BIGWORD_BITMAP[w64] shift count.
 		itmp64 = BIGWORD_BITMAP[w64];	i = (int)bits_per_word;
 		ii = BIGWORD_NBITS[w64] + i*mod64 + (mod64 ? popcount64( itmp64<<(64-mod64) ) : 0);
-		// Loop up or down (should be by at most 1 word in either direction) if the resulting #bits is such that RES_SHIFT maps to a <> word:
 		curr_wd_bits = i + ( (int64)(itmp64<<(63-mod64)) < 0 );
-		// Can gain a few % speed by commenting out this correction-step code, but even though I've encountered
-		// no cases where it's used in my (admittedly quite limited) testing, better safe than sorry:
-		if(shift < ii) {
-		//	printf("shift[%" PRIu64 "] < ii [%u] ... adjusting downward.\n",shift,ii);
-			while(shift < ii) {
-				if(--j < 0) {	// Note j is signed
-					j += 64;	w64 = j>>6; mod64 = j&63;	// Go to next-lower word of BIGWORD_BITMAP
-				} else {
-					--mod64;
-				}
-				curr_wd_bits = i + ( (int64)(BIGWORD_BITMAP[w64]<<(63-mod64)) < 0 );
-				ii -= curr_wd_bits;
-			}
-		} else if(shift >= (ii + curr_wd_bits) ) {
-		//	printf("shift[%" PRIu64 "] >= (ii + curr_wd_bits) [%u] ... adjusting upward.\n",shift,(ii + curr_wd_bits));
-			while(shift >= (ii + curr_wd_bits) ) {
-				if(++j > 63) {
-					j -= 64;	w64 = j>>6; mod64 = j&63;	// Go to next-higher word of BIGWORD_BITMAP
-				} else
-					++mod64;
-				curr_wd_bits = i + ( (int64)(BIGWORD_BITMAP[w64]<<(63-mod64)) < 0 );
-				ii += curr_wd_bits;
-			}
-		}
+		// The tables were built word by word in the first_entry pass from the same bigword/littleword pattern the carry
+		// routines use, so bit [shift] must lie inside word j as they describe it; treat a disagreement as fatal:
+		ASSERT(ii <= shift && shift < ii + (uint32)curr_wd_bits, "shift_word(): BIGWORD tables disagree with the computed word index!");
 		// Must account for the right-angle-transform data layout here:
 		if(TRANSFORM_TYPE == RIGHT_ANGLE) {
 			j <<= 1;
@@ -3264,7 +3247,7 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 	}
 
 	first_entry = FALSE;
-	psave = p; nsave = n; bits_per_word = (double)p/n; words_per_bit = 1.0/bits_per_word;
+	psave = p; nsave = n; bits_per_word = (double)p/n;
 	ASSERT(MODULUS_TYPE,"MODULUS_TYPE not set!");
 	ASSERT(MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
 	ASSERT(TRANSFORM_TYPE,"TRANSFORM_TYPE not set!");
