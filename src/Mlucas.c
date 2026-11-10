@@ -4200,19 +4200,22 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				else if(STREQ(cptr,"K") || STREQ(cptr,"k")) // add lower case k KK 2026-07-12, see above comment
 					i64arg = darg;
 				else {
-					ASSERT(0, "The only non-numeric suffixes allowed for the argument to -fft are K and M or the lowercase equivalents k and m");
+					fprintf(stderr,"ERROR: FFT-length argument = %s: the only non-numeric suffixes allowed are K and M, or the lowercase equivalents k and m\n",stFlag);
+					exit(EXIT_FAILURE);
 				}
 			} else
 				i64arg = darg;
 			// Must be in range [MIN_FFT_LENGTH_IN_K,MAX_FFT_LENGTH_IN_K], def'd in Mdata.h:
+			// v21: a bad -fft argument is a *user input* error, same as the out-of-range -radset handled
+			// further down - report it and exit cleanly rather than ASSERT, which aborts with a core dump:
 			if(i64arg < MIN_FFT_LENGTH_IN_K || i64arg > MAX_FFT_LENGTH_IN_K) {
 				sprintf(cbuf  , "ERROR: FFT-length argument = %" PRIu64 ", must be in range [%u,%u]K\n",i64arg,MIN_FFT_LENGTH_IN_K,MAX_FFT_LENGTH_IN_K);
-				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+				fprintf(stderr,"%s", cbuf);	exit(EXIT_FAILURE);
 			}
 			fftlen = (uint32)i64arg;	// Note this is the REAL-vector FFT length
 			if((i = get_fft_radices(fftlen, 0, 0x0, 0x0, 0)) != 0) {
 				sprintf(cbuf  , "ERROR: FFT length %d K not available.\n",fftlen);
-				fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+				fprintf(stderr,"%s", cbuf);	exit(EXIT_FAILURE);
 			}
 			// If user has supplied a set of complex-FFT radices, their product must equal half the real-FFT length:
 			if(rad_prod) { ASSERT((rad_prod>>9) == fftlen,"Product of user-supplied set of complex-FFT radices must equal half the real-FFT length!"); }
@@ -4230,9 +4233,13 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			char_addr = stFlag;
 			cptr = strchr(char_addr,',');
 			if(!cptr) {	// It's a radix-set index
-				i64arg = atoll(stFlag);
-				// Must be < 2^32:
-				ASSERT(i64arg < 20, "radset-index argument must be < 2^32 ... halting.");
+				// A bad index is a user input error, like a bad -fft argument above: report it and exit
+				// cleanly. (atoll() would read non-numeric text as index 0 and silently run that set.)
+				i64arg = strtoull(stFlag,&cptr,10);
+				if(cptr == stFlag || *cptr != '\0' || stFlag[0] == '-' || i64arg >= 20) {
+					fprintf(stderr,"ERROR: radix-set index argument = %s: must be an integer in [0,19], or a comma-separated set of radices\n",stFlag);
+					exit(EXIT_FAILURE);
+				}
 				radset = (uint32)i64arg;
 			} else {	// It's a set of complex-FFT radices
 				// One pass over the comma-separated list, bounding the count as we go: stFlag is
@@ -4481,7 +4488,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		if(iarg == 0) {
 			sprintf(cbuf  , "*** ERROR: Must specify a valid FFT length on command line before -radset argument!\n");
-			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+			fprintf(stderr,"%s", cbuf);	exit(EXIT_FAILURE);	// v21: bad user input - clean error exit, not ASSERT/abort+core
 		}
 
 		/* Make sure it's a valid radix set index for this FFT length: */
@@ -4493,7 +4500,10 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			else
 				sprintf(cbuf  , "ERROR: Unknown error-code value %d from get_fft_radices(), called with radix set index %d, FFT length %d K\n",i,radset, iarg);
 
-			fprintf(stderr,"%s", cbuf);	ASSERT(0,cbuf);
+			// v21: an out-of-range radix set for this build is a *user input* error (e.g. SIMD builds offer
+			// fewer radix sets per FFT length than scalar ones, since the small-leading-radix carry routines
+			// are scalar-only) - report it and exit cleanly rather than ASSERT, which aborts with a core dump:
+			fprintf(stderr,"%s", cbuf);	exit(EXIT_FAILURE);
 		}
 
 	}
