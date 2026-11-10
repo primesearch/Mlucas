@@ -24,6 +24,23 @@
 #include "util.h"
 #include "factor.h"	// Needed for twopmodq64() prototype
 #include "imul_macro.h"
+/* mkdir_p() below needs these. They belong up here rather than beside it: reached from partway
+down the file, <sys/stat.h> on glibc 2.31 and older pulls in bits/statx.h -> linux/stat.h before
+linux/types.h has supplied __s64/__u32, and the build dies with "unknown type name '__s64'".
+Ubuntu 20.04 and earlier hit this; newer glibc happens to tolerate it. */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#include <direct.h>
+	#include <io.h>
+	#include <fcntl.h>
+	#include <process.h>
+	#include <sys/types.h>
+	#include <sys/stat.h>	// _S_IREAD, _S_IWRITE
+#else
+	#include <sys/types.h>
+	#include <sys/stat.h>
+	#include <fcntl.h>
+	#include <unistd.h>
+#endif
 #ifdef TEST_SIMD
 	#include "dft_macro.h"
   #ifdef USE_SSE2
@@ -9497,28 +9514,52 @@ char *MLUCAS_PATH = "";
    path does not end with a slash  */
 void set_mlucas_path(void)
 {
-	char *mlucas_path;
-	char *cmdstr;
-	char *expanded_str;
-	int  tmp;
-	FILE *pipe_ptr;
-	size_t bufsize;
+	/* Shared prologue: seed MLUCAS_PATH from the environment (overriding the compiled-in default),
+	   common to both the POSIX and Windows branches below: */
 	int has_err = FALSE;
-
-	mlucas_path = getenv("MLUCAS_PATH");
+	/* Declared here, uninitialized, and assigned below: a goto to out_err_check must not jump over
+	   an initialized declaration, which is an error in C++ and so in the CUDA build, where nvcc
+	   compiles this file as C++: */
+	size_t len, bufsize;
+	char *mlucas_path = getenv("MLUCAS_PATH");
 	if (mlucas_path != NULL) {
-		bufsize = strlen(mlucas_path) + 1;
-		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
+		MLUCAS_PATH = (char*)malloc(strlen(mlucas_path) + 1); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
 			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
 		strcpy(MLUCAS_PATH, mlucas_path);
-	} else {
-		bufsize = strlen(MLUCAS_PATH) + 1;
 	}
-	bufsize = (bufsize - 1) * 3 + 1;
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	/* On Windows, popen() runs cmd.exe, which has no 'printf' command, so the
+	   shell-expansion trick used in the POSIX branch below fails with
+	   "'printf' is not recognized as an internal or external command" (issue #50).
+	   Windows also has no Bourne-shell variables like $HOME to expand, so simply
+	   use MLUCAS_PATH verbatim, while enforcing the same invariants as the POSIX branch:
+	   the path must be no longer than STR_MAX_LEN and must end with a slash (fwd- or
+	   backslash, since both are directory separators on Windows).  */
+	len = strlen(MLUCAS_PATH);
+	if (len == 0) /* empty path means "use the current directory", as in the POSIX branch  */
+		goto out_err_check;
+	if (len > STR_MAX_LEN) {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+	if (MLUCAS_PATH[len - 1] != '/' && MLUCAS_PATH[len - 1] != '\\') {
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+		has_err = TRUE;
+		goto out_err_check;
+	}
+#else
+	/* POSIX: run MLUCAS_PATH through the shell (via popen "printf") so $HOME-style
+	   variables get expanded, then enforce the length/trailing-slash invariants: */
+	char *cmdstr;
+	char *expanded_str;
+	int  tmp;
+	FILE *pipe_ptr;
+	bufsize = strlen(MLUCAS_PATH) * 3 + 1;	/* quote_spaces() can triple each char, plus NUL */
 	mlucas_path = (char*)malloc(bufsize);
 	if (mlucas_path == NULL) {
 		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
@@ -9578,6 +9619,7 @@ void set_mlucas_path(void)
 	free(cmdstr);
 	out_mlucas_path:
 	free(mlucas_path);
+#endif	/* OS_TYPE_WINDOWS || __MINGW32__ */
 	out_err_check:
 	if (has_err)
 		ASSERT(0, "Exiting.");
@@ -9608,6 +9650,37 @@ char *quote_spaces(char *dest, char *src)
 	return dest;
 }
 
+/* MinGW's mkdir() takes no mode argument, and MSVC spells it _mkdir(); the headers these need
+are included at the top of this file - see the note there for why they cannot live here: */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#define MKDIR(p)	_mkdir(p)
+#else
+	#define MKDIR(p)	mkdir((p), 0777)
+#endif
+/* Directory separators: only the forward slash on POSIX, where a backslash is an ordinary filename
+character (MLUCAS_PATH=/data/a\b/ names one directory 'a\b', not 'a' with a child 'b'); both on Windows: */
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#define MKDIR_P_IS_SEP(c)	((c) == '/' || (c) == '\\')
+#else
+	#define MKDIR_P_IS_SEP(c)	((c) == '/')
+#endif
+#define MKDIR_P_PROBE	"_Mlucas_util_c_mkdir_p_tmp"
+/* The probe name gets "_<pid>_<attempt>" appended, so that it is unique to this call. 32 bytes is room
+for that and the NUL with any pid that fits in a long: */
+#define MKDIR_P_PROBE_SUFFIX_MAX	32
+/* The longest path set_mlucas_path() accepts is STR_MAX_LEN characters; the buffer needs room for that,
+a possible added '/', the probe name with its suffix, and the NUL: */
+#define MKDIR_P_BUFSIZE	(STR_MAX_LEN + 1 + sizeof(MKDIR_P_PROBE) + MKDIR_P_PROBE_SUFFIX_MAX)
+#if defined(OS_TYPE_WINDOWS) || defined(__MINGW32__)
+	#define MKDIR_P_GETPID()	((long)_getpid())
+	#define MKDIR_P_CREATE(p)	_open((p), _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE)
+	#define MKDIR_P_CLOSE(fd)	_close(fd)
+#else
+	#define MKDIR_P_GETPID()	((long)getpid())
+	#define MKDIR_P_CREATE(p)	open((p), O_CREAT | O_EXCL | O_WRONLY, 0600)
+	#define MKDIR_P_CLOSE(fd)	close(fd)
+#endif
+
 /* Emulate `mkdir -p path'
    The command either makes directory `path' and all its parent directories
    or does absolutely nothing
@@ -9616,62 +9689,64 @@ char *quote_spaces(char *dest, char *src)
    Return 1 if the directory does not exist or is not writable  */
 int mkdir_p(char *path)
 {
-	char mlucas_path[STR_MAX_LEN + 1];
-	char cmdstr[4 * STR_MAX_LEN + 1];
-	char tmp[4 * STR_MAX_LEN + 1] = "";
-	char *tok;
-	FILE *fp;
-	int err;
+	char tmp[MKDIR_P_BUFSIZE];
+	char *p;
+	size_t len, dirlen;
+	int attempt;
 
-	snprintf(mlucas_path, sizeof(mlucas_path), "%s", path);
-	if (mlucas_path[0] == '\0')
+	/* The longest path set_mlucas_path() accepts is STR_MAX_LEN characters, and tmp has room for all
+	of it plus the probe name. That is the only length limit; anything longer is rejected here
+	rather than silently truncated: */
+	len = strlen(path);
+	if (len == 0 || len > STR_MAX_LEN)
 		return 1;
-	else if (mlucas_path[0] == '/')
-		strcpy(tmp, "/");
+	memcpy(tmp, path, len + 1);
 
-	for (tok = strtok(mlucas_path, "/");
-	     tok != NULL;
-	     tok = strtok(NULL, "/")) {
-		shell_quote(cmdstr, tok);
-		strcat(tmp, cmdstr);
-		strcat(tmp, "/");
-		strcpy(cmdstr, "mkdir ");
-		strcat(cmdstr, tmp);
-		strcat(cmdstr, " 2> /dev/null");
-		// mkdir (no -p) fails whenever this path component already exists, which is the
-		// common case on every startup after the first - deliberately ignore that here,
-		// matching mkdir -p semantics; only cast to void to silence the unused-result warning:
-		(void)system(cmdstr);
+	/* Create each parent component in turn, then the leaf. This used to shell out - 'mkdir ...
+	2> /dev/null' per component via system(), a 'printf' popen() to undo the shell-quoting, and
+	'rm -f' to clear the probe file - none of which exist under cmd.exe, so the whole function
+	was unusable on Windows for the same reason as issue #50. Going through the C library
+	instead is both portable and cheaper, and removes the shell-quoting round-trip entirely.
+	Per-component errors are deliberately ignored, and the writability probe below is what
+	determines the return value. Bailing out on anything other than EEXIST would be wrong:
+	a component that already exists is the common case on every startup after the first, but
+	not every prefix that fails is a problem either. On Windows a UNC path's leading
+	'\\server' component reports ENOENT rather than EEXIST, so an early return there would
+	reject '\\server\share\...' even though the full path is perfectly creatable. (Drive
+	letters are fine - '_mkdir("C:")' does report EEXIST.) On POSIX the question does not
+	arise: intermediate components only ever return success or EEXIST, and a genuine failure
+	such as EACCES lands on the leaf, which the probe catches anyway.  */
+	for (p = tmp + 1; *p != '\0'; ++p) {
+		if (MKDIR_P_IS_SEP(*p)) {
+			char sep = *p;	*p = '\0';
+			(void)MKDIR(tmp);
+			*p = sep;
+		}
 	}
+	(void)MKDIR(tmp);
 
-	strcat(tmp, "_Mlucas_util_c_mkdir_p_tmp");
-	strcpy(cmdstr, "printf ");
-	strcat(cmdstr, tmp);
-	fp = popen(cmdstr, "r");
-	if (fp == NULL) {
-		fprintf(stderr, "ERROR: unable to open pipe fp in mkdir_p()\n");
-		ASSERT(0, "Exiting.");
+	/* Confirm the directory exists and is writable by creating and removing a file in it. The probe
+	is created exclusively, under a name unique to this call: opening a fixed name for append would
+	succeed on a leftover, writable probe file even in a directory we cannot write to, and removing
+	it would then delete a file this call did not create. If the name is somehow taken (a pid reused
+	after a crash, say), try the next suffix rather than trust or delete it: */
+	if (!MKDIR_P_IS_SEP(tmp[len - 1]))
+		tmp[len++] = '/';
+	dirlen = len;
+	for (attempt = 0; attempt < 16; ++attempt) {
+		int fd;
+		snprintf(tmp + dirlen, sizeof(tmp) - dirlen, "%s_%ld_%d", MKDIR_P_PROBE, MKDIR_P_GETPID(), attempt);
+		fd = MKDIR_P_CREATE(tmp);
+		if (fd < 0) {
+			if (errno == EEXIST)
+				continue;
+			return 1;
+		}
+		MKDIR_P_CLOSE(fd);
+		/* We created it, so we remove it; if that fails the directory is not usable as a work area: */
+		return remove(tmp) != 0;
 	}
-	if (fgets(tmp, STR_MAX_LEN + 1, fp) == NULL) {
-		fprintf(stderr, "ERROR: unable to retrieve file name in mkdir_p()\n");
-		ASSERT(0, "Exiting.");
-	}
-	pclose(fp);
-
-	fp = fopen(tmp, "a");
-	if (fp == NULL)
-		return 1;
-	fclose(fp);
-
-	strcpy(cmdstr, "rm -f ");
-	strcat(cmdstr, tmp);
-	strcat(cmdstr, " 2> /dev/null");
-	err = system(cmdstr);
-	if (err != 0) {
-		fprintf(stderr, "ERROR: mkdir_p failed <%s>\n", cmdstr);
-		ASSERT(0, "Exiting.");
-	}
-	return 0;
+	return 1;
 }
 
 /* Double-quote all single-quotes in the string
