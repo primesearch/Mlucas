@@ -236,9 +236,6 @@
 
 	#endif
 
-	#ifdef MUL_LOHI64_SUBROUTINE
-		#error MUL_LOHI64_SUBROUTINE defined!
-	#endif
 		ASSERT((p >> 63) == 0, "twopmodq100_q32: p must be < 2^63!");
 
 	#ifdef USE_AVX512_I
