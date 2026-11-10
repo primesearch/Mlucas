@@ -2690,9 +2690,13 @@ uint32 get_nextlarger_fft_length(uint32 n)
 	lead4 = n >> rem2;
 	ASSERT(lead4 > 7 && lead4 < 16,"get_nextlarger_fft_length: leading 4 bits of input FFT length out of range!");
 
+	/* Below 8K, rem2 < 10 and lead4+1 gives a length that is not a whole number of Kdoubles (e.g. 1K -> 1152),
+	which callers truncate straight back to the input length via (n >> 10) - so keep stepping until it is one: */
+	do {
+		++lead4;
+		fftLen = lead4 << rem2;
+	} while(fftLen & 1023);
 	/* Make sure next-larger FFT length is supported: */
-	++lead4;
-	fftLen = lead4 << rem2;
 	if(get_fft_radices((fftLen >> 10), 0, 0x0, 0x0, 0) != 0)
 	{
 		sprintf(cbuf, "get_nextlarger_fft_length: Next-larger FFT length %u not supported!\n", fftLen);
