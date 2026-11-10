@@ -209,3 +209,59 @@ Miscellany:
 	o Do we need to store PRP_BASE in savefiles? [Yes]
 	o
 
+
+
+===============================
+********** Gerbicz check for p-1 stage 1 (2026) **********
+
+Stage 1 is a left-to-right binary powering of the base a = 3 by the prime-powers product E:
+	x <- x^2 * a^b   per iteration, b = the next bit of E (MSB first).
+So over a block of L iterations, with c_k the value of the L-bit chunk of E consumed in block k (first-consumed
+bit most significant),
+	x_{(k+1)L} = x_{kL}^(2^L) * a^(c_k)                                   [0']
+which is [0] with an extra factor. Keep the PRP bookkeeping unchanged: b = product of the x_{kL} at every block
+boundary of the current epoch (seeded with the epoch's starting residue u0, = a from scratch), d = the copy of b
+at the previous block boundary, i.e. one block (L iterations) back - as in the PRP check, d is refreshed at every
+update, not only at checks. Then, with P = the product up to block boundary i-L and Q = the same up to i,
+	P^(2^L) = prod_{k} x_{kL}^(2^L) = prod_{k} x_{(k+1)L} * a^(-c_k) = (Q / u0) * a^(-C),   C = sum_k c_k ,
+i.e.
+	Q = u0 * P^(2^L) * a^C                                                 [3']
+in place of [3]. C is a function of E and the iteration count only and is recomputed from the stored product at
+each check (a sum of ~i/L numbers below 2^L: about L + log2(i/L) bits); a^C is formed by the same LR powering the
+stage itself uses, and applied together with u0 as one 2-input modmul before the comparison.
+
+Two things the PRP check never meets, because there the multiply-by-base bits are all zero:
+	o the modmul that folds x_{kL} into b, the L squarings of d at the check, and the modmuls of the correction
+	  all go through the carry step, which reads the multiply-by-base bit for its iteration number from the
+	  live exponent-bit window. Each would silently multiply a stray a into its result. They must run against a
+	  private, zeroed (or C-bit-filled) bit array. The first of these was found only by comparing b against a
+	  Python product of the same residues - C and a^C matched, b did not.
+	o u0 is a full residue, not the scalar a, when an epoch starts from a loaded savefile residue rather than
+	  from scratch; it is kept as an array and multiplied in rather than folded into the exponent.
+
+Only L-aligned points can be checked, so the last check of stage 1 is at the largest multiple of L not past its
+end (Mlucas's end-of-run check), and the fewer than L iterations after it are not arithmetic-checked, as with the
+PRP check. The Jacobi check of the stage 1 final residue does not cover them: squaring maps every residue to a
+quadratic residue, so a residue corrupted at one iteration has the expected symbol from the next one on, and that
+check only guards the conversion and savefile path.
+
+bc sketch (L = 4 for readability; N any odd modulus). u0 is the epoch's starting residue and the low nb bits of e
+are the exponent bits still to be consumed, MSB first. From scratch: u0 = a, e = E, nb = length2(E)-1 (E's leading
+bit is the seed). Resuming from a savefile residue u0: e and nb are the bits that remain. Checks happen every
+L^2 iterations; a tail of fewer than L^2 is left to the end-of-run check described above, which the sketch omits:
+	define pm1_gerbicz(a,u0,e,nb,n,L) {
+		auto i,t,x,b,d,c,cc,bit;
+		x = u0; b = u0; d = u0; c = 0; cc = 0; i = 0;
+		for(t = nb-1; t >= 0; t--) {
+			bit = (e / 2^t) % 2;
+			x = (x^2 * a^bit) % n; cc = 2*cc + bit; i = i + 1;
+			if(i % L == 0) {
+				if(i % (L*L) == 0) {
+					/* check: d^(2^L) * u0 * a^(c+cc) must equal b*x; cc is the block just finished */
+					d = modpow(d, 2^L, n) * u0 % n * modpow(a, c + cc, n) % n;
+					if(d != b*x % n) print "mismatch at ", i, "\n";
+				}
+				b = b*x % n; d = b; c = c + cc; cc = 0;
+			}
+		}
+	}
