@@ -55,7 +55,15 @@ jobs:
       run: |
         set -x -o pipefail
         cd obj
-        for s in l h; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # Exit status 1 = a wrong answer, which fails the step; 2 = some FFT length had too few usable
+        # radix sets, which passes, as in ci.yml. '|| st=...' because the step runs under set -e.
+        rc=0
+        for s in l h; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -93,7 +101,15 @@ jobs:
       run: |
         set -x -o pipefail
         cd obj
-        for s in ${{ matrix.sizes }}; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+        # Exit status 1 = a wrong answer, which fails the step; 2 = some FFT length had too few usable
+        # radix sets, which passes, as in ci.yml. '|| st=...' because the step runs under set -e.
+        rc=0
+        for s in ${{ matrix.sizes }}; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -145,7 +161,15 @@ jobs:
       run: |
         set -x -o pipefail
         cd obj
-        for s in l h; do time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log; done
+        # Exit status 1 = a wrong answer, which fails the step; 2 = some FFT length had too few usable
+        # radix sets, which passes, as in ci.yml. '|| st=...' because the step runs under set -e.
+        rc=0
+        for s in l h; do
+            st=0
+            time ./Mlucas -s $s -cpu "0:$(( NUMBER_OF_PROCESSORS - 1 ))" |& tee -a test.log || st=${PIPESTATUS[0]}
+            if (( st != 0 && st != 2 )); then rc=1; fi
+        done
+        (( rc == 0 ))
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -178,7 +202,16 @@ jobs:
           $CC --version
           bash -e -o pipefail -- makemake.sh use_hwloc
           cd obj
-          for s in l h; do time ./Mlucas -s $s -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" 2>&1 | tee -a test.log; done
+          # Same rule as the other jobs (fail on 1, pass on 2), written for the VM's /bin/sh, which has
+          # no ${PIPESTATUS[n]}: Mlucas writes to a file whose status is taken directly.
+          rc=0
+          for s in l h; do
+              st=0
+              time ./Mlucas -s "$s" -cpu "0:$(( $(sysctl -n hw.ncpu) - 1 ))" > selftest.out 2>&1 || st=$?
+              tee -a test.log < selftest.out
+              if [ "$st" -ne 0 ] && [ "$st" -ne 2 ]; then rc=1; fi
+          done
+          [ "$rc" -eq 0 ]
     - uses: actions/upload-artifact@v7
       if: always()
       with:
