@@ -1,0 +1,5 @@
+# Paths CodeRabbit should not review. Notes and scratch output, and disabled sources saved as .txt.
+reviews:
+  path_filters:
+    - "!docs/**"
+    - "!src/**/*.c.txt"
