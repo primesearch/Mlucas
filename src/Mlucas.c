@@ -2458,7 +2458,13 @@ READ_RESTART_FILE:
 				*sh2 = Res36m1;
 		}
 		/*...print runtime in hh:mm:ss format.	*/
-		fprintf(stderr, "Clocks =%s\n",get_time_str(tdiff) );
+		{
+			double mhz = cpuset_mean_mhz();	// sampled once, now, at the end of the run
+			if(mhz > 0)
+				fprintf(stderr, "Clocks =%s  [core clock at end of run: %.0f MHz]\n",get_time_str(tdiff), mhz);
+			else
+				fprintf(stderr, "Clocks =%s\n",get_time_str(tdiff) );
+		}
 		/*exit(EXIT_SUCCESS);*/
  		return(resFlag);
 	}	/* endif(INTERACT) */
