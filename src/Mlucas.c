@@ -1608,7 +1608,7 @@ READ_RESTART_FILE:
 				mlucas_fprint(cbuf,0); ASSERT(0,cbuf);
 			} else {
 				ierr = 0;
-				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
+				s1 = sum64(b_uint64_ptr, npad); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 			}
 		  }
 			ASSERT(ilo > 0,"Require ilo > 0!");
@@ -1952,10 +1952,10 @@ READ_RESTART_FILE:
 			//	fprintf(stderr,"fFFT(c), mode = %u\n",mode_flag);
 
 				// prior to each b[]-update, check integrity of array data:
-				if(!mi64_cmp_eq(b_uint64_ptr,d_uint64_ptr,n)) {	// Houston, we have a problem
+				if(!mi64_cmp_eq(b_uint64_ptr,d_uint64_ptr,npad)) {	// Houston, we have a problem
 					s1 = consensus_checksum(s1,s2,s3);
-					if(s1 == sum64(b_uint64_ptr, n)) {	/* b-data good; no-op */
-					} else if(s1 == sum64(d_uint64_ptr, n)) {	// d-data good, copy back into b
+					if(s1 == sum64(b_uint64_ptr, npad)) {	/* b-data good; no-op */
+					} else if(s1 == sum64(d_uint64_ptr, npad)) {	// d-data good, copy back into b
 						memcpy(b, d, nbytes);
 					} else	// Catastrophic data corruption
 						ASSERT(0, "Catastrophic data corruption detected in G-checkproduct integrity validation ... rolling back to last good G-check. ");
@@ -1984,7 +1984,7 @@ READ_RESTART_FILE:
 				// in order to guard against single-bit or other data corruption in b[] (h/t George Woltman):
 				if(i % ITERS_BETWEEN_GCHECKS != 0) {
 					memcpy(d, b, nbytes);
-					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
+					s1 = sum64(b_uint64_ptr, npad); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 				}
 				/**************************************************************************************************************
 				Here is some simple *nix bc code illustrating the G-check algorithm extended to circularly-shifted
@@ -2269,15 +2269,17 @@ READ_RESTART_FILE:
 				mlucas_fprint(cbuf,0);
 				// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 				memcpy(d, b, nbytes);
-				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
+				s1 = sum64(b_uint64_ptr, npad); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 			} else {
-				i = mi64_shlc_bits_align(e_uint64_ptr,c_uint64_ptr,p);
+				// mi64_shlc_bits_align() takes a 32-bit bit count; above the residue-shift exponent limit enforced at startup
+				// (p+63 > 2^32-1), skip the shifted-match diagnostic rather than pass it a truncated p:
+				i = ((p+63) <= 0xFFFFFFFFull) ? mi64_shlc_bits_align(e_uint64_ptr,c_uint64_ptr,(uint32)p) : (uint32)-1;
 				if(i != -1) {
 					sprintf(cbuf,"Gerbicz check passes if D *= 2^%u (mod 2^p-1)\n",i);
 					mlucas_fprint(cbuf,0);
 					// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 					memcpy(d, b, nbytes);
-					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
+					s1 = sum64(b_uint64_ptr, npad); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
 				} else {
 					if(ihi == ITERS_BETWEEN_GCHECKS)
 						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from scratch.\n",ihi);
