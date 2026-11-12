@@ -332,8 +332,8 @@ int test_fac()
 
 	j = 607;
 	l = (j + 63)>>6;	// #64-bit words needed
-	q     = (uint64 *)calloc(l, sizeof(uint64));
-	q2    = (uint64 *)calloc(l, sizeof(uint64));
+	q     = (uint64 *)CALLOC(l, sizeof(uint64));
+	q2    = (uint64 *)CALLOC(l, sizeof(uint64));
 	mi64_nega(q,q,l);
 	ASSERT(mi64_iszero(q,l), "mi64 -0 == 0 check fails!");
 	q[0] = 1;	mi64_nega(q,q,l);
@@ -402,8 +402,8 @@ int test_fac()
 	ASSERT(mi64_getlen(p, i) == 3 && i == 4,"Bad p-length(s) in Apr2015 mi64_div test!");
 	j = 0; q = convert_base10_char_mi64( "00000000000000000000000000000000000000000000000000000000019437941122649628431", &j);
 	ASSERT(mi64_getlen(q, j) == 2 && j == 4,"Bad q-length(s) in Apr2015 mi64_div test!");
-	q2      = (uint64 *)calloc(4, sizeof(uint64));	// for quotient
-	u64_arr = (uint64 *)calloc(4, sizeof(uint64));	// for remainder
+	q2      = (uint64 *)CALLOC(4, sizeof(uint64));	// for quotient
+	u64_arr = (uint64 *)CALLOC(4, sizeof(uint64));	// for remainder
 	mi64_div(p,q,i,i,q2,u64_arr);
 	ASSERT(mi64_getlen(     q2, i) == 2 && q2[1] == 1 && q2[0] ==   286286737571717471ull, "bad quotient!");
 	ASSERT(mi64_getlen(u64_arr, i) == 1 &&          u64_arr[0] ==   618006351061617544ull, "bad remainder!");
@@ -413,12 +413,12 @@ int test_fac()
 
 	/* 01/09/2008: mi64_div bug debug: */
 	i = 0; p = convert_base10_char_mi64("531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127", &i);
-	two_p = (uint64 *)calloc(i, sizeof(uint64));
+	two_p = (uint64 *)CALLOC(i, sizeof(uint64));
 	mi64_add(p,p,two_p,i);
 	j = 0; q = convert_base10_char_mi64("4969289881134175801642878989330437804491760137935869781219375395913301677808943323410612629818326630668131744420258226244511522022525093242408710254941677603671849301746980479735516135243111", &j);
 	ASSERT(i==j,"0");
-	q2      = (uint64 *)calloc(i, sizeof(uint64));
-	u64_arr = (uint64 *)calloc(i, sizeof(uint64));
+	q2      = (uint64 *)CALLOC(i, sizeof(uint64));
+	u64_arr = (uint64 *)CALLOC(i, sizeof(uint64));
 	mi64_div(q,two_p,i,i,q2,u64_arr);
 	ASSERT(mi64_getlen(q2, i) == 1 , "k must be 64-bit!");
 	ASSERT(q2[0] == 4677965, "k != expected value of 9355930!");
@@ -443,8 +443,8 @@ int test_fac()
 	clock1 = clock();
 	j = convert_base10_char_uint64("127");
 	i = (j + 63)>>6;	// #64-bit words needed
-	p     = (uint64 *)calloc(i, sizeof(uint64));
-	q     = (uint64 *)calloc(i, sizeof(uint64));
+	p     = (uint64 *)CALLOC(i, sizeof(uint64));
+	q     = (uint64 *)CALLOC(i, sizeof(uint64));
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1;
 	convert_mi64_base10_char(cbuf0, p, i, 0);
@@ -464,7 +464,7 @@ int test_fac()
 	exit(0);
 */
 	uint32 lenP = 1, lenQ = 2;
-	q2 = (uint64 *)calloc(lenQ, sizeof(uint64));	// Will store 2^-p (mod q) residue
+	q2 = (uint64 *)CALLOC(lenQ, sizeof(uint64));	// Will store 2^-p (mod q) residue
 	p[0] = 2147483647;
 	q[1] = mi64_mul_scalar( p, 2*56474845800ull, q, lenP);
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
@@ -483,8 +483,8 @@ int test_fac()
 // Base-2 PRP test of M607:
 	j = convert_base10_char_uint64("607");
 	i = (j + 63)>>6;	// #64-bit words needed
-	p     = (uint64 *)calloc(i, sizeof(uint64));
-	q     = (uint64 *)calloc(i, sizeof(uint64));
+	p     = (uint64 *)CALLOC(i, sizeof(uint64));
+	q     = (uint64 *)CALLOC(i, sizeof(uint64));
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1;
 	convert_mi64_base10_char(cbuf0, p, i, 0);
@@ -507,8 +507,8 @@ int test_fac()
 // Base-2 PRP test of M4423:
 	j = convert_base10_char_uint64("4423");
 	i = (j + 63)>>6;	// #64-bit words needed
-	p     = (uint64 *)calloc(i, sizeof(uint64));
-	q     = (uint64 *)calloc(i, sizeof(uint64));
+	p     = (uint64 *)CALLOC(i, sizeof(uint64));
+	q     = (uint64 *)CALLOC(i, sizeof(uint64));
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1;
 	mi64_set_eq    (q, p, i);
@@ -530,8 +530,8 @@ int test_fac()
 #if 0
 	j = convert_base10_char_uint64("7331");
 	i = (j + 63)>>6;	// #64-bit words needed
-	p     = (uint64 *)calloc(i, sizeof(uint64));
-	q     = (uint64 *)calloc(i, sizeof(uint64));
+	p     = (uint64 *)CALLOC(i, sizeof(uint64));
+	q     = (uint64 *)CALLOC(i, sizeof(uint64));
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1; next we p /= 458072843161 :
 ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 divisibility test fails!");
@@ -555,8 +555,8 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 #if 0
 	j = convert_base10_char_uint64("11213");
 	i = (j + 63)>>6;	// #64-bit words needed
-	p     = (uint64 *)calloc(i, sizeof(uint64));
-	q     = (uint64 *)calloc(i, sizeof(uint64));
+	p     = (uint64 *)CALLOC(i, sizeof(uint64));
+	q     = (uint64 *)CALLOC(i, sizeof(uint64));
 	p[0] = 1;	mi64_shl(p,p,j,i);	// 2^n
 	mi64_sub_scalar(p,1,p,i);	// p = 2^n - 1;
 	mi64_set_eq    (q, p, i);
@@ -577,8 +577,8 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	*/
 	j = 607;
 	i = (j + 63)>>6;	// #64-bit words needed
-	q     = (uint64 *)calloc(i, sizeof(uint64));
-	q2    = (uint64 *)calloc(i, sizeof(uint64));
+	q     = (uint64 *)CALLOC(i, sizeof(uint64));
+	q2    = (uint64 *)CALLOC(i, sizeof(uint64));
 	q[0] = 1;	mi64_shl(q,q,j,i);	// 2^607
 	mi64_sub_scalar(q,1,q,i);		// p = 2^607 - 1;
 	// Mul by any scalar < 2^33 should have no carry out of the 10th 64-bit word
@@ -597,7 +597,7 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	// 2nd multiplicand is just leading digits of Pi, sans decimal point:
 	j = 0; q2 = convert_base10_char_mi64("3141592653589793238462643383279502884197169399375105820974944592307816406286208998628034825342117067982148086513282306647093844609550582231725359408128481117450284102701938521105559644622948954930381964428810975665933446128475648233786783165271201909145648566923460348610454326648213393607260249141273724587006606315588174881520920962829254091715364367892590360011330530548820466521", &j);
 	ASSERT(j == 20, "vector lengths should be 20!");
-	q     = (uint64 *)calloc(j, sizeof(uint64));	// output array
+	q     = (uint64 *)CALLOC(j, sizeof(uint64));	// output array
 	mi64_mul_vector_hi_qmmp(q2, 1231, 60773088284ull, q, (j<<6));	// q = 2.k.M(p) + 1 with k = 60773088284
 	convert_mi64_base10_char(cbuf0, q, j, 0);
 	ASSERT(STREQ(cbuf0, "678299328487875406787553667584424766193319571425229812042632483796223090743976740829512533956144441574815272835626612961160454952708658437402700559999225654073147100413573556498251710301510338504761109128343850675314104893353603303495634850631971760134667616782442458276408663375682004856646999060481786800862572039635523841600325205075025327991817191734342347965082117753555537"), "mi64_mul_vector_hi_qmmp test failed!");
@@ -755,9 +755,9 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 #ifdef FACTOR_STANDALONE
 	printf("Testing > 256-bit Fermat factors...\n");
 #endif
-	p  = (uint64 *)calloc(640, sizeof(uint64));	// ffacBig Fermat-factor array limited to Fn with n < 10000
-	q  = (uint64 *)calloc(640, sizeof(uint64));
-	q2 = (uint64 *)calloc(640, sizeof(uint64));
+	p  = (uint64 *)CALLOC(640, sizeof(uint64));	// ffacBig Fermat-factor array limited to Fn with n < 10000
+	q  = (uint64 *)CALLOC(640, sizeof(uint64));
+	q2 = (uint64 *)CALLOC(640, sizeof(uint64));
 	for(i = 0; ffacBig[i].p != 0; i++)
 	{
 		j =         ffacBig[i].p;	// Fermat index n

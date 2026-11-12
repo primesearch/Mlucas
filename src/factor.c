@@ -1518,7 +1518,7 @@ ASSERT(0 == init_savefile(RESTARTFILE, pstring, bmin,bmax, kmin,know,kmax, passm
 		//**** Oct 2016: AVX-512 vector-bit-clear needs a padding element, so add one. ****
   #endif
 	bit_map = (uint64 *)calloc(i * NTHREADS, sizeof(uint64));
-	bit_map2= (uint64 *)calloc(i * NTHREADS, sizeof(uint64));	// 2nd alloc to give each thread 1 bit-clearable copy of master bit_map
+	bit_map2= (uint64 *)CALLOC(i * NTHREADS, sizeof(uint64));	// 2nd alloc to give each thread 1 bit-clearable copy of master bit_map
 	if (bit_map == NULL) {
 		fprintf(stderr,"Memory allocation failure for BITMAP array");
 		ASSERT(0,"0");
