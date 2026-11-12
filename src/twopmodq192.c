@@ -206,8 +206,8 @@ uint192 twopmodq192(uint192 p, uint192 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint192 qhalf, qinv, x, lo, hi;
-	TWOPMODQ_TLS uint192 psave = {{0ull,0ull,0ull}}, pshift;
-	TWOPMODQ_TLS uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint192 psave = {{0ull,0ull,0ull}}, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT;
 	if(p.d2 != 0ull)
 		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
@@ -469,8 +469,8 @@ uint64 twopmodq192_q4(const uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint6
 			, lo0, lo1, lo2, lo3
 			, hi0, hi1, hi2, hi3;
 	uint192 x;
-	TWOPMODQ_TLS uint192 psave = {{0ull,0ull,0ull}}, pshift;
-	TWOPMODQ_TLS uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint192 psave = {{0ull,0ull,0ull}}, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
 	uint32 FERMAT;
@@ -893,9 +893,9 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 			, lo0, lo1, lo2, lo3
 			, hi0, hi1, hi2, hi3;
 	uint192 x;
-	TWOPMODQ_TLS uint64 mmpsave;
-	TWOPMODQ_TLS uint192 psave = {{0ull,0ull,0ull}}, pshift;
-	TWOPMODQ_TLS uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint64 mmpsave;
+	static THREAD_LOCAL uint192 psave = {{0ull,0ull,0ull}}, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 
 #if FAC_DEBUG
 //	if(dbg) { printf("k0-3 = %u %u %u %u\n", k0,k1,k2,k3); exit(0); }
@@ -1147,8 +1147,8 @@ uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, 
 			, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
 			, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7;
 	uint192 x;
-	TWOPMODQ_TLS uint192 psave = {{0ull,0ull,0ull}}, pshift;
-	TWOPMODQ_TLS uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint192 psave = {{0ull,0ull,0ull}}, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
 	uint32 FERMAT;

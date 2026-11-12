@@ -39,8 +39,8 @@
 	#ifdef USE_AVX512_I
 		uint64 tmp64;
 	#endif
-		TWOPMODQ_TLS uint64 psave = 0, pshift;
-		TWOPMODQ_TLS uint32 start_index, zshift;
+		static THREAD_LOCAL uint64 psave = 0, pshift;
+		static THREAD_LOCAL uint32 start_index, zshift;
 		static uint32 first_entry = TRUE;
 		const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
@@ -48,7 +48,7 @@
 	  #error AVX-512 IFMA instruction extensions not yet supported!
 		const uint64 mask_lo52 = 0x000FFFFFFFFFFFFFull;
 		static uint64 *sc_arr = 0x0;
-		TWOPMODQ_TLS uint64 *sc_ptr;
+		static THREAD_LOCAL uint64 *sc_ptr;
 		uint64 *itmp;
 		vec_u64 *tmp;
 	  #ifdef MULTITHREAD
@@ -66,7 +66,7 @@
 																	// high 20 (pow0) bits of fq0 and low 12 (pow1) bits of fq1 to get middle 32 bits of q.
 		const double base = (double)(1ull<<bpow2), binv = 1.0/base, base0 = (double)(1u<<pow0), binv0 = 1.0/base0, base1 = (double)(1u<<pow1), binv1 = 1.0/base1;
 		static double *sc_arr = 0x0;
-		TWOPMODQ_TLS double *sc_ptr;
+		static THREAD_LOCAL double *sc_ptr;
 		const double *dptr0,*dptr1,*dptr2,*dptr3,*dptr4,*dptr5,*dptr6,*dptr7;
 		double *dptr,dtmp;
 		double *tmp,*tm1;
