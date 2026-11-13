@@ -1414,6 +1414,22 @@ extern int NTHREADS;
 	#endif
 #endif
 
+/* THREAD_LOCAL: storage-class qualifier for variables that must have one copy per thread in a multithreaded build,
+e.g. a function-level 'static THREAD_LOCAL' cache that would otherwise be shared by all the worker threads.
+Expands to nothing in a single-threaded build, so 'static THREAD_LOCAL' is then just 'static'. Multithreaded builds
+require a GCC-compatible compiler (see above), which all provide __thread; C11 _Thread_local is the fallback. */
+#ifdef MULTITHREAD
+  #if defined(__GNUC__) || defined(__clang__)
+	#define THREAD_LOCAL	__thread
+  #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+	#define THREAD_LOCAL	_Thread_local
+  #else
+	#error "Multithreaded build needs thread-local storage (__thread or C11 _Thread_local)."
+  #endif
+#else
+	#define THREAD_LOCAL
+#endif
+
 #if defined(CPU_IS_ALFA)
   #if CPU_DEBUG
 	#warning	CPU_NAME "Alpha"

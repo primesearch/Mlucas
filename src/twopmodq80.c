@@ -744,8 +744,8 @@ uint64 twopmodq78_3WORD_DOUBLE(uint64 p, uint64 k)
 	uint64 lead7, hi64;
 	uint96 q, qhalf, qinv, x, lo;
 	uint192 prod192;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint64 psave = 0, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 	double fq0, fq1, fq2;
 	double fqinv0, fqinv1, fqinv2;
 	double fx0, fx1, fx2;
@@ -1089,8 +1089,8 @@ if(~pshift != p+78) {
 		uint64 lead7, tmp0, tmp1, r;
 		uint96 q0, q1, qinv0, qinv1, qhalf0, qhalf1, x0, x1, lo0, lo1;
 		uint192 prod192;
-		static uint64 psave = 0, pshift;
-		static uint32 start_index, zshift;
+		static THREAD_LOCAL uint64 psave = 0, pshift;
+		static THREAD_LOCAL uint32 start_index, zshift;
 	#ifdef USE_SSE2
 		static uint32 first_entry = TRUE;
 	#endif
@@ -1101,7 +1101,8 @@ if(~pshift != p+78) {
 		const double crnd = 3.0*0x4000000*0x2000000;
 		const uint64 ihalf = 0x3FDfffffffffffffull;	/* Bitfield storing 0.5*(1-epsilon) in IEEE64 format */
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
-		static double *sc_arr = 0x0, *sc_ptr;
+		static double *sc_arr = 0x0;
+		static THREAD_LOCAL double *sc_ptr;
 		double dtmp;
 	  #ifdef MULTITHREAD
 		vec_dbl *tmp;
@@ -1933,8 +1934,8 @@ if(~pshift != p+78) {
 			 , q2, qinv2, qhalf2, x2, lo2
 			 , q3, qinv3, qhalf3, x3, lo3;
 		uint192 prod192;
-		static uint64 psave = 0, pshift;
-		static uint32 start_index, zshift;
+		static THREAD_LOCAL uint64 psave = 0, pshift;
+		static THREAD_LOCAL uint32 start_index, zshift;
 	#ifdef USE_SSE2
 		static uint32 first_entry = TRUE;
 	#endif
@@ -1945,7 +1946,8 @@ if(~pshift != p+78) {
 		const double crnd = 3.0*0x4000000*0x2000000;
 		const uint64 ihalf = 0x3FDfffffffffffffull;	/* Bitfield storing 0.5*(1-epsilon) in IEEE64 format */
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
-		static double *sc_arr = 0x0, *sc_ptr;
+		static double *sc_arr = 0x0;
+		static THREAD_LOCAL double *sc_ptr;
 		double dtmp;
 	  #ifdef MULTITHREAD
 		vec_dbl *tmp;
@@ -3017,8 +3019,8 @@ if(~pshift != p+78) {
 			, qinv2, qhalf2, x2, lo2
 			, qinv3, qhalf3, x3, lo3;
 		uint192 prod192;
-		static uint64 psave = 0, pshift;
-		static uint32 start_index, zshift, first_entry = TRUE;
+		static THREAD_LOCAL uint64 psave = 0, pshift;
+		static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 		double fq0,fq1,fq2, fqinv0,fqinv1,fqinv2, fx0,fx1,fx2, flo0,flo1,flo2, fhi0,fhi1,fhi2;
 		double gq0,gq1,gq2, gqinv0,gqinv1,gqinv2, gx0,gx1,gx2, glo0,glo1,glo2, ghi0,ghi1,ghi2;
 		double hq0,hq1,hq2, hqinv0,hqinv1,hqinv2, hx0,hx1,hx2, hlo0,hlo1,hlo2, hhi0,hhi1,hhi2;
@@ -3354,12 +3356,14 @@ if(~pshift != p+78) {
 				 , q6, qinv6, qhalf6, x6, lo6
 				 , q7, qinv7, qhalf7, x7, lo7;
 			uint192 prod192;
-			static uint64 psave = 0, pshift;
-			static uint32 start_index, zshift, first_entry = TRUE;
+			static THREAD_LOCAL uint64 psave = 0, pshift;
+			static THREAD_LOCAL uint32 start_index, zshift;
+			static uint32 first_entry = TRUE;
 			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
-			static double *sc_arr = 0x0, *sc_ptr;
+			static double *sc_arr = 0x0;
+			static THREAD_LOCAL double *sc_ptr;
 		  #ifdef MULTITHREAD
 			static double *__r0;	// Base address for discrete per-thread local stores ...
 									// *NOTE*: more convenient to use double* rather than vec_dbl* here
@@ -3933,8 +3937,9 @@ if(~pshift != p+78) {
 			const char func[] = "twopmodq78_3WORD_DOUBLE_q8 [SSE2]";
 			 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 			uint64 lead7, tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, r;
-			static uint64 psave = 0, pshift;
-			static uint32 start_index, zshift0,zshift1, first_entry = TRUE;
+			static THREAD_LOCAL uint64 psave = 0, pshift;
+			static THREAD_LOCAL uint32 start_index, zshift0,zshift1;
+			static uint32 first_entry = TRUE;
 			/* Floating-point stuff: */
 			uint32 q32_0, qinv32_0, tmp32_0
 				 , q32_1, qinv32_1, tmp32_1
@@ -3951,7 +3956,7 @@ if(~pshift != p+78) {
 			uint192 prod192;
 			/* Force 128-bit alignment needed for SSE work via the complex type, but also need double-pointer accesses to indivdual TF data: */
 			static vec_dbl *sc_arr = 0x0;
-			static double *sc_ptr;
+			static THREAD_LOCAL double *sc_ptr;
 			static double *fq0,*fq1,*fq2/* ,*fqhi52 */, *fqinv0,*fqinv1,*fqinv2, *fx0,*fx1,*fx2, *flo0,*flo1,*flo2, *fhi0,*fhi1,*fhi2;
 			static double *gq0,*gq1,*gq2/* ,*gqhi52 */, *gqinv0,*gqinv1,*gqinv2, *gx0,*gx1,*gx2, *glo0,*glo1,*glo2, *ghi0,*ghi1,*ghi2;
 			static double *hq0,*hq1,*hq2/* ,*hqhi52 */, *hqinv0,*hqinv1,*hqinv2, *hx0,*hx1,*hx2, *hlo0,*hlo1,*hlo2, *hhi0,*hhi1,*hhi2;
@@ -4855,14 +4860,16 @@ if(~pshift != p+78) {
 			uint96 tmp96;
 			uint192 prod192;
 		  #endif
-			static uint64 psave = 0, pshift;
-			static uint32 start_index, zshift, first_entry = TRUE;
+			static THREAD_LOCAL uint64 psave = 0, pshift;
+			static THREAD_LOCAL uint32 start_index, zshift;
+			static uint32 first_entry = TRUE;
 		  #ifndef USE_AVX2
 			uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 		  #endif
 
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
-			static double *sc_arr = 0x0, *sc_ptr;
+			static double *sc_arr = 0x0;
+			static THREAD_LOCAL double *sc_ptr;
 			double *dptr;
 		  #ifdef USE_AVX2
 			double dtmp;
@@ -5413,13 +5420,15 @@ if(~pshift != p+78) {
 		#ifdef USE_AVX512_I
 			uint64 tmp64;
 		#endif
-			static uint64 psave = 0, pshift;
-			static uint32 start_index, zshift, first_entry = TRUE;
+			static THREAD_LOCAL uint64 psave = 0, pshift;
+			static THREAD_LOCAL uint32 start_index, zshift;
+			static uint32 first_entry = TRUE;
 			const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		#ifdef USE_AVX512_I
 		  #error AVX-512 IFMA instruction extensions not yet supported!
-			static uint64 *sc_arr = 0x0, *sc_ptr;
+			static uint64 *sc_arr = 0x0;
+			static THREAD_LOCAL uint64 *sc_ptr;
 			uint64 *itmp;
 			vec_u64 *tmp;
 		  #ifdef MULTITHREAD
@@ -5434,7 +5443,8 @@ if(~pshift != p+78) {
 				ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
 			}
 		#else
-			static double *sc_arr = 0x0, *sc_ptr;
+			static double *sc_arr = 0x0;
+			static THREAD_LOCAL double *sc_ptr;
 			double *dptr, dtmp;
 			double *tmp,*tm1;
 		  #ifdef MULTITHREAD
@@ -6161,13 +6171,15 @@ if(~pshift != p+78) {
 		#ifdef USE_AVX512_I
 			uint64 tmp64;
 		#endif
-			static uint64 psave = 0, pshift;
-			static uint32 start_index, zshift, first_entry = TRUE;
+			static THREAD_LOCAL uint64 psave = 0, pshift;
+			static THREAD_LOCAL uint32 start_index, zshift;
+			static uint32 first_entry = TRUE;
 			const uint8* minv8_ptr = minv8;	// Ptr to Table of precomputed byte-inverses def'd in mi64.h
 			static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
 		#ifdef USE_AVX512_I
 		  #error AVX-512 IFMA instruction extensions not yet supported!
-			static uint64 *sc_arr = 0x0, *sc_ptr;
+			static uint64 *sc_arr = 0x0;
+			static THREAD_LOCAL uint64 *sc_ptr;
 			uint64 *itmp;
 			vec_u64 *tmp;
 		  #ifdef MULTITHREAD
@@ -6182,7 +6194,8 @@ if(~pshift != p+78) {
 				ASSERT((k[j] >> 52) == 0ull, "Ks must be < 2^52!");
 			}
 		#else
-			static double *sc_arr = 0x0, *sc_ptr;
+			static double *sc_arr = 0x0;
+			static THREAD_LOCAL double *sc_ptr;
 			double *dptr, dtmp;
 			double *tmp,*tm1;
 		  #ifdef MULTITHREAD

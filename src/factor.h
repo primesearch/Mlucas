@@ -28,6 +28,16 @@
 
 #include "util.h"
 
+/* The twopmodq*() routines cache the exponent-dependent setup (psave, pshift, start_index, zshift, first_entry) in
+function-level variables. The factoring worker threads all call them at once, and the first call after the exponent
+changes sets psave before it has computed pshift, start_index and zshift, so a second thread arriving in that window
+sees "psave == p", skips the setup and powers with another exponent's (or zeroed) values: a wrong answer, with no
+error. Declaring them 'static THREAD_LOCAL' (see platform.h) gives each thread its own copy, at the cost of one setup
+per thread per exponent.
+The SIMD routines (twopmodq78_3WORD_DOUBLE_q*, twopmodq100_2WORD_DOUBLE_q32) also keep a scratch pointer that each call
+re-derives for its own thread; that is thread-local too. Their first_entry flag and sc_arr/__r0 local stores stay shared:
+they are set up once by the single-threaded init call (thr_id == -1) before any worker runs. */
+
 /* IMCI-512 (1st-gen Xeon Phi / Knights Corner) shares AVX-512's zmm/k register names, and platform.h
 makes USE_IMCI512 imply USE_AVX512 - but it has none of the instructions the vectorized small-primes
 sieve in factor.c needs: vprolvd, vmovups, kmovw and the register form of vpbroadcastd all fail to

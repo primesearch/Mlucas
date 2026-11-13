@@ -46,8 +46,8 @@ uint64 twopmodq160(uint64 *p_in, uint64 k)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint160 p /*= {p_in[0],p_in[1],p_in[2]}*/, q, qhalf, qinv, x, lo, hi;	// MSVC gives "illegal initialization" error for this p-init...
-	static uint160 psave = {{0ull,0ull,0ull}}, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint160 psave = {{0ull,0ull,0ull}}, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 	p.d0 = p_in[0];	p.d1 = p_in[1];	p.d2 = p_in[2];	// ... so do it the hard way here.
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, p)], "0");

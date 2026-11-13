@@ -50,8 +50,8 @@ uint64 twopmodq128_96(uint64 p, uint64 k)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 hi64;
 	uint128 q, qinv, x, lo;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint64 psave = 0, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
@@ -264,8 +264,8 @@ uint64 twopmodq128_96_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		, qinv0, qinv1, qinv2, qinv3
 		, x0, x1, x2, x3
 		, lo0, lo1, lo2, lo3;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint64 psave = 0, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
@@ -602,8 +602,8 @@ uint64 twopmodq128_96_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, u
 		, qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
 		, x0, x1, x2, x3, x4, x5, x6, x7
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	static THREAD_LOCAL uint64 psave = 0, pshift;
+	static THREAD_LOCAL uint32 start_index, zshift, first_entry = TRUE;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
