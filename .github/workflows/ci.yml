@@ -97,14 +97,28 @@ jobs:
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         # A Fermat assignment must stay a primality test: trial factoring is Mersenne-only, so
-        # "Fermat,Test=..." with a low sieve_depth must not be switched to TEST_TYPE_TF.
+        # "Fermat,Test=..." with a low sieve_depth must not be switched to TEST_TYPE_TF. On ARM the
+        # native build is ASIMD, which rejects Fermat tests outright ("ARMv8 SIMD builds do not
+        # support Fermat-number testing!"), so use the NOSIMD build there - otherwise this check
+        # passes without ever reaching the dispatch it is meant to test.
         mkdir -p fermat-dispatch-check
         cd fermat-dispatch-check
-        cp ../Mlucas .
+        if [[ $HOSTTYPE == aarch64 ]]; then cp ../obj_NOSIMD/Mlucas .; else cp ../Mlucas .; fi
         echo 'Fermat,Test=25,0,0' > worktodo.txt
-        ./Mlucas |& tee dispatch.log || true
+        set +e
+        ./Mlucas |& tee dispatch.log
+        status=${PIPESTATUS[0]}
+        set -e
+        echo "Mlucas exited $status (failing for want of fermat.cfg is expected here)"
         if grep -q 'TEST_TYPE_TF with MODULUS_TYPE' dispatch.log || grep -q 'Trial-factoring Currently only supported' dispatch.log; then
             echo '::error::Fermat assignment was dispatched to trial factoring.'
+            exit 1
+        fi
+        # Positive evidence: with no fermat.cfg in this directory the Fermat primality path names
+        # the config file it wants before doing any arithmetic. An early bail-out (unsupported SIMD
+        # mode, rejected modulus, ...) leaves this absent, so require it rather than trust silence.
+        if ! grep -q 'fermat.cfg' dispatch.log; then
+            echo '::error::Fermat assignment never reached the primality path.'
             exit 1
         fi
         cd ..

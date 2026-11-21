@@ -92,6 +92,7 @@ int ITERS_BETWEEN_GCHECK_UPDATES = 1000;	// iterations between Gerbicz-checkprod
 int ITERS_BETWEEN_GCHECKS     = 1000000;	// #iterations between Gerbicz-checksum residue-integrity checks
 
 char ESTRING[STR_MAX_LEN];		// Mersenne exponent or Fermat-number index in string form - for M(p) this == p, for F(m) this == m
+long curr_assignment_off = 0;	// Byte offset of the current assignment line in WORKFILE, so code that revisits it need not assume it is line 1
 char BIN_EXP[STR_MAX_LEN];		// Binary exponent in string form - for M(p) this == p, for F(m) this == 2^m
 char PSTRING[STR_MAX_LEN+1];	// Modulus being used in string form, e.g. "M110916929" and "F33".
 
@@ -591,6 +592,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		char *newend;
 
 	  read_next_assignment:	// Read first line of worktodo.ini file into 1K character array:
+		curr_assignment_off = ftell(fp);	// Remember where this assignment starts, so the rewrite can keep any lines skipped ahead of it
 		if(!fgets(g_in_line, sizeof(g_in_line), fp)) {
 			fprintf(stderr,"Hit EOF while attempting to read next line of worktodo ... quitting.\n");
 			exit(0);
@@ -739,6 +741,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			break;
 	#if INCLUDE_TF
 		case WP_WORK_FACTOR:
+			/* Trial factoring is Mersenne-only, so a Fermat prefix has to be dropped here; at this
+			   point p would be the Fermat index, which would be factored as an M-number job. */
+			if(wa.mod_type == WP_MOD_FERMAT) {
+				fprintf(stderr, "WARN: trial factoring is Mersenne-only; skipping Fermat-prefixed Factor assignment.\n");
+				goto read_next_assignment;
+			}
 			TEST_TYPE = TEST_TYPE_TF;
 			p = wa.n;
 			break;
@@ -2821,8 +2829,13 @@ GET_NEXT_ASSIGNMENT:
 		}
 
 	GET_NEXT:
-		/* Delete or suitably modify current-assignment line (line 1) of worktodo file: */
+		/* Delete or suitably modify the current-assignment line of the worktodo file: */
 		i = 0;	// This counter tells how many *additional* assignments exist in worktodo
+		/* Lines that failed to parse were skipped during dispatch but belong in the file: copy
+		   everything ahead of the current assignment through verbatim, so the line about to be
+		   processed is the one the parser actually selected. */
+		while(curr_assignment_off > 0 && ftell(fp) < curr_assignment_off && fgets(g_in_line, sizeof(g_in_line), fp))
+			fputs(g_in_line, fq);
 		if(!fgets(g_in_line, sizeof(g_in_line), fp)) {
 			sprintf(cbuf, "ERROR: %s file not found at end of current-assignment processing\n", WORKFILE);
 			ASSERT(0,cbuf);
@@ -2841,7 +2854,7 @@ GET_NEXT_ASSIGNMENT:
 		} else {
 			/* If we just finished the TF or p-1 preprocessing step of an LL or PRP test,
 			update the current-assignment line to reflect that and write it out: */
-			if(strstr(g_in_line, "PRP") || strstr(g_in_line, "Test") || strstr(g_in_line, "DoubleCheck")) {
+			if(stristr(g_in_line, "PRP") || stristr(g_in_line, "Test") || stristr(g_in_line, "DoubleCheck")) {
 			#if INCLUDE_TF
 				if(TEST_TYPE == TEST_TYPE_TF) {
 					/* Factor depth assumed to follow the first comma in g_in_line: */
@@ -2879,7 +2892,7 @@ GET_NEXT_ASSIGNMENT:
 					// value (e.g. all-0s) and the latter has a nonzero chance of appearing in the AID of an unrelated next-assignment:
 					g_in_line[0] = '\0';	// Careful here - if next fgets(g_in_line) fails, are left with old g_in_line, must zero it first.
 					if(fgets(g_in_line, sizeof(g_in_line), fp)) {
-						if( (strstr(g_in_line, "PRP") || strstr(g_in_line, "Test") || strstr(g_in_line, "DoubleCheck"))
+						if( (stristr(g_in_line, "PRP") || stristr(g_in_line, "Test") || stristr(g_in_line, "DoubleCheck"))
 						 && strstr(g_in_line,ESTRING) && strstr(g_in_line,aid) )
 						{
 							/* Lose the assignment (by way of no-op) */
@@ -6196,13 +6209,17 @@ void generate_JSON_report(
 	const char prp_status[2] = {'C','P'};
 	const char *pm1_status[2] = {"NF","F"};
 	const char *false_or_true[2] = {"false","true"};
-	// Attempt to read 32-hex-char Primenet assignment ID for current assignment (first line of WORKFILE):
+	// Attempt to read 32-hex-char Primenet assignment ID for current assignment:
 	ASSERT((fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
-	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
+	// The assignment need not be the first line of WORKFILE: dispatch skips unparseable entries, which stay in
+	// the file, so go to the offset recorded before the line was read. Fall back to the old scan if that fails.
 	char_addr = 0x0;
 	while(fgets(g_in_line, sizeof(g_in_line), fp) != 0x0) {
 		char_addr = g_in_line; while(isspace((unsigned char)*char_addr)) { ++char_addr; }
-		if(isalpha((unsigned char)*char_addr)) break;
+		if(!isalpha((unsigned char)*char_addr)) continue;
+		// The current assignment is not necessarily the first line: dispatch skips unparseable entries,
+		// which stay in the file, so keep looking until the line carrying this exponent turns up.
+		if(strstr(g_in_line, ESTRING) || (MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(g_in_line, BIN_EXP))) break;
 	}
 	fclose(fp); fp = 0x0;
 	ASSERT(strlen(char_addr) != 0 && isalpha((unsigned char)*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
