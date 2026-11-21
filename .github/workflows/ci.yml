@@ -128,7 +128,7 @@ jobs:
             # and costs slightly less than 127 did (726k trial divides vs 1.66M).
             (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
-    - name: Test
+    - name: Test FFT Radix
       run: |
         set -x -o pipefail
         CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
@@ -271,8 +271,8 @@ jobs:
             done
         done
     # The single-threaded build keeps only one core busy, but these tests are independent of each other,
-    # so they run as three concurrent steps.
-    # Each runs in its own directory under selftest/, so their cfg files and logs do not collide.
+    # so they run as four concurrent steps.
+    # Each runs in its own directory under selftest/ or obj_test_fft_radix, so their cfg files and logs do not collide.
     # On ARM the native build is ASIMD, whose trial-factoring routines are stubs - twopmodq80.c's
     # "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so config-fermat.sh and the Mfactor
     # self-tests run from the NOSIMD builds there, which the build step has already made. The Mfactor
@@ -306,28 +306,28 @@ jobs:
           cd selftest/fermat
           ln -sf "../../obj${mode:+_$mode}/Mlucas" .
           bash -e -o pipefail -- ../../config-fermat.sh
-    - name: Test
-      run: |
-        set -x -o pipefail
-        CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
-        CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
-        mkdir obj_test_fft_radix
-        cd obj_test_fft_radix
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c,worktodo_parse.c} &>build.log
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
-        mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
-        for file in "${files[@]}"; do
-            radix=${file##*/radix}
-            radix=${radix%%_*}
-            printf '\nTesting RADIX %s\n' "$radix"
-            for ttype in 1 2 3; do
-                printf '\n\tTTYPE %s\n\n' "$ttype"
-                $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
-                $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm &>>build.log
-                time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
-            done
-        done
-        rm -- *.o test_fft_radix
+      - name: Test FFT Radix
+        run: |
+          set -x -o pipefail
+          CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
+          CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
+          mkdir obj_test_fft_radix
+          cd obj_test_fft_radix
+          $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c,worktodo_parse.c} &>build.log
+          $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
+          mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
+          for file in "${files[@]}"; do
+              radix=${file##*/radix}
+              radix=${radix%%_*}
+              printf '\nTesting RADIX %s\n' "$radix"
+              for ttype in 1 2 3; do
+                  printf '\n\tTTYPE %s\n\n' "$ttype"
+                  $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
+                  $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm &>>build.log
+                  time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
+              done
+          done
+          rm -- *.o test_fft_radix
     - uses: actions/upload-artifact@v7
       if: always()
       with:
