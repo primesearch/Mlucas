@@ -96,6 +96,18 @@ jobs:
         # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # A Fermat assignment must stay a primality test: trial factoring is Mersenne-only, so
+        # "Fermat,Test=..." with a low sieve_depth must not be switched to TEST_TYPE_TF.
+        mkdir -p fermat-dispatch-check
+        cd fermat-dispatch-check
+        cp ../Mlucas .
+        echo 'Fermat,Test=25,0,0' > worktodo.txt
+        ./Mlucas |& tee dispatch.log || true
+        if grep -q 'TEST_TYPE_TF with MODULUS_TYPE' dispatch.log || grep -q 'Trial-factoring Currently only supported' dispatch.log; then
+            echo '::error::Fermat assignment was dispatched to trial factoring.'
+            exit 1
+        fi
+        cd ..
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -664,6 +676,24 @@ jobs:
           obj*/test.log
           obj*/mlucas.cfg
         if-no-files-found: warn
+
+  Worktodo-parser:
+    name: Worktodo parser
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    # wp_parse_assignment() is the only consumer of the worktodo grammar, so it gets its own
+    # corpus-driven test rather than being exercised only through full Mlucas runs. The test
+    # is self-contained and needs no hwloc/GMP.
+    - name: Test
+      run: |
+        set -x -o pipefail
+        for cc in gcc clang; do
+            $cc --version
+            $cc -std=gnu99 -Wall -Wextra -o worktodo_parse_test src/worktodo_parse.c src/worktodo_parse_test.c
+            ./worktodo_parse_test
+        done
 
   GCC-analyzer:
     name: GCC analyzer

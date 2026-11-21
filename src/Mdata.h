@@ -504,6 +504,129 @@ extern double*ADDR0;	// Allows for easy debug on address-read-or-write than sett
 	#define	TARG_THREAD_ID	-1
 #endif
 
+/***********************************************************************************************/
+/* Worktodo assignment-line parsing. The grammar follows Prime95's commonc.c (keyword=value,
+   comma-separated positional fields, an optional quoted known-factors list at the end) plus
+   the extras Mlucas accepts: an optional "Fermat,"/"Mersenne," prefix, an optional 32-hexit
+   PrimeNet assignment ID or "n/a", and trailing whitespace/CRLF. wp_parse_assignment() fills
+   a wp_assignment, which mirrors Prime95's struct work_unit (MDATA.H) field-for-field. The
+   TEST_TYPE_/MODULUS_TYPE_ constants and the run-time bounds globals above are what main()
+   maps those fields onto. */
+/***********************************************************************************************/
+
+/*
+ * A small expect-style cursor for worktodo assignment lines.
+ *
+ * The grammar follows Prime95's commonc.c (keyword=value, comma-separated
+ * positional fields, an optional quoted known-factors list at the end) and
+ * adds the Masquerade-specific extras Mlucas accepts: an optional modulus
+ * keyword prefix ("Fermat,", "Mersenne,"), an optional 32-hexit PrimeNet
+ * assignment ID or "n/a" before the fields, and trailing whitespace/CRLF.
+ */
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+typedef enum {
+	WP_WORK_UNSET = 0,
+	WP_WORK_TEST,
+	WP_WORK_DOUBLECHECK,
+	WP_WORK_ADVANCEDTEST,
+	WP_WORK_FACTOR,
+	WP_WORK_PFACTOR,
+	WP_WORK_ECM,
+	WP_WORK_PMINUS1,
+	WP_WORK_PPLUS1,
+	WP_WORK_PRP,
+	WP_WORK_PRPDC,
+	WP_WORK_CERT
+} wp_work_type;
+
+typedef enum {
+	WP_MOD_UNSET = 0,
+	WP_MOD_MERSENNE,
+	WP_MOD_FERMAT
+} wp_mod_type;
+
+#define WP_AID_MAX 32
+#define WP_ERRLEN 192
+
+typedef struct {
+	char *s;	/* cursor */
+	char *limit;	/* first char past the parseable part of the line */
+	char *line_start;
+	char *line_end;	/* points at '\n' or the terminating NUL */
+	bool failed;
+	char err[WP_ERRLEN];
+} wp_cursor;
+
+typedef struct {
+	wp_work_type work;
+	wp_mod_type mod_type;
+	uint64 k, b, n;	/* modulus m = k*b^n + c */
+	int64 c;
+	char aid[WP_AID_MAX + 1];
+	bool has_aid;
+	bool has_sieve_depth;	/* "how far factored" */
+	double sieve_depth;
+	bool has_tests_saved;
+	double tests_saved;
+	char *tests_saved_pos;	/* first char of the tests_saved field */
+	char *tests_saved_end;	/* one past the tests_saved field */
+	bool has_factor_to;	/* Factor=... only */
+	double factor_to;
+	bool has_pminus1ed;	/* Test=/DoubleCheck= only */
+	int pminus1ed;
+	char *pminus1ed_pos;	/* first char of the pm1_done field */
+	char *pminus1ed_end;	/* one past the pm1_done field */
+	bool has_prp_pair;	/* PRP base,residue_type */
+	uint32 prp_base;
+	uint32 residue_type;
+	bool has_pm1_bounds;	/* Pminus1 B1,B2 */
+	uint64 b1, b2;
+	bool has_b2_start;
+	uint64 b2_start;
+	bool s2_continuation;
+	uint32 cert_squarings;
+	char *factors_start;	/* points at the opening double quote */
+	char *factors_end;	/* one past the closing double quote */
+	size_t factors_len;
+	char *line_start;
+	char *line_end;		/* points at '\n' or the terminating NUL */
+} wp_assignment;
+
+/* Line classification: enough to decide "comment/blank, assignment, or junk". */
+typedef enum {
+	WP_LINE_ASSIGNMENT = 0,
+	WP_LINE_COMMENT,
+	WP_LINE_JUNK
+} wp_line_kind;
+
+wp_line_kind wp_classify_line(const char *line);
+
+void wp_cursor_init(wp_cursor *c, char *line);
+const char *wp_cursor_error(const wp_cursor *c);
+
+/* Expect helpers: they skip whitespace, consume on success, and record
+ * an error (leaving the cursor put) on failure. */
+bool wp_expect_comma(wp_cursor *c);
+bool wp_expect_uint(wp_cursor *c, uint64 *out);
+bool wp_expect_int(wp_cursor *c, int64 *out);
+bool wp_expect_double(wp_cursor *c, double *out);
+bool wp_expect_quoted(wp_cursor *c, char **start, size_t *len);
+
+/* Soft variants: succeed only if what follows is ",<number>", and consume
+ * nothing otherwise (so the caller can fall through to the next field). */
+bool wp_try_uint(wp_cursor *c, uint64 *out);
+bool wp_try_double(wp_cursor *c, double *out);
+
+bool wp_at_end(wp_cursor *c);
+bool wp_at_comma(wp_cursor *c);
+bool wp_at_factors(wp_cursor *c);
+
+bool wp_parse_assignment(wp_cursor *c, wp_assignment *a);
+
 #ifdef __cplusplus
 }
 #endif
