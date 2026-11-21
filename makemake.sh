@@ -51,6 +51,7 @@ MODES=()
 GMP=1
 HWLOC=0
 STATIC=0
+DEBUG=0
 
 case $OSTYPE in
 	darwin*)
@@ -303,6 +304,11 @@ for arg in "$@"; do
 		static)
 			STATIC=1
 			;;
+		debug)
+			# ((DEBUG++)) would evaluate to the pre-increment value, 0, and so make 'set -e'
+			# exit the script on the first 'debug'; pre-increment instead:
+			((++DEBUG))
+			;;
 		avx512_skylake | avx512_knl | avx512 | k1om | avx2 | avx | sse2 | asimd | nosimd)
 			MODES+=("$arg")
 			;;
@@ -314,13 +320,22 @@ for arg in "$@"; do
 			;;
 		*)
 			echo "Usage: $0 [SIMD build mode]" >&2
-			echo "Optional arguments must be 'no_gmp', 'use_hwloc', 'static' or one and only one of the supported SIMD-arithmetic types:" >&2
+			echo "Optional arguments must be 'no_gmp', 'use_hwloc', 'static', 'debug' or one and only one of the supported SIMD-arithmetic types:" >&2
 			echo -e "\t[x86_64: avx512 k1om avx2 avx sse2]; [Armv8: asimd]; or 'nosimd' for scalar-double build.\n" >&2
 			exit 1
 			;;
 	esac
 
 done
+
+# Give debug builds a separate object directory. make only compares timestamps, so a bare 'debug' run
+# after a release build (or the reverse) would happily relink objects compiled at the other -O level; a
+# distinct directory makes the switch impossible to miss, like the per-word-size ones above. This sits
+# before any directory-reporting message so those name the directory actually used. CFLAGS from the
+# environment suppresses 'debug' (see below), so the suffix is only added when debug flags will apply.
+if ((DEBUG)) && [[ -z ${CFLAGS:-} ]]; then
+	DIR+=_debug
+fi
 
 if ((GMP)); then
 	if ((STATIC)); then
@@ -350,6 +365,10 @@ fi
 
 if [[ $OSTYPE != darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
+	# Ask the linker to spend a little time on its own optimization; also an ELF-only notion:
+	if try_flag -Wl,-O1; then
+		LD_ARGS+=(-Wl,-O1)
+	fi
 fi
 # librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
 # $OSTYPE - which describes the *build host*, not the target. The old test only skipped -lrt for a
@@ -647,18 +666,35 @@ if [[ -n $CFLAGS ]]; then
 	read -ra USER_CFLAGS <<<"${CFLAGS//$'\n'/ }" # read stops at the first newline, so make them spaces
 	C_ARGS=(-std=gnu99 "${USER_CFLAGS[@]}")
 	echo "Using CFLAGS from the environment instead of the default flags: $CFLAGS"
-else
-	# -Werror -Wno-error=cpp
-	C_ARGS=(-std=gnu99 -Wall -Wextra -g -O3)
-	if try_flag -fdiagnostics-color; then
-		C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
+	if ((DEBUG)); then
+		echo "Warning: ignoring the 'debug' argument, since CFLAGS is set in the environment." >&2
 	fi
-	if try_lto -flto=auto; then
-		C_ARGS+=(-flto=auto)
-	elif try_lto -flto; then
-		C_ARGS+=(-flto)
+else
+	C_ARGS=(-std=gnu99 -Wall -Wextra -g)
+	if ((DEBUG)); then
+		# -Og keeps the code steppable. LTO is deliberately left off for debug builds: it defeats
+		# single-stepping and can hide warnings, and a debug build is not a performance build.
+		C_ARGS+=(-Og)
+		echo "Building with debug flags (-Og) and without LTO."
 	else
-		echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+		# -Werror -Wno-error=cpp
+		C_ARGS+=(-O3)
+		if try_flag -fdiagnostics-color; then
+			C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
+		fi
+		if try_lto -flto=auto; then
+			C_ARGS+=(-flto=auto)
+		elif try_lto -flto; then
+			C_ARGS+=(-flto)
+		else
+			echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
+		fi
+	fi
+	# Compressed debug sections: zlib-compress the DWARF (gcc/clang -gz=zlib) so the -g symbols
+	# cost much less disk. Probe it: it needs an assembler and linker that agree on the compression,
+	# and it is an ELF feature that macOS's toolchain does not accept at all:
+	if [[ $OSTYPE != darwin* ]] && try_flag -gz; then
+		C_ARGS+=(-gz)
 	fi
 fi
 
