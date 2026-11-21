@@ -135,7 +135,7 @@ jobs:
         CPPFLAGS=(-D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_GMP=0)
         mkdir obj_test_fft_radix
         cd obj_test_fft_radix
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c,worktodo_parse.c} &>build.log
         $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
         mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
         for file in "${files[@]}"; do
@@ -313,7 +313,7 @@ jobs:
         CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
         mkdir obj_test_fft_radix
         cd obj_test_fft_radix
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c,worktodo_parse.c} &>build.log
         $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
         mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
         for file in "${files[@]}"; do

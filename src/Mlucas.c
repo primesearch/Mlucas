@@ -24,6 +24,8 @@
 *   COMPILING AND RUNNING THE PROGRAM: see https://www.mersenneforum.org/mayer/README.html *
 ******************************************************************************************/
 #include "Mlucas.h"
+
+static void assign_p_from_kbnc(wp_assignment *wa, uint64 *p);
 #ifndef imul_macro_h_included
 	#error imul_macro.h file not included in build!
 #endif
@@ -583,6 +585,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	if (fp) {
 		fprintf(stderr," %s file found...reading next assignment...\n",WORKFILE);
 
+		/* The current assignment, parsed once and shared with the TF / primality setup below: */
+		wp_cursor wc;
+		wp_assignment wa;
+		char *newend;
+
 	  read_next_assignment:	// Read first line of worktodo.ini file into 1K character array:
 		if(!fgets(g_in_line, sizeof(g_in_line), fp)) {
 			fprintf(stderr,"Hit EOF while attempting to read next line of worktodo ... quitting.\n");
@@ -664,207 +671,116 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		not the mod-inverse w.r.to N, it's one w.r.to a^2, which is tiny compared to N.
 			Calling that with args x = 4, n = 9 gives our k = -3*modinv(4,9) = -3*-2 = 6, same as the above trial-and-error approach.
 		*/
-		if((char_addr = strstr(g_in_line, "PRP")) != 0)	// This also handles the PRPDC= format
-		{
+		/* Parse the line once, then map the parsed fields onto the globals the test machinery uses. */
+		wp_cursor_init(&wc, g_in_line);
+		if(!wp_parse_assignment(&wc, &wa)) {
+			snprintf(cbuf, sizeof(cbuf), "WARN: Unrecognized/Unsupported option or malformed assignment line: %s\nThe ini file entry was %s\n", wp_cursor_error(&wc), g_in_line);
+			fprintf(stderr,"%s",cbuf);
+			goto read_next_assignment;
+		}
+		switch(wa.work) {
+		case WP_WORK_PRP:
+		case WP_WORK_PRPDC:
 			TEST_TYPE = TEST_TYPE_PRP;
-			char_addr += 3;
-			// Check [k,b,n,c] portion of g_in_line:
-			cptr = check_kbnc(char_addr, &p);
-			ASSERT(cptr != 0x0, "[k,b,n,c] portion of g_in_line fails to parse correctly!");
-			// Next 2 entries in g_in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
-			TF_BITS = 0xffffffff; tests_saved = 0.0;
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
-				cptr++;
-				// Only check if there's an appropriate TF_BITS entry in the input line
-				TF_BITS = strtoul(++char_addr, &endp, 10);
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
-				tests_saved = strtod(++char_addr, &endp);
-				if(tests_saved < 0 || tests_saved > 2) {
-					sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
-				}
-				// char_addr now points to leftmost char of tests_saved field, which we will overwrite with 0;
-				// endp points to to-be-appended leftover portion
-			}
-			pm1_done = (tests_saved == 0);
-			// If there is still factoring remaining to be done, modify the assignment type appropriately.
-			if(pm1_done) {	// pm1_done == TRUE is more or less a no-op, translating to "proceed with primality test"
-				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved char-block
-			} else {
-				// Create p-1 assignment, then edit original assignment line appropriately
-				TEST_TYPE = TEST_TYPE_PM1;
-				kblocks = get_default_fft_length(p);
-				ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
-				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
-				cptr = strstr(g_in_line, "=");	ASSERT(cptr != 0x0,"Malformed assignment!");
-				cptr++;	while(isspace((unsigned char)*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
-				if(is_hex_string(cptr, 32)) {
-					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
-				} else
-					sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
-				// Copy up to the final (tests_saved) char of the assignment into g_cstr and append tests_saved = 0;
-				// A properly formatted tests_saved field is 1 char wide and begins at the current value of char_addr:
-				i = char_addr - g_in_line; strncpy(g_cstr,g_in_line, i); g_cstr[i] = '0'; g_cstr[i+1] = '\0';
-				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy:
-				strcat(g_cstr,endp);
-				if(g_cstr[strlen(g_cstr)-1] != '\n') {
-					strcat(g_cstr,"\n");
-				}
-				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
-				goto GET_NEXT_ASSIGNMENT;
-			}	// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
-			if(!cptr || (char_addr = strstr(cptr, ",")) == 0x0) {
-				PRP_BASE = 3;
-				TEST_TYPE = TEST_TYPE_PRP;
-			} else {	// PRP double-check:
-				// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
-				i = (int)strtol(char_addr+1, &cptr, 10); // PRP bases other than 3 allowed; see https://github.com/primesearch/Mlucas/issues/18 //	ASSERT(i == 3,"PRP-test base must be 3!");
-				PRP_BASE = i;
-				ASSERT((char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
-				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
-				// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-				if(*cptr == ',')						//vv--- Pass in unused file-ptr fq here in case function emits any messages:
-					nfac = extract_known_factors(p,cptr+1);
-				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
+			PRP_BASE = 3;	// Default for first-time tests; overwritten below if the line specifies a base.
+			assign_p_from_kbnc(&wa, &p);
+			TF_BITS = wa.has_sieve_depth ? (uint32)wa.sieve_depth : 0xffffffff;
+			tests_saved = wa.has_tests_saved ? wa.tests_saved : -1.0;
+			nfac = (wa.factors_start != NULL) ? extract_known_factors(p, wa.factors_start) : 0;
+			if(wa.has_prp_pair) {
+				PRP_BASE = wa.prp_base;
+				ASSERT(wa.residue_type == 1 || wa.residue_type == 5, "Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
 				if(KNOWN_FACTORS[0] != 0ull) {
-					ASSERT(i == 5,"Only PRP-CF tests of type 5 supported!");
-					if (MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
+					ASSERT(wa.residue_type == 5, "Only PRP-CF tests of type 5 supported!");
+					if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) ASSERT(PRP_BASE == 3, "PRP-CF test base for Fermat numbers must be 3!");
 				}
 			}
-			goto GET_EXPO;
-		}
-		else if((char_addr = strstr(g_in_line, "Fermat")) != 0)
-		{
-			char_addr += 6;
-			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
-			if(!STREQN(char_addr,",",1))
-				ASSERT(0,"Expected ',' not found in input following modulus type specifier!");
-			else
-				char_addr++;
-
-			MODULUS_TYPE = MODULUS_TYPE_FERMAT;
-			PRP_BASE = 2;	// v20: Pépin test doesn't use this as the initial seed (that defaults to 3), but rather for the random-shift
-							// offsets used to prevent the shift count from modding to 0 as a result of repeated doublings (mod 2^m)
-		}
-		/* "Mersenne" is the default and hence not required, but allow it: */
-		else if((char_addr = strstr(g_in_line, "Mersenne")) != 0)
-		{
-			char_addr += 8;
-			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
-			if(!STREQN(char_addr,",",1))
-				ASSERT(0,"Expected ',' not found in input following modulus type specifier!");
-			else
-				char_addr++;
-		}
-
-		// Pépin tests are assigned via "Fermat,Test=<Fermat number index>", so catch this clause by starting new if/else()
-		if((char_addr = strstr(g_in_line, "Test")) != 0)
-		{
-			TEST_TYPE = TEST_TYPE_PRIMALITY;
-			char_addr +=  4;
-		}
-		else if((char_addr = strstr(g_in_line, "DoubleCheck")) != 0)
-		{
-			TEST_TYPE = TEST_TYPE_PRIMALITY;
-			char_addr += 11;
-		}
-	#if INCLUDE_TF
-		else if((char_addr = strstr(g_in_line, "Factor")) != 0)
-		{
-			TEST_TYPE = TEST_TYPE_TF;
-			char_addr +=  6;
-		}
-	#endif
-		/* 11/23/2020: George W. re. p-1 assignment formats:
-		"There is no documentation on the worktodo lines (except the source code):
-
-			Pminus1=[aid,]k,b,n,c,B1,B2[,TF_BITS][,B2_start][,known_factors]	(,-separated list of known factors bookended with "")
-			Pfactor=[aid,]k,b,n,c,TF_BITS,ll_tests_saved_if_factor_found
-
-		(***EWM: Mlucas v20 converts PRP-with-(p-1)-needed assignments to paired Pminus1|PRP
-			assignments to support the fused (p-1)-S1|First-part-of-PRP-test algorithm. ***)
-
-		A tests_saved value of 0.0 will bypass any P-1 factoring. The PRP residue type is defined in primenet.h .
-		AFAIK, the server issues Pfactor= lines not Pminus1= lines."
-		*/
-		// Use case-insensitive analog of strstr, stristr():
-		else if((char_addr = stristr(g_in_line, "pminus1")) != 0)
-		{
+			// Not present (-1) or written as not needed (0):
+			pm1_done = (tests_saved <= 0);
+			if(pm1_done) {
+				break;
+			}
+			/* The p-1 pre-stage needs the exponent, but p holds the Fermat index until GET_EXPO,
+			   and the p-1 bounds are Mersenne-shaped; run the test without it. */
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+				fprintf(stderr, "WARN: ignoring the p-1 pre-stage for a Fermat-modulus assignment (p-1 is Mersenne-only here).\n");
+				break;
+			}
+			// Create p-1 assignment, then edit original assignment line appropriately
 			TEST_TYPE = TEST_TYPE_PM1;
-			char_addr += 7;
-			// Check [k,b,n,c] portion of g_in_line:
-			cptr = check_kbnc(char_addr, &p);
-			ASSERT(cptr != 0x0, "[k,b,n,c] portion of g_in_line fails to parse correctly!");
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
-			B1 = (uint32)strtoul (char_addr+1, &cptr, 10);
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
-			/* The C11 standard re. strtoull: "On success the function returns the converted integer as unsigned long long int type
-			and sets endPtr to point to the first character after the input number. On failure it returns 0 and sets endPtr to
-			point to NULL. It handles integer overflows efficiently and return ULONG_LONG_MAX on overflow."
-			However, in gdb-under-Mac testing of a decimal-digit input > 2^64, I found it returned ULONG_LONG_MAX, but
-			also set endPtr to point to the first character after the input, which leaves some ambiguity - what if the
-			input was in fact == ULONG_LONG_MAX? We assume here that nobody will use a p-1 stage bound so large:
-			*/
-			B2 = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2 != -1ull, "strtoull() overflow detected.");
-			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present:
-			if((char_addr = strstr(cptr, ",")) != 0x0) {
-				TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);	ASSERT(TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
-				if((char_addr = strstr(cptr, ",")) != 0x0) {
-					B2_start = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(B2_start != -1ull, "strtoull() overflow detected.");
-					if(B2_start > B1)	// It's a stage 2 continuation run
-						s2_continuation = TRUE;
-					// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-					if(*cptr == ',') nfac = extract_known_factors(p,cptr+1);
-				} else if((char_addr = strstr(cptr, "\"")) != 0x0) {	// Known-factors list need not be preceded by TF_BITS or B2_start
-					nfac = extract_known_factors(p,cptr);	// cptr, not cptr+1 here, since need to preserve leading " bracketing factors-list
-				}
+			kblocks = get_default_fft_length(p);
+			ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
+			// Format the p-1 assignment into cbuf
+			if(wa.has_aid) {
+				strncpy(aid, wa.aid, WP_AID_MAX); aid[WP_AID_MAX] = '\0';
+				sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);
+			} else
+				sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
+			// Copy up to the comma preceding tests_saved into g_cstr, write the replacement 0, then append the rest of the line:
+			i = (int)(wa.tests_saved_pos - g_in_line);	// chars through the comma preceding tests_saved
+			memcpy(g_cstr, g_in_line, i); g_cstr[i] = '0';
+			strcpy(g_cstr+i+1, wa.tests_saved_end);
+			newend = g_cstr + strlen(g_cstr);
+			if(*(newend-1) != '\n' && (size_t)(newend - g_cstr) + 1 < sizeof(g_cstr)) { *newend = '\n'; *(newend+1) = '\0'; }
+			split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
+			goto GET_NEXT_ASSIGNMENT;
+		case WP_WORK_TEST:
+		case WP_WORK_DOUBLECHECK:
+			TEST_TYPE = TEST_TYPE_PRIMALITY;
+			p = wa.n;
+			if(wa.mod_type == WP_MOD_FERMAT) {
+				MODULUS_TYPE = MODULUS_TYPE_FERMAT;
+				/* v20: Pépin test doesn't use this as the initial seed (that defaults to 3), but rather for the random-shift
+				   offsets used to prevent the shift count from modding to 0 as a result of repeated doublings (mod 2^m) */
+				PRP_BASE = 2;
+			} else {
+				MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
 			}
-		}
-		else if((char_addr = stristr(g_in_line, "pfactor")) != 0)	// Caseless substring-match as with pminus 1
-		{
+			break;
+	#if INCLUDE_TF
+		case WP_WORK_FACTOR:
+			TEST_TYPE = TEST_TYPE_TF;
+			p = wa.n;
+			break;
+	#endif
+		case WP_WORK_PMINUS1:
+			TEST_TYPE = TEST_TYPE_PM1;
+			assign_p_from_kbnc(&wa, &p);
+			B1 = (uint32)wa.b1;
+			B2 = wa.b2;
+			if(wa.has_sieve_depth) {
+				TF_BITS = (uint32)wa.sieve_depth;	ASSERT(TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
+			}
+			if(wa.has_b2_start) {	// It's a stage 2 continuation run
+				B2_start = wa.b2_start;
+				s2_continuation = TRUE;
+			}
+			// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
+			if(wa.factors_start != NULL) nfac = extract_known_factors(p, wa.factors_start);
+			break;
+		case WP_WORK_PFACTOR:
 			TEST_TYPE = TEST_TYPE_PM1;
 			PRP_BASE = 3;
-			char_addr += 7;
-			// Check [k,b,n,c] portion of g_in_line:
-			cptr = check_kbnc(char_addr, &p);
-			ASSERT(cptr != 0x0, "[k,b,n,c] portion of g_in_line fails to parse correctly!");
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
-			TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);
-			ASSERT((char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
-			tests_saved = strtod(++char_addr, &endp);
+			assign_p_from_kbnc(&wa, &p);
+			TF_BITS = (uint32)wa.sieve_depth;
+			tests_saved = wa.tests_saved;
 			if(tests_saved < 0 || tests_saved > 2) {
 				sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
 			}
 			ASSERT(pm1_set_bounds(p, get_default_fft_length(p)<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
-		}
-	#if INCLUDE_ECM
-		else if(strstr(char_addr, "ECM"))
-		{
+			break;
+		#if INCLUDE_ECM
+		case WP_WORK_ECM:
 			TEST_TYPE = TEST_TYPE_ECM;
-			char_addr +=  3;
-		}
-	#endif
-		else
-		{
+			p = wa.n;
+			break;
+		#endif
+		default:
 			snprintf(cbuf,sizeof(cbuf),"WARN: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n",g_in_line);
 			fprintf(stderr,"%s",cbuf);
 			goto read_next_assignment;
 		}
 
-		if(!p) {	// For legacy assignment types, set p here
-			ASSERT((char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
-			char_addr++;
-			/* Skip any whitespace following the equals sign:*/
-			while(isspace((unsigned char)*char_addr)) { ++char_addr; }
-			/* Check for a 32-hex-digit PrimeNet v5 assignment ID preceding the exponent: */
-			if(is_hex_string(char_addr, 32))
-				char_addr += 33;
-			else if(STREQN_NOCASE(char_addr,"n/a",3))
-				char_addr = strstr(char_addr, ",") + 1;
-
-			p = strtoull(char_addr, &cptr, 10);	ASSERT(p != -1ull, "strtoull() overflow detected.");
-		}
-
-	GET_EXPO:
 		// Need to init this for savefile-naming code
 		ASSERT(p != 0ull, "Exponent has not been set!");
 		sprintf(ESTRING,"%" PRIu64,p);
@@ -896,10 +812,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		ASSERT(nbits_in_p <= MAX_EXPO_BITS,"Require nbits_in_p <= MAX_EXPO_BITS");
 
 	#if INCLUDE_TF
-
-	  INIT_TF:
-
-		/* If nbits_in_p > MAX_PRIMALITY_TEST_BITS, it better be a TF run: */
 		if(TEST_TYPE == TEST_TYPE_TF) {
 			/* Currently TF only supported for Mersennes: */
 			if(MODULUS_TYPE != MODULUS_TYPE_MERSENNE) {
@@ -914,10 +826,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ASSERT(log2_max_factor <= MAX_FACT_BITS, "log2_max_factor > MAX_FACT_BITS!");
 
 			/* Field following the exponent is the already-factored-to depth: if none found, use defaults. */
-			char_addr = strstr(char_addr, ",");
-			if(char_addr++) {
-				/* Convert the ensuing numeric digits to ulong: */
-				TF_BITS = strtoul(char_addr, &endp, 10);
+			if(wa.has_sieve_depth) {
+				TF_BITS = (uint32)wa.sieve_depth;
 				/* Specified already-factored-to depth is larger than default factor-to depth - no more factoring to be done. */
 				if(TF_BITS > log2_max_factor) {
 					sprintf(cbuf, "INFO: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
@@ -929,23 +839,20 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			If a second ,{#bits} argument is present in the input line, then this user-set
 			desired factoring depth overrides the normal default for the exponent in question.
 			In this mode, warn if TF-to depth greater than automated-mode default, but allow: */
-			if(char_addr)
-				char_addr = strstr(char_addr, ",");
-			if(char_addr++) {
-				bit_depth_todo = strtoul(char_addr, &endp, 10);
+			if(wa.has_factor_to) {
+				bit_depth_todo = (uint32)wa.factor_to;
 				if(bit_depth_todo > MAX_FACT_BITS) {
-					snprintf(cbuf, sizeof(cbuf), "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,g_in_line);
+					snprintf(cbuf, sizeof(cbuf), "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",bit_depth_todo,MAX_FACT_BITS,g_in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo <= TF_BITS) {
-					snprintf(cbuf, sizeof(cbuf), "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,g_in_line);
+					snprintf(cbuf, sizeof(cbuf), "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",bit_depth_todo,TF_BITS,g_in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo > log2_max_factor) {
-					sprintf(cbuf, "WARN: the specified factor-to depth of %u bits exceeds the default %10.4f bits - I hope you know what you're doing.\n",TF_BITS,log2_max_factor);
-					log2_max_factor = bit_depth_todo;
+					sprintf(cbuf, "WARN: the specified factor-to depth of %u bits exceeds the default %10.4f bits - I hope you know what you're doing.\n",bit_depth_todo,log2_max_factor);
 					fprintf(stderr,"%s",cbuf);
 				}
 				log2_max_factor = bit_depth_todo;
@@ -959,70 +866,71 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 	#endif 	// INCLUDE_TF
 
-		/* If "Test..." or "DoubleCheck", check for TF_BITS and pm1_done fields following the = sign:
+		/* If "Test..." or "DoubleCheck," check for the TF_BITS and pm1_done fields following the = sign:
 		if present and there is still factoring remaining to be done, modify the assignment type appropriately.
 		Assignment format:
-			<Test|DoubleCheck>=[aid],p,TF_BITS,pm1_done?
+			<Test|DoubleCheck>=[aid],p[,sieve_depth[,pm1_done]]
 		*/
 		if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 			/* TF_BITS: */
 			TF_BITS = 0xffffffff;	/* Only check if there's an appropriate entry in the input line */
-			char_addr = strstr(char_addr, ",");
-			if(char_addr++) {
-				/* Convert the ensuing numeric digits to ulong: */
-				TF_BITS = strtoul(char_addr, &endp, 10);
+			if(wa.has_sieve_depth) {
+				TF_BITS = (uint32)wa.sieve_depth;
 			#if INCLUDE_TF
 				if(TF_BITS > MAX_FACT_BITS) {
 					snprintf(cbuf,sizeof(cbuf),"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, g_in_line);
 					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
-				/* If TF_BITS less than default TF depth for this exponent
-				and this platform is approved for trial factoring, switch task type to TF:
+				/* Trial factoring is Mersenne-only, so a Fermat assignment always keeps its
+				primality test. For Mersenne, if TF_BITS is less than the default TF depth for this
+				exponent, switch the task type to TF:
 				*/
-				log2_max_factor = get_default_factoring_depth(p);
-				if(TF_BITS < log2_max_factor) {
-					TEST_TYPE = TEST_TYPE_TF;
-					// For now, always start at k = 1:
-					log2_min_factor = 0.0;
-				}
-				else if(TF_BITS > log2_max_factor) {
-					sprintf(cbuf, "WARN: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
-					fprintf(stderr,"%s",cbuf);
+				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+					log2_max_factor = get_default_factoring_depth(p);
+					if(TF_BITS < log2_max_factor) {
+						TEST_TYPE = TEST_TYPE_TF;
+						// For now, always start at k = 1:
+						log2_min_factor = 0.0;
+					}
+					else if(TF_BITS > log2_max_factor) {
+						sprintf(cbuf, "WARN: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
+						fprintf(stderr,"%s",cbuf);
+					}
 				}
 			#endif
-				// p-1 factoring already done?
-				char_addr = strstr(char_addr, ",");
-				if(char_addr++) {
-					/* Convert the ensuing numeric digits to ulong: */
-					pm1_done = strtoul(char_addr, &endp, 10);
+				/* p-1 factoring already done? */
+				if(wa.has_pminus1ed) {
+					pm1_done = (uint32)wa.pminus1ed;
 					if(pm1_done > 1) {
 						sprintf(cbuf, "ERROR: the specified pm1_done field [%u] should be 0 or 1!\n",pm1_done);
 						ASSERT(0,cbuf);
 					}
 					if(!pm1_done) {	// pm1_done == TRUE is a no-op, translating to "proceed with primality test"
-						// Don't actually use this in pm1_set_bounds(), due to the rise of the single-shot PRP-with-proof paradigm, but for form's sake:
-						tests_saved = 1;
-						// Create p-1 assignment, then edit original assignment line appropriately
-						TEST_TYPE = TEST_TYPE_PM1;
-						kblocks = get_default_fft_length(p);
-						ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
-						// Format the p-1 assignment into cbuf:
-						char_addr = strstr(g_in_line, "=");	ASSERT(char_addr != 0x0,"Malformed assignment!");
-						char_addr++;	while(isspace((unsigned char)*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-						if(is_hex_string(char_addr, 32)) {
-							strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
-						} else
-							sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
-
-						// Copy all but the final (pm1_done) char of the assignment into g_cstr and append pm1_done = 1. If g_in_line ends with newline, first --j:
-						j = strlen(g_in_line) - 1;	j -= (g_in_line[j] == '\n');
-						// g_cstr and g_in_line are both STR_MAX_LEN, so strcpy can't overflow here as long as
-						// g_in_line is NUL-terminated within its bounds - use strncpy with the buffer length anyway,
-						// to bound the copy explicitly rather than relying on that invariant:
-						strncpy(g_cstr, g_in_line, STR_MAX_LEN-1);	g_cstr[STR_MAX_LEN-1] = '\0';	g_cstr[j] = '\0';	strcat(g_cstr,"1\n");
-						split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
-						goto GET_NEXT_ASSIGNMENT;
+						if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+							fprintf(stderr, "WARN: ignoring pm1_done = 0 for a Fermat-modulus assignment (p-1 is Mersenne-only here).\n");
+						} else {
+							// Don't actually use this in pm1_set_bounds(), due to the rise of the single-shot PRP-with-proof paradigm, but for form's sake:
+							tests_saved = 1;
+							// Create p-1 assignment, then edit original assignment line appropriately
+							TEST_TYPE = TEST_TYPE_PM1;
+							kblocks = get_default_fft_length(p);
+							ASSERT(pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
+							// Format the p-1 assignment into cbuf:
+							if(wa.has_aid) {
+								strncpy(aid,wa.aid,WP_AID_MAX); aid[WP_AID_MAX] = '\0';
+								sprintf(cbuf,"Pminus1=%s,1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",aid,p,B1,B2);
+							} else
+								sprintf(cbuf,"Pminus1=1,2,%" PRIu64 ",-1,%u,%" PRIu64 "\n",p,B1,B2);
+							// Copy through the comma preceding pm1_done into g_cstr, write 1, then append the rest of the line:
+							i = (int)(wa.pminus1ed_pos - g_in_line);
+							memcpy(g_cstr, g_in_line, i); g_cstr[i] = '1';
+							strcpy(g_cstr+i+1, wa.pminus1ed_end);
+							newend = g_cstr + strlen(g_cstr);
+							if(*(newend-1) != '\n' && (size_t)(newend - g_cstr) + 1 < sizeof(g_cstr)) { *newend = '\n'; *(newend+1) = '\0'; }
+							split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
+							goto GET_NEXT_ASSIGNMENT;
+						}
 					}
 				}
 			}
@@ -3981,36 +3889,30 @@ struct testFerm FermVec[numFerm+1] =
 
 /***************************************************************************************
 Main program: User-argument parsing, self-testing and production-run dispatch.
-By way of reference, here is the complete list of currently supported assignment types
-and related params as per the PrimeNet v5 API - Mlucas supports only a subset of these:
-
-	struct work_unit {        // One line from the worktodo file
-		int    work_type;    // Type of work to do
-		char    assignment_uid[33]; // Primenet assignment ID
-		char    extension[9];    // Optional save file extension
-		double    k;        // K in k*b^n+c
-		unsigned long b;    // B in k*b^n+c
-		unsigned long n;    // N in k*b^n+c
-		signed long c;        // C in k*b^n+c
-		unsigned long minimum_fftlen;// Minimum FFT length to use.  Zero means default fftlen.
-		double    sieve_depth;    // How far it has been trial factored
-		double    factor_to;    // How far we should trial factor to
-		int    pminus1ed;    // TRUE if has been P-1 factored
-		double    B1;        // ECM, P-1, P+1 - Stage 1 bound
-		double    B2;        // ECM, P-1, P+1 - Stage 2 bound
-		double    B2_start;    // P-1 - Stage 2 start
-		int    nth_run;    // P+1 - 1 for start 2/7, 2 for start 6/5, 3+ for random start
-		unsigned int curves_to_do; // ECM - curves to try
-		double    curve;        // ECM - Specific curve to test (debug tool)
-		double    tests_saved;    // Pfactor - primality tests saved if a factor is found
-		unsigned int prp_base;    // PRP base to use
-		int    prp_residue_type; // PRP residue to output -- see primenet.h
-		int    prp_dblchk;    // True if this is a doublecheck of a previous PRP
-		int    cert_squarings; // Number of squarings required for PRP proof certification
-		char    *known_factors;    // ECM, P-1, P+1, PRP - list of known factors
-		char    *comment;    // Comment line in worktodo.txt
+The parsed form of one worktodo line lives in wp_assignment (worktodo_parse.h). The
+TEST_TYPE_ and MODULUS_TYPE_ constants this maps onto, together with the run-time bounds
+globals (B1, B2, B2_start, TF_BITS, tests_saved), are declared in src/Mdata.h - that is
+where the supported work types and their savefile-compatible numbering are defined.
+Prime95's struct work_unit in MDATA.H remains the reference for the full field list;
+Mlucas supports only a subset of it.
+/* Map the parsed k,b,n,c of a modulus m = k*b^n + c onto the global p and MODULUS_TYPE.
+	Mirrors what the rest of the program assumes: k = 1, b = 2, c = +-1, a prime exponent for c = -1,
+	and a power-of-2 exponent for c = +1 whose exponent of 2 is the Fermat-number index the code uses. */
+static void assign_p_from_kbnc(wp_assignment *wa, uint64 *p) {
+	ASSERT(wa->k == 1 && wa->b == 2, "In modulus expression m = k*b^n+c, only k = 1 and b = 2 currently supported!");
+	ASSERT(wa->c == 1 || wa->c == -1, "In modulus expression m = k*b^n+c, only c = +-1 currently supported!");
+	*p = wa->n;
+	if(wa->c == -1) {
+		uint32 phi32 = (uint32)(*p >> 32);
+		ASSERT((phi32 && isPRP64(*p)) || (!phi32 && is_prime((uint32)*p)), "Mersenne exponent must be prime!");
+		MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
+	} else {
+		ASSERT(isPow2_64(*p), "Fermat exponent must be a power of 2!");
+		*p = trailz64(*p);	// Code requires p contain the Fermat-number *index* (not the exponent)
+		MODULUS_TYPE = MODULUS_TYPE_FERMAT;
 	}
-***************************************************************************************/
+}
+
 int 	main(int argc, char *argv[])
 {
 	int		retVal=0;
