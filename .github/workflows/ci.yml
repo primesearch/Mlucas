@@ -135,7 +135,30 @@ jobs:
         CPPFLAGS=(-D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_GMP=0)
         mkdir obj_test_fft_radix
         cd obj_test_fft_radix
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c,worktodo_parse.c} &>build.log
+        # The compile is split into four buckets of roughly equal size: nothing here depends
+        # on another object, so the buckets build concurrently, each with its own log.
+        d=../src
+        bucket1=(${d}/radix{6,9,11,12,14,24,30,31,72,112,128,256,352,768,960,992}_ditN_cy_dif1.c
+                 ${d}/getRealTime.c ${d}/get_cpuid.c ${d}/mi64.c
+                 ${d}/pm1.c ${d}/radix32_dyadic_square.c ${d}/radix32_wrapper_ini.c)
+        bucket2=(${d}/radix{7,10,17,18,20,22,26,28,52,56,64,88,144,288,4032}_ditN_cy_dif1.c
+                 ${d}/Mlucas.c ${d}/get_fft_radices.c ${d}/imul_macro.c
+                 ${d}/qfloat.c ${d}/rng_isaac.c ${d}/twopmodq192.c ${d}/types.c ${d}/worktodo_parse.c)
+        bucket3=(${d}/radix{5,32,36,63,104,160,208,224,240,320,512,1024}_ditN_cy_dif1.c
+                 ${d}/fermat_mod_square.c ${d}/get_preferred_fft_radix.c ${d}/radix16_dyadic_square.c
+                 ${d}/radix16_wrapper_ini.c ${d}/radix32_dif_dit_pass.c ${d}/radix32_wrapper_square.c ${d}/threadpool.c ${d}/twopmodq.c ${d}/twopmodq128.c ${d}/twopmodq256.c)
+        bucket4=(${d}/radix{8,13,15,16,40,44,48,60,80,96,120,176,192,384,1008}_ditN_cy_dif1.c
+                 ${d}/br.c ${d}/dft_macro.c ${d}/get_fp_rnd_const.c
+                 ${d}/mers_mod_square.c ${d}/pair_square.c ${d}/radix16_dif_dit_pass.c ${d}/radix16_wrapper_square.c ${d}/radix8_dif_dit_pass.c)
+        pids=()
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket1[@]}" >build1.log 2>&1 & pids+=($!)
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket2[@]}" >build2.log 2>&1 & pids+=($!)
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket3[@]}" >build3.log 2>&1 & pids+=($!)
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket4[@]}" >build4.log 2>&1 & pids+=($!)
+        for pid in "${pids[@]}"; do
+            wait "$pid" || { cat build{1,2,3,4}.log; exit 1; }
+        done
+        cat build{1,2,3,4}.log >build.log
         $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
         mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
         for file in "${files[@]}"; do
