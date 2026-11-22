@@ -3906,12 +3906,12 @@ struct testFerm FermVec[numFerm+1] =
 
 /***************************************************************************************
 Main program: User-argument parsing, self-testing and production-run dispatch.
-The parsed form of one worktodo line lives in wp_assignment (worktodo_parse.h). The
-TEST_TYPE_ and MODULUS_TYPE_ constants this maps onto, together with the run-time bounds
-globals (B1, B2, B2_start, TF_BITS, tests_saved), are declared in src/Mdata.h - that is
-where the supported work types and their savefile-compatible numbering are defined.
-Prime95's struct work_unit in MDATA.H remains the reference for the full field list;
-Mlucas supports only a subset of it.
+The parsed form of one worktodo line lives in wp_assignment, declared in src/Mdata.h
+together with the TEST_TYPE_ and MODULUS_TYPE_ constants it maps onto and the run-time
+bounds globals (B1, B2, B2_start, TF_BITS, tests_saved). Prime95's struct work_unit in
+MDATA.H remains the reference for the full field list; Mlucas supports only a subset of it.
+***************************************************************************************/
+
 /* Map the parsed k,b,n,c of a modulus m = k*b^n + c onto the global p and MODULUS_TYPE.
 	Mirrors what the rest of the program assumes: k = 1, b = 2, c = +-1, a prime exponent for c = -1,
 	and a power-of-2 exponent for c = +1 whose exponent of 2 is the Fermat-number index the code uses. */
@@ -3923,10 +3923,16 @@ static void assign_p_from_kbnc(wp_assignment *wa, uint64 *p) {
 		uint32 phi32 = (uint32)(*p >> 32);
 		ASSERT((phi32 && isPRP64(*p)) || (!phi32 && is_prime((uint32)*p)), "Mersenne exponent must be prime!");
 		MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
+		if(wa->has_mod_prefix && wa->mod_type == WP_MOD_FERMAT) {
+			fprintf(stderr, "WARN: the Fermat, prefix disagrees with k,b,n,c (c = %+d makes this a Mersenne number) ... ignoring the prefix.\n", (int)wa->c);
+		}
 	} else {
 		ASSERT(isPow2_64(*p), "Fermat exponent must be a power of 2!");
 		*p = trailz64(*p);	// Code requires p contain the Fermat-number *index* (not the exponent)
 		MODULUS_TYPE = MODULUS_TYPE_FERMAT;
+		if(wa->has_mod_prefix && wa->mod_type == WP_MOD_MERSENNE) {
+			fprintf(stderr, "WARN: the Mersenne, prefix disagrees with k,b,n,c (c = %+d makes this a Fermat number) ... ignoring the prefix.\n", (int)wa->c);
+		}
 	}
 }
 
