@@ -2938,7 +2938,7 @@ GET_NEXT_ASSIGNMENT:
 			// not match is an unrelated (e.g. user-inserted) assignment - preserve it - and so is one of a different kind (PRP, LL,
 			// p-1) for the same exponent. When the just-completed run is the p-1 half of a PRP or LL assignment being split in
 			// two (split_curr_assignment), the line to find is still the PRP or LL one, whose edited copy is in g_cstr:
-			if(!workline_is_current_assignment(g_in_line, split_curr_assignment ? workline_test_type(g_cstr) : TEST_TYPE)) {
+			if(!workline_is_current_assignment(g_in_line, split_curr_assignment ? workline_test_type(g_cstr) : (int)TEST_TYPE)) {
 				fputs(g_in_line, fq);	++i;
 				continue;
 			}
