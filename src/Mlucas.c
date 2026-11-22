@@ -688,6 +688,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			assign_p_from_kbnc(&wa, &p);
 			TF_BITS = wa.has_sieve_depth ? (uint32)wa.sieve_depth : 0xffffffff;
 			tests_saved = wa.has_tests_saved ? wa.tests_saved : -1.0;
+			if(wa.has_tests_saved && (tests_saved < 0 || tests_saved > 2)) {
+				sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n", tests_saved);
+				ASSERT(0, cbuf);
+			}
 			nfac = (wa.factors_start != NULL) ? extract_known_factors(p, wa.factors_start) : 0;
 			if(wa.has_prp_pair) {
 				PRP_BASE = wa.prp_base;
