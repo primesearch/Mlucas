@@ -758,6 +758,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		case WP_WORK_PMINUS1:
 			TEST_TYPE = TEST_TYPE_PM1;
 			assign_p_from_kbnc(&wa, &p);
+			ASSERT(!(wa.b1>>32), "P-1 Stage 1 bound must be < 2^32 ... halting.");
 			B1 = (uint32)wa.b1;
 			B2 = wa.b2;
 			if(wa.has_sieve_depth) {
@@ -779,6 +780,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(tests_saved < 0 || tests_saved > 2) {
 				sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(0,cbuf);
 			}
+			if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+				// pm1_set_bounds() derives Mersenne-shaped bounds from p, and p is the Fermat *index* here:
+				fprintf(stderr, "WARN: skipping Pfactor= assignment for a Fermat modulus (P-1 bounds are Mersenne-shaped).\n");
+				goto read_next_assignment;
+			}
+			// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
+			if(wa.factors_start != NULL) nfac = extract_known_factors(p, wa.factors_start);
 			ASSERT(pm1_set_bounds(p, get_default_fft_length(p)<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 			break;
 		#if INCLUDE_ECM
