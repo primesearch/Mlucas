@@ -123,6 +123,69 @@ int main(void) {
 		T(a.factors_start != NULL && a.factors_len == 6);
 	ENDCASE;
 
+	/* The PR #55 acceptance matrix from MarkRose, with the AID dropped and p = M120371.
+	   Grammar only: the [0,2] tests_saved range is enforced in the dispatch code, not here. */
+	CASE("PRP=1,2,120371,-1")
+		T(a.work == WP_WORK_PRP && a.n == 120371);
+		T(!a.has_sieve_depth && !a.has_tests_saved && !a.has_prp_pair);
+		T(a.factors_start == NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,75,0")
+		T(a.has_sieve_depth && a.sieve_depth == 75.0);
+		T(a.has_tests_saved && a.tests_saved == 0.0);
+		T(a.factors_start == NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,75,0,3,1")
+		T(a.has_prp_pair && a.prp_base == 3 && a.residue_type == 1);
+		T(a.factors_start == NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1, 75,0,3,1")
+		T(a.has_sieve_depth && a.sieve_depth == 75.0);
+		T(a.has_tests_saved && a.tests_saved == 0.0);
+		T(a.has_prp_pair && a.prp_base == 3 && a.residue_type == 1);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,\"240743\"")
+		T(!a.has_sieve_depth && !a.has_tests_saved && !a.has_prp_pair);
+		T(a.factors_start != NULL && strstr(a.factors_start, "240743") != NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,\"240743,152389687\"\r\n")
+		T(!a.has_sieve_depth && !a.has_tests_saved);
+		T(a.factors_start != NULL && strstr(a.factors_start, "152389687") != NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,75,0,\"240743\"")
+		T(a.has_sieve_depth && a.sieve_depth == 75.0);
+		T(a.has_tests_saved && a.tests_saved == 0.0);
+		T(a.factors_start != NULL && strstr(a.factors_start, "240743") != NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,75,0,3,5,\"240743\"")
+		T(a.has_prp_pair && a.prp_base == 3 && a.residue_type == 5);
+		T(a.factors_start != NULL && strstr(a.factors_start, "240743") != NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,75,1")
+		T(a.has_sieve_depth && a.sieve_depth == 75.0);
+		T(a.has_tests_saved && a.tests_saved == 1.0);
+		T(!a.has_prp_pair && a.factors_start == NULL);
+	ENDCASE;
+
+	CASE("PRP=1,2,120371,-1,75,1,3,5,\"240743\"")
+		T(a.has_tests_saved && a.tests_saved == 1.0);
+		T(a.has_prp_pair && a.prp_base == 3 && a.residue_type == 5);
+		T(a.factors_start != NULL && strstr(a.factors_start, "240743") != NULL);
+	ENDCASE;
+
+	/* Out of range for the dispatch code, but syntactically fine: the parser reports the value. */
+	CASE("PRP=1,2,120371,-1,75,5")
+		T(a.has_tests_saved && a.tests_saved == 5.0);
+	ENDCASE;
+
 	CASE("Pminus1=1,2,2063,-1,1000,10000")
 		T(a.work == WP_WORK_PMINUS1);
 		T(a.n == 2063 && a.c == -1);
