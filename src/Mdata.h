@@ -505,24 +505,14 @@ extern double*ADDR0;	// Allows for easy debug on address-read-or-write than sett
 #endif
 
 /***********************************************************************************************/
-/* Worktodo assignment-line parsing. The grammar follows Prime95's commonc.c (keyword=value,
-   comma-separated positional fields, an optional quoted known-factors list at the end) plus
-   the extras Mlucas accepts: an optional "Fermat,"/"Mersenne," prefix, an optional 32-hexit
-   PrimeNet assignment ID or "n/a", and trailing whitespace/CRLF. wp_parse_assignment() fills
-   a wp_assignment, which mirrors Prime95's struct work_unit (MDATA.H) field-for-field. The
-   TEST_TYPE_/MODULUS_TYPE_ constants and the run-time bounds globals above are what main()
-   maps those fields onto. */
-/***********************************************************************************************/
-
-/*
- * A small expect-style cursor for worktodo assignment lines.
- *
- * The grammar follows Prime95's commonc.c (keyword=value, comma-separated
- * positional fields, an optional quoted known-factors list at the end) and
- * adds the Masquerade-specific extras Mlucas accepts: an optional modulus
- * keyword prefix ("Fermat,", "Mersenne,"), an optional 32-hexit PrimeNet
- * assignment ID or "n/a" before the fields, and trailing whitespace/CRLF.
- */
+/* Worktodo assignment-line parsing, with a small expect-style cursor.
+   The grammar follows Prime95's commonc.c (keyword=value, comma-separated positional fields, an
+   optional quoted known-factors list at the end) and adds the Masquerade-specific extras Mlucas
+   accepts: an optional "Fermat,"/"Mersenne," modulus prefix, an optional 32-hexit PrimeNet
+   assignment ID or "n/a" before the fields, and trailing whitespace/CRLF. wp_parse_assignment()
+   fills a wp_assignment, which mirrors Prime95's struct work_unit (MDATA.H) field-for-field; the
+   TEST_TYPE_/MODULUS_TYPE_ constants and the run-time bounds globals above are what main() maps
+   those fields onto. */
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -564,6 +554,7 @@ typedef struct {
 typedef struct {
 	wp_work_type work;
 	wp_mod_type mod_type;
+	bool has_mod_prefix;	/* the line carried an explicit "Fermat,"/"Mersenne," prefix */
 	uint64 k, b, n;	/* modulus m = k*b^n + c */
 	int64 c;
 	char aid[WP_AID_MAX + 1];
@@ -583,27 +574,12 @@ typedef struct {
 	bool has_prp_pair;	/* PRP base,residue_type */
 	uint32 prp_base;
 	uint32 residue_type;
-	bool has_pm1_bounds;	/* Pminus1 B1,B2 */
-	uint64 b1, b2;
+	uint64 b1, b2;	/* Pminus1/Pplus1 bounds */
 	bool has_b2_start;
 	uint64 b2_start;
-	bool s2_continuation;
-	uint32 cert_squarings;
 	char *factors_start;	/* points at the opening double quote */
-	char *factors_end;	/* one past the closing double quote */
 	size_t factors_len;
-	char *line_start;
-	char *line_end;		/* points at '\n' or the terminating NUL */
 } wp_assignment;
-
-/* Line classification: enough to decide "comment/blank, assignment, or junk". */
-typedef enum {
-	WP_LINE_ASSIGNMENT = 0,
-	WP_LINE_COMMENT,
-	WP_LINE_JUNK
-} wp_line_kind;
-
-wp_line_kind wp_classify_line(const char *line);
 
 void wp_cursor_init(wp_cursor *c, char *line);
 const char *wp_cursor_error(const wp_cursor *c);
@@ -622,7 +598,6 @@ bool wp_try_uint(wp_cursor *c, uint64 *out);
 bool wp_try_double(wp_cursor *c, double *out);
 
 bool wp_at_end(wp_cursor *c);
-bool wp_at_comma(wp_cursor *c);
 bool wp_at_factors(wp_cursor *c);
 
 bool wp_parse_assignment(wp_cursor *c, wp_assignment *a);

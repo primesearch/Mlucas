@@ -53,12 +53,6 @@ bool wp_at_end(wp_cursor *c) {
 	return t.s >= t.limit;
 }
 
-bool wp_at_comma(wp_cursor *c) {
-	wp_cursor t = *c;
-	wp_skip_ws(&t);
-	return t.s < t.limit && *t.s == ',';
-}
-
 bool wp_at_factors(wp_cursor *c) {
 	wp_cursor t = *c;
 	wp_skip_ws(&t);
@@ -239,33 +233,22 @@ static bool wp_parse_keyword(wp_cursor *c, char *kw, size_t kwlen) {
 	return true;
 }
 
-wp_line_kind wp_classify_line(const char *line) {
-	const char *s = line;
-	while (*s && isspace((unsigned char)*s)) {
-		s++;
-	}
-	if (*s == 0 || *s == '\n' || *s == '#') {
-		return WP_LINE_COMMENT;
-	}
-	return isalpha((unsigned char)*s) ? WP_LINE_ASSIGNMENT : WP_LINE_JUNK;
-}
-
 bool wp_parse_assignment(wp_cursor *c, wp_assignment *a) {
 	char kw[32];
 	uint64 v;
 
 	memset(a, 0, sizeof(*a));
-	a->line_start = c->line_start;
-	a->line_end = c->line_end;
 
 	/* Optional "Fermat," or "Mersenne," prefix (default Mersenne), then the keyword=,
 	   then an optional 32-hexit PrimeNet assignment ID or "n/a" and a comma. */
 	wp_skip_ws(c);
 	if (c->s + 9 <= c->limit && wp_ieq_n(c->s, "Mersenne,", 9)) {
 		a->mod_type = WP_MOD_MERSENNE;
+		a->has_mod_prefix = true;
 		c->s += 9;
 	} else if (c->s + 7 <= c->limit && wp_ieq_n(c->s, "Fermat,", 7)) {
 		a->mod_type = WP_MOD_FERMAT;
+		a->has_mod_prefix = true;
 		c->s += 7;
 	} else {
 		a->mod_type = WP_MOD_MERSENNE;
@@ -283,32 +266,9 @@ bool wp_parse_assignment(wp_cursor *c, wp_assignment *a) {
 		return false;
 	}
 
-	if (!strcasecmp(kw, "Test")) {
-		/* Test=p[,depth[,pminus1ed]] */
-		a->work = WP_WORK_TEST;
-		if (!wp_expect_uint(c, &a->n)) return false;
-		if (wp_try_double(c, &a->sieve_depth)) a->has_sieve_depth = true;
-		/* Capture the pm1_done span so a P-1 split can rewrite just that field. */
-		{
-			wp_cursor probe = *c;
-			char *field_start;
-			wp_skip_ws(&probe);
-			if (probe.s < probe.limit && *probe.s == ',') {
-				probe.s++;
-				wp_skip_ws(&probe);
-				field_start = probe.s;
-				if (wp_expect_uint(&probe, &v)) {
-					a->pminus1ed = (int)v;
-					a->has_pminus1ed = true;
-					a->pminus1ed_pos = field_start;
-					a->pminus1ed_end = probe.s;
-					*c = probe;
-				}
-			}
-		}
-	} else if (!strcasecmp(kw, "DoubleCheck")) {
-		/* DoubleCheck=p[,depth[,pminus1ed]] */
-		a->work = WP_WORK_DOUBLECHECK;
+	if (!strcasecmp(kw, "Test") || !strcasecmp(kw, "DoubleCheck")) {
+		/* Test=p[,depth[,pminus1ed]]; DoubleCheck= has the same shape. */
+		a->work = !strcasecmp(kw, "Test") ? WP_WORK_TEST : WP_WORK_DOUBLECHECK;
 		if (!wp_expect_uint(c, &a->n)) return false;
 		if (wp_try_double(c, &a->sieve_depth)) a->has_sieve_depth = true;
 		/* Capture the pm1_done span so a P-1 split can rewrite just that field. */
@@ -354,9 +314,8 @@ bool wp_parse_assignment(wp_cursor *c, wp_assignment *a) {
 		if (!wp_parse_kbnc(c, a)) return false;
 		if (!wp_expect_comma(c) || !wp_expect_uint(c, &a->b1)) return false;
 		if (!wp_expect_comma(c) || !wp_expect_uint(c, &a->b2)) return false;
-		a->has_pm1_bounds = true;
 		if (wp_try_double(c, &a->sieve_depth)) a->has_sieve_depth = true;
-		if (wp_try_uint(c, &v)) { a->b2_start = v; a->has_b2_start = (v > a->b1); a->s2_continuation = (v > a->b1); }
+		if (wp_try_uint(c, &v)) { a->b2_start = v; a->has_b2_start = (v > a->b1); }
 		if (wp_at_factors(c) && !wp_take_factors(c, a)) return false;
 	} else if (!strcasecmp(kw, "Pplus1")) {
 		/* Pplus1=k,b,n,c,B1,B2,nth_run[,depth][,"factors"] */
@@ -364,7 +323,6 @@ bool wp_parse_assignment(wp_cursor *c, wp_assignment *a) {
 		if (!wp_parse_kbnc(c, a)) return false;
 		if (!wp_expect_comma(c) || !wp_expect_uint(c, &a->b1)) return false;
 		if (!wp_expect_comma(c) || !wp_expect_uint(c, &a->b2)) return false;
-		a->has_pm1_bounds = true;
 		if (!wp_expect_comma(c) || !wp_expect_uint(c, &v)) return false;	/* nth_run */
 		if (wp_try_double(c, &a->sieve_depth)) a->has_sieve_depth = true;
 		if (wp_at_factors(c) && !wp_take_factors(c, a)) return false;
@@ -409,8 +367,7 @@ bool wp_parse_assignment(wp_cursor *c, wp_assignment *a) {
 		/* Cert=k,b,n,c,num_squarings */
 		a->work = WP_WORK_CERT;
 		if (!wp_parse_kbnc(c, a)) return false;
-		if (!wp_expect_comma(c) || !wp_expect_uint(c, &v)) return false;
-		a->cert_squarings = (uint32)v;
+		if (!wp_expect_comma(c) || !wp_expect_uint(c, &v)) return false;	/* num_squarings */
 	} else {
 		return wp_fail(c, "unrecognized worktodo keyword '%s'", kw);
 	}

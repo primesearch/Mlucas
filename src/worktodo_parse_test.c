@@ -189,18 +189,18 @@ int main(void) {
 	CASE("Pminus1=1,2,2063,-1,1000,10000")
 		T(a.work == WP_WORK_PMINUS1);
 		T(a.n == 2063 && a.c == -1);
-		T(a.has_pm1_bounds && a.b1 == 1000 && a.b2 == 10000);
-		T(!a.has_sieve_depth && !a.has_b2_start && !a.s2_continuation);
+		T(a.b1 == 1000 && a.b2 == 10000);
+		T(!a.has_sieve_depth && !a.has_b2_start);
 	ENDCASE;
 
 	CASE("Pminus1=1,2,2063,-1,1000,10000,75,2000,\"4127\"")
 		T(a.has_sieve_depth && a.sieve_depth == 75.0);
-		T(a.has_b2_start && a.b2_start == 2000 && a.s2_continuation);
+		T(a.has_b2_start && a.b2_start == 2000);
 		T(a.factors_start != NULL && a.factors_len == 6);
 	ENDCASE;
 
 	CASE("Pminus1=1,2,2063,-1,1000,10000,\"4127\"")
-		T(a.has_pm1_bounds && a.b1 == 1000 && a.b2 == 10000);
+		T(a.b1 == 1000 && a.b2 == 10000);
 		T(!a.has_sieve_depth && !a.has_b2_start);
 		T(a.factors_start != NULL && a.factors_len == 6);
 	ENDCASE;
@@ -217,12 +217,12 @@ int main(void) {
 	ENDCASE;
 
 	CASE("Fermat,Test=25")
-		T(a.work == WP_WORK_TEST && a.mod_type == WP_MOD_FERMAT);
+		T(a.work == WP_WORK_TEST && a.mod_type == WP_MOD_FERMAT && a.has_mod_prefix);
 		T(a.n == 25);
 	ENDCASE;
 
 	CASE("Mersenne,Test=12345")
-		T(a.work == WP_WORK_TEST && a.mod_type == WP_MOD_MERSENNE);
+		T(a.work == WP_WORK_TEST && a.mod_type == WP_MOD_MERSENNE && a.has_mod_prefix);
 		T(a.n == 12345);
 	ENDCASE;
 
@@ -239,7 +239,7 @@ int main(void) {
 
 	CASE("Cert=1,2,2063,-1,12345")
 		T(a.work == WP_WORK_CERT);
-		T(a.cert_squarings == 12345);
+		T(a.n == 2063);
 	ENDCASE;
 
 	FAILCASE("Foo=1");
