@@ -103,7 +103,8 @@ jobs:
         # passes without ever reaching the dispatch it is meant to test.
         mkdir -p fermat-dispatch-check
         cd fermat-dispatch-check
-        if [[ $HOSTTYPE == aarch64 ]]; then cp ../obj_NOSIMD/Mlucas .; else cp ../Mlucas .; fi
+        # cwd is obj/fermat-dispatch-check: the default build lives in obj/, the NOSIMD one at the repo root.
+        if [[ $HOSTTYPE == aarch64 ]]; then cp ../../obj_NOSIMD/Mlucas .; else cp ../Mlucas .; fi
         echo 'Fermat,Test=25,0,0' > worktodo.txt
         set +e
         ./Mlucas |& tee dispatch.log
