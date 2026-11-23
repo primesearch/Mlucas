@@ -1432,13 +1432,13 @@ extern "C" {
 	// Select between add/sub-round-const for DNINT (works for all SSE2 versions) and vroundpd (SSE4+ only):
 	#ifdef USE_ROUNDPD	// Must be def'd by user at compile time; that is, = false by default
 
-		#define SSE2_twopmodq78_modmul_q4(Xfq0,Xpshift,Xj)\
+		#define SSE2_twopmodq78_modmul_q4(Xfq0,Xpshift,Xj, Xfg0,Xfg1,Xfg2,Xhi0,Xhi1,Xhi2)\
 		{\
 		__asm__ volatile (\
 			"movq	%[__fq0],%%rdx		\n\t"\
 		"/* SQR_LOHI78_3WORD_DOUBLE_LEAVE_HIGH52_UNNORMALIZED_q4(): */\n\t"\
 			"movaps	0x200(%%rdx),%%xmm6	/* two13i */	\n\t"\
-			"/* fx0,1,2 assumed in xmm0,2,4 on loop entry */\n\t"\
+			"/* x enters in xmm0,2,4 | 8,10,12, as asm operands Xfg0-2 | Xhi0-2 */\n\t"\
 			"mulpd	%%xmm6,%%xmm0			\n\t	mulpd	%%xmm6 ,%%xmm8			\n\t"\
 			"mulpd	%%xmm6,%%xmm2			\n\t	mulpd	%%xmm6 ,%%xmm10			\n\t"\
 			"mulpd	%%xmm6,%%xmm4			\n\t	mulpd	%%xmm6 ,%%xmm12			\n\t"\
@@ -1616,23 +1616,23 @@ extern "C" {
 			"/* Move high 2 words of result into input registers expected by start of loop body: */\n\t"\
 			"movaps	%%xmm2,%%xmm4 /* fx2 */	\n\t	movaps	%%xmm10,%%xmm12	/* hx2 */	\n\t"\
 			"movaps	%%xmm1,%%xmm2 /* fx1 */	\n\t	movaps	%%xmm9 ,%%xmm10	/* hx1 */	\n\t"\
-			:					/* outputs: none */\
+			: "+x" (Xfg0), "+x" (Xfg1), "+x" (Xfg2), "+x" (Xhi0), "+x" (Xhi1), "+x" (Xhi2)	/* x, in and out */\
 			: [__fq0] "m" (Xfq0)	/* All inputs from memory addresses here */\
 			,[__pshift] "m" (Xpshift)	\
 			,[__j]		"m" (Xj)		\
-			: "cc","memory","cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","cl","rax","rcx","rdx","xmm1","xmm3","xmm5","xmm6","xmm9","xmm11","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 		}
 
 	#else	// ifndef(USE_ROUNDPD)
 
-		#define SSE2_twopmodq78_modmul_q4(Xfq0,Xpshift,Xj)\
+		#define SSE2_twopmodq78_modmul_q4(Xfq0,Xpshift,Xj, Xfg0,Xfg1,Xfg2,Xhi0,Xhi1,Xhi2)\
 		{\
 		__asm__ volatile (\
 			"movq	%[__fq0],%%rdx		\n\t"\
 			"/* SQR_LOHI78_3WORD_DOUBLE_q4(): */\n\t"\
 			"movaps	0x200(%%rdx),%%xmm6	/* two13i */	\n\t"\
-			"/* fx0,1,2 assumed in xmm0,2,4 on loop entry */\n\t"\
+			"/* x enters in xmm0,2,4 | 8,10,12, as asm operands Xfg0-2 | Xhi0-2 */\n\t"\
 			"mulpd	%%xmm6,%%xmm0			\n\t	mulpd	%%xmm6 ,%%xmm8			\n\t"\
 			"mulpd	%%xmm6,%%xmm2			\n\t	mulpd	%%xmm6 ,%%xmm10			\n\t"\
 			"mulpd	%%xmm6,%%xmm4			\n\t	mulpd	%%xmm6 ,%%xmm12			\n\t"\
@@ -1839,11 +1839,11 @@ extern "C" {
 			"/* Move high 2 words of result into input registers expected by start of loop body: */\n\t"\
 			"movaps	%%xmm2,%%xmm4 /* fx2 */	\n\t	movaps	%%xmm10,%%xmm12	/* hx2 */	\n\t"\
 			"movaps	%%xmm1,%%xmm2 /* fx1 */	\n\t	movaps	%%xmm9 ,%%xmm10	/* hx1 */	\n\t"\
-			:					/* outputs: none */\
+			: "+x" (Xfg0), "+x" (Xfg1), "+x" (Xfg2), "+x" (Xhi0), "+x" (Xhi1), "+x" (Xhi2)	/* x, in and out */\
 			: [__fq0] "m" (Xfq0)	/* All inputs from memory addresses here */\
 			,[__pshift] "m" (Xpshift)	\
 			,[__j]		"m" (Xj)		\
-			: "cc","memory","cl","rax","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+			: "cc","memory","cl","rax","rcx","rdx","xmm1","xmm3","xmm5","xmm6","xmm7","xmm9","xmm11","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 		}
 

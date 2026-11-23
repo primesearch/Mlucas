@@ -1949,6 +1949,15 @@ if(~pshift != p+78) {
 		static double *sc_arr = 0x0;
 		static THREAD_LOCAL double *sc_ptr;
 		double dtmp;
+	  #if OS_BITS == 64 && !defined(USE_ARM_V8_SIMD)
+		/* x = fx0,1,2 (f,g columns) and hx0,1,2 (h,i columns), carried from one asm statement to the next in xmm0,2,4
+		and xmm8,10,12. Declaring them as asm operands bound to those registers, rather than just leaving them there,
+		tells the compiler they are live between the statements: the code in between - the loop control, and in a
+		-fsanitize=thread build calls to the TSan runtime - may otherwise reuse those registers and corrupt x. */
+		typedef double x78_pair __attribute__((vector_size(16)));
+		register x78_pair xfg0 __asm__("xmm0"), xfg1 __asm__("xmm2"), xfg2 __asm__("xmm4"),
+		                  xhi0 __asm__("xmm8"), xhi1 __asm__("xmm10"), xhi2 __asm__("xmm12");
+	  #endif
 	  #ifdef MULTITHREAD
 		vec_dbl *tmp;
 		static double *__r0;	// Base address for discrete per-thread local stores ...
@@ -2404,9 +2413,9 @@ if(~pshift != p+78) {
 			"movaps	    (%%rax),%%xmm0	\n\t	movaps	0x10(%%rax),%%xmm8	\n\t"\
 			"movaps	0x20(%%rax),%%xmm2	\n\t	movaps	0x30(%%rax),%%xmm10	\n\t"\
 			"movaps	0x40(%%rax),%%xmm4	\n\t	movaps	0x50(%%rax),%%xmm12	\n\t"\
-			:				/* outputs: none */\
+			: "=x" (xfg0), "=x" (xfg1), "=x" (xfg2), "=x" (xhi0), "=x" (xhi1), "=x" (xhi2)	/* x, for the loop below */\
 			: [__fx0] "m" (fx0)		/* All inputs from memory addresses here */\
-			: "cc","memory","rax","xmm0","xmm2","xmm4","xmm8","xmm10","xmm12"	/* Clobbered registers */\
+			: "cc","memory","rax"	/* Clobbered registers */\
 		);
 
 		#endif
@@ -2951,7 +2960,7 @@ if(~pshift != p+78) {
 
 			for(j = start_index-2; j >= 0; j--)
 			{
-				SSE2_twopmodq78_modmul_q4(fq0,pshift,j);
+				SSE2_twopmodq78_modmul_q4(fq0,pshift,j, xfg0,xfg1,xfg2,xhi0,xhi1,xhi2);
 			}	/* for(j...) */
 
 		  #endif	/* ASM_LOOP */
@@ -2962,8 +2971,8 @@ if(~pshift != p+78) {
 				"movaps	%%xmm2,0x20(%%rax)	\n\t	movaps	%%xmm10,0x30(%%rax)	\n\t"\
 				"movaps	%%xmm4,0x40(%%rax)	\n\t	movaps	%%xmm12,0x50(%%rax)	\n\t"\
 				:				/* outputs: none */\
-				: [__fx0] "m" (fx0)		/* All inputs from memory addresses here */\
-				: "cc","memory","rax","xmm0","xmm2","xmm4","xmm8","xmm10","xmm12"	/* Clobbered registers */\
+				: [__fx0] "m" (fx0), "x" (xfg0), "x" (xfg1), "x" (xfg2), "x" (xhi0), "x" (xhi1), "x" (xhi2)	/* x, from the loop above */\
+				: "cc","memory","rax"	/* Clobbered registers */\
 			);
 
 		#endif	/* OS_BITS = 32 / 64 ? */
