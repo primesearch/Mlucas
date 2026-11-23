@@ -173,7 +173,10 @@ jobs:
         sed -i 's/^MAX=29/MAX=28/' config-fermat.sh
     - name: Script
       run: |
-        docker run --rm -i --platform "${{ endsWith(matrix.os, '-arm') && 'linux/arm/v7' || 'linux/386' }}" -v "$GITHUB_WORKSPACE:/workspace" -w /workspace -e CC=$CC -e CPPFLAGS debian:13 bash -s -e -o pipefail <<'EOF'
+        # seccomp=unconfined, as cd.yml already does: on the ubuntu-26.04 x86 image (Docker 29), the default seccomp
+        # profile stops a linux/386 container from opening any network socket, so apt-get cannot resolve or reach the
+        # Debian mirrors. linux/amd64 containers on the same host, and ubuntu-24.04 (Docker 28), are unaffected.
+        docker run --rm -i --security-opt seccomp=unconfined --platform "${{ endsWith(matrix.os, '-arm') && 'linux/arm/v7' || 'linux/386' }}" -v "$GITHUB_WORKSPACE:/workspace" -w /workspace -e CC=$CC -e CPPFLAGS debian:13 bash -s -e -o pipefail <<'EOF'
         apt-get update
         apt-get install -y build-essential libgmp-dev libhwloc-dev
         if [[ $CC == clang ]]; then
