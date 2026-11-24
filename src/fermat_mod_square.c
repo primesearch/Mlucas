@@ -657,7 +657,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			/* Double-check that sw*nwt (where nwt is the odd factor of N) is divisible by N: */
 		//	printf("sw,nwt,n = %u,%u,%u; sw*nwt mod n = %u\n",sw,nwt,n, (uint64)sw*nwt % n);
 			ASSERT((uint64)sw*nwt % n == 0,"fermat_mod_square.c: sw*nwt % n == 0");
-			SW_DIV_N = sw*nwt/n;
+			SW_DIV_N = (uint32)((uint64)sw*nwt/n);	// sw,nwt are uint32; sw*nwt can exceed 2^32 at the largest table lengths, so widen before dividing
 
 			qn   = i64_to_q((int64) nwt);
 			qt   = qfinv(qn);			/* 1/nwt...	 */
