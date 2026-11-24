@@ -96,6 +96,33 @@ jobs:
         # main in selftest-large.yml, together with 'h', and on demand via its workflow_dispatch.
         for s in tt t s m; do time ./Mlucas -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
         for s in tt t s; do time ./Mlucas -prp -s $s -cpu "0:$(( $(nproc --all) - 1 ))" |& tee -a test.log; done
+        # A Fermat assignment must stay a primality test: trial factoring is Mersenne-only, so
+        # "Fermat,Test=..." with a low sieve_depth must not be switched to TEST_TYPE_TF. On ARM the
+        # native build is ASIMD, which rejects Fermat tests outright ("ARMv8 SIMD builds do not
+        # support Fermat-number testing!"), so use the NOSIMD build there - otherwise this check
+        # passes without ever reaching the dispatch it is meant to test.
+        mkdir -p fermat-dispatch-check
+        cd fermat-dispatch-check
+        # cwd is obj/fermat-dispatch-check: the default build lives in obj/, the NOSIMD one at the repo root.
+        if [[ $HOSTTYPE == aarch64 ]]; then cp ../../obj_NOSIMD/Mlucas .; else cp ../Mlucas .; fi
+        echo 'Fermat,Test=25,0,0' > worktodo.txt
+        set +e
+        ./Mlucas |& tee dispatch.log
+        status=${PIPESTATUS[0]}
+        set -e
+        echo "Mlucas exited $status (failing for want of fermat.cfg is expected here)"
+        if grep -q 'TEST_TYPE_TF with MODULUS_TYPE' dispatch.log || grep -q 'Trial-factoring Currently only supported' dispatch.log; then
+            echo '::error::Fermat assignment was dispatched to trial factoring.'
+            exit 1
+        fi
+        # Positive evidence: with no fermat.cfg in this directory the Fermat primality path names
+        # the config file it wants before doing any arithmetic. An early bail-out (unsupported SIMD
+        # mode, rejected modulus, ...) leaves this absent, so require it rather than trust silence.
+        if ! grep -q 'fermat.cfg' dispatch.log; then
+            echo '::error::Fermat assignment never reached the primality path.'
+            exit 1
+        fi
+        cd ..
         if [[ $HOSTTYPE == aarch64 ]]; then
             cd ../obj_NOSIMD
         fi
@@ -116,14 +143,37 @@ jobs:
             # and costs slightly less than 127 did (726k trial divides vs 1.66M).
             (cd "../obj_mfac${word:+_$word}${mode:+_$mode}" && time "./Mfactor${word:+_$word}" -m 521 -bmax 20)
         done
-    - name: Test
+    - name: Test FFT Radix
       run: |
         set -x -o pipefail
         CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
         CPPFLAGS=(-D_GNU_SOURCE -DUSE_THREADS -DINCLUDE_GMP=0)
         mkdir obj_test_fft_radix
         cd obj_test_fft_radix
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
+        # The compile is split into four buckets of roughly equal size: nothing here depends
+        # on another object, so the buckets build concurrently, each with its own log.
+        d=../src
+        bucket1=(${d}/radix{6,9,11,12,14,24,30,31,72,112,128,256,352,768,960,992}_ditN_cy_dif1.c
+                 ${d}/getRealTime.c ${d}/get_cpuid.c ${d}/mi64.c
+                 ${d}/pm1.c ${d}/radix32_dyadic_square.c ${d}/radix32_wrapper_ini.c)
+        bucket2=(${d}/radix{7,10,17,18,20,22,26,28,52,56,64,88,144,288,4032}_ditN_cy_dif1.c
+                 ${d}/Mlucas.c ${d}/get_fft_radices.c ${d}/imul_macro.c
+                 ${d}/qfloat.c ${d}/rng_isaac.c ${d}/twopmodq192.c ${d}/types.c ${d}/worktodo_parse.c)
+        bucket3=(${d}/radix{5,32,36,63,104,160,208,224,240,320,512,1024}_ditN_cy_dif1.c
+                 ${d}/fermat_mod_square.c ${d}/get_preferred_fft_radix.c ${d}/radix16_dyadic_square.c
+                 ${d}/radix16_wrapper_ini.c ${d}/radix32_dif_dit_pass.c ${d}/radix32_wrapper_square.c ${d}/threadpool.c ${d}/twopmodq.c ${d}/twopmodq128.c ${d}/twopmodq256.c)
+        bucket4=(${d}/radix{8,13,15,16,40,44,48,60,80,96,120,176,192,384,1008}_ditN_cy_dif1.c
+                 ${d}/br.c ${d}/dft_macro.c ${d}/get_fp_rnd_const.c
+                 ${d}/mers_mod_square.c ${d}/pair_square.c ${d}/radix16_dif_dit_pass.c ${d}/radix16_wrapper_square.c ${d}/radix8_dif_dit_pass.c)
+        pids=()
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket1[@]}" >build1.log 2>&1 & pids+=($!)
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket2[@]}" >build2.log 2>&1 & pids+=($!)
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket3[@]}" >build3.log 2>&1 & pids+=($!)
+        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c "${bucket4[@]}" >build4.log 2>&1 & pids+=($!)
+        for pid in "${pids[@]}"; do
+            wait "$pid" || { cat build{1,2,3,4}.log; exit 1; }
+        done
+        cat build{1,2,3,4}.log >build.log
         $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
         mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
         for file in "${files[@]}"; do
@@ -262,8 +312,8 @@ jobs:
             done
         done
     # The single-threaded build keeps only one core busy, but these tests are independent of each other,
-    # so they run as three concurrent steps.
-    # Each runs in its own directory under selftest/, so their cfg files and logs do not collide.
+    # so they run as four concurrent steps.
+    # Each runs in its own directory under selftest/ or obj_test_fft_radix, so their cfg files and logs do not collide.
     # On ARM the native build is ASIMD, whose trial-factoring routines are stubs - twopmodq80.c's
     # "No TF support on ARMv8!" lives under #ifdef USE_ARM_V8_SIMD - so config-fermat.sh and the Mfactor
     # self-tests run from the NOSIMD builds there, which the build step has already made. The Mfactor
@@ -297,28 +347,28 @@ jobs:
           cd selftest/fermat
           ln -sf "../../obj${mode:+_$mode}/Mlucas" .
           bash -e -o pipefail -- ../../config-fermat.sh
-    - name: Test
-      run: |
-        set -x -o pipefail
-        CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
-        CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
-        mkdir obj_test_fft_radix
-        cd obj_test_fft_radix
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c} &>build.log
-        $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
-        mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
-        for file in "${files[@]}"; do
-            radix=${file##*/radix}
-            radix=${radix%%_*}
-            printf '\nTesting RADIX %s\n' "$radix"
-            for ttype in 1 2 3; do
-                printf '\n\tTTYPE %s\n\n' "$ttype"
-                $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
-                $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm &>>build.log
-                time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
-            done
-        done
-        rm -- *.o test_fft_radix
+      - name: Test FFT Radix
+        run: |
+          set -x -o pipefail
+          CFLAGS=(-std=gnu99 -Wall -Wextra -g -O3)
+          CPPFLAGS=(-D_GNU_SOURCE -DINCLUDE_GMP=0)
+          mkdir obj_test_fft_radix
+          cd obj_test_fft_radix
+          $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c ../src/{Mlucas.c,br.c,dft_macro.c,fermat_mod_square.c,getRealTime.c,get_cpuid.c,get_fft_radices.c,get_fp_rnd_const.c,get_preferred_fft_radix.c,imul_macro.c,mers_mod_square.c,mi64.c,pair_square.c,pm1.c,qfloat.c,radix[0-9]*_ditN_cy_dif1.c,radix8_dif_dit_pass.c,radix16_dif_dit_pass.c,radix16_dyadic_square.c,radix16_wrapper_ini.c,radix16_wrapper_square.c,radix32_dif_dit_pass.c,radix32_dyadic_square.c,radix32_wrapper_ini.c,radix32_wrapper_square.c,rng_isaac.c,threadpool.c,twopmodq.c,twopmodq128.c,twopmodq192.c,twopmodq256.c,types.c,worktodo_parse.c} &>build.log
+          $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DTEST_FFT_RADIX ../src/util.c &>>build.log
+          mapfile -d '' files < <(printf '%s\0' ../src/radix[0-9]*_ditN_cy_dif1.c | sort -zV)
+          for file in "${files[@]}"; do
+              radix=${file##*/radix}
+              radix=${radix%%_*}
+              printf '\nTesting RADIX %s\n' "$radix"
+              for ttype in 1 2 3; do
+                  printf '\n\tTTYPE %s\n\n' "$ttype"
+                  $CC "${CFLAGS[@]}" "${CPPFLAGS[@]}" -c -DRADIX="$radix" -DTTYPE="$ttype" ../src/test_fft_radix.c &>>build.log
+                  $CC "${CFLAGS[@]}" -o test_fft_radix *.o -lm &>>build.log
+                  time ./test_fft_radix |& tee -a test_fft_radix.log | grep -i 'error\|warn\|assert\|test_fft_radix'
+              done
+          done
+          rm -- *.o test_fft_radix
     - uses: actions/upload-artifact@v7
       if: always()
       with:
@@ -667,6 +717,24 @@ jobs:
           obj*/test.log
           obj*/mlucas.cfg
         if-no-files-found: warn
+
+  Worktodo-parser:
+    name: Worktodo parser
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    # wp_parse_assignment() is the only consumer of the worktodo grammar, so it gets its own
+    # corpus-driven test rather than being exercised only through full Mlucas runs. The test
+    # is self-contained and needs no hwloc/GMP.
+    - name: Test
+      run: |
+        set -x -o pipefail
+        for cc in gcc clang; do
+            $cc --version
+            $cc -std=gnu99 -Wall -Wextra -o worktodo_parse_test src/worktodo_parse.c src/worktodo_parse_test.c
+            ./worktodo_parse_test
+        done
 
   GCC-analyzer:
     name: GCC analyzer
