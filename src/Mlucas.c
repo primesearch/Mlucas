@@ -1715,6 +1715,49 @@ READ_RESTART_FILE:
 			ASSERT((itmp64 >>  8) < n                , "Return value of shift_word(): unpadded-array-index out of range!");
 			ASSERT((itmp64 & 255) < ceil((double)p/n), "Return value of shift_word(): bit-in-array-word value out of range!");
 		}
+		/* Mersenne-PRP: the seed is a user-settable base < 2^32, but both branches above store it as one un-normalized
+		double - a[0] = iseed, or shift_word()'s iseed * 2^(bit offset in word) * DWT weight - and b[0] = d[0] = PRP_BASE
+		likewise. The rounding error of that single pre-weighted word, once squared, can exceed 0.5 unless the base is
+		small: depending on the shift this gives a silent wrong residue for bases as small as 1001, or a roundoff error,
+		and a b[0] wider than its FFT word trips convert_res_FP_bytewise() at the first checkpoint. So rebuild all three
+		from the packed-integer seed with the balanced-digit conversion a restart uses: a[] shifted, b[] and d[] unshifted: */
+		if(TEST_TYPE == TEST_TYPE_PRP && MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+			j = (p+63)>>6;
+			mi64_clear(arrtmp, j);	arrtmp[0] = PRP_BASE;	// convert_res_bytewise_FP applies RES_SHIFT to its input in place
+			memset(a, 0, npad*sizeof(double));
+			i = convert_res_bytewise_FP((uint8 *)arrtmp, a, n, p);
+			ASSERT(i, "convert_res_bytewise_FP failed on PRP seed!");
+			// mers_mod_square() skips its initial forward-DWT weighting when ilo == 0 and a[1] == 0, because it expects
+			// such an input to be a single word that shift_word() has already weighted. In that case, weight the now
+			// pure-integer seed digits here; otherwise (a[1] != 0) leave them unweighted, as mers_mod_square() will weight them:
+			if(a[1] == 0.0) {
+				const uint32 sw_seed = n - (uint32)(p % n);
+				for(i = 0; i < (uint32)n; i++) {
+				#ifdef USE_AVX512
+					k = (i & mask03) + br16[i&15];
+				#elif defined(USE_AVX)
+					k = (i & mask02) + br8[i&7];
+				#elif defined(USE_SSE2)
+					k = (i & mask01) + br4[i&3];
+				#else
+					k = i;
+				#endif
+					k += ( (k >> DAT_BITS) << PAD_BITS );
+					if(a[k] != 0.0)	// Same forward weight 2^((i*sw mod n)/n) as shift_word() applies:
+						a[k] *= pow(2.0, (double)(((uint64)i*sw_seed) % n)/n);
+				}
+			}
+			if(b) {
+				const uint64 shift_save = RES_SHIFT;	RES_SHIFT = 0ull;
+				mi64_clear(arrtmp, j);	arrtmp[0] = PRP_BASE;
+				memset(b, 0, npad*sizeof(double));
+				i = convert_res_bytewise_FP((uint8 *)arrtmp, b, n, p);
+				RES_SHIFT = shift_save;
+				ASSERT(i, "convert_res_bytewise_FP failed on Gerbicz-check PRP seed!");
+				if(d) memcpy(d, b, npad*sizeof(double));
+				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct, as on restart
+			}
+		}
 	} else if(DO_GCHECK) {
 		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && TEST_TYPE == TEST_TYPE_PRIMALITY && !INTERACT) {	// Allow shift in timing-test mode
 			ASSERT(RES_SHIFT == 0ull, "Shifted residues unsupported for Pépin test with Gerbicz check!\n");
