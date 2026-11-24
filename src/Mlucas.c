@@ -3979,6 +3979,21 @@ struct testFerm FermVec[numFerm+1] =
 	{     0,   0u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 };
 
+/* Return the argument following the command-line flag whose index in argv[] is nargs-1, advancing nargs past it.
+If the flag is the last argument, argv[nargs] is the NULL terminator: passing that to snprintf("%s") or atoll()
+is undefined behavior, and stepping nargs past it makes the parsing loop read beyond the end of argv[]. */
+static const char *next_arg_value(char *argv[], int *nargs, const char *flag)
+{
+	const char *arg = argv[*nargs];
+	if(arg == NULL) {
+		fprintf(stderr, "*** ERROR: Command-line flag '%s' requires a value, but none was given.\n", flag);
+		fprintf(stderr, "Please refer to the help.txt file for the full list of command line options.\n");
+		exit(EXIT_FAILURE);
+	}
+	(*nargs)++;
+	return arg;
+}
+
 /***************************************************************************************
 Main program: User-argument parsing, self-testing and production-run dispatch.
 By way of reference, here is the complete list of currently supported assignment types
@@ -4092,7 +4107,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	nargs = 1;
 	while(argv[nargs])
 	{
-		snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+		snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 		if(nargs > argc) {	// == no longer applies since e.g. -prp requires no numeric arg and can come last:
 			fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
 			print_help();
@@ -4109,7 +4124,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		if(STREQ(stFlag, "-s"))
 		{
 			selfTest = TRUE;
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			for(;;) {
 				if(STREQ(stFlag, "a") || STREQ(stFlag, "all")) {	/* all, which really means all the non-Huge-and-larger sets */
 					start = 0; finish = numTeensy + numTiny + numSmall + numMedium + numLarge;
@@ -4155,7 +4170,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-maxalloc"))	// maxalloc arg is max %-of-available-mem to use
 		{
 			ASSERT(nbufSet == FALSE, "Only one of -maxalloc and -pm1_s2_buf flags may be used!");
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			darg = strtod(stFlag,&cptr);
 			// Must be > 0:
 			ASSERT((darg > 0), "maxalloc (%%-of-available-mem to use) argument must be > 0 ... halting.");
@@ -4168,7 +4183,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-pm1_s2_nbuf"))	// pm1_s2_nbuf arg is max %-of-available-mem to use
 		{
 			ASSERT(maxAllocSet == FALSE, "Only one of -maxalloc and -pm1_s2_buf flags may be used!");
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			darg = strtod(stFlag,&cptr);
 			// Must be > 0:
 			ASSERT((darg > 0), "pm1_s2_nbuf argument must be integer ... halting.");
@@ -4180,7 +4195,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-iters"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "#iters argument must be < 2^32 ... halting.");
@@ -4189,7 +4204,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-fft") || STREQ(stFlag, "-fftlen"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			// v20: default is still integer-FFT-length in Kdoubles, but add support for [float]M,
 			// where floating-point arg must be exactly representable, such that [float]*2^10 is integer:
 			i64arg = -1ull;
@@ -4224,7 +4239,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		set is supported and if so, set radset to the corresponding table-index numeric value: */
 		else if(STREQ(stFlag, "-radset"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 
 			// Check if it's a comma-separated actual set of complex-FFT radices:
 			char_addr = stFlag;
@@ -4295,7 +4310,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-shift"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			i64arg = atoll(stFlag);
 			// Must be < 2^32, though store in a uint64 for later bignum-upgrades:
 			ASSERT(!(i64arg>>32), "shift argument must be < 2^32 ... halting.");
@@ -4305,7 +4320,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		// v20: Add p-1 support:
 		else if(STREQ(stFlag, "-b1"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "P-1 Stage 1 bound must be < 2^32 ... halting.");
@@ -4314,14 +4329,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			testType = TEST_TYPE_PM1;
 		}
 		else if(STREQ(stFlag, "-b2")) {
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			// Allow Stage 2 bounds to be > 2^32:
 			B2 = atoll(stFlag);
 			ASSERT(testType != TEST_TYPE_PRP, "b2-argument implies P-1 factoring; that and PRP-test types not simultaneously specifiable.");
 			testType = TEST_TYPE_PM1;
 		}
 		else if(STREQ(stFlag, "-b2_start")) {
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			// Allow Stage 2 bounds to be > 2^32:
 			B2_start = atoll(stFlag);
 			ASSERT(testType != TEST_TYPE_PRP, "b2_start-argument implies P-1 factoring; that and PRP-test types not simultaneously specifiable.");
@@ -4334,7 +4349,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(0,"Multithreading must be enabled in build to permit -nthread argument!");
 		#else
 			ASSERT(cpu == FALSE && core == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "nthread argument must be < 2^32 ... halting.");
@@ -4352,7 +4367,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(0,"Multithreading must be enabled in build to permit -cpu argument!");
 		#else
 			ASSERT(nthread == FALSE && core == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			parseAffinityString(stFlag);
 			cpu = TRUE;
 		#endif
@@ -4365,7 +4380,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(0,"Multithreading must be enabled in build to permit -core argument!");
 		#else
 			ASSERT(cpu == FALSE && nthread == FALSE,"Only one of -nthread, -cpu and -core flags permitted!");
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			NTHREADS = parseAffinityTriplet(stFlag,TRUE);	// 2nd-arg = TRUE: Use hwloc-generated topology, via '-core lo:hi[:threads_per_core]'
 			if(NTHREADS > MAX_THREADS) {
 				fprintf(stderr,"ERROR: NTHREADS [ = %d] must not exceed those of available logical cores = 0-%d!\n",NTHREADS,MAX_THREADS-1);
@@ -4382,7 +4397,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-m") || STREQ(stFlag, "-mersenne"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			expo = atoll(stFlag);
 			userSetExponent = 1;
 			// Use 0-pad slot in MvecPtr[] to store user-set-exponent data - that can point to either MersVec
@@ -4422,14 +4437,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 		else if(STREQ(stFlag, "-base"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			i64arg = atoll(stFlag);
 			PRP_BASE = (uint32)i64arg;
 		}
 
 		else if(STREQ(stFlag, "-f") || STREQ(stFlag, "-fermat"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(argv, &nargs, stFlag));
 			i64arg = atoll(stFlag);
 			// Must be < 2^32:
 			ASSERT(!(i64arg>>32), "Fermat-number-index argument must be < 2^32 ... halting.");
@@ -4997,7 +5012,7 @@ uint64	parse_cmd_args_get_shift_value(void)
 		snprintf(stFlag, sizeof(stFlag), "%s", global_argv[nargs++]);
 		if(STREQ(stFlag, "-shift"))
 		{
-			snprintf(stFlag, sizeof(stFlag), "%s", global_argv[nargs++]);
+			snprintf(stFlag, sizeof(stFlag), "%s", next_arg_value(global_argv, &nargs, stFlag));
 			/* Convert the shift argument to a uint64: */
 			i64arg = 0;
 			for(i = 0; i < sizeof(stFlag) && stFlag[i] != '\0'; i++) {
