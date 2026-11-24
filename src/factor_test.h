@@ -24,6 +24,20 @@
 
 #undef	USE_FMADD	// Need to add 100-bit modpow routines before enabling this for build of this file
 
+#ifdef __SIZEOF_INT128__
+/* Reference 256-bit product of x and y via the compiler's unsigned __int128, for the
+check of the imul_macro1.h 128-bit multiply macros at the top of test_fac(): */
+static void mul256_ref(uint128 x, uint128 y, uint128 *lo, uint128 *hi)
+{
+	unsigned __int128 p00 = (unsigned __int128)x.d0*y.d0, p01 = (unsigned __int128)x.d0*y.d1,
+		p10 = (unsigned __int128)x.d1*y.d0, p11 = (unsigned __int128)x.d1*y.d1,
+		mid = (p00 >> 64) + (uint64)p01 + (uint64)p10;	// < 3*2^64, so cannot overflow
+	p11 += (p01 >> 64) + (p10 >> 64) + (mid >> 64);
+	lo->d0 = (uint64)p00;	lo->d1 = (uint64)mid;
+	hi->d0 = (uint64)p11;	hi->d1 = (uint64)(p11 >> 64);
+}
+#endif
+
 /*
 Perform factor self-tests.
 */
@@ -324,6 +338,59 @@ int test_fac()
 
 #ifdef FACTOR_STANDALONE
 	printf("Mfactor self-tests:\n");
+#endif
+
+#ifdef __SIZEOF_INT128__
+	/****************************************************************************/
+	/* 128-bit multiply macros of imul_macro1.h vs unsigned __int128 arithmetic: */
+	/****************************************************************************/
+	/* Every combination of these words as x.d0, x.d1, y.d0, y.d1, 8 lanes at a time so the _q4/_q8
+	forms see the same inputs as the scalar ones. The words straddle the 32- and 64-bit boundaries,
+	and 3 * 0x5555555555555555 = 2^64-1 makes the low word of x.d1*y.d1 all-ones, which is where a
+	dropped carry into word 2 shows up. The word count is odd so that each x and y visits every lane.
+	Inputs are masked to each macro's documented range: x < 2^127 for SQR_LOHI127, y < 2^96 for MULH128x96: */
+	{
+		const uint64 w[] = {0ull, 1ull, 2ull, 3ull, 0xFFFFFFFFull, 0x100000000ull, 0x5555555555555555ull, 0xAAAAAAAAAAAAAAABull,
+			0x7FFFFFFFFFFFFFFFull, 0x8000000000000000ull, 0xFFFFFFFF00000000ull, 0xFFFFFFFFFFFFFFFEull, 0xFFFFFFFFFFFFFFFFull};
+		const uint32 nw = sizeof(w)/sizeof(w[0]), nxy = nw*nw*nw*nw;
+		uint128 x[8],y[8],x127[8],y96[8],lo[8],hi[8], pl[8],ph[8],sl[8],sh[8],s7l[8],s7h[8],p96l,p96h[8];
+		uint32 n,m;
+	// Compare lanes 0..nlane-1 of result res[] to reference ref[]; a, b are the inputs, for the message:
+	#define CHK_IMUL128(nlane, a, b, res, ref, name)\
+		for(j = 0; j < nlane; j++) {\
+			if(!CMPEQ128(res[j], ref[j])) {\
+				snprintf(cbuf0,STR_MAX_LEN, "%s(x = 0x%016" PRIX64 "_%016" PRIX64 ", y = 0x%016" PRIX64 "_%016" PRIX64 ") = 0x%016" PRIX64 "_%016" PRIX64 ", expected 0x%016" PRIX64 "_%016" PRIX64 "\n",\
+					name, a[j].d1,a[j].d0, b[j].d1,b[j].d0, res[j].d1,res[j].d0, ref[j].d1,ref[j].d0);\
+				ASSERT(0, cbuf0);\
+			}\
+		}
+		for(n = 0; n < ((nxy + 7) & ~7); n++) {	// Round up to whole 8-lane batches, wrapping around to the first inputs
+			j = n & 7;	m = n % nxy;
+			x[j].d0 = w[m%nw];	x[j].d1 = w[(m/nw)%nw];	y[j].d0 = w[(m/nw/nw)%nw];	y[j].d1 = w[m/nw/nw/nw];
+			x127[j].d0 = x[j].d0;	x127[j].d1 = x[j].d1 & 0x7FFFFFFFFFFFFFFFull;
+			y96 [j].d0 = y[j].d0;	y96 [j].d1 = y[j].d1 & 0x00000000FFFFFFFFull;
+			mul256_ref(x[j],y[j],&pl[j],&ph[j]);	mul256_ref(x[j],x[j],&sl[j],&sh[j]);
+			mul256_ref(x127[j],x127[j],&s7l[j],&s7h[j]);	mul256_ref(x[j],y96[j],&p96l,&p96h[j]);
+			if(j != 7) continue;
+			for(j = 0; j < 8; j++) { MUL_LOHI128(x[j],y[j],lo[j],hi[j]); }	CHK_IMUL128(8,x,y,lo,pl,"MUL_LOHI128.lo");	CHK_IMUL128(8,x,y,hi,ph,"MUL_LOHI128.hi");
+			for(j = 0; j < 8; j++) { MULL128(x[j],y[j],lo[j]); }	CHK_IMUL128(8,x,y,lo,pl,"MULL128");
+			MULL128_q4(x[0],y[0],lo[0], x[1],y[1],lo[1], x[2],y[2],lo[2], x[3],y[3],lo[3]);	CHK_IMUL128(4,x,y,lo,pl,"MULL128_q4");
+			MULL128_q8(x[0],y[0],lo[0], x[1],y[1],lo[1], x[2],y[2],lo[2], x[3],y[3],lo[3], x[4],y[4],lo[4], x[5],y[5],lo[5], x[6],y[6],lo[6], x[7],y[7],lo[7]);	CHK_IMUL128(8,x,y,lo,pl,"MULL128_q8");
+			for(j = 0; j < 8; j++) { MULH128(x[j],y[j],hi[j]); }	CHK_IMUL128(8,x,y,hi,ph,"MULH128");
+			MULH128_q4(x[0],y[0],hi[0], x[1],y[1],hi[1], x[2],y[2],hi[2], x[3],y[3],hi[3]);	CHK_IMUL128(4,x,y,hi,ph,"MULH128_q4");
+			MULH128_q8(x[0],y[0],hi[0], x[1],y[1],hi[1], x[2],y[2],hi[2], x[3],y[3],hi[3], x[4],y[4],hi[4], x[5],y[5],hi[5], x[6],y[6],hi[6], x[7],y[7],hi[7]);	CHK_IMUL128(8,x,y,hi,ph,"MULH128_q8");
+			for(j = 0; j < 8; j++) { MULH128x96(x[j],y96[j],hi[j]); }	CHK_IMUL128(8,x,y96,hi,p96h,"MULH128x96");
+			MULH128x96_q4(x[0],y96[0],hi[0], x[1],y96[1],hi[1], x[2],y96[2],hi[2], x[3],y96[3],hi[3]);	CHK_IMUL128(4,x,y96,hi,p96h,"MULH128x96_q4");
+			MULH128x96_q8(x[0],y96[0],hi[0], x[1],y96[1],hi[1], x[2],y96[2],hi[2], x[3],y96[3],hi[3], x[4],y96[4],hi[4], x[5],y96[5],hi[5], x[6],y96[6],hi[6], x[7],y96[7],hi[7]);	CHK_IMUL128(8,x,y96,hi,p96h,"MULH128x96_q8");
+			for(j = 0; j < 8; j++) { SQR_LOHI128(x[j],lo[j],hi[j]); }	CHK_IMUL128(8,x,x,lo,sl,"SQR_LOHI128.lo");	CHK_IMUL128(8,x,x,hi,sh,"SQR_LOHI128.hi");
+			SQR_LOHI128_q4(x[0],lo[0],hi[0], x[1],lo[1],hi[1], x[2],lo[2],hi[2], x[3],lo[3],hi[3]);	CHK_IMUL128(4,x,x,lo,sl,"SQR_LOHI128_q4.lo");	CHK_IMUL128(4,x,x,hi,sh,"SQR_LOHI128_q4.hi");
+			SQR_LOHI128_q8(x[0],lo[0],hi[0], x[1],lo[1],hi[1], x[2],lo[2],hi[2], x[3],lo[3],hi[3], x[4],lo[4],hi[4], x[5],lo[5],hi[5], x[6],lo[6],hi[6], x[7],lo[7],hi[7]);	CHK_IMUL128(8,x,x,lo,sl,"SQR_LOHI128_q8.lo");	CHK_IMUL128(8,x,x,hi,sh,"SQR_LOHI128_q8.hi");
+			for(j = 0; j < 8; j++) { SQR_LOHI127(x127[j],lo[j],hi[j]); }	CHK_IMUL128(8,x127,x127,lo,s7l,"SQR_LOHI127.lo");	CHK_IMUL128(8,x127,x127,hi,s7h,"SQR_LOHI127.hi");
+			SQR_LOHI127_q4(x127[0],lo[0],hi[0], x127[1],lo[1],hi[1], x127[2],lo[2],hi[2], x127[3],lo[3],hi[3]);	CHK_IMUL128(4,x127,x127,lo,s7l,"SQR_LOHI127_q4.lo");	CHK_IMUL128(4,x127,x127,hi,s7h,"SQR_LOHI127_q4.hi");
+			SQR_LOHI127_q8(x127[0],lo[0],hi[0], x127[1],lo[1],hi[1], x127[2],lo[2],hi[2], x127[3],lo[3],hi[3], x127[4],lo[4],hi[4], x127[5],lo[5],hi[5], x127[6],lo[6],hi[6], x127[7],lo[7],hi[7]);	CHK_IMUL128(8,x127,x127,lo,s7l,"SQR_LOHI127_q8.lo");	CHK_IMUL128(8,x127,x127,hi,s7h,"SQR_LOHI127_q8.hi");
+		}
+	#undef CHK_IMUL128
+	}
 #endif
 
 	/***********************************************/
