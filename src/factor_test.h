@@ -654,6 +654,36 @@ ASSERT(0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/458072843161 
 	for(ntest192   = 0; fac192  [ntest192  ].p          != 0; ++ntest192  ){}
 	for(ntest256   = 0; STRNEQ(fac256[ntest256].p, "")		; ++ntest256  ){}
 
+	// Test the 4-modulus version of the positive-power 64-bit modpow against the scalar one, using exponents which have
+	// set bits at and above bit 32 *inside* the range of bits the modpow loop walks (the leading 6 bits are consumed
+	// before the loop, so for an nbits-bit exponent that range is bits [0, nbits-7]), since the bit test for those
+	// bits used to read 0. Each exponent is run with a set of small moduli and a set of large ones:
+	{
+		const uint64 exps[8] = {1000003ull,					// 20 bits: control, no bits >= 32
+								(1ull << 40) + (1ull << 33) + 3ull,	// 41 bits: only bit 33 in the loop range [0,34]
+								1125899906842623ull,			// 2^50-1
+								1127033778208773ull,
+								750599937895083ull,
+								0xDEADBEEFCAFEF00Dull,
+								0xFFFFFFFFFFFFFFC5ull,
+								(1ull << 63) + (1ull << 57) + 1ull};	// 64 bits: no set bits in the loop range above bit 31
+		const uint64 mods[2][4] = {{2000007ull, 2000067ull, 2000075ull, 2000079ull},
+								   {0x1000000000000001ull, 0x7FFFFFFFFFFFFFE1ull, 0xBADC0FFEE0DDF00Dull, 0xFFFFFFFFFFFFFFC5ull}};
+		uint32 ie, im, il;
+		for(ie = 0; ie < 8; ie++) {
+			for(im = 0; im < 2; im++) {
+				uint64 r[4] = {mods[im][0], mods[im][1], mods[im][2], mods[im][3]};
+				twopmmodq64_q4(exps[ie], r,r+1,r+2,r+3, 0x0,0x0,0x0,0x0);
+				for(il = 0; il < 4; il++) {
+					res64 = twopmmodq64(exps[ie], mods[im][il]);
+					if(r[il] != res64)
+						fprintf(stderr,"ERROR: twopmmodq64_q4(p = %" PRIu64 ", lane %u, q = %" PRIu64 ") returns %" PRIu64 ", expected %" PRIu64 "\n",exps[ie],il,mods[im][il],r[il],res64);
+					ASSERT(r[il] == res64, "twopmmodq64_q4 disagrees with twopmmodq64!");
+				}
+			}
+		}
+	}
+
 	// Sep 2015: Test 64-bit Fermat factors using the 64-bit modpow routines:
 #ifdef FACTOR_STANDALONE
 	printf("Testing 64-bit Fermat factors...\n");
