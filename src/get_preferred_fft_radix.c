@@ -91,7 +91,8 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 {
 	uint32 i, j, k, kprod, found, retval = 0;
 	double tbest = 0, tcurr;
-	char *char_addr;
+	char *char_addr, *nt_addr;
+	uint32 nt, nt_skipped = 0, nt_lo = 0, nt_hi = 0;	// #entries for the target length skipped for a thread-count mismatch, and the range of their counts
 
 	/* FFT-radix configuration file is named mlucas.cfg or fermat.cfg,
 	depending on whether Mersenne or Fermat number test is being done:
@@ -118,6 +119,17 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 				within range in favor of an out-of-range one that later trips the caller's ASSERT:
 				*/
 				if((i >= kblocks) && (i <= (kblocks<<1)) && (char_addr = strstr(g_in_line, "msec/iter =")) != 0) {
+					/* Entries carry the thread count they were timed with ('nthreads = N', which the self-test writes;
+					versions up to 21.0.2 did not). A radix set that is fastest at 1 thread is often not fastest at
+					4 or 16, because the FFT-phase working set grows with the thread count, so a timing taken with a
+					different count is not evidence for this run: skip such lines. Lines without the field (older
+					cfg files) are accepted as before. Doing this before the duplicate-entry check below is what
+					lets one cfg file hold an entry per (FFT length, thread count):
+					*/
+					if((nt_addr = strstr(g_in_line, "nthreads =")) != 0x0 && sscanf(nt_addr + 10, "%u", &nt) == 1 && nt != (uint32)NTHREADS) {
+						if(i == kblocks) { if(!nt_skipped++) nt_lo = nt_hi = nt; else if(nt < nt_lo) nt_lo = nt; else if(nt > nt_hi) nt_hi = nt; }	// Reported below, only if no matching entry turns up
+						continue;
+					}
 					/* Stores whether we found an entry for the requested FFT length
 					(whether that proves to have the best timing for lengths >= kblocks or not): */
 					if(i == kblocks) {
@@ -218,6 +230,15 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	Otherwise clear RADIX_VEC and return 0:
 	*/
 	if(!found) {
+		if(nt_skipped) {
+			char nt_str[24];
+			if(nt_lo == nt_hi)
+				snprintf(nt_str, sizeof(nt_str), "%u", nt_lo);
+			else
+				snprintf(nt_str, sizeof(nt_str), "%u-%u", nt_lo, nt_hi);
+			fprintf(stderr, "INFO: %s has %u entr%s for FFT length %uK, but timed at %s threads rather than this run's %d; ignoring %s.\n",
+				CONFIGFILE, nt_skipped, nt_skipped == 1 ? "y" : "ies", kblocks, nt_str, NTHREADS, nt_skipped == 1 ? "it" : "them");
+		}
 		retval = 0;
 		for(j=0; j<10; j++) { RADIX_VEC[j] = 0; }
 		NRADICES = 0;

@@ -107,6 +107,14 @@ Supported command-line arguments:
 	only be written to the resulting mlucas.cfg file if the timing-test results match each other.
 	This is important for tuning code parameters to your particular platform.
 
+	Each mlucas.cfg entry records the thread count it was timed with ('nthreads = N'). The radix
+	set that is fastest at one thread is frequently not the fastest at 4 or 16, so at run time
+	only entries whose thread count matches the current -cpu/-nthread setting are used; an entry
+	for the same FFT length timed with a different count is ignored, and a quick timing test at the
+	current count is run and appended instead. One cfg file may therefore hold an entry per FFT
+	length and thread count. Entries written by older versions have no thread-count field and are
+	accepted for any count. Run the self-test with the same -cpu setting you will use for real work.
+
 Options - again note the user can override the default iteration count based on #threads via
 '-iters {+int}', though only 100|1000|10000-iteration cases have precomputed reference residues.
 The (very rough) time estimates are for 1000 iterations done using 4 or more cores.
