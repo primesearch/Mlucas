@@ -280,6 +280,13 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  if(inc_arr[0]) {	// Have no specialized HIACC carry macro in AVX-512, so use 0-or-not-ness of the low
 						// inc_arr element to divert non-AVX512 builds to 'else' clause of if() in HIACC mode.
+	  #ifdef USE_AVX512
+		// AVX-512 has no HIACC carry macro. Its LOACC macros chain the DWT weights from one carry-macro call to the next
+		// via multiply-by-wts_mult, and the roundoff that accumulates along that chain adds ~0.05-0.1 to the per-iteration
+		// max ROE versus the AVX2 build's HIACC macro. So in HIACC mode, instead re-init exact weights from the wt0,wt1
+		// tables before every carry-macro call, in the same way as the inc_arr[]-driven re-inits in e.g. radix176:
+		const int reseed = (USE_SHORT_CY_CHAIN >= USE_SHORT_CY_CHAIN_MAX), co2save = co2;
+	  #endif
 		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -294,6 +301,14 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < RADIX>>3; l++) {
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l+l];
+		  #ifdef USE_AVX512
+			if(reseed && l) {	// Weights for the l = 0 call were inited above
+				add1 = &wt1[col      +8*l];
+				add2 = &wt1[co2save-1-8*l];
+				add3 = &wt1[co3    -1-8*l];
+				AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, itmp, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
+			}
+		  #endif
 		  #ifdef USE_AVX512	// In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwise-unused sse2_rnd vec_dbl:
 			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr);
 			tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
