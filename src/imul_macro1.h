@@ -7228,7 +7228,33 @@ simply add 1 to the approximate-computed carry to obtain the correct result.
 		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
     }
 
-  #if 0
+/* Jul 2026: Default MULH192_FAST to the exact MULH192 on *all* platforms, not just the x86_64-GCC
+one which already did so via the YES_ASM arm below.
+
+The carry-layer approximation in the #else arm is only sound under the assumption stated in the
+comment block above, that the discarded low-half bits are "presumably quasirandom". In the
+Montgomery-mul usage that assumption is false: Montgomery guarantees (q*lo) mod 2^192 = x^2 mod
+2^192, so the w2 layer of the product - the one whose carry-out the approximation predicts - is
+exactly (x^2 >> 128). For x < q < 2^96 that is pinned near zero, i.e. permanently adjacent to the
+carry boundary rather than uniform over it. Measured carry-mispredict rate is 4.9e-1 per call at
+q = 66 bits, 1.7e-1 at 70 bits, 1.3e-2 at 74 bits, falling to zero only above ~86 bits; feeding the
+known Mersenne factors in fac_test_dat{64,96,128}.h through twopmodq192_q4 recognises only 284 of
+1742 of them with the approximation, vs 1742 of 1742 with the exact macro.
+
+Small q really do reach here: factor.c's P3WORD arm has no runtime bit-length narrowing (the
+narrowing is commented out at factor.c:3667-3671), so 60-bit candidates go through the 192-bit
+modpow. And the precondition the comment above names - "should only ever be used with spot-checking
+enabled" - cannot be met: factor.c's SPOT_CHECK is hardwired to 0 and both its use sites guard
+nothing but a printf. (The one thing that keeps this latent today is that MULH192_q4/_q8 sit behind
+#if PIPELINE_MUL192 in twopmodq192.c, and makemake.sh passes -DP3WORD only to factor.c, so
+PIPELINE_MUL192 is 0 there and the exact MULH192 gets used. Anyone building with
+-DPIPELINE_MUL192=1 - which factor.h:48 documents as the P3WORD default - gets the bug.)
+
+Cost of exactness, measured with callgrind over the above known-factor workload: +9.3% instructions
+on the generic C compiled for x86_64, +5.5% on a real 32-bit x86 build; wall clock within noise.
+Build with -DMULH192_FAST_APPROX to get the old approximate version back for timing comparisons
+(on x86_64-with-YES_ASM that arm was already exact, so the opt-in is a no-op there). */
+  #ifndef MULH192_FAST_APPROX
 
     #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)
 
@@ -7374,6 +7400,13 @@ simply add 1 to the approximate-computed carry to obtain the correct result.
 		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
     }
 
+#endif
+
+/* The MUL_LOHI64_SUBROUTINE arm of the selection logic above has no #else, so configurations which
+define MUL_LOHI64_SUBROUTINE but not YES_ASM (SunC on x86_64) fall through it without defining
+MULH192_FAST at all. Supply the exact macro rather than leaving that a link-time-looking mystery: */
+#ifndef MULH192_FAST
+    #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)
 #endif
 
     /* 4-operand-pipelined version: */
