@@ -2066,7 +2066,15 @@ READ_RESTART_FILE:
 			// v20: Simplify the logic here - skip previous interval-retry step:
 			if((ierr == ERR_ROUNDOFF) && !INTERACT) {
 				ASSERT(ROE_ITER > 0, "ERR_ROUNDOFF returned but ROE_ITER <= 0!");
-				n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
+				// get_nextlarger_fft_length() returns 0 at the top of the FFT-length table; carrying on with n = 0 only
+				// ends in an unrelated-looking "FFT length 0 K not available" abort, so stop here and say why:
+				i = get_nextlarger_fft_length(n);
+				if(!i) {
+					snprintf(cbuf,sizeof(cbuf),"ERROR: Roundoff error at FFT length %uK, the largest supported FFT length, so there is no larger length to switch to. Quitting.\n",kblocks);
+					mlucas_fprint(cbuf,1);
+					exit(EXIT_FAILURE);
+				}
+				n = i;	kblocks = (n >> 10);
 				sprintf(cbuf," Switching to next-larger available FFT length %uK and restarting from last checkpoint file.\n",kblocks);
 				mlucas_fprint(cbuf,1);
 				NERR_ROE++;
@@ -2774,7 +2782,13 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					mlucas_fprint(cbuf,1);
 					exit(1);
 				} else if(ierr & (1<<ERR_ROUNDOFF)) {	// One or more modmuls hit a roundoff error - bump FFT length and restart
-					n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
+					i = get_nextlarger_fft_length(n);
+					if(!i) {	// Top of the FFT-length table, as in the primality-test ROE handling above
+						snprintf(cbuf,sizeof(cbuf),"ERROR: Roundoff error in p-1 stage 2 at FFT length %uK, the largest supported FFT length, so there is no larger length to switch to. Quitting.\n",kblocks);
+						mlucas_fprint(cbuf,1);
+						exit(EXIT_FAILURE);
+					}
+					n = i;	kblocks = (n >> 10);
 					// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
 					for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }		NRADICES = 0;
 					goto SETUP_FFT;
