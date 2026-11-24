@@ -1008,7 +1008,6 @@ Others are optional and in some cases mutually exclusive:
 		if(!NTHREADS) {
 			NTHREADS = 1;
 			fprintf(stderr,"No CPU set or threadcount specified ... running single-threaded.\n");
-			// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
 		} else if(NTHREADS > MAX_CORES) {
 			sprintf(cbuf,"FATAL: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
 			ASSERT(0, cbuf);
@@ -1018,8 +1017,15 @@ Others are optional and in some cases mutually exclusive:
 			}
 			fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
 		}
-		sprintf(cbuf,"0:%d",NTHREADS-1);
-		parseAffinityString(cbuf);
+	#ifdef FACTOR_STANDALONE
+		// The standalone program has only -nthread, no -cpu or -core, so pick the cores here: the first NTHREADS of this
+		// process's inherited CPU-affinity mask, as Mlucas does for -nthread (= cores [0:NTHREADS-1] unless that mask has
+		// been restricted by taskset/numactl/systemd/a batch scheduler):
+		setDefaultAffinity(NTHREADS);
+	#endif
+		// In an Mlucas build CORE_SET is already set, by Mlucas.c, whichever of -cpu, -core, -nthread or no option was
+		// given (and already warned about if it lies outside the inherited mask), so leave it alone: resetting it here to
+		// [0:NTHREADS-1] would discard an explicit core set and the mask-aware default alike.
 		// Size for the widest one-time SIMD modpow init-warmup below: twopmodq78_3WORD_DOUBLE_q8/q16/
 		// q32/q64 each read a full 8/16/32/64-wide k[] batch (widest q64 = 64) regardless of TRYQ, so a
 		// TRYQ*NTHREADS-sized (TRYQ can be 4) buffer is over-read. The extra slots are zero (calloc), so
