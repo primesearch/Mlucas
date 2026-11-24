@@ -550,7 +550,9 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tm0 = s1p00; tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
 		ic_idx = 0; jc_idx = 1; kc_idx = 2; lc_idx = 3;
 	  #ifdef USE_AVX512
-		mc_idx = 4; nc_idx = 5; oc_idx = 6; pc_idx = 7;
+		// The 8 lane indices are ic_idx + k (mod ODD_RADIX), k = 0..7. With ODD_RADIX = 7 the 8th lane wraps back
+		// to 0; an unreduced 7 would index one past the end of icycle[ODD_RADIX] on the first call of every pass:
+		mc_idx = 4 % ODD_RADIX; nc_idx = 5 % ODD_RADIX; oc_idx = 6 % ODD_RADIX; pc_idx = 7 % ODD_RADIX;
 	  #endif
 
 		uint32 naccum = 0;	// Stores sum of [0-ntmp]th elements of inc_arr[]
@@ -595,7 +597,7 @@ for(int k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 													/* (cy_i_cy_r) --vvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
 				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x700, 0x1c0,0x380,0x540, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
 				tm0 += 16; tm1++;
-				// *** BUG: *** Aug 2021: Needed to reduce the constant addend 8 mod-ODD_RADIX, i.e. 8%7 = 1. (But mod-F25 still barfs with fatal ROE, now after ~20 iters):
+				// Aug 2021: Needed to reduce the constant addend 8 mod-ODD_RADIX, i.e. 8%7 = 1. (The remaining fatal ROE was the unreduced pc_idx = 7 initial value above.)
 				MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 1, ODD_RADIX, jc_idx);
 				MOD_ADD32(kc_idx, 1, ODD_RADIX, kc_idx);
