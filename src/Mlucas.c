@@ -143,7 +143,10 @@ const char *err_code[ERR_MAX] = {
 	"ERR_UNKNOWN_FATAL",
 	"ERR_SKIP_RADIX_SET",
 	"ERR_INTERRUPT",
-	"ERR_GERBICZ_CHECK"
+	"ERR_GERBICZ_CHECK",
+	"ERR_ZERO_RESIDUE",
+	"ERR_ZERO_ROUNDOFF",
+	"ERR_DUPLICATE_RES64"
 };
 
 // Shift count and auxiliary arrays used to support rotated-residue computations:
@@ -1841,6 +1844,16 @@ READ_RESTART_FILE:
 			goto PM1_STAGE2;	// The CF-handling is a clause of the if/else beginning at this label
 	}
 
+	/* v21: recent checkpoint residues, for the stalled-iteration check below. A short history rather
+	than just the previous one, because a stalled iteration need not sit on a fixed point - it can cycle
+	through a few values. LL has a genuine absorbing cycle of exactly that shape: s == 0 gives -2, then
+	2, then 2 forever, and the degenerate "Res64 = ...0002" seen from defective carry paths is that
+	fixed point. A ring of RESHIST_LEN catches any cycle up to that period. Reset here so the history is
+	per-run; a restart from savefile legitimately re-enters with none. */
+	#define RESHIST_LEN	32
+	struct { uint64 r0, r1, r2; uint32 iter; } reshist[RESHIST_LEN];
+	uint32 reshist_n = 0;	// Total checkpoints recorded; ring slot is (reshist_n % RESHIST_LEN)
+
 	for(;;)
 	{
 		ASSERT(maxiter > 0,"Require (uint32)maxiter > 0");
@@ -2144,6 +2157,32 @@ READ_RESTART_FILE:
 			mlucas_fprint(cbuf,scrnFlag);
 		}
 
+		/* v21: A checkpoint residue identical to the previous checkpoint's means the iteration is not
+		advancing - the squaring chain has stalled or reached a fixed point. Distinct intervals cannot
+		produce the same (Res64, Res35m1, Res36m1) triple by chance: that is a 135-bit coincidence.
+		Note this is a *production*-run check; a self-test case runs a single checkpoint and so has no
+		earlier interval to compare against - the self-test analogue is the cross-case duplicate check
+		in the selfTest driver in main(). */
+		{
+			uint32 ih, nh = (reshist_n < RESHIST_LEN) ? reshist_n : RESHIST_LEN;
+			for(ih = 0; ih < nh; ih++) {
+				/* Only *distinct* intervals are evidence, which is what the check rests on. The same
+				interval can reach here twice: an interrupt arriving between intervals - a signal during
+				the checkpoint write, or MLUCAS_KEEP_RUNNING cleared - sends the loop back through this
+				block to write the savefile at the iteration just completed. Comparing that residue with
+				its own history entry is a tautology, and reporting it told the user to go looking for
+				hardware errors after an ordinary ^C. */
+				if(reshist[ih].iter == ihi) continue;
+				if(reshist[ih].r0 != Res64 || reshist[ih].r1 != Res35m1 || reshist[ih].r2 != Res36m1) continue;
+				snprintf(cbuf,sizeof(cbuf)," ***   Stalled-iteration Error   ***\n Res64 %016" PRIX64 " at iteration %u is identical to that at iteration %u.\n Distinct intervals cannot repeat a residue by chance; the iteration is not advancing.\n", Res64, ihi, reshist[ih].iter);
+				mlucas_fprint(cbuf,1);
+				return ERR_DUPLICATE_RES64;
+			}
+			ih = reshist_n % RESHIST_LEN;
+			reshist[ih].r0 = Res64; reshist[ih].r1 = Res35m1; reshist[ih].r2 = Res36m1; reshist[ih].iter = ihi;
+			reshist_n++;
+		}
+
 		// Do not save a final residue unless p-1 (if not, still leave penultimate residue file intact).
 		// We don't save "final residue" in cofactor-PRP mode, since in the (mod M(p)) case this is for p+1 squarings (G-check needs this),
 		// i.e. needs a mod-div-by-base^2 postprocessing step to put in form of the p-1 squarings of the standard Fermat-PRP test:
@@ -2417,6 +2456,37 @@ READ_RESTART_FILE:
 		/* MSVC/.NET incorrectly output these when using uint64 and %20" PRIu64 " format, so cast to double and print: */
 		fprintf(stderr, "Res mod 2^35 - 1 = %20.0f\n",(double)Res35m1);
 		fprintf(stderr, "Res mod 2^36 - 1 = %20.0f\n",(double)Res36m1);
+
+		/* v21: two self-test sanity checks the Selfridge-Hurwitz comparison below cannot make.
+		#184 adds the equivalent zero-residue guard for production runs and explicitly leaves the
+		self-test side alone ("strengthening that pass criterion is a separate matter"); this is that.
+
+		1. An identically-zero residue. The comparison below cannot catch it, because the (*sh0 != 0)
+		tests treat a zero reference as "no data yet" and *store* the computed value rather than
+		checking it - so an all-zero result is accepted and then becomes the expected answer for
+		every later run. A genuine residue is zero with probability ~2^-64, and all three of Res64,
+		Res35m1 and Res36m1 being zero together means the transform produced nothing. */
+		if(Res64 == 0ull && Res35m1 == 0ull && Res36m1 == 0ull) {
+			fprintf(stderr, "  ***   Zero-residue Error   ***\n");
+			fprintf(stderr, " The residue is identically zero - the transform produced no data.\n");
+			return ERR_ZERO_RESIDUE;
+		}
+		/* 2. A roundoff error of exactly zero over the whole run. fracmax measures distance from the
+		nearest integer and zero is exactly an integer, so a transform running on all-zero or otherwise
+		trivial data reports a *perfect* error while computing nothing - the roundoff check is blind to
+		precisely the case it most needs to catch. radix1008/4032 did exactly this, returning Res64 = 0
+		with a flawless AvgMaxErr.
+		Gated on AME having actually been accumulated: MaxErr == 0.0 is legitimate for the first few
+		tens of iterations of a healthy run, while the residue is still a small integer, which is why
+		AME collection only starts at AME_ITER_START. Measured across a full self-test sweep the
+		smallest AvgMaxErr at any FFT length, down to 2K, is 0.216 - a real run is nowhere near zero. */
+		if(timing_test_iters > AME_ITER_START && (AME == 0.0 || MME == 0.0)) {
+			fprintf(stderr, "  ***   Zero-roundoff Error   ***\n");
+			fprintf(stderr, " AvgMaxErr = %10.9f, MaxErr = %10.9f over %u iterations: a roundoff error of exactly\n", AME, MME, timing_test_iters);
+			fprintf(stderr, " zero means the transform is operating on trivial data, not that it is unusually accurate.\n");
+			return ERR_ZERO_ROUNDOFF;
+		}
+
 		/* If they are provided, check the Selfridge-Hurwitz residues: */
 		if(sh0) {
 			if(*sh0 != 0) {
@@ -3979,6 +4049,50 @@ struct testFerm FermVec[numFerm+1] =
 	{     0,   0u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 };
 
+/* v21: Cross-case bookkeeping for the self-test analogue of the stalled-iteration check in ernstMain().
+A self-test case runs a single checkpoint, so it has no earlier interval of its own to compare against;
+instead compare across cases, where a case is (exponent, iteration count). The radix sets of one case, and
+reruns of the same case at other FFT lengths, compute the same quantity and must agree - they are
+deliberately not flagged. Two genuinely different cases colliding in 64 bits is a ~2^-64 event, so a hit
+means a run that returned another case's residue rather than computing its own.
+Most valuable in new-data mode, where there is no reference row to catch it: that is exactly how the
+reference tables are generated, so a stall there would be baked in as ground truth forever.
+The FFT length is kept only to name the earlier case in the report, it is not part of the key: a
+production roundoff retry re-runs the same exponent at a larger length, which must not be called a
+duplicate of the first. */
+#define SELFTEST_RES64_MAX	4096
+static struct { uint64 res, expo; uint32 fftlen, iters; } selftest_res64_seen[SELFTEST_RES64_MAX];
+static uint32 selftest_n_res64_seen = 0;
+
+/* Returns TRUE (after reporting both cases) if Res64 was already returned by a different case: */
+static int selftest_res64_is_repeat(uint64 Res64, uint64 expo, uint32 fftlen, uint32 iters)
+{
+	uint32 ii;
+	for(ii = 0; ii < selftest_n_res64_seen; ii++) {
+		if(selftest_res64_seen[ii].res != Res64) continue;
+		// Same exponent and iteration count: a sibling radix set (or another FFT length) agreeing. Expected.
+		if(selftest_res64_seen[ii].expo == expo && selftest_res64_seen[ii].iters == iters) continue;
+		fprintf(stderr, "  ***   Duplicate-Res64 Error   ***\n");
+		fprintf(stderr, " Res64 %016" PRIX64 " was already returned by a different case:\n", Res64);
+		fprintf(stderr, "   this   : FFT %u K, exponent %" PRIu64 ", %u iterations\n", fftlen, expo, iters);
+		fprintf(stderr, "   earlier: FFT %u K, exponent %" PRIu64 ", %u iterations\n", selftest_res64_seen[ii].fftlen, selftest_res64_seen[ii].expo, selftest_res64_seen[ii].iters);
+		fprintf(stderr, " Distinct cases cannot share a residue by chance - suspect a stalled computation.\n");
+		return TRUE;
+	}
+	return FALSE;
+}
+
+static void selftest_res64_record(uint64 Res64, uint64 expo, uint32 fftlen, uint32 iters)
+{
+	if(selftest_n_res64_seen < SELFTEST_RES64_MAX) {
+		selftest_res64_seen[selftest_n_res64_seen].res    = Res64;
+		selftest_res64_seen[selftest_n_res64_seen].expo   = expo;
+		selftest_res64_seen[selftest_n_res64_seen].fftlen = fftlen;
+		selftest_res64_seen[selftest_n_res64_seen].iters  = iters;
+		selftest_n_res64_seen++;
+	}	// Table full: stop recording, but keep checking against what we have.
+}
+
 /***************************************************************************************
 Main program: User-argument parsing, self-testing and production-run dispatch.
 By way of reference, here is the complete list of currently supported assignment types
@@ -4035,6 +4149,7 @@ int 	main(int argc, char *argv[])
 
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
 	uint32 new_data;
+	uint64 cur_expo = 0;	// Exponent (Mersenne) or index (Fermat) of the current self-test case
 	struct res_triplet new_res = {0ull,0ull,0ull};
 	struct testMers*MvecPtr = MersVec;	// Set this to point at either MersVec (the default) or MvecPRP, depending on test type
 
@@ -4794,10 +4909,13 @@ TIMING_TEST_LOOP:
 		else
 			radix_set = 0;
 
-		if(modType == MODULUS_TYPE_MERSENNE)
+		if(modType == MODULUS_TYPE_MERSENNE) {
 			iarg = MvecPtr[xNum].fftLength;
-		else if(modType == MODULUS_TYPE_FERMAT)
+			cur_expo = (uint64)MvecPtr[xNum].exponent;
+		} else if(modType == MODULUS_TYPE_FERMAT) {
 			iarg = FermVec[xNum].fftLength;
+			cur_expo = (uint64)FermVec[xNum].Fidx;
+		}
 
 		// For SIMD builds only use FFT lengths which are at least a multiple of 4 Kdoubles:
 	  #if 0//def USE_SSE2	*** v21: Removed array padding for FFT < 32K, disabled this "skip"
@@ -4853,6 +4971,14 @@ TIMING_TEST_LOOP:
 			{
 				goto DONE;
 			}
+			// v21: reject a residue some different case already returned (see selftest_res64_is_repeat()). This must
+			// come before the new-data consensus bookkeeping below: a rejected result must not become the consensus
+			// anchor or count towards nradix_set_succeed, else the correct sibling radix sets are rejected against it.
+			else if(selftest_res64_is_repeat(Res64, cur_expo, (uint32)iarg, (uint32)iters))
+			{
+				printMlucasErrCode(ERR_DUPLICATE_RES64);
+				runtime = 0.0; ++radix_set; continue;
+			}
 			else if(new_data)	// New self-test residues being computed - write to .cfg file if get a consensus value:
 			{
 				if(!new_res.sh0)	// First of the available radix sets:
@@ -4877,6 +5003,10 @@ TIMING_TEST_LOOP:
 			} else {	// If not a new-data self-tests (i.e. it's a regular -s one), getting here means the current radset succeeded:
 				nradix_set_succeed++;
 			}
+
+			// Record this accepted case's residue for the cross-case duplicate check, which is made in the
+			// else-if chain above (so that a rejected duplicate never seeds new_res or counts as a success):
+			selftest_res64_record(Res64, cur_expo, iarg, iters);
 
 			/* 16 Dec 2007: Added the (runtime != 0) here to workaround the valid-timing-test-but-runtime = 0
 			issue on systems with round-to-nearest-second granularity of the clock() function: */
