@@ -1248,10 +1248,11 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	if((mode_flag & 1) == 0)
 	{
 	//	fprintf(stderr,"Array = %#" PRIX64 ", Iter = %u, Fwd-WT: mode_flag = %#X, ilo = %u, a[1] = %18.10f\n",(uint64)a,ilo+1,mode_flag,ilo,a[1]);
-		// Mar 2017: Can skip this step if it's the start of a production test (note that any initial-residue shift
-		// in such cases is handled via single-array-word forward-DWT-weighting in the Mlucas.c shift_word() function),
-		// but need it if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
-		if(ilo || a[1]) {
+		// Always forward-weight and acyclic-twist here, including at the start of a test: the initial seed is stored
+		// unweighted (by shift_word() in Mlucas.c, or directly). Formerly this was skipped if (ilo == 0 && a[1] == 0), on
+		// the assumption that shift_word() had pre-weighted and twisted the seed, but a[1] is the padded, SIMD-permuted
+		// index 1, which for some shift values held part of the pre-twisted seed itself, which then got twisted twice:
+		{
 			if(!pow2_fft) {
 				ii = 0;	/* index into wt0 array (mod NWT) is here: */
 				/* Evens: */
