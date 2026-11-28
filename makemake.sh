@@ -331,16 +331,19 @@ for arg in "$@"; do
 
 done
 
-# Give debug builds a separate object directory. make only compares timestamps, so a bare 'debug' run
-# after a release build (or the reverse) would happily relink objects compiled at the other -O level; a
-# distinct directory makes the switch impossible to miss, like the per-word-size ones above. This sits
-# before any directory-reporting message so those name the directory actually used. CFLAGS from the
-# environment suppresses 'debug' (see below), so the suffix is only added when debug flags will apply.
-if ((DEBUG)) && [[ -z ${CFLAGS:-} ]]; then
+# Give each build configuration a separate object directory. make only compares timestamps, so a 'debug'
+# run after a release build (or the reverse, or an LTO build after a nolto one) would happily relink
+# objects compiled with the other flags; distinct directories make the switch impossible to miss, like
+# the per-word-size ones above. This sits before any directory-reporting message so those name the
+# directory actually used. CFLAGS from the environment overrides these modes (see below), so no suffix
+# is added in that case.
+if [[ -z ${CFLAGS:-} ]]; then
 	if ((DEBUG > 1)); then
 		DIR+=_debug2
-	else
+	elif ((DEBUG)); then
 		DIR+=_debug
+	elif ((NOLTO)); then
+		DIR+=_nolto
 	fi
 fi
 
