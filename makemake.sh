@@ -52,6 +52,7 @@ GMP=1
 HWLOC=0
 STATIC=0
 DEBUG=0
+NOLTO=0
 
 case $OSTYPE in
 	darwin*)
@@ -305,9 +306,11 @@ for arg in "$@"; do
 			STATIC=1
 			;;
 		debug)
-			# ((DEBUG++)) would evaluate to the pre-increment value, 0, and so make 'set -e'
-			# exit the script on the first 'debug'; pre-increment instead:
+			# Level 1 is -Og, level 2 adds -O0 plus ASan/UBSan; see the CFLAGS block below.
 			((++DEBUG))
+			;;
+		nolto)
+			NOLTO=1
 			;;
 		avx512_skylake | avx512_knl | avx512 | k1om | avx2 | avx | sse2 | asimd | nosimd)
 			MODES+=("$arg")
@@ -320,7 +323,7 @@ for arg in "$@"; do
 			;;
 		*)
 			echo "Usage: $0 [SIMD build mode]" >&2
-			echo "Optional arguments must be 'no_gmp', 'use_hwloc', 'static', 'debug' or one and only one of the supported SIMD-arithmetic types:" >&2
+			echo "Optional arguments must be 'no_gmp', 'use_hwloc', 'static', 'debug', 'nolto' or one and only one of the supported SIMD-arithmetic types:" >&2
 			echo -e "\t[x86_64: avx512 k1om avx2 avx sse2]; [Armv8: asimd]; or 'nosimd' for scalar-double build.\n" >&2
 			exit 1
 			;;
@@ -334,7 +337,11 @@ done
 # before any directory-reporting message so those name the directory actually used. CFLAGS from the
 # environment suppresses 'debug' (see below), so the suffix is only added when debug flags will apply.
 if ((DEBUG)) && [[ -z ${CFLAGS:-} ]]; then
-	DIR+=_debug
+	if ((DEBUG > 1)); then
+		DIR+=_debug2
+	else
+		DIR+=_debug
+	fi
 fi
 
 if ((GMP)); then
@@ -365,10 +372,6 @@ fi
 
 if [[ $OSTYPE != darwin* ]]; then
 	LD_ARGS+=(-lm -lpthread)
-	# Ask the linker to spend a little time on its own optimization; also an ELF-only notion:
-	if try_flag -Wl,-O1; then
-		LD_ARGS+=(-Wl,-O1)
-	fi
 fi
 # librt is not a "which host am I on" question, so it is asked of the toolchain rather than of
 # $OSTYPE - which describes the *build host*, not the target. The old test only skipped -lrt for a
@@ -671,30 +674,39 @@ if [[ -n $CFLAGS ]]; then
 	fi
 else
 	C_ARGS=(-std=gnu99 -Wall -Wextra -g)
+	# Colored diagnostics are equally useful in a debug build, so probe this before the -O level split:
+	if try_flag -fdiagnostics-color; then
+		C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
+	fi
 	if ((DEBUG)); then
-		# -Og keeps the code steppable. LTO is deliberately left off for debug builds: it defeats
-		# single-stepping and can hide warnings, and a debug build is not a performance build.
-		C_ARGS+=(-Og)
-		echo "Building with debug flags (-Og) and without LTO."
+		# LTO is deliberately left off for debug builds: it defeats single-stepping and can hide warnings.
+		if ((DEBUG > 1)); then
+			# Level 2: fully unoptimized, with AddressSanitizer and UndefinedBehaviorSanitizer. The flags
+			# go into CFLAGS, which the link recipe also uses, so the runtime is linked in as well.
+			if try_flag -fsanitize=address,undefined -fno-omit-frame-pointer; then
+				C_ARGS+=(-O0 -fsanitize=address,undefined -fno-omit-frame-pointer)
+				echo "Building with debug flags (-O0, ASan+UBSan) and without LTO."
+			else
+				echo "Warning: ${CC:-gcc} does not support -fsanitize=address,undefined ... building unoptimized without them." >&2
+				C_ARGS+=(-O0)
+			fi
+		else
+			# Level 1: -Og keeps the code steppable without giving up all optimization.
+			C_ARGS+=(-Og)
+			echo "Building with debug flags (-Og) and without LTO."
+		fi
 	else
 		# -Werror -Wno-error=cpp
 		C_ARGS+=(-O3)
-		if try_flag -fdiagnostics-color; then
-			C_ARGS=(-fdiagnostics-color "${C_ARGS[@]}")
-		fi
-		if try_lto -flto=auto; then
+		if ((NOLTO)); then
+			echo "Building without LTO, as requested."
+		elif try_lto -flto=auto; then
 			C_ARGS+=(-flto=auto)
 		elif try_lto -flto; then
 			C_ARGS+=(-flto)
 		else
 			echo "Warning: ${CC:-gcc} does not support (or reliably link with) -flto ... building without LTO." >&2
 		fi
-	fi
-	# Compressed debug sections: zlib-compress the DWARF (gcc/clang -gz=zlib) so the -g symbols
-	# cost much less disk. Probe it: it needs an assembler and linker that agree on the compression,
-	# and it is an ELF feature that macOS's toolchain does not accept at all:
-	if [[ $OSTYPE != darwin* ]] && try_flag -gz; then
-		C_ARGS+=(-gz)
 	fi
 fi
 
